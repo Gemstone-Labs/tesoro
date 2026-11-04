@@ -237,8 +237,8 @@ pub struct SeatFill {
 
 /// One seat of a page. Byte arrays only (alignment 1, no padding), so a page is read in place.
 /// `place_bps` and `refund` are the Game's result for the seat (ticket 03).
-#[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
+#[anchor_lang::zero_copy]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Seat {
     pub state: u8,
     pub flags: u8,
@@ -250,9 +250,9 @@ pub struct Seat {
     pub counted: [u8; 8],
     pub counted_window: [u8; 8],
     pub refund: [u8; 8],
-    pub player: Key,
-    pub funder: Key,
-    pub pot: Key,
+    pub player: [u8; 32],
+    pub funder: [u8; 32],
+    pub pot: [u8; 32],
     pub reserved: [u8; 24],
 }
 

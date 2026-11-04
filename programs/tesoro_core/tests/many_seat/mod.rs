@@ -313,7 +313,7 @@ impl Env {
         self.send(&[i], &kp, &[])
     }
 
-    fn lamports(&self, k: APk) -> u64 {
+    fn sol_of(&self, k: APk) -> u64 {
         self.svm.get_account(&s(k)).map_or(0, |a| a.lamports)
     }
 }
@@ -444,7 +444,7 @@ fn stepping_off_gives_the_whole_entry_back_frees_the_seat_and_every_rent() {
     env.set_entry_limit(ben, 600).expect("limit");
     // the limit counted nothing so far (it was set after boarding): set it before the next car
     let car2 = env.open_car(&riders[0], (2, 10));
-    let before = env.lamports(ben.key);
+    let before = env.sol_of(ben.key);
     env.board(ben, car2).expect("board car 2");
     assert_eq!(env.entry_limit(ben).used(env.now()), 500);
     assert_eq!(env.total_gemas(ben), 1_000);
@@ -461,8 +461,8 @@ fn stepping_off_gives_the_whole_entry_back_frees_the_seat_and_every_rent() {
     assert!(env.mark(car2, ben).is_none(), "the mark closed");
     assert!(env.svm.get_account(&s(pot)).is_none_or(|a| a.lamports == 0));
     // Pot and mark rents back; only the page (closed with the car) and fees stay out
-    let page_rent = env.lamports(page_pda(car2.key, 0));
-    assert!(before - env.lamports(ben.key) <= page_rent + 50_000);
+    let page_rent = env.sol_of(page_pda(car2.key, 0));
+    assert!(before - env.sol_of(ben.key) <= page_rent + 50_000);
     // the freed seat is taken again, by the same Player
     assert_eq!(env.board(ben, car2).expect("board again"), seat);
     assert_eq!(env.total_gemas(ben), 1_000);
@@ -670,14 +670,14 @@ fn an_empty_car_closes_with_every_page_and_returns_their_rent() {
     let err = env.close_car(&caller, car, &[0]).unwrap_err();
     assert_eq!(custom_code(&err), seat_err(ManySeatError::PagesMissing));
     let payer = env.car(car).payer;
-    let before = (env.lamports(payer), env.lamports(page1_payer));
-    let page1_rent = env.lamports(page_pda(car.key, 1));
-    let match_rent = env.lamports(car.key);
+    let before = (env.sol_of(payer), env.sol_of(page1_payer));
+    let page1_rent = env.sol_of(page_pda(car.key, 1));
+    let match_rent = env.sol_of(car.key);
     env.close_car(&caller, car, &[0, 1]).expect("close");
     assert!(env.svm.get_account(&s(car.key)).is_none_or(|a| a.lamports == 0));
-    assert_eq!(env.lamports(page1_payer), before.1 + page1_rent);
+    assert_eq!(env.sol_of(page1_payer), before.1 + page1_rent);
     // the opener paid the Match and page 0
-    assert!(env.lamports(payer) >= before.0 + match_rent);
+    assert!(env.sol_of(payer) >= before.0 + match_rent);
     for p in &riders {
         assert_eq!(env.total_gemas(p), 2_000);
         assert_eq!(env.counters(p.account).open_matches, 0);
