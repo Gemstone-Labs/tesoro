@@ -86,23 +86,36 @@ export async function finalizeAndFinish(deps: FinishDeps, address: PublicKey, fi
 }
 
 /**
- * Makes a page's "finish this Match" call safe to repeat on every poll: one run at a time, a Match seen finished or stalled
- * is not retried, and a thrown failure is retried a few times and then left to the keeper's safety sweep.
+ * Makes a page's "finish this Match" call safe to repeat on every poll: one run at a time, a finished Match is not run again.
+ * A thrown failure or a stall (the planner could not plan this time: a read that lagged, a simulation that failed) is retried
+ * after a growing wait (2 s, 4 s ... up to 30 s) for `maxAttempts` tries, with the reason logged; after that the keeper's
+ * safety sweep finishes the Match. A step limit is not a failure: the next poll goes on at once.
  */
-export function createFinisher(run: () => Promise<FinishResult>, maxFailures = 3): () => Promise<FinishResult | null> {
+export function createFinisher(run: () => Promise<FinishResult>, o: { maxAttempts?: number; now?: () => number } = {}): () => Promise<FinishResult | null> {
+  const maxAttempts = o.maxAttempts ?? 10;
+  const now = o.now ?? Date.now;
   let settled = false;
   let busy = false;
-  let failures = 0;
+  let attempts = 0;
+  let notBefore = 0;
+  const back = () => {
+    attempts += 1;
+    notBefore = now() + Math.min(2_000 * 2 ** (attempts - 1), 30_000);
+  };
   return async () => {
-    if (settled || busy || failures >= maxFailures) return null;
+    if (settled || busy || attempts >= maxAttempts || now() < notBefore) return null;
     busy = true;
     try {
       const r = await run();
-      settled = r.done || (!!r.stalled && r.stalled !== "step-limit");
+      if (r.done) settled = true;
+      else if (r.stalled && r.stalled !== "step-limit") {
+        console.warn("[finish-match] stalled", r.stalled, `(try ${attempts + 1} of ${maxAttempts})`);
+        back();
+      }
       return r;
     } catch (e) {
-      failures += 1;
       console.warn("[finish-match]", e);
+      back();
       return null;
     } finally {
       busy = false;

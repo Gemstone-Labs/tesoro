@@ -44,6 +44,13 @@ export function matchProgress<M, S extends string>(id: string | null): MatchProg
   return {
     id,
     match(fresh) {
+      // The run was seen under way with its result fixed and now nothing is there: the account closed, and the history row (written after the
+      // webhook finalizes the transaction) is not in yet. The result already seen stands; the screen must not wait on the history for it.
+      if (!fresh) {
+        const k = known as { status?: string; running?: string | null; fixed?: "settled" | "refunded" } | null;
+        if (k && k.status === "active" && k.running && k.fixed) known = { ...(known as object), status: k.fixed, running: null, fixed: undefined } as M;
+        return known;
+      }
       // A read that is behind the one already seen (the account still open, or the history record not written yet) is ignored once the Match has a result: the screen never goes from Refunded to You lost.
       if (fresh && !(closed(known) && !closed(fresh))) known = fresh;
       return known;
