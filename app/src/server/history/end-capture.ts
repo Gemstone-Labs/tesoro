@@ -174,3 +174,17 @@ export async function captureEndStates(deps: CaptureDeps, tx: StoredTx): Promise
   return out;
 }
 
+
+/** The two hooks `receiveWebhook` and `decodePending` take, over a base connection. */
+export function endCaptureHooks(rpc: Rpc, connection: Connection, warn?: (m: string) => void) {
+  const base = connectionBaseReader(connection);
+  const run = async (tx: StoredTx, lastTry: boolean) => {
+    for (const r of await captureEndStates({ rpc, base, lastTry, warn }, tx)) {
+      if (r.outcome !== "already") warn?.(`end state ${r.game} ${r.match}: ${r.outcome}${r.reason ? ` (${r.reason})` : ""}`);
+    }
+  };
+  return {
+    capture: async (txs: StoredTx[]) => void (await Promise.all(txs.map((t) => run(t, false)))),
+    captureEnds: run,
+  };
+}
