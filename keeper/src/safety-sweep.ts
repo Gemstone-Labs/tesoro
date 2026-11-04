@@ -191,7 +191,7 @@ const label = (a: PublicKey) => a.toBase58();
 
 /** Picks the case a head falls in; `finalize` also needs the committed check, made by the caller. */
 function caseOf(h: Head, now: number): Case | null {
-  if (h.stage === "open") return !h.joined && h.backed && now > h.deadline ? "refund" : null;
+  if (h.stage === "open") return !h.joined && now > h.deadline ? "refund" : null;
   if (h.stage === "active") return now - h.openedAt >= GRACE_SECS ? "finalize" : null;
   return "finish";
 }
@@ -243,7 +243,7 @@ export async function safetySweep(deps: SweepDeps, store: SweepStore, opts: { no
 
   for (const head of heads) {
     report.scanned[head.stage] = (report.scanned[head.stage] ?? 0) + 1;
-    const kind = caseOf(head, now);
+    let kind = caseOf(head, now);
     if (!kind) continue;
     const id = label(head.address);
     if (dbIds && !dbIds.has(id)) report.dbMisses.push(id);
@@ -251,14 +251,26 @@ export async function safetySweep(deps: SweepDeps, store: SweepStore, opts: { no
     if (kind === "finalize" && !seen) {
       const quietKey = `${head.stage}:${head.deadline}`;
       const q = state.quiet?.[id]?.key === quietKey ? state.quiet[id] : undefined;
-      if (q && report.mode === "db" && now < q.next) {
+      // Past the Match deadline there is no waiting: no result on the Table means a refund, which anyone may send.
+      const pastDeadline = now >= head.deadline;
+      if (!pastDeadline && q && report.mode === "db" && now < q.next) {
         next.quiet![id] = q;
         continue;
       }
-      if (!(await deps.committed(head))) {
-        const asked = (q?.asked ?? 0) + 1;
-        next.quiet![id] = { key: quietKey, asked, next: now + QUIET_BACKOFF_SECS[Math.min(asked, QUIET_BACKOFF_SECS.length) - 1] };
+      let committed: boolean;
+      try {
+        committed = await deps.committed(head);
+      } catch (e) {
+        log("sweep", id, `ERROR reading the Table: ${String((e as Error).message ?? e).split("\n")[0].slice(0, 200)}`);
         continue;
+      }
+      if (!committed) {
+        if (!pastDeadline) {
+          const asked = (q?.asked ?? 0) + 1;
+          next.quiet![id] = { key: quietKey, asked, next: now + QUIET_BACKOFF_SECS[Math.min(asked, QUIET_BACKOFF_SECS.length) - 1] };
+          continue;
+        }
+        kind = "refund";
       }
     }
     seen ??= { since: now };
@@ -292,6 +304,22 @@ export async function safetySweep(deps: SweepDeps, store: SweepStore, opts: { no
         report.newAlerts.push(`${id} is stuck: ${why}`);
       }
       if (now - (seen.lastTryAt ?? 0) < RETRY_ALERTED_SECS) continue;
+    }
+    if (kind === "refund" && head.stage === "active") {
+      // A result may have been committed since the first look: read once more just before sending, and finish it instead.
+      let committed: boolean;
+      try {
+        committed = await deps.committed(head);
+      } catch (e) {
+        log("sweep", id, `ERROR reading the Table before the refund: ${String((e as Error).message ?? e).split("\n")[0].slice(0, 200)}`);
+        continue;
+      }
+      if (committed) {
+        kind = candidate.case = "finalize";
+        candidate.action = "wait";
+        seen.since = now;
+        continue;
+      }
     }
     if (dryRun) continue;
     seen.lastTryAt = now;

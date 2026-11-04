@@ -138,10 +138,16 @@ describe("the safety sweep: a Backer-funded Match nobody joined", () => {
     assert.deepEqual(sent, [`refund ${h.address.toBase58().slice(0, 4)}`]);
   });
 
-  it("leaves alone an Open Match before its deadline, one nobody backed, and one somebody joined", async () => {
-    const early = head(1, { stage: "open", joined: false, backed: true, deadline: T0 + 5 });
+  it("refunds an Open Match nobody backed too, as the old loop did", async () => {
     const plain = head(2, { stage: "open", joined: false, backed: false, deadline: T0 - 1 });
-    const { deps, sent } = fake([early, plain]);
+    const { deps, sent } = fake([plain]);
+    await run(deps, memorySweepStore(), T0);
+    assert.deepEqual(sent, [`refund ${plain.address.toBase58().slice(0, 4)}`]);
+  });
+
+  it("leaves alone an Open Match before its deadline", async () => {
+    const early = head(1, { stage: "open", joined: false, backed: true, deadline: T0 + 5 });
+    const { deps, sent } = fake([early]);
     const r = await run(deps, memorySweepStore(), T0);
     assert.deepEqual(sent, []);
     assert.deepEqual(r.candidates, []);
@@ -422,5 +428,69 @@ describe("the safety sweep: an Active Match with no result backs off", () => {
     const { deps, calls } = withDb([young], [young]);
     await run(deps, memorySweepStore({ seen: {}, fullScanAt: T0 }), T0);
     assert.equal(calls.committed, 0);
+  });
+});
+
+describe("the safety sweep: an Active Match past its deadline with no result", () => {
+  const late = (n = 1) => head(n, { openedAt: T0 - 7200, deadline: T0 - 1 });
+  const short = (h: Head) => h.address.toBase58().slice(0, 4);
+
+  it("is refunded at once, with no grace and no back-off", async () => {
+    const z = late();
+    const { deps, sent } = withDb([z], [z]);
+    const store = memorySweepStore({ seen: {}, fullScanAt: T0, quiet: { [z.address.toBase58()]: { key: `active:${z.deadline}`, asked: 3, next: T0 + 3600 } } });
+    const r = await run(deps, store, T0);
+    assert.deepEqual(sent, [`refund ${short(z)}`]);
+    assert.equal(r.candidates[0].case, "refund");
+  });
+
+  it("is not refunded before its deadline", async () => {
+    const z = head(1, { openedAt: T0 - 7200, deadline: T0 + 1 });
+    const { deps, sent } = fake([z]);
+    await run(deps, memorySweepStore(), T0);
+    assert.deepEqual(sent, []);
+  });
+
+  it("is finished, not refunded, when the Table holds its result", async () => {
+    const z = late();
+    const { deps, sent } = fake([z], { committed: new Set([z.address.toBase58()]) });
+    const store = memorySweepStore();
+    await run(deps, store, T0);
+    assert.deepEqual(sent, [], "waits out the finalize grace");
+    await run(deps, store, T0 + GRACE_SECS);
+    assert.deepEqual(sent, [`finalize ${short(z)}`, `finish ${short(z)}`]);
+  });
+
+  it("is finished, not refunded, when the result commits after the first look and before the send", async () => {
+    const z = late();
+    const base = fake([z]);
+    let reads = 0;
+    const deps: SweepDeps = { ...base.deps, committed: async () => ++reads > 1 };
+    const store = memorySweepStore();
+    const r = await run(deps, store, T0);
+    assert.equal(reads, 2, "read again just before the send");
+    assert.deepEqual(base.sent, []);
+    assert.equal(r.candidates[0].case, "finalize");
+    await run(deps, store, T0 + GRACE_SECS);
+    assert.deepEqual(base.sent, [`finalize ${short(z)}`, `finish ${short(z)}`]);
+  });
+
+  it("is not refunded when the Table cannot be read, and the rest of the run goes on", async () => {
+    const bad = late(1);
+    const other = head(2, { stage: "settling" });
+    const base = fake([bad, other]);
+    const deps: SweepDeps = { ...base.deps, committed: async () => { throw new Error("rpc down"); } };
+    const store = memorySweepStore();
+    await run(deps, store, T0);
+    await run(deps, store, T0 + GRACE_SECS);
+    assert.deepEqual(base.sent, [`finish ${short(other)}`]);
+  });
+
+  it("dry-run reports the refund it would send and sends nothing", async () => {
+    const z = late();
+    const { deps, sent } = fake([z]);
+    const r = await run(deps, memorySweepStore(), T0, true);
+    assert.deepEqual(sent, []);
+    assert.deepEqual([r.candidates[0].case, r.candidates[0].action], ["refund", "send"]);
   });
 });

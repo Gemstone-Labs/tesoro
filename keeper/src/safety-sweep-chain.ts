@@ -172,7 +172,8 @@ export function realSweepDeps(ctx: Ctx, env: NodeJS.ProcessEnv = process.env): S
       const game = gameOf(ctx, head.game);
       if (!game) return false;
       const a = await game.chain.readAssignment(head.address);
-      const base = a ? await game.chain.readTableOnBase(a).catch(() => null) : null;
+      // A failed read throws: the sweep must not read it as "no result" and refund a Match whose result is committed.
+      const base = a ? await game.chain.readTableOnBase(a) : null;
       return !!a && !!base && game.canFinalize(base, a, ctx.now);
     },
     progress: async (address) => {
