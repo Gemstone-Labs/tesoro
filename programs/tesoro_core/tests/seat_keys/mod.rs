@@ -78,7 +78,10 @@ fn the_joiner_cannot_take_the_seat_key_that_plays_the_openers_side() {
     let shared = d.env.fresh_key();
     let ben_key = d.env.fresh_key();
     d.env.name_seat(&shared);
-    let id = d.env.open_match(&d.alice, 500).expect("open with a seat key");
+    let id = d
+        .env
+        .open_match(&d.alice, 500)
+        .expect("open with a seat key");
     // the same key co-signs the join: refused, and the Match stays open
     let err = d.env.join_match(&d.bob, id).unwrap_err();
     assert_eq!(custom_code(&err), SEAT_KEY_SHARED);
@@ -97,7 +100,9 @@ fn the_joiner_cannot_take_the_seat_key_that_plays_the_openers_side() {
     let err = d.env.join_match(&dan, id2).unwrap_err();
     assert_eq!(custom_code(&err), SEAT_KEY_SHARED);
     d.env.no_seat();
-    d.env.join_match(&dan, id2).expect("the joiner's own wallet joins");
+    d.env
+        .join_match(&dan, id2)
+        .expect("the joiner's own wallet joins");
 }
 
 #[test]
