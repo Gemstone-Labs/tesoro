@@ -45,7 +45,7 @@ export default function Page() {
         <li>One Queue, one entry. You board the car that is boarding now.</li>
         <li>The car waits, with no time limit, until {MIN_PLAYERS} Players have boarded. The {COUNTDOWN_SECONDS} second countdown starts when the {MIN_PLAYERS}th boards, and anyone can still board until it ends.</li>
         <li>A car with {MAX_PLAYERS} Players leaves at once. The next Player boards the next car.</li>
-        <li>You can step off any time before the car leaves and get your full entry back. If stepping off leaves fewer than {MIN_PLAYERS} aboard, the countdown stops.</li>
+        <li>You can step off any time before the car leaves and get your full entry back. The departure time is fixed when the {MIN_PLAYERS}th Player first boards and never restarts. If stepping off leaves fewer than {MIN_PLAYERS} aboard at that time, the car waits and leaves the moment another Player boards.</li>
         <li>You hold one seat per car. A Player on a Break or under Self-Exclusion cannot board, and boarding counts against an Entry Limit.</li>
       </ul>
 

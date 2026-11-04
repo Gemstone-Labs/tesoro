@@ -19287,6 +19287,18 @@
             }
           },
           {
+            "name": "first_min_at",
+            "docs": [
+              "When `seated` first reached `min_seats`; never cleared (a Game's fixed departure time)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
             "name": "departed_at",
             "type": {
               "array": [

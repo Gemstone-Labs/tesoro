@@ -190,7 +190,7 @@ A Game in which 5 to 100 Players, each with an entry of 500 Gemas, ride one car 
 _Avoid_: round, crash game, bet
 
 **Boarding**:
-How Players enter a Railcar Match. The car waits for its 5th Player, then counts down 30 seconds in which anyone may board, up to 100, and leaves. Until it leaves a Player may step off for a full refund; dropping below 5 stops the countdown.
+How Players enter a Railcar Match. The car waits for its 5th Player, then counts down 30 seconds in which anyone may board, up to 100, and leaves. Until it leaves a Player may step off for a full refund. The departure time is fixed the first time 5 are aboard and never restarts: if stepping off leaves fewer than 5 at that time, the car waits and leaves the moment a 5th boards.
 _Avoid_: lobby, queue (the Queue is one Game's waiting line at one entry size)
 
 **Crash point**:
