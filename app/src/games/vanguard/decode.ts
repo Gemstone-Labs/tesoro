@@ -64,6 +64,8 @@ export interface Battle {
   ring: RingRecord[];
   tesoroMatch: PublicKey;
   players: [PublicKey, PublicKey];
+  /** Each seat's key (the wallet again when the Player named none): it may act for the seat beside the wallet. */
+  signers: [PublicKey, PublicKey];
   sq: number[];
   /** Revealed rank code of each piece (0 while hidden). */
   shown: number[];
@@ -132,6 +134,11 @@ export interface ArmyAccount {
   table: PublicKey;
   seat: number;
   player: PublicKey;
+  /** The seat key that may act and read beside `player`. */
+  signer: PublicKey;
+  /** The Match and epoch the seat was handed over for. */
+  tesoroMatch: PublicKey;
+  epoch: number;
   /** 0 US, 1 Italy, 255 before the deal. */
   side: number;
   /** Rank code of each of the army's pieces, by `id % 30`. */
@@ -176,6 +183,7 @@ export function decodeBattle(data: Uint8Array): Battle {
     ring,
     tesoroMatch: key(data, O.tesoroMatch),
     players: [key(data, O.players), key(data, O.players + 32)],
+    signers: [key(data, O.signers), key(data, O.signers + 32)],
     sq: slice(data, O.sq, n),
     shown: slice(data, O.shown, n),
     trail,
@@ -230,6 +238,9 @@ export function decodeArmy(data: Uint8Array): ArmyAccount {
     table: key(data, O2.table),
     seat: data[O2.seat],
     player: key(data, O2.player),
+    signer: key(data, O2.signer),
+    tesoroMatch: key(data, O2.tesoroMatch),
+    epoch: Number(v.getBigUint64(O2.epoch, true)),
     side: data[O2.side],
     ranks: slice(data, O2.ranks, 30),
     fuel: data[O2.fuel],

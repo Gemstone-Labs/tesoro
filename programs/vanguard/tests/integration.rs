@@ -32,6 +32,9 @@ use vanguard::engine::{
 };
 use vanguard::{Army, Assignment, Battle, Table, TableConfig, VanguardConfig, VanguardError};
 
+#[path = "integration/seat_keys.rs"]
+mod seat_keys;
+
 const SOL: u64 = 1_000_000_000;
 const T0: i64 = 1_000_000;
 
@@ -1046,9 +1049,15 @@ impl Env {
     /// Stands in for the permission half of `seat_players`: each blank Army is stamped with its Player and the table
     /// says the seats are theirs.
     fn seat_players_standin(&mut self) {
-        let players = self.battle().players;
-        for (seat, player) in players.into_iter().enumerate() {
-            self.patch_army(seat, |h| h.player = player);
+        let battle = self.battle();
+        let t = self.table();
+        for (seat, player) in battle.players.into_iter().enumerate() {
+            self.patch_army(seat, |h| {
+                h.player = player;
+                h.signer = battle.signers[seat];
+                h.tesoro_match = t.tesoro_match;
+                h.epoch = t.epoch;
+            });
         }
         self.patch_table(|t| t.seats_open = true);
         self.patch_battle(|b| b.permissioned = 1);

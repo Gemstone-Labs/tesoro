@@ -16,6 +16,7 @@ const WALLET_TAKES_OVER = new Set(["unknown-program", "not-your-match", "match-l
  * as caller, so the Player's wallet pays nothing. `ixFor(caller)` builds the instruction (null when there is nothing to do:
  * resolves ""); `pay()` is the old path, used only when free transactions are paused or empty or the wallet cannot sign a
  * sponsored transaction. A refusal or a chain failure is thrown (the Match moved on), never retried from the wallet.
+ * A seat key asks the relayer (it holds no SOL); `pay` then uses `signer.fallbackPayer`, the wallet.
  */
 export async function stepFree(
   signer: ChainSigner,
@@ -44,7 +45,7 @@ interface FinalizingGame<A, P> {
 
 /** Settles a Match from its committed table. Resolves with "" when the Match is already settled. */
 export const finalizeFree = <A, P>(game: FinalizingGame<A, P>, signer: ChainSigner, getToken: GetToken, a: A) =>
-  stepFree(signer, getToken, (caller) => game.finalizeIx(caller, a), () => game.finalize(signer as unknown as P, a));
+  stepFree(signer, getToken, (caller) => game.finalizeIx(caller, a), () => game.finalize((signer.fallbackPayer ?? signer) as unknown as P, a));
 
 /** Refunds a joined Match that no table was ever assigned to (the Game's `refund_untabled`). */
 export const refundUntabledFree = <P>(
@@ -52,7 +53,7 @@ export const refundUntabledFree = <P>(
   signer: ChainSigner,
   getToken: GetToken,
   match: PublicKey,
-) => stepFree(signer, getToken, (caller) => game.refundUntabledIx(caller, match), () => game.refundUntabled(signer as unknown as P, match));
+) => stepFree(signer, getToken, (caller) => game.refundUntabledIx(caller, match), () => game.refundUntabled((signer.fallbackPayer ?? signer) as unknown as P, match));
 
 /** Closes a finished Match's Assignment (the Game's `close_assignment`); its rent goes back to the operator, not the caller. */
 export const closeAssignmentFree = <A, P>(
@@ -60,4 +61,4 @@ export const closeAssignmentFree = <A, P>(
   signer: ChainSigner,
   getToken: GetToken,
   a: A,
-) => stepFree(signer, getToken, (caller) => game.closeAssignmentIx(caller, a), () => game.closeAssignment(signer as unknown as P, a));
+) => stepFree(signer, getToken, (caller) => game.closeAssignmentIx(caller, a), () => game.closeAssignment((signer.fallbackPayer ?? signer) as unknown as P, a));

@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-pub use table_kit::{CommitGuard, Ring, Slot};
+pub use table_kit::{CommitGuard, Ring, SeatKeys, Slot};
 
 pub const CONFIG_SEED: &[u8] = b"config";
 pub const SPONSOR_SEED: &[u8] = b"sponsor";
@@ -134,6 +134,8 @@ pub struct Assignment {
     pub epoch: u64,
     /// Seat 0 opened the tesoro_core Match, seat 1 joined (the Players' authorities).
     pub players: [Pubkey; 2],
+    /// The seat key each Player named in their entry (the wallet again when they named none).
+    pub signers: [Pubkey; 2],
     pub asset: u8,
     /// Unix time by which both Players must have checked in.
     pub start_deadline: i64,
@@ -160,6 +162,9 @@ pub struct Table {
     /// Its ring slot.
     pub slot: u8,
     pub players: [Pubkey; 2],
+    /// Each seat's key, copied from the Match with `players`: it may act for the seat beside the
+    /// wallet.
+    pub signers: [Pubkey; 2],
     pub asset: u8,
     pub start_deadline: i64,
     pub checked_in: [bool; 2],
@@ -200,6 +205,7 @@ impl Table {
             tesoro_match: Pubkey::default(),
             slot: 0,
             players: [Pubkey::default(); 2],
+            signers: [Pubkey::default(); 2],
             asset: 0,
             start_deadline: 0,
             checked_in: [false; 2],
@@ -239,6 +245,11 @@ pub struct Book {
     pub bump: u8,
     pub table: Pubkey,
     pub player: Pubkey,
+    /// The seat key that may pick and read beside `player`.
+    pub signer: Pubkey,
+    /// The Match and epoch this Book was opened for.
+    pub tesoro_match: Pubkey,
+    pub epoch: u64,
     pub seat: u8,
     /// A band (signed, 0 starts at the anchor) per column, or `NO_PICK`.
     pub picks: [i16; COLUMNS],
@@ -247,11 +258,21 @@ pub struct Book {
 }
 
 impl Book {
-    pub fn new(bump: u8, table: Pubkey, player: Pubkey, seat: u8) -> Self {
+    pub fn new(
+        bump: u8,
+        table: Pubkey,
+        keys: SeatKeys,
+        tesoro_match: Pubkey,
+        epoch: u64,
+        seat: u8,
+    ) -> Self {
         Self {
             bump,
             table,
-            player,
+            player: keys.player,
+            signer: keys.signer,
+            tesoro_match,
+            epoch,
             seat,
             picks: [NO_PICK; COLUMNS],
             pick_count: 0,

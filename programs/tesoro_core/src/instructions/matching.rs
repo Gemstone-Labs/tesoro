@@ -283,6 +283,7 @@ pub(crate) fn take_entry<'b, 'info>(
             payer: *payer.key,
             spill_room: 0,
             sponsored_lamports: 0,
+            signer: Pubkey::default(),
         };
         init_head(pot.bytes_mut(), &fields, &extra);
         Ok((pot, hold))
@@ -351,6 +352,9 @@ pub struct OpenMatch<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     pub player_authority: Signer<'info>,
+    /// The seat key that plays this side of the Match, recorded as the side's `signer`. A wallet
+    /// that wants no seat key passes itself (the same account twice).
+    pub seat_signer: Signer<'info>,
     #[account(seeds = [CONFIG_SEED], bump = config.bump)]
     pub config: Box<Account<'info, Config>>,
     #[account(seeds = [ECONOMY_SEED], bump = economy.bump)]
@@ -510,6 +514,7 @@ pub(crate) fn open_match<'info>(
         &ctx.accounts.program_data.to_account_info(),
     )?;
     let player = ctx.accounts.player_account.key();
+    let seat_signer = ctx.accounts.seat_signer.key().to_bytes();
     // a backed Player puts none of their own Gemas at risk: nothing counts against their limit
     // (the Backer's limit counted the entry when the Offer was made)
     if ctx.accounts.offer.is_none() {
@@ -577,6 +582,7 @@ pub(crate) fn open_match<'info>(
                 player: player.to_bytes(),
                 funder: funder.to_bytes(),
                 share_bps: share,
+                signer: seat_signer,
             },
             pot,
             hold,
@@ -599,6 +605,7 @@ pub(crate) fn open_match<'info>(
                 player: player.to_bytes(),
                 funder: player.to_bytes(),
                 share_bps: 0,
+                signer: seat_signer,
             },
             pot,
             hold,
@@ -689,6 +696,8 @@ pub struct JoinMatch<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     pub player_authority: Signer<'info>,
+    /// The seat key that plays this side of the Match (see `OpenMatch`).
+    pub seat_signer: Signer<'info>,
     #[account(
         seeds = [ACCOUNT_SEED, player_authority.key().as_ref()],
         bump = player_account.bump
@@ -833,6 +842,12 @@ pub(crate) fn join_match<'info>(
         ts,
     )?;
     let player = ctx.accounts.player_account.key();
+    let seat_signer = ctx.accounts.seat_signer.key().to_bytes();
+    // a seat key acts for one side only: a joiner cannot reuse the key that plays the opener's side
+    require!(
+        seat_signer != ctx.accounts.match_state.inner.a.signer,
+        MatchError::SeatKeyShared
+    );
     require_can_play(&ctx.accounts.opener_protections.to_account_info())?;
     if !backed {
         count_entry(&ctx.accounts.protections.to_account_info(), entry)?;
@@ -906,6 +921,7 @@ pub(crate) fn join_match<'info>(
                 player: player.to_bytes(),
                 funder: funder.to_bytes(),
                 share_bps: share,
+                signer: seat_signer,
             },
             pot,
             hold,
@@ -928,6 +944,7 @@ pub(crate) fn join_match<'info>(
                 player: player.to_bytes(),
                 funder: player.to_bytes(),
                 share_bps: 0,
+                signer: seat_signer,
             },
             pot,
             hold,
@@ -1217,16 +1234,17 @@ pub(crate) fn refund_match(ctx: Context<RefundMatch>) -> Result<()> {
     )?;
     let m = &ctx.accounts.match_state.inner;
     let open = m.stage() == Stage::Open;
-    let opener_wallet_account =
-        Pubkey::find_program_address(&[ACCOUNT_SEED, caller.as_ref()], &crate::ID).0;
     let by = if caller.to_bytes() == m.settle_authority {
         RefundBy::Game(m.settle_authority)
     } else if open
-        && (opener_wallet_account.to_bytes() == m.a.player
-            || match &ctx.accounts.opener_protections {
-                Some(p) => is_away(&p.to_account_info())?,
-                None => false,
-            })
+        && (acts_for(
+            &Pubkey::new_from_array(m.a.player),
+            &caller,
+            &Pubkey::new_from_array(m.a.signer),
+        ) || match &ctx.accounts.opener_protections {
+            Some(p) => is_away(&p.to_account_info())?,
+            None => false,
+        })
     {
         RefundBy::Opener(m.a.player)
     } else {

@@ -188,6 +188,7 @@ export interface Assignment {
   index: number;
   epoch: number;
   players: [PublicKey, PublicKey];
+  signers: [PublicKey, PublicKey];
   asset: Asset;
   startDeadline: number;
   payer: PublicKey;
@@ -204,6 +205,7 @@ export function decodeAssignment(address: PublicKey, a: any): Assignment {
     index: a.index,
     epoch: a.epoch.toNumber(),
     players: a.players,
+    signers: a.signers,
     asset: ASSETS[a.asset] ?? ASSETS[0],
     startDeadline: a.startDeadline.toNumber(),
     payer: a.payer,
@@ -231,6 +233,7 @@ export interface Table {
   tesoroMatch: PublicKey;
   slot: number;
   players: [PublicKey, PublicKey];
+  signers: [PublicKey, PublicKey];
   asset: Asset;
   startDeadline: number;
   checkedIn: [boolean, boolean];
@@ -260,6 +263,7 @@ export function decodeTable(address: PublicKey, t: any): Table {
     tesoroMatch: t.tesoroMatch,
     slot: t.slot,
     players: t.players,
+    signers: t.signers,
     asset: ASSETS[t.asset] ?? ASSETS[0],
     startDeadline: t.startDeadline.toNumber(),
     checkedIn: [t.checkedIn[0], t.checkedIn[1]],

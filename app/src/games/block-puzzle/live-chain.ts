@@ -240,6 +240,8 @@ export interface Table {
   startDeadline: number;
   /** seat 0 opened the tesoro_core Match, seat 1 joined */
   players: [PublicKey, PublicKey];
+  /** Each seat's key (the wallet again when the Player named none): it may act for the seat beside the wallet. */
+  signers: [PublicKey, PublicKey];
   checkedIn: [boolean, boolean];
   assignedSlot: number;
   assignedTs: number;
@@ -298,6 +300,7 @@ export function decodeTable(address: PublicKey, t: any): Table {
     slot: t.slot,
     startDeadline: t.startDeadline.toNumber(),
     players: [t.players[0], t.players[1]],
+    signers: [t.signers[0], t.signers[1]],
     checkedIn: [t.checkedIn[0], t.checkedIn[1]],
     assignedSlot: t.assignedSlot.toNumber(),
     assignedTs: t.assignedTs.toNumber(),
@@ -328,6 +331,7 @@ export interface Assignment {
   index: number;
   epoch: number;
   players: [PublicKey, PublicKey];
+  signers: [PublicKey, PublicKey];
   startDeadline: number;
   payer: PublicKey;
 }
@@ -343,6 +347,7 @@ export function decodeAssignment(address: PublicKey, a: any): Assignment {
     index: a.index,
     epoch: a.epoch.toNumber(),
     players: a.players,
+    signers: a.signers,
     startDeadline: a.startDeadline.toNumber(),
     payer: a.payer,
   };
@@ -352,6 +357,8 @@ export function decodeAssignment(address: PublicKey, a: any): Assignment {
 export interface OwnBoard {
   seat: 0 | 1;
   player: PublicKey;
+  /** The seat key that may act and read beside `player`. */
+  signer: PublicKey;
   tesoroMatch: PublicKey;
   epoch: number;
   began: boolean;
@@ -372,6 +379,7 @@ export function decodeBoard(b: any): OwnBoard {
   return {
     seat: b.seat,
     player: b.player,
+    signer: b.signer,
     tesoroMatch: b.tesoroMatch,
     epoch: b.epoch.toNumber(),
     began: b.began,

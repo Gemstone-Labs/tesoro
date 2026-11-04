@@ -13,7 +13,7 @@ function battle(over: Partial<Battle> = {}, shown: Record<number, number> = {}):
   for (const [id, code] of Object.entries(shown)) sh[Number(id)] = code;
   return {
     matchId: 1n, moved: 0n, startDeadline: 0, entropyDeadline: 0, deadline: 1000, startedAt: 900, eventSeq: 0, turnNo: 0, moves: 0, ring: [],
-    tesoroMatch: key(1), players: [key(2), key(3)], sq, shown: sh, trail: Array.from({ length: 60 }, () => [0, 0, 0, 0, 0, 0]), trailLen: Array(60).fill(0),
+    tesoroMatch: key(1), players: [key(2), key(3)], signers: [key(2), key(3)], sq, shown: sh, trail: Array.from({ length: 60 }, () => [0, 0, 0, 0, 0, 0]), trailLen: Array(60).fill(0),
     bump: 0, authorityBump: 0, usSeat: 0, status: 2, finalized: 0, permissioned: 1, winner: 255, reason: 255, turn: 0, stepsLeft: 1, twoStepActive: 0, stormDone: 0,
     twoStep: [0, 0], timeouts: [0, 0], depotClaimed: [0, 0],
     layoutVersion: 2, rulesVersion: 4, setupDeadline: 0, capDeadline: 0, payer: key(4), oracleQueue: key(5), moveCap: 200, capSecs: 900, turnSecs: 5, graceSecs: 1,
@@ -24,7 +24,7 @@ function battle(over: Partial<Battle> = {}, shown: Record<number, number> = {}):
 
 /** An Army whose 30 slots hold rank codes 1..12 repeating, so every piece has a distinct-enough rank to leak. */
 const army = (side: number, seat: number): ArmyAccount => ({
-  bump: 0, table: key(1), seat, player: key(2 + seat), side, ranks: Array.from({ length: 30 }, (_, i) => (i % 12) + 1), fuel: 0, truckTurn: -9, moves: 0, sealKey: new Uint8Array(32), contributed: false, dealt: true,
+  bump: 0, table: key(1), seat, player: key(2 + seat), signer: key(2 + seat), tesoroMatch: key(1), epoch: 0, side, ranks: Array.from({ length: 30 }, (_, i) => (i % 12) + 1), fuel: 0, truckTurn: -9, moves: 0, sealKey: new Uint8Array(32), contributed: false, dealt: true,
 });
 
 describe("merging the public Battle with the Player's own Army", () => {

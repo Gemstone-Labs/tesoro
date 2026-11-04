@@ -6143,6 +6143,24 @@ export type Vanguard = {
             "type": "pubkey"
           },
           {
+            "name": "signer",
+            "docs": [
+              "The seat key that may act and read beside `player`; default while the seat is wiped."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "tesoroMatch",
+            "docs": [
+              "The Match and epoch the seat was handed over for; default while the seat is wiped."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
             "name": "side",
             "docs": [
               "0 US, 1 Italy; `UNSET` until `deal`."
@@ -6300,6 +6318,18 @@ export type Vanguard = {
             "name": "players",
             "docs": [
               "Seat 0 opened the tesoro_core Match, seat 1 joined (the Players' authorities)."
+            ],
+            "type": {
+              "array": [
+                "pubkey",
+                2
+              ]
+            }
+          },
+          {
+            "name": "signers",
+            "docs": [
+              "The seat key each Player named in their entry (the wallet again when they named none)."
             ],
             "type": {
               "array": [
@@ -6716,6 +6746,19 @@ export type Vanguard = {
               "See `engine::RESOLVE_SLACK_SECS`."
             ],
             "type": "u8"
+          },
+          {
+            "name": "signers",
+            "docs": [
+              "The seat key each Player named in their entry (the wallet again when they named none), by seat:",
+              "copied from the Match with `players`, it may act for the seat beside the wallet."
+            ],
+            "type": {
+              "array": [
+                "pubkey",
+                2
+              ]
+            }
           },
           {
             "name": "reserved",
@@ -7257,7 +7300,8 @@ export type Vanguard = {
       "name": "party",
       "docs": [
         "One entrant. `funder == player` unless the entry is Backed; then `share_bps` is the Player's",
-        "share of the surplus from the accepted Offer."
+        "share of the surplus from the accepted Offer. `signer` is the seat key that co-signed the entry",
+        "(the Player's wallet when it named none): it may play this side and cancel it while it is open."
       ],
       "type": {
         "kind": "struct",
@@ -7283,6 +7327,15 @@ export type Vanguard = {
           {
             "name": "shareBps",
             "type": "u16"
+          },
+          {
+            "name": "signer",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           }
         ]
       }

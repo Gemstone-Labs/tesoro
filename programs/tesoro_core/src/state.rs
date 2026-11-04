@@ -511,7 +511,7 @@ impl RoomHold {
 impl MatchState {
     /// Largest Borsh size of `MatchRecord` (a Match with a joiner and a run in progress), checked
     /// by a unit test.
-    pub const RECORD_LEN: usize = 486;
+    pub const RECORD_LEN: usize = 550;
     pub const SPACE: usize =
         8 + 1 + Self::RECORD_LEN + 1 + 4 + 32 + 64 + ROOM_HOLDS * RoomHold::LEN;
 
@@ -1611,6 +1611,7 @@ pub(crate) mod tests {
             player: [1; 32],
             funder: [2; 32],
             share_bps: 1,
+            signer: [12; 32],
         };
         let mut rec = MatchRecord::open(
             MatchId {
@@ -1665,6 +1666,7 @@ pub(crate) mod tests {
                 player: [10; 32],
                 funder: [11; 32],
                 share_bps: 2,
+                signer: [13; 32],
             },
             &p,
             2,

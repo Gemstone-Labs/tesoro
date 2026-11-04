@@ -36,7 +36,25 @@ export interface ChainSigner {
   signSerialized?(tx: Uint8Array): Promise<Uint8Array>;
   /** Signs the TEE auth challenge (wallet `signMessage`). */
   signMessage(message: Uint8Array): Promise<Uint8Array>;
+  /**
+   * Set on a seat key: the wallet whose Account it acts for (`publicKey` is the key itself). Absent on a wallet.
+   * The Account is always derived from this (`accountOfSigner`), never from whichever key signed.
+   */
+  wallet?: PublicKey;
+  /** Set on a seat key: the address of the Match it plays. Server requests it signs name this Match. */
+  seatMatch?: PublicKey;
+  /** Set on a seat key: the Match key (`<opener>-<n>`) it is stored under. */
+  seatMatchKey?: string;
+  /** Set on a seat key a Match page plays with: the wallet that pays and signs the base-layer steps the relayer will not cover (a seat key holds no SOL). */
+  fallbackPayer?: ChainSigner;
 }
+
+/** The wallet this signer speaks for: itself, or the wallet behind a seat key. */
+export const walletOf = (s: Pick<ChainSigner, "publicKey" | "wallet">): PublicKey => s.wallet ?? s.publicKey;
+/** The Account of the signer's wallet. A seat key's own key is never turned into an Account. */
+export const accountOfSigner = (s: Pick<ChainSigner, "publicKey" | "wallet">): PublicKey => BlockPuzzleChain.coreAccount(walletOf(s));
+/** True for a seat key: it may only act inside its Match. */
+export const isSeatKey = (s: Pick<ChainSigner, "seatMatch">): boolean => !!s.seatMatch;
 
 export function keypairSigner(kp: Keypair): ChainSigner {
   return {
@@ -125,6 +143,8 @@ export class BlockPuzzleChain {
   }
 
   async sendBase(signer: ChainSigner, ixs: TransactionInstruction[]): Promise<string> {
+    // a seat key holds no SOL and plays only inside its Match: base-layer sends are the wallet's
+    if (isSeatKey(signer)) throw new Error("This needs your wallet.");
     const tx = new Transaction().add(...ixs);
     tx.feePayer = signer.publicKey;
     const { blockhash, lastValidBlockHeight } = await this.base.getLatestBlockhash();

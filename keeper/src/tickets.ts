@@ -2,7 +2,7 @@ import type { AccountMeta, PublicKey } from "@solana/web3.js";
 import { act, log, type Ctx } from "./act.ts";
 import { cancelTicketIx, closeTicketIx } from "./core-ix.ts";
 import { shortKey } from "./env.ts";
-import { POT_AT, decodeStore, decodeTicketHead, keyOf, sponsorAddress, type TicketFacts } from "./kit.ts";
+import { DISC, POT_AT, TICKET_HEAD, decodeStore, decodeTicketHead, keyOf, sponsorAddress, type TicketFacts } from "./kit.ts";
 import { connLister, type Lister } from "./lists.ts";
 import { sendIxs, type SendOpts } from "./send.ts";
 import { connReader, dedupe, supplySources, type Reader } from "./supply.ts";
@@ -14,7 +14,7 @@ const CANCELS_PER_PASS = 8;
 /** Tickets handled in one pass. */
 const TICKETS_PER_PASS = Number(process.env.KEEPER_TICKETS_PER_PASS ?? 20);
 /** Size of a Ticket's head, with the discriminator (`dataSlice` of the list, so the lines are not downloaded). */
-const HEAD_BYTES = 8 + 160;
+const HEAD_BYTES = DISC + TICKET_HEAD;
 
 export interface TicketRow {
   address: PublicKey;

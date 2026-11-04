@@ -1,5 +1,6 @@
 import { PublicKey, type AddressLookupTableAccount, type TransactionInstruction } from "@solana/web3.js";
 import type { ChainSigner } from "@/games/block-puzzle/chain";
+import { seatKeys } from "@/lib/seat/seat-key";
 import { getChain } from "./client";
 import type { GetToken } from "./demo-client";
 import { finalizeAndFinish, finishMatch, type FinishDeps, type FinishResult, type Planned, type Progress } from "./finish-match";
@@ -92,13 +93,19 @@ export async function finalizeAndFinishFree(signer: ChainSigner, getToken: GetTo
     await finalize();
     return NOT_SENT;
   }
-  return finalizeAndFinish(deps, address, finalize);
+  return closedFor(signer, await finalizeAndFinish(deps, address, finalize));
 }
 
 /** Chunks and `close_match` for a Match whose `finalize` already landed (the page found it Settling or Closed). */
 export async function finishMatchFree(signer: ChainSigner, getToken: GetToken, address: PublicKey): Promise<FinishResult> {
   const deps = await sponsoredDeps(signer, getToken).catch(selfPayToNull);
-  return deps ? finishMatch(deps, address) : NOT_SENT;
+  return deps ? closedFor(signer, await finishMatch(deps, address)) : NOT_SENT;
+}
+
+/** The Match is closed: its seat key has nothing left to do and is deleted from this device. */
+function closedFor(signer: ChainSigner, r: FinishResult): FinishResult {
+  if (r.done && signer.seatMatchKey) void seatKeys().release(signer.seatMatchKey);
+  return r;
 }
 
 /** Free transactions that cannot be used right now are not an error for finishing: the sweep does it. */

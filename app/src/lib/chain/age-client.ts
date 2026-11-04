@@ -1,4 +1,5 @@
 import type { ChainSigner } from "@/games/block-puzzle/chain";
+import { signAsWallet } from "@/lib/seat/wallet-only";
 import { newNonce, signedMessage } from "./signed-request";
 
 /** Client side of the 18+ route (app/src/app/api/age/route.ts). */
@@ -8,7 +9,7 @@ export async function ageCall(step: "status" | "confirm", signer: ChainSigner, g
   const address = signer.publicKey.toBase58();
   const ts = Date.now();
   const nonce = newNonce();
-  const signature = await signer.signMessage(new TextEncoder().encode(signedMessage("tesoro-age", step, address, ts, nonce, {})));
+  const signature = await signAsWallet(signer, signedMessage("tesoro-age", step, address, ts, nonce, {}));
   const token = await getToken().catch(() => null);
   const res = await fetch("/api/age", {
     method: "POST",

@@ -1,4 +1,5 @@
 import type { ChainSigner } from "@/games/block-puzzle/chain";
+import { signAsWallet } from "@/lib/seat/wallet-only";
 import { getChain } from "./client";
 import { newNonce, signedMessage, type SignedFields } from "./signed-request";
 
@@ -27,7 +28,7 @@ export async function demoCall<T = Record<string, unknown>>(
   const address = signer.publicKey.toBase58();
   const ts = Date.now();
   const nonce = newNonce();
-  const signature = await signer.signMessage(new TextEncoder().encode(signedMessage("tesoro-demo", step, address, ts, nonce, body)));
+  const signature = await signAsWallet(signer, signedMessage("tesoro-demo", step, address, ts, nonce, body));
   const token = await getToken().catch(() => null);
   const res = await fetch("/api/demo-advance", {
     method: "POST",

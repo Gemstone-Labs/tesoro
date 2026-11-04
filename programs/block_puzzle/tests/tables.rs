@@ -29,6 +29,9 @@ use tesoro_core::state::*;
 #[path = "../../tesoro_core/tests/common/flow.rs"]
 mod flow;
 
+#[path = "tables/seat_keys.rs"]
+mod seat_keys;
+
 const SOL: u64 = 1_000_000_000;
 const T0: i64 = 1_000_000;
 /// The rollup slot at `T0`.
@@ -909,6 +912,7 @@ impl Env {
         for (seat, player) in t.players.into_iter().enumerate() {
             self.patch_board(seat, |b| {
                 b.player = player;
+                b.signer = t.signers[seat];
                 b.tesoro_match = t.tesoro_match;
                 b.epoch = t.epoch;
             });

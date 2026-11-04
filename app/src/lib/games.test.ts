@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { GAME_LIST, isGameId } from "./games";
 import { GAME_NAMES } from "./mock/data";
 import { GAME_IDS } from "./chain/match-flow";
@@ -19,5 +19,24 @@ describe("the Game list", () => {
     expect(GAME_IDS[g]).toBeDefined();
     expect(gameFromParam(g)).toBe(g);
     expect(gameFilter(g)).toBe(g);
+  });
+});
+
+describe("Railcar visibility", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it("keeps the Railcar rulebook out of the Docs unless NEXT_PUBLIC_SHOW_RAILCAR=1", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SHOW_RAILCAR", "");
+    vi.resetModules();
+    const hidden = await import("@/components/docs/nav");
+    expect(hidden.ALL_PAGES.map((p) => p.href)).not.toContain("/docs/railcar");
+
+    vi.stubEnv("NEXT_PUBLIC_SHOW_RAILCAR", "1");
+    vi.resetModules();
+    const shown = await import("@/components/docs/nav");
+    expect(shown.ALL_PAGES.map((p) => p.href)).toContain("/docs/railcar");
   });
 });

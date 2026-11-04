@@ -68,12 +68,12 @@ describe("gpa parseQuery", () => {
 describe("gpa list cache (OC-03)", () => {
   it("keeps old Match layouts out without creating extra upstream queries", async () => {
     const data = (n: number) => ({ pubkey: `size${n}`, account: { data: [Buffer.alloc(n).toString("base64"), "base64"] as [string, string] } });
-    const up = upstream(() => [data(776), data(600)]);
+    const up = upstream(() => [data(840), data(600)]);
     const lists = createListCache({ fetch: up.fetch });
-    expect(await lists.getAccounts(q(`program=${CORE}&filter=m:0:${MATCH}&filter=s:776`))).toHaveLength(1);
+    expect(await lists.getAccounts(q(`program=${CORE}&filter=m:0:${MATCH}&filter=s:840`))).toHaveLength(1);
     expect(await lists.getAccounts(q(`program=${CORE}&filter=m:0:${MATCH}`))).toHaveLength(2);
     expect(up.calls()).toBe(1);
-    expect(() => q(`program=${CORE}&filter=m:0:${MATCH}&filter=s:776&filter=s:776`)).toThrow(GpaInputError);
+    expect(() => q(`program=${CORE}&filter=m:0:${MATCH}&filter=s:840&filter=s:840`)).toThrow(GpaInputError);
   });
 
   it("accepts actual Anchor Match and Offer lists with current layout size filters", async () => {

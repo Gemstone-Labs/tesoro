@@ -29,10 +29,11 @@ use ephemeral_rollups_sdk::{
     cpi::DelegateConfig,
 };
 use table_kit::{
-    absence_outcome, assignment_absent, close_private_seat, is_next_epoch, match_state_gone,
-    may_skip, move_lamports, open_private_seat, read_table, receipt_aged, receipt_at,
-    sponsor_can_commit, sponsor_commit, table_wait_over, KitError, SeatAccounts, SeatPrograms,
-    OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0, OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
+    absence_outcome, acting_seat_among, assignment_absent, close_private_seat, is_next_epoch,
+    match_state_gone, may_skip, move_lamports, open_private_seat_keyed, read_table, receipt_aged,
+    receipt_at, require_acting_seat, sponsor_can_commit, sponsor_commit, table_wait_over, KitError,
+    SeatAccounts, SeatPrograms, SeatRecord, TableSeats, OUTCOME_DRAW, OUTCOME_NO_SHOW,
+    OUTCOME_WIN0, OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
 };
 use tesoro_core::{
     instructions::MatchResult,
@@ -371,6 +372,49 @@ fn close_and_commit(a: &mut Concluding, bumps: &ConcludingBumps, now: i64) -> Re
     )
 }
 
+fn table_seats(table: &Table) -> TableSeats<'_> {
+    TableSeats {
+        players: &table.players,
+        tesoro_match: table.tesoro_match,
+        epoch: table.epoch,
+        seats_open: table.seats_open,
+    }
+}
+
+/// The seat `signer` acts for, by what the table holds (`check_in`): the one seat whose wallet
+/// or seat key it is.
+fn table_acting_seat(table: &Table, signer: &Pubkey) -> Result<usize> {
+    let records = [0, 1].map(|seat| SeatRecord {
+        seat,
+        keys: SeatKeys {
+            player: table.players[seat],
+            signer: table.signers[seat],
+        },
+        tesoro_match: table.tesoro_match,
+        epoch: table.epoch,
+    });
+    acting_seat_among(&table_seats(table), &records, signer)
+        .map_err(|_| error!(DuelError::NotAPlayer))
+}
+
+/// `signer` is the wallet or the seat key of this Book's Player, in this Match and epoch, and
+/// the key is the one the table holds for that seat.
+fn require_book(table: &Table, book: &Book, signer: &Pubkey) -> Result<usize> {
+    let record = SeatRecord {
+        seat: usize::from(book.seat),
+        keys: SeatKeys {
+            player: book.player,
+            signer: book.signer,
+        },
+        tesoro_match: book.tesoro_match,
+        epoch: book.epoch,
+    };
+    let seat = require_acting_seat(&table_seats(table), &record, signer)
+        .map_err(|_| error!(DuelError::NotAPlayer))?;
+    require!(book.signer == table.signers[seat], DuelError::NotAPlayer);
+    Ok(seat)
+}
+
 #[ephemeral]
 #[program]
 pub mod trading_duel {
@@ -515,9 +559,19 @@ pub mod trading_duel {
         a.generation = generation;
         a.index = index;
         a.epoch = epoch;
+        let b_signer = tesoro
+            .inner
+            .b
+            .as_ref()
+            .map(|b| b.signer)
+            .ok_or(DuelError::BadTesoroMatch)?;
         a.players = [
             ctx.accounts.account_a.authority,
             ctx.accounts.account_b.authority,
+        ];
+        a.signers = [
+            Pubkey::new_from_array(tesoro.inner.a.signer),
+            Pubkey::new_from_array(b_signer),
         ];
         a.asset = asset;
         a.start_deadline = now
@@ -757,6 +811,7 @@ pub mod trading_duel {
         table.slot = kit(table.ring.reserve(a.tesoro_match, epoch))?;
         table.tesoro_match = a.tesoro_match;
         table.players = a.players;
+        table.signers = a.signers;
         table.asset = a.asset;
         table.start_deadline = a.start_deadline;
         table.checked_in = [false; 2];
@@ -774,13 +829,17 @@ pub mod trading_duel {
         );
         require!(!table.seats_open, DuelError::SeatsOpen);
         let table_key = table.key();
-        let players = table.players;
+        let seat_keys = [0, 1].map(|i| SeatKeys {
+            player: table.players[i],
+            signer: table.signers[i],
+        });
+        let (tesoro_match, epoch) = (table.tesoro_match, table.epoch);
         let gen = table.generation.to_le_bytes();
         let idx = table.index.to_le_bytes();
         let table_bump = [table.bump];
         let table_seeds: &[&[u8]] = &[TABLE_SEED, &gen, &idx, &table_bump];
         let table_info = ctx.accounts.table.to_account_info();
-        for (seat, player) in players.iter().enumerate() {
+        for (seat, keys) in seat_keys.into_iter().enumerate() {
             let (book, permission, book_bump) = if seat == 0 {
                 (
                     &ctx.accounts.book_0,
@@ -798,7 +857,7 @@ pub mod trading_duel {
             let bump_arr = [book_bump];
             let seat_seeds: &[&[u8]] = &[BOOK_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
             let book_info = book.to_account_info();
-            open_private_seat(
+            open_private_seat_keyed(
                 &SeatAccounts {
                     table: &table_info,
                     seat: &book_info,
@@ -810,10 +869,10 @@ pub mod trading_duel {
                 table_seeds,
                 seat_seeds,
                 (8 + Book::INIT_SPACE) as u32,
-                *player,
+                keys,
             )?;
             let mut data = book_info.try_borrow_mut_data()?;
-            Book::new(book_bump, table_key, *player, seat as u8)
+            Book::new(book_bump, table_key, keys, tesoro_match, epoch, seat as u8)
                 .try_serialize(&mut &mut data[..])?;
         }
         ctx.accounts.table.seats_open = true;
@@ -829,11 +888,7 @@ pub mod trading_duel {
         require!(table.phase == PHASE_WAITING, DuelError::WrongPhase);
         require!(table.seats_open, DuelError::SeatsNotOpen);
         require!(now <= table.start_deadline, DuelError::StartWindowPassed);
-        let seat = table
-            .players
-            .iter()
-            .position(|p| *p == ctx.accounts.player.key())
-            .ok_or(DuelError::NotAPlayer)?;
+        let seat = table_acting_seat(table, &ctx.accounts.player.key())?;
         table.checked_in[seat] = true;
         if table.checked_in == [true; 2] {
             let anchor = read_price(&ctx.accounts.price_feed, table.asset, now)?;
@@ -865,6 +920,7 @@ pub mod trading_duel {
         let t = now - table.starts_at;
         eng(engine::check_pick(column as usize, t))?;
         let book = &mut ctx.accounts.book;
+        require_book(table, book, &ctx.accounts.player.key())?;
         let slot = book.picks[column as usize];
         match (slot == NO_PICK, band == NO_PICK) {
             (true, false) => book.pick_count += 1,
@@ -1506,7 +1562,8 @@ pub struct SetPick<'info> {
         mut,
         seeds = [BOOK_SEED, table.key().as_ref(), &[book.seat]],
         bump = book.bump,
-        constraint = book.player == player.key() @ DuelError::NotAPlayer
+        constraint = book.player == player.key() || book.signer == player.key()
+            @ DuelError::NotAPlayer
     )]
     pub book: Box<Account<'info, Book>>,
 }

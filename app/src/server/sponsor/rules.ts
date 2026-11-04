@@ -252,6 +252,8 @@ export interface Plan {
   pair: PublicKey | null;
   /** Signers other than the relayer. */
   signers: PublicKey[];
+  /** The seat keys an entry names (`seat_signer` of open_match, join_match, open_ticket): throwaway device keys, not Accounts' wallets. */
+  seatSigners?: PublicKey[];
   /** An instruction in the plan is the Player's own: the Player who asks must be one of its signers. */
   playerSigns: boolean;
   /** Accounts whose Gemas fund the admission when they are not the Player's own (the Backer of a Backing Ticket). */
@@ -410,6 +412,7 @@ export function planCore(ixs: Ix[], relayer: PublicKey, inviteKey?: PublicKey): 
   const funders = new Map<string, PublicKey>();
   const named: Map<string, PublicKey>[] = [];
   let playerSigns = false;
+  const seatSigners = new Map<string, PublicKey>();
 
   for (const ix of ixs) {
     const decoded = coder.decode(Buffer.from(ix.data));
@@ -473,6 +476,8 @@ export function planCore(ixs: Ix[], relayer: PublicKey, inviteKey?: PublicKey): 
     const funder = name === "open_ticket" ? byName.get("owner") : name === "open_match" || name === "join_match" ? byName.get("backer_account") : undefined;
     if (funder && !funder.equals(CORE_ID)) funders.set(funder.toBase58(), funder);
     if (name === "join_match") pair = byName.get("pair") ?? null;
+    const seat = byName.get("seat_signer");
+    if (seat) seatSigners.set(seat.toBase58(), seat);
 
     names.push(name);
     const s = row.spend?.(args) ?? NONE;
@@ -500,6 +505,7 @@ export function planCore(ixs: Ix[], relayer: PublicKey, inviteKey?: PublicKey): 
     obligations: [...new Map(obligations.map((o) => [o.toBase58(), o])).values()],
     pair,
     signers: [...signers.values()],
+    seatSigners: [...seatSigners.values()],
     playerSigns,
     funders: [...funders.values()],
     onboarding: names.length === 1 && names[0] === "create_account",

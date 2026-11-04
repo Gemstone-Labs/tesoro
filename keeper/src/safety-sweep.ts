@@ -46,9 +46,11 @@ export interface Head {
  * Bytes of a Match account the sweep reads: through the `stage` byte of the longest layout. The byte's offset moves with the two
  * optional fields before it (the outside Studio and the second side), so it cannot be a `memcmp`; the slice keeps each row small.
  */
-export const SLICE_LEN = 340;
+export const SLICE_LEN = 404;
 
 const KEY_LEN = 32;
+/** A side: Player, funder, share (u16) and the seat key. */
+const PARTY_LEN = 3 * KEY_LEN + 2;
 const TERMS_AT = 8 + 1 + 40 + 3 + KEY_LEN + KEY_LEN + 8;
 
 let discriminator: Buffer | null = null;
@@ -64,9 +66,9 @@ export function headOf(address: PublicKey, data: Buffer): Head | null {
   const deadline = Number(data.readBigInt64LE(entryAt + 16));
   const partyAt = entryAt + 32;
   const backed = !data.subarray(partyAt, partyAt + KEY_LEN).equals(data.subarray(partyAt + KEY_LEN, partyAt + 2 * KEY_LEN));
-  const bAt = partyAt + 2 * KEY_LEN + 2;
+  const bAt = partyAt + PARTY_LEN;
   const joined = data[bAt] === 1;
-  const stageAt = bAt + 1 + (joined ? 2 * KEY_LEN + 2 : 0) + 8;
+  const stageAt = bAt + 1 + (joined ? PARTY_LEN : 0) + 8;
   const stage = STAGES[data[stageAt]];
   return stage ? { address, game, stage, joined, backed, openedAt, deadline } : null;
 }

@@ -55,6 +55,7 @@ fn holdem_fixtures_match_the_program() {
     table.vrf_ready = true;
     table.game = GameMatch {
         players: [key(3), key(4)],
+        signers: [key(13), key(14)],
         speed: SPEED_TURBO,
         status: STATUS_LIVE,
         winner: NO_WINNER,
@@ -104,6 +105,7 @@ fn holdem_fixtures_match_the_program() {
         index: 3,
         epoch: 7,
         players: [key(3), key(4)],
+        signers: [key(13), key(14)],
         speed: SPEED_TURBO,
         start_deadline: 1_300,
         payer: key(8),
@@ -111,6 +113,9 @@ fn holdem_fixtures_match_the_program() {
 
     let mut hole = Hole::blank(251, key(1), 1);
     hole.player = key(4);
+    hole.signer = key(14);
+    hole.tesoro_match = key(2);
+    hole.epoch = 7;
     hole.hand_no = 3;
     hole.dealt = true;
     hole.cards = [51, 49];

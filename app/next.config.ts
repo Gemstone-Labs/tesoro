@@ -9,6 +9,8 @@ const nextConfig: NextConfig = {
     { source: "/wallet", destination: "/vault", permanent: false },
     // Play is home: the Lobby is gone. Old links, invites and emails keep their query string.
     { source: "/lobby", destination: "/play", permanent: false },
+    // The Game id stays `block-puzzle`; people type the display name.
+    { source: "/play/block-burst", destination: "/play/block-puzzle", permanent: false },
   ],
 };
 

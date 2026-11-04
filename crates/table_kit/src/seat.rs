@@ -2,6 +2,7 @@
 //! permission whose only member is the seat's Player. The delegated table is the sponsor that
 //! pays the rent, and gets it back when the seat is closed.
 
+use crate::binding::SeatKeys;
 use anchor_lang::prelude::*;
 use ephemeral_rollups_sdk::{
     access_control::{
@@ -45,17 +46,40 @@ pub fn open_private_seat<'info>(
     create_hidden_seat(a, table_seeds, seat_seeds, space, Some(player))
 }
 
-fn member_args(player: Option<Pubkey>) -> EphemeralMembersArgs {
+/// [`open_private_seat`] with the seat key as a second member.
+pub fn open_private_seat_keyed<'info>(
+    a: &SeatAccounts<'_, 'info>,
+    table_seeds: &[&[u8]],
+    seat_seeds: &[&[u8]],
+    space: u32,
+    keys: SeatKeys,
+) -> Result<()> {
+    create_hidden_seat_keyed(a, table_seeds, seat_seeds, space, Some(keys))
+}
+
+/// The seat's permission members: `[player, signer]` (one entry when equal), read flags only, so
+/// neither key can manage the permission. `None` leaves the seat with no member.
+fn member_args(keys: Option<SeatKeys>) -> EphemeralMembersArgs {
     EphemeralMembersArgs {
         is_private: true,
-        members: player
+        members: keys
+            .map(|k| k.members())
+            .unwrap_or_default()
+            .into_iter()
             .map(|pubkey| Member {
                 flags: READ_FLAGS,
                 pubkey,
             })
-            .into_iter()
             .collect(),
     }
+}
+
+/// The members a seat gets for these keys, with their flags.
+pub fn seat_members(keys: SeatKeys) -> Vec<(Pubkey, u8)> {
+    keys.members()
+        .into_iter()
+        .map(|k| (k, READ_FLAGS))
+        .collect()
 }
 
 /// Creates a seat that lives as long as its table: the account and a private permission whose
@@ -69,6 +93,23 @@ pub fn create_hidden_seat<'info>(
     space: u32,
     player: Option<Pubkey>,
 ) -> Result<()> {
+    create_hidden_seat_keyed(
+        a,
+        table_seeds,
+        seat_seeds,
+        space,
+        player.map(SeatKeys::wallet),
+    )
+}
+
+/// [`create_hidden_seat`] with members `[player, signer]`.
+pub fn create_hidden_seat_keyed<'info>(
+    a: &SeatAccounts<'_, 'info>,
+    table_seeds: &[&[u8]],
+    seat_seeds: &[&[u8]],
+    space: u32,
+    keys: Option<SeatKeys>,
+) -> Result<()> {
     EphemeralAccount::new(a.table, a.seat, a.vault)
         .with_signer_seeds(&[table_seeds, seat_seeds])
         .create(space)?;
@@ -79,7 +120,7 @@ pub fn create_hidden_seat<'info>(
         vault: a.vault.clone(),
         magic_program: a.magic_program.clone(),
         permission_program: a.permission_program.clone(),
-        args: member_args(player),
+        args: member_args(keys),
     }
     .invoke_signed(&[table_seeds, seat_seeds])?;
     Ok(())
@@ -96,6 +137,16 @@ pub fn swap_seat_members<'info>(
     seat_seeds: &[&[u8]],
     player: Option<Pubkey>,
 ) -> Result<()> {
+    swap_seat_members_keyed(a, table_seeds, seat_seeds, player.map(SeatKeys::wallet))
+}
+
+/// [`swap_seat_members`] with members `[player, signer]`.
+pub fn swap_seat_members_keyed<'info>(
+    a: &SeatAccounts<'_, 'info>,
+    table_seeds: &[&[u8]],
+    seat_seeds: &[&[u8]],
+    keys: Option<SeatKeys>,
+) -> Result<()> {
     UpdateEphemeralPermissionCpi {
         payer: a.table.clone(),
         permissioned_account: a.seat.clone(),
@@ -105,7 +156,7 @@ pub fn swap_seat_members<'info>(
         magic_program: a.magic_program.clone(),
         permission_program: a.permission_program.clone(),
         authority_is_signer: false,
-        args: member_args(player),
+        args: member_args(keys),
     }
     .invoke_signed(&[table_seeds, seat_seeds])?;
     Ok(())
