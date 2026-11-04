@@ -138,6 +138,16 @@ fn close_to(info: &AccountInfo, to: &AccountInfo) -> Result<()> {
     Ok(())
 }
 
+/// The seat page in `info`'s data: this program's, of a seat page's size and discriminator.
+fn page_in<'d>(info: &AccountInfo, data: &'d mut [u8]) -> Result<&'d mut SeatPage> {
+    require_keys_eq!(*info.owner, crate::ID, ManySeatError::WrongSeat);
+    require!(
+        data.len() == SeatPage::SPACE && data[..DISC] == *SeatPage::DISCRIMINATOR,
+        ManySeatError::WrongSeat
+    );
+    Ok(bytemuck::from_bytes_mut(&mut data[DISC..]))
+}
+
 fn is_empty(info: &AccountInfo) -> bool {
     info.owner == &system_program::ID && info.data_is_empty()
 }
@@ -376,7 +386,8 @@ pub(crate) fn join_many_seat_match<'info>(
     let system = ctx.accounts.system_program.to_account_info();
     let mark_info = ctx.accounts.seat_mark.to_account_info();
     if !is_empty(&mark_info) {
-        let mark = Account::<SeatMark>::try_from(&mark_info)?;
+        require_keys_eq!(*mark_info.owner, crate::ID, ManySeatError::WrongSeat);
+        let mark = SeatMark::try_deserialize(&mut &mark_info.try_borrow_data()?[..])?;
         return if mark.returning {
             err!(ManySeatError::StillReturning)
         } else {
@@ -407,9 +418,9 @@ pub(crate) fn join_many_seat_match<'info>(
         p.bump = ctx.bumps.seat_page;
         p.index = page;
     }
-    let pages = AccountLoader::<SeatPage>::try_from(&page_info)?;
     let slot = {
-        let p = pages.load()?;
+        let mut data = page_info.try_borrow_mut_data()?;
+        let p = page_in(&page_info, &mut data)?;
         require!(p.match_key == match_key.to_bytes(), ManySeatError::WrongSeat);
         p.seats[..slots]
             .iter()
@@ -472,7 +483,8 @@ pub(crate) fn join_many_seat_match<'info>(
         .map_or(0, |h| h.left);
 
     {
-        let mut p = pages.load_mut()?;
+        let mut data = page_info.try_borrow_mut_data()?;
+        let p = page_in(&page_info, &mut data)?;
         p.seats[slot].fill(&SeatFill {
             player: player.to_bytes(),
             funder: player.to_bytes(),
