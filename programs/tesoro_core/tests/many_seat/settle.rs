@@ -239,6 +239,7 @@ impl Env {
                 seat_page: page_pda(car.key, seat / SEATS_PER_PAGE as u8),
                 seat_mark: mark,
                 mark_payer: APk::new_from_array(mark_payer),
+                seat_key_mark: key_mark_pda(car.key, APk::new_from_array(st.signer())),
                 player_counters: counters_pda(player),
                 pot,
                 pot_payer: pot_payer_of(&self.svm, pot),

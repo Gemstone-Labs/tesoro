@@ -32,7 +32,7 @@ use crate::util::*;
 use anchor_lang::prelude::*;
 use anchor_lang::Discriminator;
 
-use super::many_seat::{close_to, create_pda, mark_in, page_in};
+use super::many_seat::{close_to, create_pda, is_empty, mark_in, page_in};
 pub use crate::ledger::many_seat::{ManySeatResult, SeatPlace, SeatRefund};
 
 /// Steps one many-seat chunk takes at most, set by its own compute test (`tests/many_seat/settle.rs`:
@@ -772,6 +772,10 @@ pub struct CloseManySeat<'info> {
     /// CHECK: receives the mark's rent; checked against the mark.
     #[account(mut)]
     pub mark_payer: UncheckedAccount<'info>,
+    /// CHECK: the seat key's marker, closed here to the mark's payer; checked by seeds against the
+    /// seat's key. Empty for a seat boarded before seat keys.
+    #[account(mut)]
+    pub seat_key_mark: UncheckedAccount<'info>,
     #[account(mut)]
     pub player_counters: Account<'info, AccountCounters>,
     /// CHECK: the seat's Pot, checked against the seat.
@@ -866,6 +870,15 @@ pub(crate) fn close_many_seat(ctx: Context<CloseManySeat>, seat: u8) -> Result<(
     }
     ctx.accounts.player_counters.open_matches =
         ctx.accounts.player_counters.open_matches.saturating_sub(1);
+    let key_info = ctx.accounts.seat_key_mark.to_account_info();
+    let (key_mark, _) = Pubkey::find_program_address(
+        &[SEAT_KEY_SEED, match_key.as_ref(), &s.signer()],
+        &crate::ID,
+    );
+    require_keys_eq!(key_mark, *key_info.key, ManySeatError::WrongSeat);
+    if !is_empty(&key_info) {
+        close_to(&key_info, &ctx.accounts.mark_payer.to_account_info())?;
+    }
     close_to(&mark_info, &ctx.accounts.mark_payer.to_account_info())?;
     emit!(ManySeatSeatClosed {
         match_state: match_key,

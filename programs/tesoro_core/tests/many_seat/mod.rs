@@ -23,6 +23,9 @@ struct Car {
 fn page_pda(car: APk, page: u8) -> APk {
     pda(&[SEAT_PAGE_SEED, car.as_ref(), &[page]])
 }
+fn key_mark_pda(car: APk, key: APk) -> APk {
+    pda(&[SEAT_KEY_SEED, car.as_ref(), key.as_ref()])
+}
 fn mark_pda(car: APk, account: APk) -> APk {
     pda(&[SEAT_SEED, car.as_ref(), account.as_ref()])
 }
@@ -125,15 +128,30 @@ impl Env {
         p: &Person,
         car: Car,
         page: u8,
-        (pot_nonce, pot_lines, pot): (u64, u32, APk),
+        pot: (u64, u32, APk),
         remaining: Vec<AccountMeta>,
     ) -> Result<u8, litesvm::types::FailedTransactionMetadata> {
+        self.board_keyed(p, car, page, pot, remaining, None)
+    }
+
+    /// Boards naming `seat_key` (a key that co-signs); `None` is a wallet that names itself.
+    fn board_keyed(
+        &mut self,
+        p: &Person,
+        car: Car,
+        page: u8,
+        (pot_nonce, pot_lines, pot): (u64, u32, APk),
+        remaining: Vec<AccountMeta>,
+        seat_key: Option<&Keypair>,
+    ) -> Result<u8, litesvm::types::FailedTransactionMetadata> {
+        let named = seat_key.map_or(p.key, |k| a(k.pubkey()));
         self.ensure_spill(&p.kp, p.account, 16 + 2 * pot_lines as usize);
         let (game_record, game_program, program_data) = self.game_accounts();
         let join = ix(
             accounts::JoinManySeatMatch {
                 payer: p.key,
                 player_authority: p.key,
+                seat_signer: named,
                 player_account: p.account,
                 counters: counters_pda(p.account),
                 protections: protections_pda(p.account),
@@ -146,6 +164,7 @@ impl Env {
                 program_data,
                 seat_page: page_pda(car.key, page),
                 seat_mark: mark_pda(car.key, p.account),
+                seat_key_mark: key_mark_pda(car.key, named),
                 system_program: anchor_lang::system_program::ID,
             },
             instruction::JoinManySeatMatch {
@@ -156,7 +175,10 @@ impl Env {
             remaining,
         );
         let kp = p.kp.insecure_clone();
-        self.send(&[join], &kp, &[])?;
+        match seat_key {
+            Some(k) => self.send(&[join], &kp, &[k])?,
+            None => self.send(&[join], &kp, &[])?,
+        };
         Ok(self.mark(car, p).expect("mark").seat)
     }
 
@@ -221,6 +243,7 @@ impl Env {
                 seat_page: page_pda(car.key, mark.seat / SEATS_PER_PAGE as u8),
                 seat_mark: mark_pda(car.key, p.account),
                 mark_payer: APk::new_from_array(mark.payer),
+                seat_key_mark: key_mark_pda(car.key, APk::new_from_array(seat.signer())),
                 player_counters: counters_pda(p.account),
                 player_protections: protections_pda(p.account),
                 pot,
@@ -803,3 +826,122 @@ fn a_step_off_returning_its_most_lines_fits_the_chunk_budget() {
     assert!(at_cap < RETURN_CU_BUDGET, "{max} lines used {at_cap} CU");
 }
 mod settle;
+
+const SEAT_KEY_SHARED: u32 = 6400 + tesoro_core::error::MatchError::SeatKeyShared as u32;
+
+/// Ana boards with seat key `ka`, Ben with `kb`; Cy boards as a wallet.
+fn keyed_car() -> (Env, Car, Vec<Person>, Keypair, Keypair) {
+    let mut env = Env::new();
+    let riders: Vec<Person> = (0..3).map(|_| env.rider(2_000)).collect();
+    let (ka, kb) = (env.fresh_key(), env.fresh_key());
+    let car = env.open_car(&riders[0], (2, 10));
+    for (p, k) in riders.iter().zip([Some(&ka), Some(&kb), None]) {
+        let page = env.page_with_room(car);
+        let nonce = env.next_ticket(p.account);
+        let pot = ticket_pda(p.account, nonce);
+        let books = env.books_of(p.account);
+        env.board_keyed(p, car, page, (nonce, 4, pot), books, k)
+            .expect("board");
+    }
+    (env, car, riders, ka, kb)
+}
+
+fn seat_of(env: &Env, car: Car, p: &Person) -> tesoro_core::ledger::many_seat::Seat {
+    let m = env.mark(car, p).expect("mark");
+    env.page(car, m.seat / SEATS_PER_PAGE as u8).seats[m.seat as usize % SEATS_PER_PAGE]
+}
+
+#[test]
+fn boarding_records_the_seat_key_and_a_wallet_records_itself() {
+    let (env, car, riders, ka, kb) = keyed_car();
+    assert_eq!(seat_of(&env, car, &riders[0]).signer(), ka.pubkey().to_bytes());
+    assert_eq!(seat_of(&env, car, &riders[1]).signer(), kb.pubkey().to_bytes());
+    assert_eq!(seat_of(&env, car, &riders[2]).signer(), riders[2].key.to_bytes());
+    for p in &riders {
+        let st = seat_of(&env, car, p);
+        assert_eq!(st.player(), p.account.to_bytes());
+        let marker = key_mark_pda(car.key, APk::new_from_array(st.signer()));
+        assert!(env.svm.get_account(&s(marker)).is_some_and(|m| m.lamports > 0));
+    }
+}
+
+#[test]
+fn a_seat_key_another_seat_uses_is_refused_at_boarding() {
+    let (mut env, car, _riders, ka, _kb) = keyed_car();
+    let dee = env.rider(2_000);
+    let page = env.page_with_room(car);
+    let nonce = env.next_ticket(dee.account);
+    let pot = ticket_pda(dee.account, nonce);
+    let books = env.books_of(dee.account);
+    let err = env
+        .board_keyed(&dee, car, page, (nonce, 4, pot), books, Some(&ka))
+        .unwrap_err();
+    assert_eq!(custom_code(&err), SEAT_KEY_SHARED);
+}
+
+#[test]
+fn a_wallet_cannot_be_named_as_a_second_seats_key() {
+    let (mut env, car, riders, _ka, _kb) = keyed_car();
+    // Cy's wallet already plays Cy's seat: Dee cannot name it as her key either
+    let dee = env.rider(2_000);
+    let cy = riders[2].kp.insecure_clone();
+    let page = env.page_with_room(car);
+    let nonce = env.next_ticket(dee.account);
+    let pot = ticket_pda(dee.account, nonce);
+    let books = env.books_of(dee.account);
+    let err = env
+        .board_keyed(&dee, car, page, (nonce, 4, pot), books, Some(&cy))
+        .unwrap_err();
+    assert_eq!(custom_code(&err), SEAT_KEY_SHARED);
+}
+
+#[test]
+fn the_seat_key_steps_its_own_rider_off_and_frees_the_key() {
+    let (mut env, car, riders, ka, _kb) = keyed_car();
+    env.step_off(&ka, car, &riders[0]).expect("seat key steps off");
+    assert_eq!(env.total_gemas(&riders[0]), 2_000);
+    assert!(env.mark(car, &riders[0]).is_none());
+    let marker = key_mark_pda(car.key, a(ka.pubkey()));
+    assert!(env.svm.get_account(&s(marker)).is_none_or(|m| m.lamports == 0));
+    // the key can board again
+    let page = env.page_with_room(car);
+    let nonce = env.next_ticket(riders[0].account);
+    let pot = ticket_pda(riders[0].account, nonce);
+    let books = env.books_of(riders[0].account);
+    env.board_keyed(&riders[0], car, page, (nonce, 4, pot), books, Some(&ka))
+        .expect("re-board");
+}
+
+#[test]
+fn the_wallet_steps_off_a_seat_that_names_a_key() {
+    let (mut env, car, riders, _ka, _kb) = keyed_car();
+    let w = riders[1].kp.insecure_clone();
+    env.step_off(&w, car, &riders[1]).expect("wallet steps off");
+    assert_eq!(env.total_gemas(&riders[1]), 2_000);
+}
+
+#[test]
+fn another_riders_key_a_stranger_and_an_old_key_cannot_step_a_rider_off() {
+    let (mut env, car, riders, ka, kb) = keyed_car();
+    let stranger = env.fresh_key();
+    for k in [&kb, &stranger] {
+        let err = env.step_off(k, car, &riders[0]).unwrap_err();
+        assert_eq!(custom_code(&err), seat_err(ManySeatError::NotYourSeat));
+    }
+    // Cy's wallet seat: Ana's key is nobody there
+    let err = env.step_off(&ka, car, &riders[2]).unwrap_err();
+    assert_eq!(custom_code(&err), seat_err(ManySeatError::NotYourSeat));
+    // a key from an earlier car does not carry over
+    let old = env.fresh_key();
+    let ben = env.rider(2_000);
+    let car2 = env.open_car(&ben, (2, 10));
+    let page = env.page_with_room(car2);
+    let nonce = env.next_ticket(ben.account);
+    let pot = ticket_pda(ben.account, nonce);
+    let books = env.books_of(ben.account);
+    env.board_keyed(&ben, car2, page, (nonce, 4, pot), books, Some(&old))
+        .expect("board car 2");
+    let err = env.step_off(&old, car, &riders[0]).unwrap_err();
+    assert_eq!(custom_code(&err), seat_err(ManySeatError::NotYourSeat));
+    assert_eq!(env.total_gemas(&riders[0]), 1_500);
+}

@@ -172,7 +172,7 @@ fn id_of_seed(seed: &[u8; 40]) -> MatchId {
     }
 }
 
-fn is_empty(info: &AccountInfo) -> bool {
+pub(crate) fn is_empty(info: &AccountInfo) -> bool {
     info.owner == &system_program::ID && info.data_is_empty()
 }
 
@@ -307,6 +307,8 @@ pub struct JoinManySeatMatch<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     pub player_authority: Signer<'info>,
+    /// The seat key that plays this seat; the wallet itself when it wants none.
+    pub seat_signer: Signer<'info>,
     #[account(
         seeds = [ACCOUNT_SEED, player_authority.key().as_ref()],
         bump = player_account.bump
@@ -369,6 +371,13 @@ pub struct JoinManySeatMatch<'info> {
         bump
     )]
     pub seat_mark: UncheckedAccount<'info>,
+    /// CHECK: the seat key's marker in this car; must not exist yet, created here.
+    #[account(
+        mut,
+        seeds = [SEAT_KEY_SEED, match_state.key().as_ref(), seat_signer.key().as_ref()],
+        bump
+    )]
+    pub seat_key_mark: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -418,6 +427,23 @@ pub(crate) fn join_many_seat_match<'info>(
             err!(ManySeatError::AlreadySeated)
         };
     }
+
+    // one seat per seat key: a key another seat of this car already uses is refused
+    let key_info = ctx.accounts.seat_key_mark.to_account_info();
+    require!(is_empty(&key_info), MatchError::SeatKeyShared);
+    let key_bump = [ctx.bumps.seat_key_mark];
+    create_pda(
+        &key_info,
+        &payer,
+        &system,
+        &[
+            SEAT_KEY_SEED,
+            match_key.as_ref(),
+            ctx.accounts.seat_signer.key.as_ref(),
+            &key_bump,
+        ],
+        0,
+    )?;
 
     // the page and the lowest free slot in it
     let page_info = ctx.accounts.seat_page.to_account_info();
@@ -520,6 +546,7 @@ pub(crate) fn join_many_seat_match<'info>(
         p.seats[slot].fill(&SeatFill {
             player: player.to_bytes(),
             funder: player.to_bytes(),
+            signer: ctx.accounts.seat_signer.key().to_bytes(),
             share_bps: 0,
             pot: pot_info.key.to_bytes(),
             pot_lines: lines,
@@ -681,6 +708,10 @@ pub struct StepOffManySeatMatch<'info> {
     /// CHECK: receives the mark's rent once the lines are home; checked against the mark.
     #[account(mut)]
     pub mark_payer: UncheckedAccount<'info>,
+    /// CHECK: the seat key's marker, closed here to the mark's payer; checked by seeds against the
+    /// seat's key. Absent (empty) for a seat boarded before seat keys.
+    #[account(mut)]
+    pub seat_key_mark: UncheckedAccount<'info>,
     #[account(
         mut,
         seeds = [COUNTERS_SEED, seat_mark.load()?.account.as_ref()],
@@ -749,8 +780,6 @@ pub(crate) fn step_off_many_seat_match<'info>(
         )
     };
     let caller = ctx.accounts.caller.key();
-    let callers_account =
-        Pubkey::find_program_address(&[ACCOUNT_SEED, caller.as_ref()], &crate::ID).0;
     let upgraded = match (
         &ctx.accounts.game_record,
         &ctx.accounts.game_program,
@@ -767,7 +796,11 @@ pub(crate) fn step_off_many_seat_match<'info>(
         _ => false,
     };
     require!(
-        callers_account.to_bytes() == s.player()
+        acts_for(
+            &Pubkey::new_from_array(s.player()),
+            &caller,
+            &Pubkey::new_from_array(s.signer()),
+        )
             || caller.to_bytes() == settle_authority
             || ts >= boarding_ends
             || upgraded
@@ -791,6 +824,19 @@ pub(crate) fn step_off_many_seat_match<'info>(
         )?;
     }
     ctx.accounts.seat_page.load_mut()?.seats[slot].clear();
+    let key_info = ctx.accounts.seat_key_mark.to_account_info();
+    let (key_mark, _) = Pubkey::find_program_address(
+        &[SEAT_KEY_SEED, match_key.as_ref(), &s.signer()],
+        &crate::ID,
+    );
+    require_keys_eq!(key_mark, *key_info.key, ManySeatError::WrongSeat);
+    if !is_empty(&key_info) {
+        require!(
+            ctx.accounts.mark_payer.key.to_bytes() == mark.payer,
+            TesoroError::InvalidAccount
+        );
+        close_to(&key_info, &ctx.accounts.mark_payer.to_account_info())?;
+    }
     mark.returning = 1;
     mark.match_seed = id.seed();
     mark.funder = s.funder();

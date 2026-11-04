@@ -351,6 +351,8 @@ pub enum SeatState {
 pub struct SeatFill {
     pub player: Key,
     pub funder: Key,
+    /// The seat key that plays the seat (the Player's own wallet when it named none).
+    pub signer: Key,
     /// The Player's share of a Backed seat's winnings (0 when unbacked).
     pub share_bps: u16,
     /// The Pot account holding the seat's entry lines, and how many lines it held.
@@ -382,13 +384,14 @@ pub struct Seat {
     pub player: [u8; 32],
     pub funder: [u8; 32],
     pub pot: [u8; 32],
+    pub signer: [u8; 32],
     pub reserved: [u8; 24],
 }
 
 const SEATED: u8 = 1;
 
 impl Seat {
-    pub const LEN: usize = 160;
+    pub const LEN: usize = 192;
 
     pub fn zeroed() -> Self {
         bytemuck::Zeroable::zeroed()
@@ -415,6 +418,7 @@ impl Seat {
         self.player = f.player;
         self.funder = f.funder;
         self.pot = f.pot;
+        self.signer = f.signer;
     }
 
     pub fn clear(&mut self) {
@@ -429,6 +433,9 @@ impl Seat {
     }
     pub fn pot(&self) -> Key {
         self.pot
+    }
+    pub fn signer(&self) -> Key {
+        self.signer
     }
     pub fn share_bps(&self) -> u16 {
         u16::from_le_bytes(self.share_bps)
