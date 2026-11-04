@@ -335,7 +335,10 @@ const PRECEDED: &[&str] = &[
 ];
 
 fn core_idl() -> serde_json::Value {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/idl/tesoro_core.json");
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../target/idl/tesoro_core.json"
+    );
     serde_json::from_slice(&std::fs::read(path).expect("build the IDL: pnpm build:programs"))
         .expect("idl")
 }
@@ -363,7 +366,15 @@ fn wallet_slot_ix(name: &str, holder: APk, other_signer: APk) -> (Instruction, S
             .map(|v| {
                 v.iter()
                     .filter(|sd| sd["kind"] == "account")
-                    .map(|sd| sd["path"].as_str().unwrap().split('.').next().unwrap().to_string())
+                    .map(|sd| {
+                        sd["path"]
+                            .as_str()
+                            .unwrap()
+                            .split('.')
+                            .next()
+                            .unwrap()
+                            .to_string()
+                    })
                     .collect()
             })
             .unwrap_or_default()
@@ -387,8 +398,7 @@ fn wallet_slot_ix(name: &str, holder: APk, other_signer: APk) -> (Instruction, S
         } else if x["pda"].is_object()
             && x["pda"]["seeds"].as_array().unwrap().iter().all(|sd| {
                 sd["kind"] == "const"
-                    || (sd["kind"] == "account"
-                        && keys.contains_key(sd["path"].as_str().unwrap()))
+                    || (sd["kind"] == "account" && keys.contains_key(sd["path"].as_str().unwrap()))
             })
         {
             let seeds: Vec<Vec<u8>> = x["pda"]["seeds"]
@@ -420,7 +430,17 @@ fn wallet_slot_ix(name: &str, holder: APk, other_signer: APk) -> (Instruction, S
         keys.insert(n.clone(), key);
         let optional = x["optional"] == true;
         metas.push(AccountMeta {
-            pubkey: s(if optional && !x["signer"].as_bool().unwrap_or(false) && x["pda"].is_null() && x["address"].is_null() { tesoro_core::ID } else { key }),
+            pubkey: s(
+                if optional
+                    && !x["signer"].as_bool().unwrap_or(false)
+                    && x["pda"].is_null()
+                    && x["address"].is_null()
+                {
+                    tesoro_core::ID
+                } else {
+                    key
+                },
+            ),
             is_signer: x["signer"] == true,
             is_writable: x["writable"] == true,
         });
@@ -457,7 +477,10 @@ fn every_wallet_only_instruction_is_refused_for_a_seat_key_that_an_open_match_na
     let ana_key = d.env.fresh_key();
     let payer = d.env.fresh_key();
     d.env.name_seat(&ana_key);
-    let id = d.env.open_match(&d.alice, 500).expect("ana opens with her seat key");
+    let id = d
+        .env
+        .open_match(&d.alice, 500)
+        .expect("ana opens with her seat key");
     assert_eq!(d.env.mstate(id).inner.a.signer, key_of(&ana_key).to_bytes());
     let wallet = d.alice.kp.insecure_clone();
     for name in WALLET_ONLY {
