@@ -26,6 +26,7 @@ import { recoverCompletions } from "./completion";
 import { Assigner, MemoryLeaseStore } from "./assign";
 import { MATCH_STATE_FIXTURE } from "./assign-fixture";
 import { assignMatchIx } from "./assign-ix";
+import { joinMatchIx as joinMatchIxOf } from "@/lib/chain/entry";
 import { ComputeBudgetProgram, TransactionMessage } from "@solana/web3.js";
 import { GAME_IDS } from "@/lib/chain/games";
 
@@ -1017,19 +1018,22 @@ describe("join and assign in one transaction", () => {
   });
 });
 
-describe("the worst sponsored entry stays inside one packet", () => {
-  // relayer pays; the Player signs the join, the operator signs the assignment; a seat key that is not the wallet adds one
-  // account key (32 B) and one signature (64 B)
-  const sizeOf = async (backed: boolean, seatKey: boolean) => {
-    const relayer = key(), player = key(), game = new PublicKey("5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj");
-    const join = await joinMatchIx(relayer, player, game);
-    if (backed) {
-      const at = (name: string) => (coreIdl.instructions.find((i) => i.name === "join_match")!.accounts as { name: string }[]).findIndex((a) => a.name === name);
-      for (const name of ["offer", "backer_account", "backer_counters", "backer_protections", "backer_basket", "backer_spill"]) join.keys[at(name)] = { pubkey: key(), isSigner: false, isWritable: true };
-    }
-    if (seatKey) join.keys[2] = { pubkey: key(), isSigner: true, isWritable: false };
-    const operator = key();
-    const assign = assignMatchIx("block-puzzle", { operator, match: join.keys[9].pubkey, accountA: key(), accountB: key(), pick: { generation: 1, index: 0, epoch: 3n } });
+describe("the sponsored entry's size with a seat key", () => {
+  // the real client builder, relayer paying; the Player signs the join and the operator the assignment. A seat key that is not
+  // the wallet adds one account key (32 B) and one signature (64 B).
+  const sizeOf = (backed: boolean, seatKey: boolean) => {
+    const relayer = key(), opener = key(), backer = key();
+    const game = "block-puzzle" as const;
+    const join = joinMatchIxOf({
+      payer: relayer,
+      player: key(),
+      match: { opener: key(), n: 3n } as never,
+      facts: { game: GAME_IDS[game], openerPlayer: opener, openerFunder: backed ? backer : opener } as never,
+      pot: { address: key(), nonce: 4n, lines: 4 } as never,
+      backing: backed ? ({ offer: key(), backerAccount: backer } as never) : undefined,
+      seatSigner: seatKey ? key() : undefined,
+    });
+    const assign = assignMatchIx(game, { operator: key(), match: join.keys[9].pubkey, accountA: opener, accountB: key(), pick: { generation: 1, index: 0, epoch: 3n } });
     const message = new TransactionMessage({
       payerKey: relayer,
       recentBlockhash: key().toBase58(),
@@ -1038,14 +1042,11 @@ describe("the worst sponsored entry stays inside one packet", () => {
     return new VersionedTransaction(message).serialize().length;
   };
 
-  it("measures join + assignment, plain and Backed, with and without a seat key, with no lookup table", async () => {
-    const sizes = {
-      plain: await sizeOf(false, false),
-      plainSeat: await sizeOf(false, true),
-      backed: await sizeOf(true, false),
-      backedSeat: await sizeOf(true, true),
-    };
-    console.info("sponsored entry bytes (no lookup table)", JSON.stringify(sizes));
-    for (const [name, size] of Object.entries(sizes)) expect(size, name).toBeLessThanOrEqual(1232);
+  it("a seat key adds 96 bytes; plain join + assignment still fits without a lookup table, Backed needs one", () => {
+    const sizes = { plain: sizeOf(false, false), plainSeat: sizeOf(false, true), backed: sizeOf(true, false), backedSeat: sizeOf(true, true) };
+    console.info("sponsored entry bytes, no lookup table", JSON.stringify(sizes));
+    expect(sizes.plainSeat - sizes.plain).toBe(96);
+    expect(sizes.backedSeat - sizes.backed).toBe(96);
+    expect(sizes.plainSeat).toBeLessThanOrEqual(1232);
   });
 });

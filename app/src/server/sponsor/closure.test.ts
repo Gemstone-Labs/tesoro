@@ -125,13 +125,13 @@ describe("the seed of what an instruction creates", () => {
 describe("the account slots and argument offsets a seed is read from", () => {
   const ix = (name: string) => (coreIdl.instructions as { name: string; accounts: { name: string }[]; args: { name: string; type: unknown }[] }[]).find((i) => i.name === name)!;
   it("match the deployed IDL", () => {
-    expect(ix("open_match").accounts[13].name).toBe("match_state");
-    expect(ix("open_match").accounts[7].name).toBe("player_account");
+    expect(ix("open_match").accounts[14].name).toBe("match_state");
+    expect(ix("open_match").accounts[8].name).toBe("player_account");
     expect(ix("open_match").args.slice(0, 3).map((a) => a.name)).toEqual(["game", "entry", "n"]);
-    expect(ix("open_ticket").accounts[6].name).toBe("ticket");
-    expect(ix("open_ticket").accounts[3].name).toBe("owner");
+    expect(ix("open_ticket").accounts[7].name).toBe("ticket");
+    expect(ix("open_ticket").accounts[4].name).toBe("owner");
     expect(ix("open_ticket").args[0].name).toBe("nonce");
-    expect(ix("join_match").accounts[8].name).toBe("match_state");
+    expect(ix("join_match").accounts[9].name).toBe("match_state");
     expect(ix("open_ticket").accounts.map((a) => a.name)).toContain("counters");
   });
 });
