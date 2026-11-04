@@ -282,3 +282,194 @@ fn a_joiners_seat_key_cannot_refund_the_match_it_joined_before_the_deadline() {
     assert_eq!(custom_code(&err), core(CoreError::NotExpired));
     assert_eq!(d.env.mstate(id).inner.stage(), Stage::Active);
 }
+
+// --- Everything in code-map §5 stays wallet-only --------------------------------------------------
+
+/// Instructions that move value out of the Account, create debt, loosen Protections or rebind
+/// identity and payout addresses. Each takes the Player's wallet as a signer and derives the
+/// Player's Account from it (`seeds = [ACCOUNT_SEED, <signer>]`), so a seat key, which is nobody's
+/// wallet, has no Account to act for. Not in the list: `cancel_instant_redeem` (compares the
+/// signer with the order's owner wallet, `instant.rs`) and `create_account` (a key can only create
+/// the Account derived from itself).
+const WALLET_ONLY: &[&str] = &[
+    "redeem",
+    "unlock",
+    "redeem_prize",
+    "begin_prize_payout_from_source",
+    "request_instant_redeem",
+    "return_own",
+    "claim_free_yield",
+    "open_native_position",
+    "open_stake_position",
+    "take_native_advance",
+    "take_stake_advance",
+    "extend_native_advance",
+    "extend_stake_advance",
+    "create_offer",
+    "accept_offer",
+    "create_request",
+    "cancel_request",
+    "cancel_offer",
+    "set_entry_limit",
+    "set_break",
+    "set_self_exclusion",
+    "set_extend_limit",
+    "set_evm_address",
+    "set_name_evm",
+    "set_name_wallet",
+    "set_profile",
+    "shrink_store",
+];
+
+fn core_idl() -> serde_json::Value {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/idl/tesoro_core.json");
+    serde_json::from_slice(&std::fs::read(path).expect("build the IDL: pnpm build:programs"))
+        .expect("idl")
+}
+
+/// Builds `name` from the IDL with `holder` in the Player's signer slot and every account the
+/// seeds can derive from it derived; other accounts are fresh addresses (they do not exist). The
+/// name of the account derived from the signer is returned with it.
+fn wallet_slot_ix(name: &str, holder: APk, other_signer: APk) -> (Instruction, String) {
+    let idl = core_idl();
+    let item = idl["instructions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["name"] == name)
+        .unwrap_or_else(|| panic!("{name} is not in the IDL"));
+    let accs = item["accounts"].as_array().unwrap();
+    let signers: Vec<&str> = accs
+        .iter()
+        .filter(|x| x["signer"] == true)
+        .map(|x| x["name"].as_str().unwrap())
+        .collect();
+    let seed_path = |x: &serde_json::Value| -> Vec<String> {
+        x["pda"]["seeds"]
+            .as_array()
+            .map(|v| {
+                v.iter()
+                    .filter(|sd| sd["kind"] == "account")
+                    .map(|sd| sd["path"].as_str().unwrap().split('.').next().unwrap().to_string())
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let player_signer = accs
+        .iter()
+        .flat_map(seed_path)
+        .find(|p| signers.contains(&p.as_str()))
+        .unwrap_or_else(|| panic!("{name}: no account is derived from a signer"));
+    let mut keys: std::collections::BTreeMap<String, APk> = Default::default();
+    let mut bound = String::new();
+    let mut metas = vec![];
+    for x in accs {
+        let n = x["name"].as_str().unwrap().to_string();
+        let key = if n == player_signer {
+            holder
+        } else if x["signer"] == true {
+            other_signer
+        } else if let Some(addr) = x["address"].as_str() {
+            addr.parse().unwrap()
+        } else if x["pda"].is_object()
+            && x["pda"]["seeds"].as_array().unwrap().iter().all(|sd| {
+                sd["kind"] == "const"
+                    || (sd["kind"] == "account"
+                        && keys.contains_key(sd["path"].as_str().unwrap()))
+            })
+        {
+            let seeds: Vec<Vec<u8>> = x["pda"]["seeds"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|sd| {
+                    if sd["kind"] == "const" {
+                        sd["value"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .map(|b| b.as_u64().unwrap() as u8)
+                            .collect()
+                    } else {
+                        keys[sd["path"].as_str().unwrap()].to_bytes().to_vec()
+                    }
+                })
+                .collect();
+            let refs: Vec<&[u8]> = seeds.iter().map(|v| v.as_slice()).collect();
+            let k = APk::find_program_address(&refs, &tesoro_core::ID).0;
+            if seed_path(x).contains(&player_signer) && bound.is_empty() {
+                bound = n.clone();
+            }
+            k
+        } else {
+            APk::new_unique()
+        };
+        keys.insert(n.clone(), key);
+        let optional = x["optional"] == true;
+        metas.push(AccountMeta {
+            pubkey: s(if optional && !x["signer"].as_bool().unwrap_or(false) && x["pda"].is_null() && x["address"].is_null() { tesoro_core::ID } else { key }),
+            is_signer: x["signer"] == true,
+            is_writable: x["writable"] == true,
+        });
+    }
+    let disc: Vec<u8> = item["discriminator"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b.as_u64().unwrap() as u8)
+        .collect();
+    let mut data = disc;
+    data.extend(vec![0u8; 2048]);
+    (
+        Instruction {
+            program_id: s(tesoro_core::ID),
+            accounts: metas,
+            data,
+        },
+        bound,
+    )
+}
+
+fn error_account(err: &litesvm::types::FailedTransactionMetadata) -> Option<String> {
+    err.meta.logs.iter().find_map(|l| {
+        l.split("caused by account: ")
+            .nth(1)
+            .map(|r| r.split('.').next().unwrap().trim().to_string())
+    })
+}
+
+#[test]
+fn every_wallet_only_instruction_is_refused_for_a_seat_key_that_an_open_match_names() {
+    let mut d = duel();
+    let ana_key = d.env.fresh_key();
+    let payer = d.env.fresh_key();
+    d.env.name_seat(&ana_key);
+    let id = d.env.open_match(&d.alice, 500).expect("ana opens with her seat key");
+    assert_eq!(d.env.mstate(id).inner.a.signer, key_of(&ana_key).to_bytes());
+    let wallet = d.alice.kp.insecure_clone();
+    for name in WALLET_ONLY {
+        // the seat key in the wallet slot: the Account derived from it does not exist
+        let (ix_k, bound) = wallet_slot_ix(name, key_of(&ana_key), key_of(&payer));
+        let err = d
+            .env
+            .send(&[ix_k], &payer, &[&ana_key])
+            .expect_err(&format!("{name} must refuse a seat key"));
+        assert_eq!(
+            error_account(&err).as_deref(),
+            Some(bound.as_str()),
+            "{name}: refused on the Account derived from the signer, not for another reason\n{:?}",
+            err.meta.logs
+        );
+        // the control: the wallet that has an Account is not stopped at that account
+        let (ix_w, _) = wallet_slot_ix(name, d.alice.key, key_of(&payer));
+        let outcome = d.env.send(&[ix_w], &payer, &[&wallet]);
+        if let Err(e) = outcome {
+            assert_ne!(
+                error_account(&e).as_deref(),
+                Some(bound.as_str()),
+                "{name}: the wallet's own Account was refused too\n{:?}",
+                e.meta.logs
+            );
+        }
+    }
+}
