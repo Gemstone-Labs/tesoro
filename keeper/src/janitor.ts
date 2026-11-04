@@ -168,11 +168,11 @@ function awayStep(ctx: Ctx, d: JanitorDeps, step: AwayStep) {
   }
   if (step.kind === "cancel-request") {
     return act(ctx, "janitor", `request=${shortKey(step.request)}`, `clear_request (owner ${owner} is away)`, async () =>
-      d.send([await clearRequestIx(ctx.core, { caller: ctx.payer.publicKey, request: step.request, protections })]),
+      d.send([await clearRequestIx(ctx.core, { caller: ctx.payer.publicKey, request: step.request, protections })], { units: 200_000 }),
     );
   }
   return act(ctx, "janitor", `offer=${shortKey(step.offer)}`, `expire_offer (Backer ${owner} is away)`, async () =>
-    d.send([await expireOfferIx(ctx.core, { caller: ctx.payer.publicKey, backerAccount: step.owner, offer: step.offer, request: step.request, backerProtections: protections })]),
+    d.send([await expireOfferIx(ctx.core, { caller: ctx.payer.publicKey, backerAccount: step.owner, offer: step.offer, request: step.request, backerProtections: protections })], { units: 300_000 }),
   );
 }
 
