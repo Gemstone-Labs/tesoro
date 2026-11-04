@@ -802,3 +802,4 @@ fn a_step_off_returning_its_most_lines_fits_the_chunk_budget() {
     let at_cap = sweep.iter().find(|(k, _)| *k == max).expect("cap").1;
     assert!(at_cap < RETURN_CU_BUDGET, "{max} lines used {at_cap} CU");
 }
+mod settle;
