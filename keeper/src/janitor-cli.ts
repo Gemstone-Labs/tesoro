@@ -11,7 +11,8 @@ import { buildRuntime, clusterNow, newConnection, solanaFetch } from "./runtime.
 
 /**
  * The daily janitor, started by a systemd timer. Closes expired sponsored Tickets, old receipts, old pair counters and
- * spent Assignments, refreshes broken Listings and publishes the trailing APY (see janitor.ts), then exits: 0 when every
+ * spent Assignments, refreshes broken Listings, publishes the trailing APY and cleans up after Accounts on a Break or
+ * Self-Excluded (see janitor.ts), then exits: 0 when every
  * part ran, 1 when one failed (the unit shows as failed, which is what the alert watches).
  * `--dry-run` prints what it would do and sends nothing. `--only tickets,receipts` runs just those parts.
  */

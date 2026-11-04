@@ -125,6 +125,9 @@ export const ROWS: Readonly<Record<string, Row>> = {
   claim_free_yield: { class: "exit", relayer: [], cu: 300_000, playerSigns: true },
   cancel_offer: { class: "exit", relayer: [], cu: 300_000, playerSigns: true },
   cancel_request: { class: "exit", relayer: [], cu: 100_000, playerSigns: true },
+  // Ticket 27: a Break or Self-Exclusion is the Player's own protection. The Player signs as the authority, the relayer only pays the fee.
+  set_break: { class: "exit", relayer: [], cu: 100_000, playerSigns: true },
+  set_self_exclusion: { class: "exit", relayer: [], cu: 100_000, playerSigns: true },
   cancel_instant_redeem: { class: "exit", relayer: ["owner_wallet"], cu: 400_000, extra: 12, playerSigns: true },
   expire_instant_redeem: { class: "exit", relayer: ["owner_wallet"], cu: 400_000, extra: 12, playerSigns: true },
   // The beginner pack and "return Gemas": the Player's own rent (Position, Source, book) stays the Player's, so the relayer only
@@ -168,6 +171,18 @@ export const TX_SHAPES: readonly (readonly string[])[] = [
   ["open_native_position", "take_native_advance"],
   ["open_stake_position", "take_stake_advance"],
 ];
+
+/**
+ * Ticket 27, starting a Break or Self-Exclusion: the Player's transaction may also carry the clean-up of what they left open
+ * (their unjoined Matches refunded, Requests withdrawn, Offers released), up to `MAX_CLEANUP` steps, with the Break or
+ * Self-Exclusion first when it travels too. The chain lets each step through only for the signer's own items.
+ */
+export const CLEANUP_STEPS = ["refund_match", "cancel_request", "cancel_offer"] as const;
+export const MAX_CLEANUP = MAX_GROWS;
+const isCleanupShape = (names: string[]) => {
+  const rest = names[0] === "set_break" || names[0] === "set_self_exclusion" ? names.slice(1) : names;
+  return names.length > 1 && rest.length > 0 && rest.length <= MAX_CLEANUP && rest.every((n) => (CLEANUP_STEPS as readonly string[]).includes(n));
+};
 
 /** A Game's instructions: the relayer is never an account of one, and only the Player signs. */
 export const MAX_GAME_IXS = 4;
@@ -464,7 +479,7 @@ export function planCore(ixs: Ix[], relayer: PublicKey, inviteKey?: PublicKey): 
     if (order.indexOf(row.class) > order.indexOf(cls)) cls = row.class;
   }
 
-  if (!TX_SHAPES.some((s) => s.length === names.length && s.every((n, i) => n === names[i]))) {
+  if (!TX_SHAPES.some((s) => s.length === names.length && s.every((n, i) => n === names[i])) && !isCleanupShape(names)) {
     throw new RuleError("bad-shape", `${names.join(" + ")} is not a transaction we pay for.`);
   }
   if (names.length === 2 && names[0] === "open_ticket" && names[1] === "stage_entry") {

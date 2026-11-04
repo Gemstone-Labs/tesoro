@@ -491,3 +491,30 @@ describe("stake pool update in front of a staking-token payout", () => {
     refused([update(), ata()], "bad-shape");
   });
 });
+
+describe("Break and Self-Exclusion clean-up (keeper diet ticket 27)", () => {
+  const refund = () => coreIx("refund_match", [], { caller: player, payer: relayer, gameProgram: game, programData: key(), gameRecord: key(), matchState: key(), openerProtections: null });
+  it("a Break and a Self-Exclusion are the Player's own exits: the Player signs, the relayer only pays the fee", async () => {
+    for (const name of ["set_break", "set_self_exclusion"]) {
+      const ix = await coreIx(name, [3], { ownerAuthority: player });
+      expect(plan([ix])).toMatchObject({ names: [name], class: "exit", playerSigns: true });
+      const withRelayer = await coreIx(name, [3], { ownerAuthority: relayer });
+      refused([withRelayer], "relayer-in-accounts");
+    }
+  });
+  it("a bundle of refunds, withdrawn Requests and released Offers travels in one transaction", async () => {
+    const ixs = [await refund(), await playerIx.cancelRequest(player), await playerIx.cancelOffer(player), await playerIx.cancelRequest(player)];
+    expect(plan(ixs)).toMatchObject({ names: ["refund_match", "cancel_request", "cancel_offer", "cancel_request"], class: "exit", playerSigns: true });
+  });
+  it("the Break itself may open a bundle, and nothing else may be mixed in", async () => {
+    const brk = await coreIx("set_break", [3], { ownerAuthority: player });
+    expect(plan([brk, await playerIx.cancelRequest(player)]).names).toEqual(["set_break", "cancel_request"]);
+    refused([await playerIx.cancelRequest(player), brk], "bad-shape");
+    refused([await playerIx.cancelRequest(player), await playerIx.redeem(player)], "bad-shape");
+    refused([await playerIx.cancelRequest(player), await openMatchIx(relayer, player, game)], "bad-shape");
+  });
+  it("a bundle of another Player's items is refused: the cancel instructions need the signer to own them", async () => {
+    // the chain enforces ownership; the sponsor insists the signer is a Player, never the relayer
+    refused([await playerIx.cancelRequest(relayer), await playerIx.cancelRequest(player)], "relayer-in-accounts");
+  });
+});

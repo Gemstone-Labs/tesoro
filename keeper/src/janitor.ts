@@ -1,9 +1,11 @@
 import { PublicKey } from "@solana/web3.js";
 import { settledPda } from "../../app/src/lib/chain/basket.ts";
+import { awayAccounts, planAway, type AwayStep } from "../../app/src/lib/chain/away-plan.ts";
+import { protectionsPda } from "../../app/src/lib/chain/native.ts";
 import { act, log, type Ctx } from "./act.ts";
-import { refreshListingIx } from "./core-ix.ts";
+import { clearRequestIx, expireOfferIx, refreshListingIx, refundMatchIx } from "./core-ix.ts";
 import { shortKey } from "./env.ts";
-import { gameRecordOf } from "./kit.ts";
+import { gameRecordOf, keyOf } from "./kit.ts";
 import { assignmentClosable } from "./scheduler.ts";
 import { closeOldPairs, closeOldReceipts, groupsOf } from "./reclaim.ts";
 import { listedGameOf, listingOutcome, listingStep, type SweepDeps } from "./sweeps.ts";
@@ -11,11 +13,11 @@ import { ticketJob, type TicketDeps } from "./tickets.ts";
 
 /**
  * The daily janitor: Tesoro's own rent and Listings. One run reads what is due, sends it and exits (a timer starts it
- * once a day). Six independent parts; a part with nothing due does nothing, and one that throws does not stop the others.
+ * once a day). Seven independent parts; a part with nothing due does nothing, and one that throws does not stop the others.
  * Every scan goes through the sliced V2 lister in `deps.list`.
  */
 
-export const PARTS = ["tickets", "receipts", "pairs", "assignments", "listings", "apy"] as const;
+export const PARTS = ["tickets", "receipts", "pairs", "assignments", "listings", "apy", "away"] as const;
 export type PartName = (typeof PARTS)[number];
 
 export interface PartReport {
@@ -123,7 +125,58 @@ const apy: Part = async (ctx, d) => {
   return { actions: 1, note: await d.publishApy() };
 };
 
-const IMPL: Record<PartName, Part> = { tickets, receipts, pairs, assignments, listings, apy };
+const num = (n: { toString(): string }) => Number(n.toString());
+const nameOf = (o: object) => Object.keys(o)[0].toLowerCase();
+
+/**
+ * Backstop for Break and Self-Exclusion (ADR 0012): a Player who starts one cleans up in their own transaction, so this finds
+ * what a direct transaction or a race left open for an Account that is away: an unpaired Match, an open Request, an open
+ * or accepted Offer. Every step is permissionless on chain with the owner's Protections account. It reads only the (small)
+ * Protections accounts unless somebody is away, and logs each step it takes, because a find here means the Player's own cleanup missed it.
+ */
+const away: Part = async (ctx, d) => {
+  const decode = (name: string, data: Buffer): any => ctx.core.coder.accounts.decode(name, data);
+  const protections = (await d.list("ProtectionsState")).map((r) => decode("protectionsState", r.data));
+  const set = awayAccounts(protections.map((p) => ({ account: keyOf(p.account), breakUntil: num(p.inner.breakUntil), selfExclusionUntil: num(p.inner.selfExclusionUntil) })), ctx.now);
+  if (!set.size) return { actions: 0, note: "nobody is away" };
+  const [matches, requests, offers] = await Promise.all([d.list("MatchState"), d.list("RequestState"), d.list("OfferState")]);
+  const plan = planAway(
+    set,
+    matches.map((r) => {
+      const m = decode("matchState", r.data);
+      return { id: r.pubkey.toBase58(), stage: nameOf(m.inner.stage) as "open", game: keyOf(m.inner.game), opener: keyOf(m.inner.a.player) };
+    }),
+    requests.map((r) => ({ address: r.pubkey, status: nameOf(decode("requestState", r.data).inner.status), player: keyOf(decode("requestState", r.data).inner.player) })),
+    offers.map((r) => {
+      const o = decode("offerState", r.data).inner;
+      return { address: r.pubkey, status: nameOf(o.status), backer: keyOf(o.backer), request: keyOf(o.request) };
+    }),
+  ).slice(0, PER_RUN);
+  let actions = 0;
+  for (const step of plan) actions += +(await awayStep(ctx, d, step)).ok;
+  return { actions, note: `${set.size} away Account(s), ${plan.length} left-open step(s) found${plan.length ? ": the Player's own clean-up missed them" : ""}` };
+};
+
+function awayStep(ctx: Ctx, d: JanitorDeps, step: AwayStep) {
+  const owner = shortKey(step.owner);
+  const protections = protectionsPda(step.owner);
+  if (step.kind === "refund-match") {
+    const match = new PublicKey(step.matchId);
+    return act(ctx, "janitor", `match=${shortKey(match)}`, `refund_match (opener ${owner} is away)`, async () =>
+      d.send([await refundMatchIx(ctx.core, { caller: ctx.payer.publicKey, payer: ctx.payer.publicKey, game: step.game, matchState: match, openerProtections: protections })], { units: 300_000 }),
+    );
+  }
+  if (step.kind === "cancel-request") {
+    return act(ctx, "janitor", `request=${shortKey(step.request)}`, `clear_request (owner ${owner} is away)`, async () =>
+      d.send([await clearRequestIx(ctx.core, { caller: ctx.payer.publicKey, request: step.request, protections })]),
+    );
+  }
+  return act(ctx, "janitor", `offer=${shortKey(step.offer)}`, `expire_offer (Backer ${owner} is away)`, async () =>
+    d.send([await expireOfferIx(ctx.core, { caller: ctx.payer.publicKey, backerAccount: step.owner, offer: step.offer, request: step.request, backerProtections: protections })]),
+  );
+}
+
+const IMPL: Record<PartName, Part> = { tickets, receipts, pairs, assignments, listings, apy, away };
 
 /** Runs the parts in order; a part that throws is reported and the rest still run. */
 export async function janitor(ctx: Ctx, d: JanitorDeps, only: readonly PartName[] = PARTS): Promise<JanitorReport> {
