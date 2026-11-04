@@ -27,6 +27,9 @@ use trading_duel::{Assignment, Book, Table};
 #[path = "../../tesoro_core/tests/common/flow.rs"]
 mod flow;
 
+#[path = "integration/seat_keys.rs"]
+mod seat_keys;
+
 const SOL: u64 = 1_000_000_000;
 const T0: i64 = 1_000_000;
 
@@ -351,6 +354,12 @@ impl Env {
 
     fn book(&self, seat: usize) -> Book {
         self.load(book_addr(self.table, seat as u8))
+    }
+
+    fn patch_book(&mut self, seat: usize, f: impl FnOnce(&mut Book)) {
+        let mut b = self.book(seat);
+        f(&mut b);
+        self.store(book_addr(self.table, seat as u8), &b, trading_duel::ID);
     }
 
     fn patch_table(&mut self, f: impl FnOnce(&mut Table)) {
@@ -755,7 +764,11 @@ impl Env {
         let t = self.table();
         for seat in 0..2u8 {
             let (key, bump) = book_addr_bump(self.table, seat);
-            let book = Book::new(bump, self.table, t.players[seat as usize], seat);
+            let keys = trading_duel::SeatKeys {
+                player: t.players[seat as usize],
+                signer: t.signers[seat as usize],
+            };
+            let book = Book::new(bump, self.table, keys, t.tesoro_match, t.epoch, seat);
             self.store(key, &book, trading_duel::ID);
         }
         self.patch_table(|t| t.seats_open = true);

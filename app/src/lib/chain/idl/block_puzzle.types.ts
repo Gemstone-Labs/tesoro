@@ -5413,6 +5413,18 @@ export type BlockPuzzle = {
             }
           },
           {
+            "name": "signers",
+            "docs": [
+              "The seat key each Player named in their entry (the wallet again when they named none)."
+            ],
+            "type": {
+              "array": [
+                "pubkey",
+                2
+              ]
+            }
+          },
+          {
             "name": "startDeadline",
             "docs": [
               "Unix time by which the Match must have begun on the table."
@@ -5482,6 +5494,13 @@ export type BlockPuzzle = {
             "name": "player",
             "docs": [
               "The Player who may read this seat now; default while the seat is wiped."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "signer",
+            "docs": [
+              "The seat key that may act and read beside `player`; default while the seat is wiped."
             ],
             "type": "pubkey"
           },
@@ -6688,6 +6707,19 @@ export type BlockPuzzle = {
             "name": "players",
             "docs": [
               "Seat 0 opened the tesoro_core Match, seat 1 joined."
+            ],
+            "type": {
+              "array": [
+                "pubkey",
+                2
+              ]
+            }
+          },
+          {
+            "name": "signers",
+            "docs": [
+              "Each seat's key, copied from the Match with `players`: it may act for the seat beside the",
+              "wallet."
             ],
             "type": {
               "array": [

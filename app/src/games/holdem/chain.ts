@@ -153,6 +153,8 @@ export interface Table {
   tesoroMatch: PublicKey;
   /** seat 0 opened the tesoro_core Match, seat 1 joined */
   players: [PublicKey, PublicKey];
+  /** Each seat's key (the wallet again when the Player named none): it may act for the seat beside the wallet. */
+  signers: [PublicKey, PublicKey];
   speed: number;
   status: number;
   winner: number;
@@ -241,6 +243,7 @@ export function decodeTable(address: PublicKey, t: any): Table {
     address,
     tesoroMatch: t.tesoroMatch,
     players: m.players,
+    signers: m.signers,
     speed: m.speed,
     status: m.status,
     winner: m.winner,
@@ -291,6 +294,7 @@ export interface Assignment {
   index: number;
   epoch: number;
   players: [PublicKey, PublicKey];
+  signers: [PublicKey, PublicKey];
   speed: number;
   startDeadline: number;
   payer: PublicKey;
@@ -307,6 +311,7 @@ export function decodeAssignment(address: PublicKey, a: any): Assignment {
     index: a.index,
     epoch: a.epoch.toNumber(),
     players: a.players,
+    signers: a.signers,
     speed: a.speed,
     startDeadline: a.startDeadline.toNumber(),
     payer: a.payer,

@@ -44,11 +44,12 @@ use ephemeral_rollups_sdk::{
 };
 use setup::{Contributions, SetupContext};
 use table_kit::{
-    absence_outcome, assignment_absent, close_private_seat, create_hidden_seat, is_next_epoch,
-    match_state_gone, may_skip, move_lamports, read_table, receipt_aged, receipt_at,
-    retire_legacy_record, sponsor_can_commit, sponsor_commit_many, swap_seat_members,
-    table_wait_over, KitError, LegacyError, SeatAccounts, SeatPrograms, OUTCOME_DRAW,
-    OUTCOME_NO_SHOW, OUTCOME_WIN0, OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
+    absence_outcome, acting_seat_among, assignment_absent, close_private_seat, create_hidden_seat,
+    is_next_epoch, match_state_gone, may_skip, move_lamports, read_table, receipt_aged, receipt_at,
+    require_acting_seat, retire_legacy_record, sponsor_can_commit, sponsor_commit_many,
+    swap_seat_members_keyed, table_wait_over, KitError, LegacyError, SeatAccounts, SeatKeys,
+    SeatPrograms, SeatRecord, TableSeats, OUTCOME_DRAW, OUTCOME_NO_SHOW, OUTCOME_WIN0,
+    OUTCOME_WIN1, SLOT_DONE, SLOT_RESERVED,
 };
 use tesoro_core::{
     instructions::MatchResult,
@@ -258,10 +259,49 @@ pub fn army_address(table: &Pubkey, seat: u8) -> (Pubkey, u8) {
     Pubkey::find_program_address(&[ARMY_SEED, table.as_ref(), &[seat]], &ID)
 }
 
-fn seat_of(battle: &Battle, key: &Pubkey) -> Result<usize> {
-    battle
-        .seat_of(key)
-        .ok_or_else(|| error!(VanguardError::NotAPlayer))
+fn table_seats<'a>(table: &Table, battle: &'a Battle) -> TableSeats<'a> {
+    TableSeats {
+        players: &battle.players,
+        tesoro_match: table.tesoro_match,
+        epoch: table.epoch,
+        seats_open: table.seats_open,
+    }
+}
+
+/// The seat `signer` acts for, by what the Battle holds: the one seat whose wallet or seat key it is.
+fn acting_seat(table: &Table, battle: &Battle, signer: &Pubkey) -> Result<usize> {
+    let records = [0, 1].map(|seat| SeatRecord {
+        seat,
+        keys: SeatKeys {
+            player: battle.players[seat],
+            signer: battle.signers[seat],
+        },
+        tesoro_match: battle.tesoro_match,
+        epoch: table.epoch,
+    });
+    acting_seat_among(&table_seats(table, battle), &records, signer)
+        .map_err(|_| error!(VanguardError::NotAPlayer))
+}
+
+/// `signer` is the wallet or the seat key of this Army's Player, in this Match and epoch, and the key is
+/// the one the Battle holds for that seat.
+fn require_army(table: &Table, battle: &Battle, army: &Army, signer: &Pubkey) -> Result<usize> {
+    let record = SeatRecord {
+        seat: usize::from(army.seat),
+        keys: SeatKeys {
+            player: army.player,
+            signer: army.signer,
+        },
+        tesoro_match: army.tesoro_match,
+        epoch: army.epoch,
+    };
+    let seat = require_acting_seat(&table_seats(table, battle), &record, signer)
+        .map_err(|_| error!(VanguardError::NotAPlayer))?;
+    require!(
+        army.signer == battle.signers[seat] && army.tesoro_match == battle.tesoro_match,
+        VanguardError::NotAPlayer
+    );
+    Ok(seat)
 }
 
 /// The table is running a Match whose seats belong to its Players, and the Battle is that Match's. All public state.
@@ -352,7 +392,7 @@ fn wipe_seat_pair<'info>(
         let seat_arr = [seat as u8];
         let bump_arr = [army.bump];
         let seat_seeds: &[&[u8]] = &[ARMY_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
-        swap_seat_members(
+        swap_seat_members_keyed(
             &SeatAccounts {
                 table: &table_info,
                 seat: &army.to_account_info(),
@@ -586,6 +626,16 @@ pub mod vanguard {
             ctx.accounts.account_a.authority,
             ctx.accounts.account_b.authority,
         ];
+        let b_signer = tesoro
+            .inner
+            .b
+            .as_ref()
+            .map(|b| b.signer)
+            .ok_or(VanguardError::BadTesoroMatch)?;
+        a.signers = [
+            Pubkey::new_from_array(tesoro.inner.a.signer),
+            Pubkey::new_from_array(b_signer),
+        ];
         a.start_deadline = now
             .checked_add(START_WINDOW_SECS)
             .ok_or(VanguardError::Overflow)?;
@@ -800,24 +850,35 @@ pub mod vanguard {
             ctx.accounts.army_0.is_blank() && ctx.accounts.army_1.is_blank(),
             VanguardError::SeatNotBlank
         );
-        let players = {
+        let seat_keys = {
             let battle = ctx.accounts.battle.load()?;
             require!(
                 battle.tesoro_match == table.tesoro_match,
                 VanguardError::BadState
             );
-            battle.players
+            [0, 1].map(|i| SeatKeys {
+                player: battle.players[i],
+                signer: battle.signers[i],
+            })
         };
+        let (key, epoch) = (table.tesoro_match, table.epoch);
         let (gen, idx) = (table.generation.to_le_bytes(), table.index.to_le_bytes());
         let table_bump = [table.bump];
         let table_seeds: &[&[u8]] = &[TABLE_SEED, &gen, &idx, &table_bump];
         let table_info = ctx.accounts.table.to_account_info();
         let table_key = ctx.accounts.table.key();
-        ctx.accounts.army_0.player = players[0];
-        ctx.accounts.army_1.player = players[1];
+        for (army, keys) in [&mut ctx.accounts.army_0, &mut ctx.accounts.army_1]
+            .into_iter()
+            .zip(seat_keys)
+        {
+            army.player = keys.player;
+            army.signer = keys.signer;
+            army.tesoro_match = key;
+            army.epoch = epoch;
+        }
         ctx.accounts.army_0.exit(&ID)?;
         ctx.accounts.army_1.exit(&ID)?;
-        for (seat, player) in players.into_iter().enumerate() {
+        for (seat, keys) in seat_keys.into_iter().enumerate() {
             let (army, permission) = if seat == 0 {
                 (&ctx.accounts.army_0, &ctx.accounts.army_0_permission)
             } else {
@@ -826,7 +887,7 @@ pub mod vanguard {
             let seat_arr = [seat as u8];
             let bump_arr = [army.bump];
             let seat_seeds: &[&[u8]] = &[ARMY_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
-            swap_seat_members(
+            swap_seat_members_keyed(
                 &SeatAccounts {
                     table: &table_info,
                     seat: &army.to_account_info(),
@@ -837,7 +898,7 @@ pub mod vanguard {
                 },
                 table_seeds,
                 seat_seeds,
-                Some(player),
+                Some(keys),
             )?;
         }
         ctx.accounts.battle.load_mut()?.permissioned = 1;
@@ -1008,6 +1069,7 @@ pub mod vanguard {
             match_id: tesoro.inner.id.n,
             tesoro_match: a.tesoro_match,
             players: a.players,
+            signers: a.signers,
             start_deadline: a.start_deadline,
             payer: a.payer,
             oracle_queue: ending.vanguard_config.oracle_queue,
@@ -1032,7 +1094,7 @@ pub mod vanguard {
             now <= table.start_deadline,
             VanguardError::StartWindowPassed
         );
-        let seat = seat_of(&battle, &ctx.accounts.player.key())?;
+        let seat = acting_seat(table, &battle, &ctx.accounts.player.key())?;
         table.checked_in[seat] = true;
         if table.checked_in == [true; 2] {
             table.phase = TABLE_LIVE;
@@ -1059,6 +1121,12 @@ pub mod vanguard {
                 Clock::get()?.unix_timestamp <= battle.entropy_deadline,
                 VanguardError::SetupClosed
             );
+            require_army(
+                &ctx.accounts.table,
+                &battle,
+                &ctx.accounts.army,
+                &ctx.accounts.player.key(),
+            )?;
         }
         let army = &mut ctx.accounts.army;
         require!(!army.contributed, VanguardError::AlreadyContributed);
@@ -1283,7 +1351,13 @@ pub mod vanguard {
         let slot = Clock::get()?.slot;
         let mut battle = ctx.accounts.battle.load_mut()?;
         require_live(&ctx.accounts.table, &battle)?;
-        let seat = declaring_seat(&battle, &ctx.accounts.player.key(), slot, expected_seq)?;
+        let seat = declaring_seat(
+            &ctx.accounts.table,
+            &battle,
+            &ctx.accounts.player.key(),
+            slot,
+            expected_seq,
+        )?;
         let g = battle.public_game()?;
         g.check_declared_move(piece, to, now).map_err(refused)?;
         battle.record_pending(
@@ -1336,7 +1410,13 @@ pub mod vanguard {
         let slot = Clock::get()?.slot;
         let mut battle = ctx.accounts.battle.load_mut()?;
         require_live(&ctx.accounts.table, &battle)?;
-        let seat = declaring_seat(&battle, &ctx.accounts.player.key(), slot, expected_seq)?;
+        let seat = declaring_seat(
+            &ctx.accounts.table,
+            &battle,
+            &ctx.accounts.player.key(),
+            slot,
+            expected_seq,
+        )?;
         let g = battle.public_game()?;
         g.check_declared_pass(now).map_err(refused)?;
         battle.record_pending(
@@ -1360,7 +1440,13 @@ pub mod vanguard {
         let slot = Clock::get()?.slot;
         let mut battle = ctx.accounts.battle.load_mut()?;
         require_live(&ctx.accounts.table, &battle)?;
-        declaring_seat(&battle, &ctx.accounts.player.key(), slot, battle.action_seq)?;
+        declaring_seat(
+            &ctx.accounts.table,
+            &battle,
+            &ctx.accounts.player.key(),
+            slot,
+            battle.action_seq,
+        )?;
         let mut g = battle.shell(0, 0)?;
         g.start_two_step(now).map_err(refused)?;
         battle.two_step = g.two_step;
@@ -1686,9 +1772,15 @@ fn tee_config(validator: &Option<AccountInfo>, config: &VanguardConfig) -> Resul
 /// The seat of `key` for an action declared in a live Match: it is that Player's turn, nothing is pending, the deal is
 /// in an earlier slot and `expected_seq` is the number of this declare (a sealed byte made for an earlier turn is
 /// refused here, so it can never be decoded as garbage). All public state.
-fn declaring_seat(battle: &Battle, key: &Pubkey, slot: u64, expected_seq: u32) -> Result<usize> {
+fn declaring_seat(
+    table: &Table,
+    battle: &Battle,
+    key: &Pubkey,
+    slot: u64,
+    expected_seq: u32,
+) -> Result<usize> {
     require!(battle.status == STATUS_LIVE, VanguardError::NotLive);
-    let seat = seat_of(battle, key)?;
+    let seat = acting_seat(table, battle, key)?;
     require!(
         battle.pending_kind == PENDING_NONE,
         VanguardError::ActionPending
@@ -1714,7 +1806,13 @@ fn declare_act(
     let slot = Clock::get()?.slot;
     let mut battle = ctx.accounts.battle.load_mut()?;
     require_live(&ctx.accounts.table, &battle)?;
-    let seat = declaring_seat(&battle, &ctx.accounts.player.key(), slot, expected_seq)?;
+    let seat = declaring_seat(
+        &ctx.accounts.table,
+        &battle,
+        &ctx.accounts.player.key(),
+        slot,
+        expected_seq,
+    )?;
     let g = battle.public_game()?;
     g.check_declared_act(piece, now).map_err(refused)?;
     battle.record_pending(
@@ -2239,7 +2337,8 @@ pub struct ContributeEntropy<'info> {
         mut,
         seeds = [ARMY_SEED, table.key().as_ref(), &[army.seat]],
         bump = army.bump,
-        constraint = army.player == player.key() @ VanguardError::NotAPlayer
+        constraint = army.player == player.key() || army.signer == player.key()
+            @ VanguardError::NotAPlayer
     )]
     pub army: Box<Account<'info, Army>>,
 }

@@ -23,6 +23,7 @@ export default function TablePreview() {
     address: pk("11111111111111111111111111111111"),
     tesoroMatch: pk("11111111111111111111111111111111"),
     players: [pk("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"), pk("4rG3LUgjMq1a7vJq2sTqkQmZ8m4wq2pVbR8vN3Ykq7Xd")],
+    signers: [pk("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"), pk("4rG3LUgjMq1a7vJq2sTqkQmZ8m4wq2pVbR8vN3Ykq7Xd")],
     speed: SPEED_TURBO,
     status: STATUS.live,
     ...OFF_CHAIN_TABLE,
