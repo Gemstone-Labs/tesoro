@@ -200,7 +200,7 @@ impl World {
     fn fees(&self) -> [u64; 3] {
         let mut out = [0; 3];
         for ((class, _), l) in &self.counters {
-            out[*class as usize - 1] += l.amount;
+            out[*class as usize] += l.amount;
         }
         out
     }
@@ -418,7 +418,7 @@ fn the_worked_example_moves_every_line_to_the_gema() {
     // 101. Fees take Ana's 150 down to 21, which goes to Dee with 292 of Eve's 102; Ben gets the
     // last 8 of it and 122 of Eve's 101; Cy the 78 left.
     assert_eq!(
-        (w.fee_of(1, 101), w.fee_of(2, 101), w.fee_of(3, 101)),
+        (w.fee_of(0, 101), w.fee_of(1, 101), w.fee_of(2, 101)),
         (44, 64, 21)
     );
     assert_eq!((w.held(DEE, 101, SIDE_WON), w.held(DEE, 102, SIDE_WON)), (21, 292));
@@ -426,5 +426,4 @@ fn the_worked_example_moves_every_line_to_the_gema() {
     assert_eq!(w.held(CY, 101, SIDE_WON), 78);
     // the placed seats' own entries came back as their own Gemas
     assert_eq!(w.held(DEE, 100, SIDE_OWN), 500);
-    assert_eq!(c.rec.run.steps(), c.rec.run.steps());
 }
