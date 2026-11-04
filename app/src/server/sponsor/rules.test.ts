@@ -6,7 +6,8 @@ import { SystemProgram, ComputeBudgetProgram, PublicKey } from "@solana/web3.js"
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { accountOf, backingPairIx, chunkIx, coreIx, createAccountIx, gameStepIx, growIx, linkEvmBridgeIx, signUpIx, joinMatchIx, key, openMatchIx, playerIx } from "./fixtures";
 import { matchIndexOf, stepSlots } from "./game-steps";
-import { CORE_ID, GAME_STEPS, ORDER_RENT, ROWS, TX_SHAPES, planTransaction, type Ix } from "./rules";
+import { CORE_ID, GAME_STEPS, ORDER_RENT, MAX_TOPUP_LAMPORTS, PROTECTIONS_BYTES, ROWS, TX_SHAPES, planTransaction, type Ix } from "./rules";
+import { protectionsPda } from "@/lib/chain/native";
 import { GAME_IDS } from "@/lib/chain/games";
 import { JITOSOL, redeemStakeIx, unlockStakeIx } from "@/lib/chain/stake";
 import { createAtaIdempotentIx, updateStakePoolBalanceIx } from "@/lib/chain/stake-pool";
@@ -489,5 +490,80 @@ describe("stake pool update in front of a staking-token payout", () => {
     refused([update(), update(), unlock()], "bad-shape");
     refused([unlock(), update()], "bad-shape");
     refused([update(), ata()], "bad-shape");
+  });
+});
+
+describe("Break and Self-Exclusion clean-up (keeper diet ticket 27)", () => {
+  const refund = () => coreIx("refund_match", [], { caller: player, payer: relayer, gameProgram: game, programData: key(), gameRecord: key(), matchState: key(), openerProtections: null });
+  it("a Break and a Self-Exclusion are the Player's own exits: the Player signs, the relayer only pays the fee", async () => {
+    for (const name of ["set_break", "set_self_exclusion"]) {
+      const ix = await coreIx(name, [3], { ownerAuthority: player });
+      expect(plan([ix])).toMatchObject({ names: [name], class: "exit", playerSigns: true });
+      const withRelayer = await coreIx(name, [3], { ownerAuthority: relayer });
+      refused([withRelayer], "relayer-in-accounts");
+    }
+  });
+  it("a bundle of refunds, withdrawn Requests and released Offers travels in one transaction", async () => {
+    const ixs = [await refund(), await playerIx.cancelRequest(player), await playerIx.cancelOffer(player), await playerIx.cancelRequest(player)];
+    expect(plan(ixs)).toMatchObject({ names: ["refund_match", "cancel_request", "cancel_offer", "cancel_request"], class: "exit", playerSigns: true });
+  });
+  it("the Break itself may open a bundle, and nothing else may be mixed in", async () => {
+    const brk = await coreIx("set_break", [3], { ownerAuthority: player });
+    expect(plan([brk, await playerIx.cancelRequest(player)]).names).toEqual(["set_break", "cancel_request"]);
+    refused([await playerIx.cancelRequest(player), brk], "bad-shape");
+    refused([await playerIx.cancelRequest(player), await playerIx.redeem(player)], "bad-shape");
+    refused([await playerIx.cancelRequest(player), await openMatchIx(relayer, player, game)], "bad-shape");
+  });
+  it("a bundle of another Player's items is refused: the cancel instructions need the signer to own them", async () => {
+    // the chain enforces ownership; the sponsor insists the signer is a Player, never the relayer
+    refused([await playerIx.cancelRequest(relayer), await playerIx.cancelRequest(player)], "relayer-in-accounts");
+  });
+});
+
+describe("the rent top-up for a first Break (keeper diet ticket 27)", () => {
+  const transfer = (from = relayer, to = player, lamports: number | bigint = 1_386_840n): Ix => {
+    const ix = SystemProgram.transfer({ fromPubkey: from, toPubkey: to, lamports });
+    return { programId: ix.programId, keys: ix.keys, data: ix.data };
+  };
+  const brk = (who = player) => coreIx("set_break", [3], { ownerAuthority: who });
+
+  it("a Protections account is 145 bytes: 8 + 1 + 32 + (40 + 8 + 8 + 48)", () => {
+    expect(PROTECTIONS_BYTES).toBe(145);
+  });
+  it("the relayer may fund exactly the Protections rent to the signer, directly before the Break or Self-Exclusion", async () => {
+    for (const name of ["set_break", "set_self_exclusion"]) {
+      const p = plan([transfer(), await coreIx(name, [3], { ownerAuthority: player })]);
+      expect(p).toMatchObject({ names: ["protections_top_up", name], class: "exit", playerSigns: true, topUp: { protections: protectionsPda(accountOf(player)), lamports: 1_386_840n } });
+      expect(p.spend.sunk).toBe(1_386_840n);
+      expect(p.signers.map((k) => k.toBase58())).toEqual([player.toBase58()]);
+    }
+  });
+  it("clean-up steps may follow the Break", async () => {
+    const p = plan([transfer(), await brk(), await playerIx.cancelRequest(player), await playerIx.cancelOffer(player)]);
+    expect(p.names).toEqual(["protections_top_up", "set_break", "cancel_request", "cancel_offer"]);
+  });
+  it("bounds the amount whatever the cluster's rent: no zero, nothing above the cap", async () => {
+    refused([transfer(relayer, player, 0n), await brk()], "bad-topup");
+    refused([transfer(relayer, player, MAX_TOPUP_LAMPORTS + 1n), await brk()], "bad-topup");
+    expect(plan([transfer(relayer, player, MAX_TOPUP_LAMPORTS), await brk()]).spend.sunk).toBe(MAX_TOPUP_LAMPORTS);
+  });
+  it("refuses a top-up that is not from the relayer to the Player who sets the Break", async () => {
+    refused([transfer(player, player), await brk()], "bad-topup");
+    refused([transfer(relayer, key()), await brk()], "bad-topup");
+    refused([transfer(), await brk(key())], "bad-topup");
+    refused([transfer(relayer, relayer), await brk(relayer)], "bad-topup");
+  });
+  it("refuses a top-up without a Break or Self-Exclusion straight after it", async () => {
+    refused([transfer()], "unknown-program");
+    refused([transfer(), await playerIx.cancelRequest(player)], "bad-topup");
+    refused([transfer(), transfer(), await brk()], "bad-topup");
+    refused([await brk(), transfer()], "bad-topup");
+    refused([await playerIx.cancelRequest(player), transfer(), await brk()], "bad-topup");
+  });
+  it("refuses a System instruction that is not a plain transfer", async () => {
+    const t = transfer();
+    refused([{ ...t, data: Uint8Array.from([0, 0, 0, 0, ...t.data.subarray(4)]) }, await brk()], "bad-topup");
+    refused([{ ...t, keys: [{ ...t.keys[0], isSigner: false }, t.keys[1]] }, await brk()], "bad-topup");
+    refused([{ ...t, keys: [...t.keys, { pubkey: key(), isSigner: false, isWritable: false }] }, await brk()], "bad-topup");
   });
 });

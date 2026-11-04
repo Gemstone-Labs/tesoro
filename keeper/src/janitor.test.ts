@@ -169,3 +169,36 @@ describe("a failing part", () => {
     assert.equal(r.parts.find((p) => p.name === "receipts")?.actions, 1);
   });
 });
+
+describe("clean-up for Accounts that are away (Break or Self-Exclusion)", () => {
+  const ana = k();
+  const ben = k();
+  const game = k();
+  const protectionsOf = async (account: PublicKey, breakUntil: number, selfExclusionUntil = 0) => ({ pubkey: k(), data: await accountBytes(core, "ProtectionsState", { account, inner: { breakUntil: new anchor.BN(breakUntil), selfExclusionUntil: new anchor.BN(selfExclusionUntil) } }) });
+  const requestOf = async (player: PublicKey, status: number) => ({ pubkey: k(), data: await accountBytes(core, "RequestState", { inner: { player: Array.from(player.toBytes()), status: { [["open", "accepted", "cancelled"][status]]: {} } } }) });
+  const offerOf = async (backer: PublicKey, status: number) => ({ pubkey: k(), data: await accountBytes(core, "OfferState", { inner: { backer: Array.from(backer.toBytes()), request: Array.from(k().toBytes()), status: { [["open", "accepted", "consumed", "cancelled", "expired"][status]]: {} } } }) });
+  const matchOf = async (opener: PublicKey, stage: string) => ({ pubkey: k(), data: await accountBytes(core, "MatchState", { inner: { game: Array.from(game.toBytes()), stage: { [stage]: {} }, id: { opener: Array.from(opener.toBytes()), n: new anchor.BN(1) }, a: { player: Array.from(opener.toBytes()) } } }) });
+
+  it("catches an unpaired Match, an open Request and an open Offer left by an away Account, and only those", async () => {
+    const w = world({
+      lists: {
+        ProtectionsState: [await protectionsOf(ana, NOW + 100), await protectionsOf(ben, NOW - 5)],
+        MatchState: [await matchOf(ana, "open"), await matchOf(ana, "active"), await matchOf(ben, "open")],
+        RequestState: [await requestOf(ana, 0), await requestOf(ana, 2), await requestOf(ben, 0)],
+        OfferState: [await offerOf(ana, 0), await offerOf(ana, 2), await offerOf(ben, 0)],
+      },
+    });
+    const r = await janitor(w.ctx, w.d, ["away"]);
+    assert.deepEqual(w.sent.sort(), ["clearRequest", "expireOffer", "refundMatch"]);
+    assert.equal(r.parts[0].actions, 3);
+    assert.match(r.parts[0].note ?? "", /1 away Account/);
+  });
+
+  it("reads nothing but Protections while nobody is away", async () => {
+    const w = world({ lists: { ProtectionsState: [await protectionsOf(ben, NOW - 5)], RequestState: [await requestOf(ben, 0)] } });
+    const r = await janitor(w.ctx, w.d, ["away"]);
+    assert.deepEqual(w.sent, []);
+    assert.equal(r.parts[0].actions, 0);
+    assert.equal("RequestState" in w.slices, false);
+  });
+});

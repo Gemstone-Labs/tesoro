@@ -1,5 +1,6 @@
 import { Connection } from "@solana/web3.js";
 import { Budget, log, type Ctx } from "./act.ts";
+import { meter } from "./credits.ts";
 import { AlertManager, alertConfig, postAlert } from "./alerts.ts";
 import { balanceCheck, fileBalanceStore, sponsorMinLamports, sponsorWatches } from "./balance-check.ts";
 import { keeperCluster } from "./cluster.ts";
@@ -55,6 +56,7 @@ async function run(s: ReturnType<typeof settings>, heartbeat: ReturnType<typeof 
     }
   }
   if (!s.dryRun) await sponsorBalances(ctx);
+  for (const line of meter.report()) log("credits", "-", line.replace(/^credits /, ""));
   if (!s.dryRun) await heartbeat.ping(failed ? "fail" : "ok");
   process.exit(failed ? 1 : 0);
 }
