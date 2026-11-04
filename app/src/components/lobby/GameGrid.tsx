@@ -59,7 +59,7 @@ export function GameGrid() {
           const [word, Icon] = fact ? RESULT_WORD[fact.last] : [null, null];
           return (
             <div key={g.key} className="game-cell">
-              <Link href={`/play/${g.game}`} className="cut cut-frame tile game-tile" onPointerMove={tilt} onPointerLeave={untilt}>
+              <Link href={g.href ?? `/play/${g.game}`} className="cut cut-frame tile game-tile" onPointerMove={tilt} onPointerLeave={untilt}>
                 <Image src={g.tile} alt="" fill sizes="(min-width: 1024px) 45vw, 50vw" loading={i < 2 ? "eager" : undefined} />
                 <span className="tile-shade" aria-hidden="true" />
                 <span className="tile-glare" aria-hidden="true" />
@@ -72,7 +72,7 @@ export function GameGrid() {
                 <span className="game-label">
                   <strong className="game-name">{g.name}</strong>
                   <span className="game-info">
-                    {ENTRY_SIZES.map((e) => {
+                    {(g.entries ?? ENTRY_SIZES).map((e) => {
                       const n = byEntry[e] ?? 0;
                       return (
                         <span key={e} className={`cut cut-chip tile-entry${n > 0 ? " has" : ""}`} aria-label={`Entry ${fmtGemas(e)}${queue ? `, ${n} waiting` : ""}`}>

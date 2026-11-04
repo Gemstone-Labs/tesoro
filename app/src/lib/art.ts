@@ -19,6 +19,8 @@ export const art = {
   holdemTile: f("holdem-tile-2"),
   tradingDuelTile: f("trading-duel-tile-2"),
   vanguardTile: f("vanguard-tile-2"),
+  /** Railcar's tile: the round-2 railcar on its rails in the cave (art-source/railcar/round2), until Astra key art exists. */
+  railcarTile: f("railcar/tile"),
   comingSoon: {
     "word-duel": f("coming-soon-word-duel"),
     "bubble-burst": f("coming-soon-bubble-burst"),
