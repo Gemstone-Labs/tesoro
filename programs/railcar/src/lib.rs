@@ -14,11 +14,17 @@
 //!   permission with no member) and starts the ride clock. `signal` (anyone) and `jump` (a Player)
 //!   move the public Tell stage and, from the Impact slot on, end the ride and commit the Table,
 //!   paid by the Sponsor. A Jump at or after the Impact slot ends the ride with that Player aboard.
+//! * **Brakes (ticket 07).** `bind_brake` hands each seat's private Brake seat to its Player at
+//!   the start of the ride; a Player's page sends `tick` instead of `signal`, with `brake` set when
+//!   the Player presses it. The Brake schedule lives in the Vault; nothing public changes until
+//!   the end, when the draw and every Brake are copied into the Table. Design and review:
+//!   `.scratch/railcar/07-brake-decision.md`.
 //!
 //! Privacy rules this file keeps: nothing derived from the draw is written to the Table except
 //! the Tell stage and false screws already passed and, at the end, the ride's end; nothing from
 //! the Vault is logged or reaches an error code; `signal` before the Impact succeeds the same way
-//! whether or not a stage moved.
+//! whether or not a stage moved; no error depends on the Vault or a Brake seat, and the work done
+//! on them is the same whatever they hold (`ride` module).
 
 pub mod engine;
 pub mod ride;
@@ -36,7 +42,8 @@ use ephemeral_rollups_sdk::{
     },
 };
 use table_kit::{
-    create_hidden_seat, match_state_gone, move_lamports, receipt_at, sponsor_can_commit,
+    create_hidden_seat, create_hidden_seat_keyed, match_state_gone, swap_seat_members_keyed,
+    SeatKeys, move_lamports, receipt_at, sponsor_can_commit,
     sponsor_commit, CommitGuard, SeatAccounts, COMMIT_WINDOW_SECS, DELEGATION_PROGRAM,
 };
 use tesoro_core::{
@@ -172,6 +179,18 @@ pub struct RideSettled {
     pub tesoro_match: Pubkey,
     pub outcome: u8,
     pub reason: u8,
+    /// The reveal, for the round history: the draw (zero when it never came) and every Brake.
+    pub draw: [u8; 32],
+    pub brakes: Vec<RevealedBrake>,
+}
+
+/// One Player's Brake, made public with the ride's end.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct RevealedBrake {
+    /// The core seat index.
+    pub seat: u8,
+    /// Ride ms of the press.
+    pub ms: u32,
 }
 
 /// The address of Table `index`.
@@ -187,6 +206,11 @@ pub fn car_address(car_no: u64) -> Pubkey {
 /// The address of a Table's Vault.
 pub fn vault_address(table: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(&[VAULT_SEED, table.as_ref()], &ID)
+}
+
+/// The address of Table seat `seat`'s Brake seat.
+pub fn brake_seat_address(table: &Pubkey, seat: u8) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[BRAKE_SEED, table.as_ref(), &[seat]], &ID)
 }
 
 /// Whether the core Match in `info` can still take seats: a Boarding car before its boarding
@@ -569,7 +593,7 @@ pub mod railcar {
         let car = &ctx.accounts.car;
         let match_key = car.tesoro_match;
         let (pages, seated) = car_shape(&ctx.accounts.match_state.to_account_info())?;
-        let (result, outcome, reason) = {
+        let (result, outcome, reason, draw, brakes) = {
             let info = ctx.accounts.table.to_account_info();
             require!(
                 info.owner == &DELEGATION_PROGRAM || info.owner == &ID,
@@ -601,7 +625,11 @@ pub mod railcar {
             })?;
             require!(n == usize::from(seated), RailcarError::SeatsDiffer);
             let result = ride::result(t).ok_or(RailcarError::BadTable)?;
-            (result, t.outcome, t.reason)
+            let brakes = t.seats[..usize::from(t.seated)]
+                .iter()
+                .filter_map(|s| s.brake_ms().map(|ms| RevealedBrake { seat: s.seat, ms }))
+                .collect::<Vec<_>>();
+            (result, t.outcome, t.reason, t.reveal_draw, brakes)
         };
         let bump = [ctx.bumps.authority];
         let signer: &[&[&[u8]]] = &[&[AUTHORITY_SEED, &bump]];
@@ -629,6 +657,8 @@ pub mod railcar {
             tesoro_match: match_key,
             outcome,
             reason,
+            draw,
+            brakes,
         });
         Ok(())
     }
@@ -872,7 +902,7 @@ pub mod railcar {
                 PHASE_RIDING => {
                     require!(v.ready && v.car_no == t.car_no(), RailcarError::WrongPhase);
                     if ride::advance(&mut t, v, clock.slot) {
-                        ride::conclude(&mut t, ride::impact_ms(v), clock.unix_timestamp);
+                        ride::conclude(&mut t, v, ride::impact_ms(v), clock.unix_timestamp);
                         true
                     } else {
                         false
@@ -884,7 +914,7 @@ pub mod railcar {
                         .checked_add(DRAW_WINDOW_SLOTS)
                         .ok_or(RailcarError::Overflow)?;
                     if clock.slot > window_end {
-                        ride::void(&mut t, REASON_NO_DRAW, clock.unix_timestamp);
+                        ride::void(&mut t, None, REASON_NO_DRAW, clock.unix_timestamp);
                         true
                     } else {
                         false
@@ -937,7 +967,7 @@ pub mod railcar {
                 RailcarError::NotAPlayer
             );
             if ride::advance(&mut t, v, clock.slot) {
-                ride::conclude(&mut t, ride::impact_ms(v), clock.unix_timestamp);
+                ride::conclude(&mut t, v, ride::impact_ms(v), clock.unix_timestamp);
                 true
             } else {
                 let empty = ride::jump(&mut t, i, clock.slot).map_err(ride_err)?;
@@ -950,9 +980,149 @@ pub mod railcar {
                 });
                 if empty {
                     let ms = t.ride_ms(clock.slot);
-                    ride::conclude(&mut t, ms, clock.unix_timestamp);
+                    ride::conclude(&mut t, v, ms, clock.unix_timestamp);
                 }
                 empty
+            }
+        };
+        if over {
+            let a = &ctx.accounts;
+            end_ride(
+                &a.table,
+                &a.sponsor,
+                (
+                    &a.magic_context.to_account_info(),
+                    &a.magic_program.to_account_info(),
+                    &a.magic_fee_vault.to_account_info(),
+                ),
+                clock.unix_timestamp,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Rollup, anyone, once per seat per ride (a repeat does nothing). Hands Table seat `seat`'s
+    /// Brake seat to this ride's Player: created the first time the seat index rides on this
+    /// Table, otherwise zeroed and its permission members swapped. The members come from the
+    /// Table seat only: the wallet of its core Account and the seat key core recorded. Pages bind
+    /// every seat while the draw is asked for, so a binding never marks a Player who means to
+    /// Brake; no Brake counts until every seat is bound.
+    pub fn bind_brake(ctx: Context<BindBrake>, car_no: u64, seat: u8) -> Result<()> {
+        let (index, table_bump, keys) = {
+            let t = ctx.accounts.table.load()?;
+            require!(t.car_no() == car_no, RailcarError::StaleBinding);
+            require!(
+                t.phase == PHASE_DRAWING || t.phase == PHASE_RIDING,
+                RailcarError::WrongPhase
+            );
+            let i = usize::from(seat);
+            require!(i < usize::from(t.seated), RailcarError::NotAPlayer);
+            let s = &t.seats[i];
+            let account = &ctx.accounts.player_account;
+            require!(
+                account.key().to_bytes() == s.account,
+                RailcarError::NotAPlayer
+            );
+            let keys = SeatKeys {
+                player: account.authority,
+                signer: Pubkey::new_from_array(s.signer),
+            };
+            (t.index, t.bump, keys)
+        };
+        let info = ctx.accounts.brake_seat.to_account_info();
+        let exists = !info.data_is_empty();
+        if exists {
+            require_keys_eq!(*info.owner, ID, RailcarError::BadTable);
+            let held = BrakeSeat::try_deserialize(&mut &info.try_borrow_data()?[..])?;
+            if held.bound_to(car_no) {
+                return Ok(());
+            }
+        }
+        let table_key = ctx.accounts.table.key();
+        let table_bump = [table_bump];
+        let table_seeds: &[&[u8]] = &[TABLE_SEED, &index, &table_bump];
+        let seat_index = [seat];
+        let seat_bump = [ctx.bumps.brake_seat];
+        let seat_seeds: &[&[u8]] = &[BRAKE_SEED, table_key.as_ref(), &seat_index, &seat_bump];
+        let accounts = SeatAccounts {
+            table: &ctx.accounts.table.to_account_info(),
+            seat: &info,
+            permission: &ctx.accounts.brake_permission.to_account_info(),
+            vault: &ctx.accounts.ephemeral_vault.to_account_info(),
+            magic_program: &ctx.accounts.magic_program.to_account_info(),
+            permission_program: &ctx.accounts.permission_program.to_account_info(),
+        };
+        let record = BrakeSeat {
+            version: BrakeSeat::VERSION,
+            bump: ctx.bumps.brake_seat,
+            table: table_key,
+            seat,
+            bound: 1,
+            car_no,
+            used: 0,
+            press_ms: 0,
+            reserved: [0; 16],
+        };
+        if exists {
+            // the last ride's Player loses the seat only after its data is gone
+            info.try_borrow_mut_data()?.fill(0);
+            swap_seat_members_keyed(&accounts, table_seeds, seat_seeds, Some(keys))?;
+        } else {
+            create_hidden_seat_keyed(
+                &accounts,
+                table_seeds,
+                seat_seeds,
+                (8 + BrakeSeat::INIT_SPACE) as u32,
+                Some(keys),
+            )?;
+        }
+        record.try_serialize(&mut &mut info.try_borrow_mut_data()?[..])?;
+        let mut t = ctx.accounts.table.load_mut()?;
+        t.brakes_bound = t.brakes_bound.checked_add(1).ok_or(RailcarError::Overflow)?;
+        Ok(())
+    }
+
+    /// Rollup, the Player of Table seat `seat` (wallet or seat key, as `jump`): a Player page's
+    /// signal, about every second, with `brake` set when the Player presses their Brake. It moves
+    /// the Tell stage and ends the ride from the Impact slot on, as `signal` does; before that, a
+    /// Brake by a Player aboard who has not Braked on this ride sets the slow period's end to
+    /// max(now, end) + 5 s. Anything else about the Brake does nothing (no error): a refusal would
+    /// tell anyone who simulates the transaction that this Player has Braked. A Brake at or after
+    /// the Impact slot ends the ride and does not count.
+    pub fn tick(ctx: Context<Tick>, car_no: u64, seat: u8, brake: bool) -> Result<()> {
+        let clock = Clock::get()?;
+        let over = {
+            let mut t = ctx.accounts.table.load_mut()?;
+            let v = &mut ctx.accounts.vault;
+            require!(t.car_no() == car_no, RailcarError::StaleBinding);
+            require!(
+                t.phase == PHASE_RIDING && v.ready && v.car_no == car_no,
+                RailcarError::WrongPhase
+            );
+            let i = usize::from(seat);
+            require!(i < usize::from(t.seated), RailcarError::NotAPlayer);
+            let s = t.seats[i];
+            require!(
+                acts_for(
+                    &Pubkey::new_from_array(s.account),
+                    &ctx.accounts.player.key(),
+                    &Pubkey::new_from_array(s.signer)
+                ),
+                RailcarError::NotAPlayer
+            );
+            // binding is public (its permission change); a tick of an unbound seat would show
+            // its message to the seat's previous Player
+            require!(
+                ctx.accounts.brake_seat.bound_to(car_no),
+                RailcarError::WrongPhase
+            );
+            if ride::advance(&mut t, v, clock.slot) {
+                ride::conclude(&mut t, v, ride::impact_ms(v), clock.unix_timestamp);
+                true
+            } else {
+                let ms = t.ride_ms(clock.slot);
+                ride::tick(&t, v, &mut ctx.accounts.brake_seat, seat, ms, brake);
+                false
             }
         };
         if over {
@@ -1427,6 +1597,54 @@ pub struct Jump<'info> {
     pub table: AccountLoader<'info, Table>,
     #[account(seeds = [VAULT_SEED, table.key().as_ref()], bump = vault.bump)]
     pub vault: Box<Account<'info, Vault>>,
+    #[account(mut, seeds = [SPONSOR_SEED], bump = sponsor.bump)]
+    pub sponsor: Account<'info, Sponsor>,
+    /// CHECK: the TEE validator's magic fee vault, checked in `sponsor_commit`.
+    #[account(mut)]
+    pub magic_fee_vault: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+#[instruction(car_no: u64, seat: u8)]
+pub struct BindBrake<'info> {
+    pub caller: Signer<'info>,
+    #[account(mut, seeds = [TABLE_SEED, &table.load()?.index], bump = table.load()?.bump)]
+    pub table: AccountLoader<'info, Table>,
+    /// The seat's core Account (checked against the Table seat): its wallet becomes a member.
+    pub player_account: Box<Account<'info, TesoroAccount>>,
+    /// CHECK: the Brake seat PDA, created here as an ephemeral account or read by hand.
+    #[account(mut, seeds = [BRAKE_SEED, table.key().as_ref(), &[seat]], bump)]
+    pub brake_seat: UncheckedAccount<'info>,
+    /// CHECK: permission PDA of the Brake seat
+    #[account(mut, seeds = [PERMISSION_SEED, brake_seat.key().as_ref()], bump, seeds::program = PERMISSION_PROGRAM_ID)]
+    pub brake_permission: UncheckedAccount<'info>,
+    /// CHECK: Permission Program
+    #[account(address = PERMISSION_PROGRAM_ID)]
+    pub permission_program: UncheckedAccount<'info>,
+    /// CHECK: ephemeral rent vault
+    #[account(mut, address = EPHEMERAL_VAULT_ID)]
+    pub ephemeral_vault: UncheckedAccount<'info>,
+    /// CHECK: Magic Program
+    #[account(address = MAGIC_PROGRAM_ID)]
+    pub magic_program: UncheckedAccount<'info>,
+}
+
+#[commit]
+#[derive(Accounts)]
+#[instruction(car_no: u64, seat: u8)]
+pub struct Tick<'info> {
+    /// The seat's Player: the wallet of its core Account, or the seat key core recorded for it.
+    pub player: Signer<'info>,
+    #[account(mut, seeds = [TABLE_SEED, &table.load()?.index], bump = table.load()?.bump)]
+    pub table: AccountLoader<'info, Table>,
+    #[account(mut, seeds = [VAULT_SEED, table.key().as_ref()], bump = vault.bump)]
+    pub vault: Box<Account<'info, Vault>>,
+    #[account(
+        mut,
+        seeds = [BRAKE_SEED, table.key().as_ref(), &[seat]],
+        bump = brake_seat.bump,
+    )]
+    pub brake_seat: Box<Account<'info, BrakeSeat>>,
     #[account(mut, seeds = [SPONSOR_SEED], bump = sponsor.bump)]
     pub sponsor: Account<'info, Sponsor>,
     /// CHECK: the TEE validator's magic fee vault, checked in `sponsor_commit`.
