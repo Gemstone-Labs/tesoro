@@ -389,10 +389,7 @@ pub(crate) fn join_many_seat_match<'info>(
             &ctx.accounts.game_program.to_account_info(),
             &ctx.accounts.program_data.to_account_info(),
         )?;
-        require!(
-            slot == state.inner.deploy_slot(),
-            MatchError::GameUpgraded
-        );
+        require!(slot == state.inner.deploy_slot(), MatchError::GameUpgraded);
         (
             Pubkey::new_from_array(state.inner.game),
             state.inner.entry(),
@@ -453,7 +450,10 @@ pub(crate) fn join_many_seat_match<'info>(
     let slot = {
         let mut data = page_info.try_borrow_mut_data()?;
         let p = page_in(&page_info, &mut data)?;
-        require!(p.match_key == match_key.to_bytes(), ManySeatError::WrongSeat);
+        require!(
+            p.match_key == match_key.to_bytes(),
+            ManySeatError::WrongSeat
+        );
         p.seats[..slots]
             .iter()
             .position(|s| s.state() == SeatState::Empty)
@@ -917,10 +917,7 @@ pub(crate) fn depart_many_seat_match(ctx: Context<DepartManySeatMatch>) -> Resul
     let authority = ctx.accounts.game_authority.key().to_bytes();
     let seated = {
         let mut state = ctx.accounts.match_state.load_mut()?;
-        state
-            .inner
-            .depart(ts, &authority, slot)
-            .map_err(seat_err)?;
+        state.inner.depart(ts, &authority, slot).map_err(seat_err)?;
         state.inner.seated
     };
     emit!(ManySeatDeparted {

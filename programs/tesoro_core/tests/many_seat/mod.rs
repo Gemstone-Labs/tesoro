@@ -188,7 +188,10 @@ impl Env {
         for src in sources {
             out.extend(book_metas(&self.svm, src));
         }
-        let id = self.svm.get_account(&s(car.key)).map(|_| self.car(car).inner.id());
+        let id = self
+            .svm
+            .get_account(&s(car.key))
+            .map(|_| self.car(car).inner.id());
         if let Some(id) = id {
             let record = overflow_address(&funder, OVERFLOW_MATCH, &id.seed()).0;
             if self.svm.get_account(&s(record)).is_some() {
@@ -198,7 +201,14 @@ impl Env {
         out
     }
 
-    fn step_off_ix(&self, caller: APk, car: Car, p: &Person, max_lines: u8, game: bool) -> Instruction {
+    fn step_off_ix(
+        &self,
+        caller: APk,
+        car: Car,
+        p: &Person,
+        max_lines: u8,
+        game: bool,
+    ) -> Instruction {
         let mark = self.mark(car, p).expect("seated");
         let page = self.page(car, mark.seat / SEATS_PER_PAGE as u8);
         let seat = page.seats[mark.seat as usize % SEATS_PER_PAGE];
@@ -234,7 +244,13 @@ impl Env {
         car: Car,
         p: &Person,
     ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
-        let i = self.step_off_ix(a(caller.pubkey()), car, p, tesoro_core::MAX_RETURN_LINES, false);
+        let i = self.step_off_ix(
+            a(caller.pubkey()),
+            car,
+            p,
+            tesoro_core::MAX_RETURN_LINES,
+            false,
+        );
         let kp = caller.insecure_clone();
         self.send_v0(&[i], &kp).map(drop)
     }
@@ -257,7 +273,12 @@ impl Env {
                 sponsor: None,
             },
             instruction::ReturnSteppedOff { max_lines },
-            self.return_remaining(car, APk::new_from_array(mark.funder), APk::new_from_array(mark.pot), max_lines),
+            self.return_remaining(
+                car,
+                APk::new_from_array(mark.funder),
+                APk::new_from_array(mark.pot),
+                max_lines,
+            ),
         );
         let kp = caller.insecure_clone();
         self.send_v0(&[i], &kp).map(drop)
@@ -377,11 +398,23 @@ fn a_hundred_seats_fill_the_car_and_the_hundred_and_first_is_refused() {
     let nonce = env.next_ticket(late.account);
     let books = env.books_of(late.account);
     let err = env
-        .board_ix(&late, car, 9, (nonce, 4, ticket_pda(late.account, nonce)), books.clone())
+        .board_ix(
+            &late,
+            car,
+            9,
+            (nonce, 4, ticket_pda(late.account, nonce)),
+            books.clone(),
+        )
         .unwrap_err();
     assert_eq!(custom_code(&err), seat_err(ManySeatError::Full));
     let err = env
-        .board_ix(&late, car, 10, (nonce, 4, ticket_pda(late.account, nonce)), books)
+        .board_ix(
+            &late,
+            car,
+            10,
+            (nonce, 4, ticket_pda(late.account, nonce)),
+            books,
+        )
         .unwrap_err();
     assert_eq!(custom_code(&err), seat_err(ManySeatError::Full));
     assert_eq!(env.total_gemas(&late), 2_000);
@@ -396,7 +429,13 @@ fn a_car_smaller_than_its_pages_has_no_seat_past_its_maximum() {
     let nonce = env.next_ticket(late.account);
     let books = env.books_of(late.account);
     let err = env
-        .board_ix(&late, car, 1, (nonce, 4, ticket_pda(late.account, nonce)), books)
+        .board_ix(
+            &late,
+            car,
+            1,
+            (nonce, 4, ticket_pda(late.account, nonce)),
+            books,
+        )
         .unwrap_err();
     assert_eq!(custom_code(&err), seat_err(ManySeatError::Full));
 }
@@ -420,7 +459,13 @@ fn pages_are_made_in_order_and_a_full_page_says_so() {
     let nonce = env.next_ticket(p.account);
     let books = env.books_of(p.account);
     let err = env
-        .board_ix(p, car, 0, (nonce, 4, ticket_pda(p.account, nonce)), books.clone())
+        .board_ix(
+            p,
+            car,
+            0,
+            (nonce, 4, ticket_pda(p.account, nonce)),
+            books.clone(),
+        )
         .unwrap_err();
     assert_eq!(custom_code(&err), seat_err(ManySeatError::PageFull));
     assert_eq!(
@@ -460,7 +505,10 @@ fn stepping_off_gives_the_whole_entry_back_frees_the_seat_and_every_rent() {
     assert_eq!(env.total_gemas(ben), 1_500);
     assert_eq!(env.entry_limit(ben).used(env.now()), 0);
     assert_eq!(env.counters(ben.account).open_matches, 1);
-    assert_eq!(env.page(car2, 0).seats[seat as usize].state(), SeatState::Empty);
+    assert_eq!(
+        env.page(car2, 0).seats[seat as usize].state(),
+        SeatState::Empty
+    );
     assert_eq!(env.car(car2).inner.seated, 0);
     assert!(env.mark(car2, ben).is_none(), "the mark closed");
     assert!(env.svm.get_account(&s(pot)).is_none_or(|a| a.lamports == 0));
@@ -536,7 +584,8 @@ fn a_stranger_cannot_step_a_player_off() {
     assert_eq!(env.total_gemas(&riders[0]), 1_500);
     // the Game's authority may
     let game = env.game_auth.insecure_clone();
-    env.step_off(&game, car, &riders[0]).expect("game steps off");
+    env.step_off(&game, car, &riders[0])
+        .expect("game steps off");
     assert_eq!(env.total_gemas(&riders[0]), 2_000);
 }
 
@@ -629,12 +678,23 @@ fn an_entry_staged_in_an_entry_ticket_boards_and_comes_back_over_several_calls()
 #[test]
 fn an_upgraded_game_takes_no_seat_and_anyone_steps_its_players_off() {
     let (mut env, car, riders) = seated_car(2, (2, 10));
-    common::set_program_data(&mut env.svm, s(GAME), Some(env.game_ctl.pubkey()), GAME_SLOT + 5);
+    common::set_program_data(
+        &mut env.svm,
+        s(GAME),
+        Some(env.game_ctl.pubkey()),
+        GAME_SLOT + 5,
+    );
     let late = env.rider(2_000);
     let err = env.board(&late, car).unwrap_err();
-    assert_eq!(custom_code(&err), match_err(tesoro_core::error::MatchError::GameUpgraded));
+    assert_eq!(
+        custom_code(&err),
+        match_err(tesoro_core::error::MatchError::GameUpgraded)
+    );
     let err = env.depart(car).unwrap_err();
-    assert_eq!(custom_code(&err), match_err(tesoro_core::error::MatchError::GameUpgraded));
+    assert_eq!(
+        custom_code(&err),
+        match_err(tesoro_core::error::MatchError::GameUpgraded)
+    );
     let stranger = late.kp.insecure_clone();
     let i = env.step_off_ix(late.key, car, &riders[0], 16, true);
     env.send_v0(&[i], &stranger).expect("anyone, Game changed");
@@ -654,7 +714,10 @@ fn once_boarding_ends_nobody_boards_the_car_cannot_leave_and_anyone_steps_off() 
     let stranger = late.kp.insecure_clone();
     env.step_off(&stranger, car, &riders[0]).expect("anyone");
     env.step_off(&stranger, car, &riders[1]).expect("anyone");
-    assert_eq!(env.total_gemas(&riders[0]) + env.total_gemas(&riders[1]), 4_000);
+    assert_eq!(
+        env.total_gemas(&riders[0]) + env.total_gemas(&riders[1]),
+        4_000
+    );
 }
 
 #[test]
@@ -682,7 +745,10 @@ fn an_empty_car_closes_with_every_page_and_returns_their_rent() {
     let page1_rent = env.sol_of(page_pda(car.key, 1));
     let match_rent = env.sol_of(car.key);
     env.close_car(&caller, car, &[0, 1]).expect("close");
-    assert!(env.svm.get_account(&s(car.key)).is_none_or(|a| a.lamports == 0));
+    assert!(env
+        .svm
+        .get_account(&s(car.key))
+        .is_none_or(|a| a.lamports == 0));
     assert_eq!(env.sol_of(page1_payer), before.1 + page1_rent);
     // the opener paid the Match and page 0
     assert!(env.sol_of(payer) >= before.0 + match_rent);
@@ -714,7 +780,8 @@ fn step_off_cu(k: u8) -> u64 {
         .expect("board");
     env.give_lines(&ana, &sources, 5, |i| i as i64);
     let i = env.step_off_ix(ana.key, car, &ana, k, false);
-    env.send_v0(&[cu_limit(1_400_000), i], &kp).expect("step off");
+    env.send_v0(&[cu_limit(1_400_000), i], &kp)
+        .expect("step off");
     let cu = env.last_cu;
     while env.mark(car, &ana).is_some() {
         env.return_rest(&kp, car, &ana, k).expect("rest");

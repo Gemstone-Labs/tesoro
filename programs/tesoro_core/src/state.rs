@@ -558,7 +558,8 @@ pub struct SeatPage {
 }
 
 impl SeatPage {
-    pub const SPACE: usize = 8 + 72 + ledger::many_seat::Seat::LEN * ledger::many_seat::SEATS_PER_PAGE;
+    pub const SPACE: usize =
+        8 + 72 + ledger::many_seat::Seat::LEN * ledger::many_seat::SEATS_PER_PAGE;
 }
 
 /// An Account's place in a many-seat Match: `["seat", match, account]`. Its existence is what

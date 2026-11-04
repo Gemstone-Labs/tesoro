@@ -368,7 +368,10 @@ fn a_counted_entry_names_its_period_and_stepping_off_in_it_gives_the_gemas_back(
     l.set_limit(T, 1_000).unwrap();
     assert_eq!(l.count_entry(T + 10, 500), Ok(Some(T + 10)));
     assert_eq!(l.count_entry(T + 20, 500), Ok(Some(T + 10)));
-    assert_eq!(l.count_entry(T + 30, 500), Err(CoreError::EntryLimitReached));
+    assert_eq!(
+        l.count_entry(T + 30, 500),
+        Err(CoreError::EntryLimitReached)
+    );
     l.release_entry(T + 40, 500, T + 10);
     assert_eq!(l.used(T + 40), 500);
     assert_eq!(l.count_entry(T + 50, 500), Ok(Some(T + 10)));

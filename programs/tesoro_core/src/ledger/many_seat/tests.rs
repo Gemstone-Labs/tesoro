@@ -44,7 +44,10 @@ fn car(min: u8, max: u8) -> ManySeatRecord {
 fn a_car_opens_empty_and_boarding_with_its_bounds() {
     let c = car(5, 100);
     assert_eq!(c.stage(), ManyStage::Boarding);
-    assert_eq!((c.min_seats, c.max_seats, c.seated, c.min_since()), (5, 100, 0, 0));
+    assert_eq!(
+        (c.min_seats, c.max_seats, c.seated, c.min_since()),
+        (5, 100, 0, 0)
+    );
     assert_eq!(c.deadline_abs(), T + 7 * 24 * 3600);
     assert_eq!((c.entry(), c.deploy_slot(), c.opened_at()), (500, SLOT, T));
     assert_eq!(c.terms(), terms());
@@ -127,7 +130,10 @@ fn only_the_game_departs_and_only_with_the_minimum_seated() {
     assert_eq!(c.depart(T + 5, &AUTH, SLOT), Err(SeatError::BelowMinimum));
     c.take_seat(T + 6).unwrap();
     assert_eq!(c.depart(T + 7, &[7; 32], SLOT), Err(SeatError::NotGame));
-    assert_eq!(c.depart(T + 7, &AUTH, SLOT + 1), Err(SeatError::GameUpgraded));
+    assert_eq!(
+        c.depart(T + 7, &AUTH, SLOT + 1),
+        Err(SeatError::GameUpgraded)
+    );
     let end = c.boarding_ends();
     assert_eq!(c.depart(end, &AUTH, SLOT), Err(SeatError::BoardingOver));
     c.depart(T + 7, &AUTH, SLOT).expect("depart");
@@ -181,7 +187,10 @@ fn a_seat_round_trips_its_fields() {
         counted: Some((500, T)),
     });
     assert_eq!(s.state(), SeatState::Seated);
-    assert_eq!((s.player(), s.funder(), s.pot()), ([1; 32], [2; 32], [3; 32]));
+    assert_eq!(
+        (s.player(), s.funder(), s.pot()),
+        ([1; 32], [2; 32], [3; 32])
+    );
     assert_eq!((s.share_bps(), s.pot_lines(), s.hold()), (4_000, 17, 15));
     assert_eq!(s.counted(), Some((500, T)));
     s.clear();
