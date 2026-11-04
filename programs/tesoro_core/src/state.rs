@@ -146,8 +146,13 @@ impl GameRecord {
     /// The Game program is still the build a Match opened under: the deploy slot is unchanged, or
     /// it moved (ExtendProgram) and `refresh_listing` proved the same bytes in the same epoch.
     pub fn same_build(&self, m: &MatchState, current_slot: u64) -> bool {
-        current_slot == m.inner.deploy_slot
-            || (current_slot == self.approved_slot && self.listing_epoch == m.listing_epoch)
+        self.same_build_at(m.inner.deploy_slot, m.listing_epoch, current_slot)
+    }
+
+    /// [`same_build`](Self::same_build) for any Match: its deploy slot and listing epoch at open.
+    pub fn same_build_at(&self, deploy_slot: u64, listing_epoch: u32, current_slot: u64) -> bool {
+        current_slot == deploy_slot
+            || (current_slot == self.approved_slot && self.listing_epoch == listing_epoch)
     }
 
     pub fn fee_terms(&self, config: &Config) -> ledger::FeeTerms {
@@ -512,6 +517,81 @@ impl MatchState {
 
     pub fn id(&self) -> ledger::lifecycle::MatchId {
         self.inner.id
+    }
+}
+
+/// A many-seat Match (ADR 0015) at the same address as a head-to-head one,
+/// `["match", opener Account, n]` with the opener's `next_match`, so its id, overflow records and
+/// receipt work like a head-to-head Match's. Read in place (no Borsh, see `ManySeatRecord`). The
+/// seats are in `SeatPage`s.
+#[account(zero_copy)]
+pub struct ManySeatMatch {
+    pub bump: u8,
+    /// `GameRecord.listing_epoch` when the car opened (little endian).
+    pub listing_epoch: [u8; 4],
+    /// Who paid the rent of this account; it goes back there when the Match is closed.
+    pub payer: [u8; 32],
+    pub inner: ledger::many_seat::ManySeatRecord,
+}
+
+impl ManySeatMatch {
+    pub const SPACE: usize = 8 + 1 + 4 + 32 + ledger::many_seat::ManySeatRecord::LEN;
+
+    pub fn listing_epoch(&self) -> u32 {
+        u32::from_le_bytes(self.listing_epoch)
+    }
+}
+
+pub const SEAT_PAGE_SEED: &[u8] = b"seat_page";
+pub const SEAT_SEED: &[u8] = b"seat";
+
+/// Ten seats of a many-seat Match: `["seat_page", match, page]`. Created by the join that needs
+/// it, in order; closed with the Match, the rent back to `payer`.
+#[account(zero_copy)]
+pub struct SeatPage {
+    pub match_key: [u8; 32],
+    pub payer: [u8; 32],
+    pub bump: u8,
+    pub index: u8,
+    pub reserved: [u8; 6],
+    pub seats: [ledger::many_seat::Seat; ledger::many_seat::SEATS_PER_PAGE],
+}
+
+impl SeatPage {
+    pub const SPACE: usize =
+        8 + 72 + ledger::many_seat::Seat::LEN * ledger::many_seat::SEATS_PER_PAGE;
+}
+
+/// An Account's place in a many-seat Match: `["seat", match, account]`. Its existence is what
+/// keeps an Account to one seat. After a step-off it carries the seat's lines back (`returning`)
+/// and closes once they are all home, the rent back to `payer`. Read in place, like the Match.
+#[account(zero_copy)]
+pub struct SeatMark {
+    pub bump: u8,
+    pub seat: u8,
+    /// 1 once the seat stepped off and its lines are on their way back.
+    pub returning: u8,
+    pub reserved: u8,
+    /// While returning: slots held for the lines in the funder's stores (little endian).
+    pub hold: [u8; 4],
+    pub match_key: [u8; 32],
+    pub account: [u8; 32],
+    pub payer: [u8; 32],
+    /// While returning: the Match's id as its seed bytes (opener, n: its overflow records), the
+    /// funder the lines go back to and the Pot that holds them.
+    pub match_seed: [u8; 40],
+    pub funder: [u8; 32],
+    pub pot: [u8; 32],
+}
+
+impl SeatMark {
+    pub const SPACE: usize = 8 + 8 + 32 * 5 + 40;
+
+    pub fn hold(&self) -> u32 {
+        u32::from_le_bytes(self.hold)
+    }
+    pub fn set_hold(&mut self, slots: u32) {
+        self.hold = slots.to_le_bytes();
     }
 }
 

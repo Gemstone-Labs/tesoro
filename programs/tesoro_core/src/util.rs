@@ -47,19 +47,39 @@ pub fn is_away(protections: &AccountInfo) -> Result<bool> {
 /// Self-Exclusion, else against its Entry Limit. `protections` is the Account's
 /// `["protections", account]` address (checked by the caller's seeds); when nothing lives there the
 /// Player set no Protection and nothing is counted.
-pub fn count_entry(protections: &AccountInfo, gemas: u64) -> Result<()> {
+///
+/// Returns the start of the limit period the entry counts in (`None`: nothing counted), so a
+/// step-off before departure can release it (`release_entry`).
+pub fn count_entry(protections: &AccountInfo, gemas: u64) -> Result<Option<i64>> {
     if protections.owner != &crate::ID || protections.data_is_empty() {
-        return Ok(());
+        return Ok(None);
     }
     require!(protections.is_writable, TesoroError::NotWritable);
     let mut data = protections.try_borrow_mut_data()?;
     let mut p = ProtectionsState::try_deserialize(&mut &data[..])?;
     let ts = now()?;
     p.inner.check_play(ts).map_err(core_err)?;
+    let period = p
+        .inner
+        .entry_limit
+        .count_entry(ts, gemas)
+        .map_err(core_err)?;
+    p.try_serialize(&mut &mut data[..])?;
+    Ok(period)
+}
+
+/// Gives back `gemas` that `count_entry` counted in the period starting at `period_start`, while
+/// that period is still the current one.
+pub fn release_entry(protections: &AccountInfo, gemas: u64, period_start: i64) -> Result<()> {
+    if protections.owner != &crate::ID || protections.data_is_empty() {
+        return Ok(());
+    }
+    require!(protections.is_writable, TesoroError::NotWritable);
+    let mut data = protections.try_borrow_mut_data()?;
+    let mut p = ProtectionsState::try_deserialize(&mut &data[..])?;
     p.inner
         .entry_limit
-        .record_entry(ts, gemas)
-        .map_err(core_err)?;
+        .release_entry(now()?, gemas, period_start);
     p.try_serialize(&mut &mut data[..])?;
     Ok(())
 }

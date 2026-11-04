@@ -10,7 +10,7 @@ import { VanguardChain } from "../../app/src/games/vanguard/chain.ts";
 import { SplitConnection, type GpaFn } from "../../app/src/lib/chain/split-connection.ts";
 import { keeperCluster } from "./cluster.ts";
 import { makeScanRpc, meter, meteredFetch, scanProgramAccounts } from "./credits.ts";
-import type { Settings } from "./env.ts";
+import { readKeypair, type Settings } from "./env.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, "../..");
@@ -53,6 +53,8 @@ export interface Runtime {
   settings: Settings;
   conn: Connection;
   payer: Keypair;
+  /** Signs and pays the operator-only calls (tables, assign, Sponsor and Fuel): `KEEPER_OPERATOR_KEYPAIR`, else the keeper key. */
+  operator: Keypair;
   bp: BlockPuzzleChain;
   holdem: HoldemChain;
   burst: BlockBurstChain;
@@ -60,6 +62,7 @@ export interface Runtime {
   vanguard: VanguardChain;
   signer: ReturnType<typeof keypairSigner>;
   hsigner: ReturnType<typeof holdemSigner>;
+  osigner: ReturnType<typeof holdemSigner>;
   core: BlockPuzzleChain["core"];
   coreIdl: any;
   /** Unix seconds of the cluster (the clock the programs use), not the local one. */
@@ -136,7 +139,8 @@ export function buildRuntime(settings: Settings, conn: Connection, payer: Keypai
   const burst = new BlockBurstChain(loadIdl("block_puzzle"), coreIdl, { base: conn });
   const duel = new TradingDuelChain(loadIdl("trading_duel"), coreIdl, { base: conn });
   const vanguard = new VanguardChain(loadIdl("vanguard"), coreIdl, { base: conn });
-  return { settings, conn, payer, bp, holdem, burst, duel, vanguard, signer: keypairSigner(payer), hsigner: holdemSigner(payer), core: bp.core, coreIdl, now: 0 };
+  const operator = settings.operatorKeypairPath ? readKeypair(settings.operatorKeypairPath) : payer;
+  return { settings, conn, payer, operator, osigner: holdemSigner(operator), bp, holdem, burst, duel, vanguard, signer: keypairSigner(payer), hsigner: holdemSigner(payer), core: bp.core, coreIdl, now: 0 };
 }
 
 /** Cluster time, so deadline checks agree with the on-chain Clock. */

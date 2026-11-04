@@ -4,7 +4,7 @@ import { webhookNotifyPasses } from "@/server/notify/env";
 
 export const runtime = "nodejs";
 
-/** The Vercel cron (app/vercel.json): emails for stored webhook transactions and the Delayed check. */
+/** Called every 5 minutes by the VPS timer tesoro-notify-cron (keeper/deploy), not by Vercel: emails for stored webhook transactions and the Delayed check. */
 export async function GET(request: Request) {
   try {
     return Response.json(await runNotifyCron(webhookNotifyPasses(), process.env.CRON_SECRET, request.headers.get("authorization")));

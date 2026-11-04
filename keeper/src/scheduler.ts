@@ -492,8 +492,8 @@ export async function runGame(ctx: Ctx, a: GameAdapter, set: GameSettings, match
   const [cfg, sponsorBase, fuelBase] = await Promise.all([Promise.resolve().then(() => a.config(ctx)).catch(() => null), infoOf(a.sponsorAddress()), infoOf(a.fuelAddress(set.fuel))]);
   if (!cfg) return 0; // the Game has no TableConfig yet (not deployed with tables)
   const init = { sponsor: set.sponsorInit, fuel: set.fuelInit };
-  const operatorOk = cfg.operator.equals(ctx.payer.publicKey);
-  condition(key("operator"), !operatorOk, `${a.label} tables: the keeper is not the operator`, `TableConfig.operator of ${a.label} is ${cfg.operator.toBase58()}, not the keeper key ${ctx.payer.publicKey.toBase58()}: no table can be created or assigned until set_config names the keeper.`);
+  const operatorOk = cfg.operator.equals(ctx.operator.publicKey);
+  condition(key("operator"), !operatorOk, `${a.label} tables: the signing key is not the operator`, `TableConfig.operator of ${a.label} is ${cfg.operator.toBase58()}, not the operator key ${ctx.operator.publicKey.toBase58()}: no table can be created or assigned until set_config names the operator key.`);
   const here = (what: string) => `table=${a.label}/${cfg.generation}/${what}`;
   let actions = 0;
   const run = async (subject: string, what: string, fn: () => Promise<string>) => {
@@ -616,7 +616,7 @@ export async function runGame(ctx: Ctx, a: GameAdapter, set: GameSettings, match
       const ref = { generation: cfg.generation, index: s.index };
       await run(here(String(s.index)), s.do, () => a.setup(ctx, { do: s.do, index: s.index }, ref, init));
     }
-  } else if (growth.steps.length) log("tables", a.label, `SKIP ${growth.steps.length} setup step(s): ${operatorOk ? "no Sponsor yet" : "the keeper is not the operator"}`);
+  } else if (growth.steps.length) log("tables", a.label, `SKIP ${growth.steps.length} setup step(s): ${operatorOk ? "no Sponsor yet" : "the signing key is not the operator"}`);
   condition(key("cap"), growth.capReached, `${a.label} tables: cap reached`, `${unplaced} ${a.label} Match(es) wait for a table and the Game already has ${growth.existing} of at most ${Math.min(set.cap, cfg.maxTables)} (KEEPER_${a.env}_TABLE_CAP, TableConfig.max_tables). Raise the cap or the Matches will be refunded at their deadline.`);
   const oldest = [...st.firstSeen.values()].reduce((m, t) => Math.min(m, t), Infinity);
   const late = unplaced > 0 && ctx.now - oldest >= sched.tableWaitSecs;

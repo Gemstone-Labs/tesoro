@@ -951,6 +951,61 @@ pub mod tesoro_core {
     pub fn retire_treasury(ctx: Context<RetireTreasury>) -> Result<()> {
         instructions::retire::retire_treasury(ctx)
     }
+
+    // ---- Many-seat Matches (ADR 0015) ----
+
+    /// The Game opens an empty car for `entry` with its seat bounds; the opener's Account names
+    /// it (`n` = its next Match number).
+    pub fn open_many_seat_match(
+        ctx: Context<OpenManySeatMatch>,
+        entry: u64,
+        n: u64,
+        min_seats: u8,
+        max_seats: u8,
+        asset: u8,
+    ) -> Result<()> {
+        instructions::many_seat::open_many_seat_match(ctx, entry, n, min_seats, max_seats, asset)
+    }
+
+    /// Takes the lowest free seat of `page` with an entry drawn into a fresh Pot or a complete
+    /// Entry Ticket.
+    pub fn join_many_seat_match<'info>(
+        ctx: Context<'_, '_, 'info, 'info, JoinManySeatMatch<'info>>,
+        pot_nonce: u64,
+        pot_lines: u32,
+        page: u8,
+    ) -> Result<()> {
+        instructions::many_seat::join_many_seat_match(ctx, pot_nonce, pot_lines, page)
+    }
+
+    /// Steps a Player off a seat before departure and starts returning the entry.
+    pub fn step_off_many_seat_match<'info>(
+        ctx: Context<'_, '_, 'info, 'info, StepOffManySeatMatch<'info>>,
+        seat: u8,
+        max_lines: u8,
+    ) -> Result<()> {
+        instructions::many_seat::step_off_many_seat_match(ctx, seat, max_lines)
+    }
+
+    /// Moves more lines of a stepped-off seat home (anyone).
+    pub fn return_stepped_off<'info>(
+        ctx: Context<'_, '_, 'info, 'info, ReturnSteppedOff<'info>>,
+        max_lines: u8,
+    ) -> Result<()> {
+        instructions::many_seat::return_stepped_off(ctx, max_lines)
+    }
+
+    /// The Game ends boarding.
+    pub fn depart_many_seat_match(ctx: Context<DepartManySeatMatch>) -> Result<()> {
+        instructions::many_seat::depart_many_seat_match(ctx)
+    }
+
+    /// Closes a car nobody sits in before it left (anyone).
+    pub fn close_many_seat_match<'info>(
+        ctx: Context<'_, '_, 'info, 'info, CloseManySeatMatch<'info>>,
+    ) -> Result<()> {
+        instructions::many_seat::close_many_seat_match(ctx)
+    }
 }
 
 #[cfg(test)]

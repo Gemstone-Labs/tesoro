@@ -22,6 +22,8 @@ export interface Settings {
   /** List queries (getProgramAccounts): the public devnet RPC allows them, most free tiers do not. */
   gpaRpc: string;
   keypairPath: string;
+  /** Key file of the table operator (`TableConfig.operator`); unset means the keeper key is the operator. */
+  operatorKeypairPath: string | undefined;
   intervalMs: number;
   /** Between full passes, how often the Block Burst fast lane runs (0 turns it off). */
   fastMs: number;
@@ -58,6 +60,7 @@ export function settings(argv = process.argv.slice(2), env = process.env): Setti
     rpc: rpcOr(value("rpc") || env.KEEPER_RPC || env.TESORO_BASE_RPC, "KEEPER_RPC", cluster.solana.defaultRpc),
     gpaRpc: rpcOr(value("gpa-rpc") || env.KEEPER_GPA_RPC, "KEEPER_GPA_RPC", cluster.solana.defaultGpaRpc),
     keypairPath: env.KEEPER_KEYPAIR ?? join(homedir(), ".config/tesoro/keeper.json"),
+    operatorKeypairPath: env.KEEPER_OPERATOR_KEYPAIR || undefined,
     intervalMs: num(value("interval") ?? env.KEEPER_INTERVAL_SECS, 20) * 1000,
     fastMs: num(value("fast") ?? env.KEEPER_FAST_SECS, 2) * 1000,
     once: flag("once"),

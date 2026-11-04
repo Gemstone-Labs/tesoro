@@ -1756,6 +1756,37 @@
       "args": []
     },
     {
+      "name": "close_many_seat_match",
+      "docs": [
+        "Closes a car nobody sits in before it left (anyone)."
+      ],
+      "discriminator": [
+        28,
+        5,
+        173,
+        85,
+        220,
+        42,
+        143,
+        21
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "match_state",
+          "writable": true
+        },
+        {
+          "name": "match_payer",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "close_match",
       "docs": [
         "Closes a finished Match and returns the rents."
@@ -2641,6 +2672,59 @@
           "type": "u64"
         }
       ]
+    },
+    {
+      "name": "depart_many_seat_match",
+      "docs": [
+        "The Game ends boarding."
+      ],
+      "discriminator": [
+        19,
+        78,
+        202,
+        230,
+        200,
+        40,
+        202,
+        113
+      ],
+      "accounts": [
+        {
+          "name": "game_authority",
+          "signer": true
+        },
+        {
+          "name": "game_record",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_state"
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_program"
+        },
+        {
+          "name": "program_data"
+        },
+        {
+          "name": "match_state",
+          "writable": true
+        }
+      ],
+      "args": []
     },
     {
       "name": "expire_instant_redeem",
@@ -6321,6 +6405,236 @@
       ]
     },
     {
+      "name": "join_many_seat_match",
+      "docs": [
+        "Takes the lowest free seat of `page` with an entry drawn into a fresh Pot or a complete",
+        "Entry Ticket."
+      ],
+      "discriminator": [
+        139,
+        120,
+        230,
+        201,
+        159,
+        15,
+        252,
+        59
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "player_authority",
+          "signer": true
+        },
+        {
+          "name": "player_account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "counters",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  101,
+                  114,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protections",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "writable": true
+        },
+        {
+          "name": "match_state",
+          "writable": true
+        },
+        {
+          "name": "game_record",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_state"
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_program"
+        },
+        {
+          "name": "program_data"
+        },
+        {
+          "name": "seat_page",
+          "writable": true
+        },
+        {
+          "name": "seat_mark",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  97,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_state"
+              },
+              {
+                "kind": "account",
+                "path": "player_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "pot_nonce",
+          "type": "u64"
+        },
+        {
+          "name": "pot_lines",
+          "type": "u32"
+        },
+        {
+          "name": "page",
+          "type": "u8"
+        }
+      ]
+    },
+    {
       "name": "join_match",
       "docs": [
         "Joins an Open Match with an equal entry (backed with an accepted Offer in the optional",
@@ -7046,6 +7360,204 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "open_many_seat_match",
+      "docs": [
+        "The Game opens an empty car for `entry` with its seat bounds; the opener's Account names",
+        "it (`n` = its next Match number)."
+      ],
+      "discriminator": [
+        75,
+        210,
+        108,
+        4,
+        68,
+        110,
+        212,
+        93
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "opener_authority",
+          "signer": true
+        },
+        {
+          "name": "game_authority",
+          "docs": [
+            "The Game's settle authority (a server key, or the Game's PDA by CPI)."
+          ],
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "economy",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  99,
+                  111,
+                  110,
+                  111,
+                  109,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_record",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_program"
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_program"
+        },
+        {
+          "name": "program_data"
+        },
+        {
+          "name": "opener_account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "opener_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "counters",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  101,
+                  114,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "opener_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "match_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "opener_account"
+              },
+              {
+                "kind": "arg",
+                "path": "n"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "entry",
+          "type": "u64"
+        },
+        {
+          "name": "n",
+          "type": "u64"
+        },
+        {
+          "name": "min_seats",
+          "type": "u8"
+        },
+        {
+          "name": "max_seats",
+          "type": "u8"
+        },
+        {
+          "name": "asset",
+          "type": "u8"
+        }
+      ]
     },
     {
       "name": "open_match",
@@ -10587,6 +11099,92 @@
       ]
     },
     {
+      "name": "return_stepped_off",
+      "docs": [
+        "Moves more lines of a stepped-off seat home (anyone)."
+      ],
+      "discriminator": [
+        206,
+        234,
+        161,
+        199,
+        244,
+        224,
+        106,
+        190
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "seat_mark",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  97,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "seat_mark"
+              },
+              {
+                "kind": "account",
+                "path": "seat_mark"
+              }
+            ]
+          }
+        },
+        {
+          "name": "mark_payer",
+          "writable": true
+        },
+        {
+          "name": "pot",
+          "writable": true
+        },
+        {
+          "name": "pot_payer",
+          "writable": true
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "max_lines",
+          "type": "u8"
+        }
+      ]
+    },
+    {
       "name": "set_accounts_cap",
       "docs": [
         "Admin only: the most the sponsor may spend on rent it can never get back, which is what a",
@@ -13003,6 +13601,186 @@
       ]
     },
     {
+      "name": "step_off_many_seat_match",
+      "docs": [
+        "Steps a Player off a seat before departure and starts returning the entry."
+      ],
+      "discriminator": [
+        91,
+        242,
+        181,
+        121,
+        69,
+        75,
+        51,
+        40
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "match_state",
+          "writable": true
+        },
+        {
+          "name": "seat_page",
+          "writable": true
+        },
+        {
+          "name": "seat_mark",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  97,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_state"
+              },
+              {
+                "kind": "account",
+                "path": "seat_mark"
+              }
+            ]
+          }
+        },
+        {
+          "name": "mark_payer",
+          "writable": true
+        },
+        {
+          "name": "player_counters",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  101,
+                  114,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "seat_mark"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player_protections",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "seat_mark"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "writable": true
+        },
+        {
+          "name": "pot_payer",
+          "writable": true
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_record",
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_state"
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_program",
+          "optional": true
+        },
+        {
+          "name": "program_data",
+          "optional": true
+        }
+      ],
+      "args": [
+        {
+          "name": "seat",
+          "type": "u8"
+        },
+        {
+          "name": "max_lines",
+          "type": "u8"
+        }
+      ]
+    },
+    {
       "name": "take_advance",
       "discriminator": [
         58,
@@ -15169,6 +15947,19 @@
       ]
     },
     {
+      "name": "ManySeatMatch",
+      "discriminator": [
+        9,
+        147,
+        183,
+        140,
+        132,
+        123,
+        76,
+        15
+      ]
+    },
+    {
       "name": "MatchState",
       "discriminator": [
         250,
@@ -15348,6 +16139,32 @@
         189,
         152,
         52
+      ]
+    },
+    {
+      "name": "SeatMark",
+      "discriminator": [
+        153,
+        119,
+        215,
+        118,
+        224,
+        208,
+        0,
+        143
+      ]
+    },
+    {
+      "name": "SeatPage",
+      "discriminator": [
+        96,
+        242,
+        218,
+        8,
+        140,
+        4,
+        148,
+        17
       ]
     },
     {
@@ -15704,6 +16521,45 @@
       ]
     },
     {
+      "name": "ManySeatClosed",
+      "discriminator": [
+        113,
+        98,
+        190,
+        244,
+        80,
+        143,
+        108,
+        194
+      ]
+    },
+    {
+      "name": "ManySeatDeparted",
+      "discriminator": [
+        138,
+        91,
+        201,
+        156,
+        220,
+        77,
+        73,
+        196
+      ]
+    },
+    {
+      "name": "ManySeatOpened",
+      "discriminator": [
+        179,
+        59,
+        151,
+        189,
+        43,
+        210,
+        22,
+        100
+      ]
+    },
+    {
       "name": "MatchChunkDone",
       "discriminator": [
         249,
@@ -15935,6 +16791,45 @@
         219,
         115,
         216
+      ]
+    },
+    {
+      "name": "SeatReturned",
+      "discriminator": [
+        123,
+        42,
+        144,
+        79,
+        102,
+        89,
+        122,
+        124
+      ]
+    },
+    {
+      "name": "SeatSteppedOff",
+      "discriminator": [
+        4,
+        184,
+        42,
+        10,
+        105,
+        153,
+        71,
+        189
+      ]
+    },
+    {
+      "name": "SeatTaken",
+      "discriminator": [
+        175,
+        78,
+        124,
+        103,
+        251,
+        182,
+        225,
+        198
       ]
     },
     {
@@ -17428,6 +18323,318 @@
           {
             "name": "tranche",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ManySeatClosed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "match_state",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ManySeatDeparted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "match_state",
+            "type": "pubkey"
+          },
+          {
+            "name": "seated",
+            "type": "u8"
+          },
+          {
+            "name": "ts",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ManySeatMatch",
+      "docs": [
+        "A many-seat Match (ADR 0015) at the same address as a head-to-head one,",
+        "`[\"match\", opener Account, n]` with the opener's `next_match`, so its id, overflow records and",
+        "receipt work like a head-to-head Match's. Read in place (no Borsh, see `ManySeatRecord`). The",
+        "seats are in `SeatPage`s."
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "listing_epoch",
+            "docs": [
+              "`GameRecord.listing_epoch` when the car opened (little endian)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          },
+          {
+            "name": "payer",
+            "docs": [
+              "Who paid the rent of this account; it goes back there when the Match is closed."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "inner",
+            "type": {
+              "defined": {
+                "name": "ManySeatRecord"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ManySeatOpened",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "match_state",
+            "type": "pubkey"
+          },
+          {
+            "name": "game",
+            "type": "pubkey"
+          },
+          {
+            "name": "entry",
+            "type": "u64"
+          },
+          {
+            "name": "min_seats",
+            "type": "u8"
+          },
+          {
+            "name": "max_seats",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ManySeatRecord",
+      "docs": [
+        "The many-seat Match record (`state::ManySeatMatch`), read and written in place.",
+        "",
+        "Byte arrays only (alignment 1, no padding), and no Borsh: a record that shared `MatchId`,",
+        "`MatchMeta` or `Terms` Borsh code with the head-to-head `MatchState` changed how the",
+        "head-to-head settle chunk was compiled (its 12-step worst case rose 24-30 CU), so the",
+        "many-seat path keeps its own layout and builds those values through accessors."
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "opener",
+            "docs": [
+              "The id: the opener's Account and its `next_match` (little endian)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "n",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "game",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "settle_authority",
+            "docs": [
+              "The Game's settle authority when the car opened: only it departs and settles."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "studio_owner",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "deploy_slot",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "entry",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "opened_at",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "deadline_abs",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "min_since",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "departed_at",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "platform_bps",
+            "type": {
+              "array": [
+                "u8",
+                2
+              ]
+            }
+          },
+          {
+            "name": "studio_bps",
+            "type": {
+              "array": [
+                "u8",
+                2
+              ]
+            }
+          },
+          {
+            "name": "has_studio_owner",
+            "type": "u8"
+          },
+          {
+            "name": "studio_priority",
+            "type": "u8"
+          },
+          {
+            "name": "challenge",
+            "type": "u8"
+          },
+          {
+            "name": "asset",
+            "type": "u8"
+          },
+          {
+            "name": "listed",
+            "type": "u8"
+          },
+          {
+            "name": "min_seats",
+            "type": "u8"
+          },
+          {
+            "name": "max_seats",
+            "type": "u8"
+          },
+          {
+            "name": "seated",
+            "docs": [
+              "Seats taken right now."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "pages",
+            "docs": [
+              "Seat pages created so far (always in order, page `pages` is the next one)."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "stage",
+            "type": "u8"
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                6
+              ]
+            }
           }
         ]
       }
@@ -19830,6 +21037,392 @@
               "Bit `i` set once rank `i` was voided: it pays nothing and its share stays in the pool."
             ],
             "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Seat",
+      "docs": [
+        "One seat of a page. Byte arrays only (alignment 1, no padding), so a page is read in place.",
+        "`place_bps` and `refund` are the Game's result for the seat (ticket 03)."
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "state",
+            "type": "u8"
+          },
+          {
+            "name": "flags",
+            "type": "u8"
+          },
+          {
+            "name": "share_bps",
+            "type": {
+              "array": [
+                "u8",
+                2
+              ]
+            }
+          },
+          {
+            "name": "place_bps",
+            "type": {
+              "array": [
+                "u8",
+                2
+              ]
+            }
+          },
+          {
+            "name": "reserved0",
+            "type": {
+              "array": [
+                "u8",
+                2
+              ]
+            }
+          },
+          {
+            "name": "pot_lines",
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          },
+          {
+            "name": "hold",
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          },
+          {
+            "name": "counted",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "counted_window",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "refund",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "player",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "funder",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "pot",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                24
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "SeatMark",
+      "docs": [
+        "An Account's place in a many-seat Match: `[\"seat\", match, account]`. Its existence is what",
+        "keeps an Account to one seat. After a step-off it carries the seat's lines back (`returning`)",
+        "and closes once they are all home, the rent back to `payer`. Read in place, like the Match."
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "seat",
+            "type": "u8"
+          },
+          {
+            "name": "returning",
+            "docs": [
+              "1 once the seat stepped off and its lines are on their way back."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "reserved",
+            "type": "u8"
+          },
+          {
+            "name": "hold",
+            "docs": [
+              "While returning: slots held for the lines in the funder's stores (little endian)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          },
+          {
+            "name": "match_key",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "account",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "payer",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "match_seed",
+            "docs": [
+              "While returning: the Match's id as its seed bytes (opener, n: its overflow records), the",
+              "funder the lines go back to and the Pot that holds them."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                40
+              ]
+            }
+          },
+          {
+            "name": "funder",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "pot",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "SeatPage",
+      "docs": [
+        "Ten seats of a many-seat Match: `[\"seat_page\", match, page]`. Created by the join that needs",
+        "it, in order; closed with the Match, the rent back to `payer`."
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "match_key",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "payer",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "index",
+            "type": "u8"
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                6
+              ]
+            }
+          },
+          {
+            "name": "seats",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "Seat"
+                  }
+                },
+                10
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "SeatReturned",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "match_state",
+            "type": "pubkey"
+          },
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "lines",
+            "type": "u8"
+          },
+          {
+            "name": "done",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SeatSteppedOff",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "match_state",
+            "type": "pubkey"
+          },
+          {
+            "name": "seat",
+            "type": "u8"
+          },
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "seated",
+            "type": "u8"
+          },
+          {
+            "name": "min_since",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SeatTaken",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "match_state",
+            "type": "pubkey"
+          },
+          {
+            "name": "seat",
+            "type": "u8"
+          },
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "funder",
+            "type": "pubkey"
+          },
+          {
+            "name": "seated",
+            "type": "u8"
+          },
+          {
+            "name": "min_since",
+            "type": "i64"
           }
         ]
       }

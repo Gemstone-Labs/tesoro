@@ -6384,3 +6384,5 @@ fn a_match_opened_before_the_upgrade_still_closes_with_an_old_counters_account()
     assert_eq!(c.len(), AccountCounters::SPACE_V1);
     assert_eq!(u32::from_le_bytes(c[17..21].try_into().unwrap()), 0);
 }
+
+mod many_seat;

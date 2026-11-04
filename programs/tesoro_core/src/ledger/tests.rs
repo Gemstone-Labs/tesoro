@@ -363,6 +363,36 @@ fn the_period_resets_exactly_seven_days_after_it_began() {
 }
 
 #[test]
+fn a_counted_entry_names_its_period_and_stepping_off_in_it_gives_the_gemas_back() {
+    let mut l = EntryLimit::default();
+    l.set_limit(T, 1_000).unwrap();
+    assert_eq!(l.count_entry(T + 10, 500), Ok(Some(T + 10)));
+    assert_eq!(l.count_entry(T + 20, 500), Ok(Some(T + 10)));
+    assert_eq!(
+        l.count_entry(T + 30, 500),
+        Err(CoreError::EntryLimitReached)
+    );
+    l.release_entry(T + 40, 500, T + 10);
+    assert_eq!(l.used(T + 40), 500);
+    assert_eq!(l.count_entry(T + 50, 500), Ok(Some(T + 10)));
+}
+
+#[test]
+fn no_limit_counts_no_period_and_a_release_from_a_past_period_changes_nothing() {
+    let mut l = EntryLimit::default();
+    assert_eq!(l.count_entry(T, 500), Ok(None));
+    l.set_limit(T, 1_000).unwrap();
+    assert_eq!(l.count_entry(T, 500), Ok(Some(T)));
+    // the period ended and a new one began: the old entry is no longer in it
+    assert_eq!(l.count_entry(T + WEEK, 1_000), Ok(Some(T + WEEK)));
+    l.release_entry(T + WEEK + 1, 500, T);
+    assert_eq!(l.used(T + WEEK + 1), 1_000);
+    // a release never goes below zero
+    l.release_entry(T + WEEK + 2, 5_000, T + WEEK);
+    assert_eq!(l.used(T + WEEK + 2), 0);
+}
+
+#[test]
 fn lowering_the_entry_limit_works_at_once_even_below_what_is_used() {
     let mut l = EntryLimit::default();
     l.set_limit(T, 2_500).unwrap();

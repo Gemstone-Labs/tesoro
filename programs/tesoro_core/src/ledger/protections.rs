@@ -118,6 +118,21 @@ impl EntryLimit {
         *self = next;
         Ok(())
     }
+
+    /// [`record_entry`](Self::record_entry), returning the start of the period the entry counts
+    /// in (`None`: no limit in force, nothing counted), so it can be released.
+    pub fn count_entry(&mut self, now: i64, gemas: u64) -> CoreResult<Option<i64>> {
+        self.record_entry(now, gemas)?;
+        Ok((self.gemas != 0).then_some(self.window_start))
+    }
+
+    /// Gives back an entry that never ran (a step-off before departure), if the period it was
+    /// counted in (`period_start`) is still the current one; a later period never counted it.
+    pub fn release_entry(&mut self, now: i64, gemas: u64, period_start: i64) {
+        if self.window_start == period_start && self.used(now) > 0 {
+            self.window_used = self.window_used.saturating_sub(gemas);
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, AnchorSerialize, AnchorDeserialize)]
