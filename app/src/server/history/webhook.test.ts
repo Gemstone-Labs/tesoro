@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import fixture from "./fixtures/helius-raw-devnet.json";
+import realDelivery from "./fixtures/helius-delivery-real-2026-11-04.json";
 import { catchUp, decodePending, receiveWebhook, recordsOfRawTx, rpcWebhookStore, WebhookHttpError, type CoreChain, type RawTx, type ReceiveDeps } from "./webhook";
 import { testDb } from "./test-db";
 
@@ -23,6 +24,13 @@ async function setup(over: Partial<ReceiveDeps> = {}) {
 }
 
 describe("decoding a delivered transaction", () => {
+  // Bodies of `webhook_tx` rows stored from real Helius deliveries on 2026-11-04 (signatures renamed): a Match start and a settle chunk.
+  it("decodes the transactions Helius really delivered", () => {
+    const [chunk, start] = realDelivery as unknown as RawTx[];
+    expect(recordsOfRawTx(start).map((r) => r.type)).toEqual(["won", "start", "lines-start"]);
+    expect(recordsOfRawTx(chunk).map((r) => r.type)).toEqual(["chunk", "line-step", "line-step", "line-step", "line-step", "line-step", "lines-progress", "settled"]);
+  });
+
   it("finds the Match records in the real devnet transactions", () => {
     expect(recordsOfRawTx(START_V0).map((r) => r.type)).toEqual(["won", "start", "lines-start"]);
     expect(recordsOfRawTx(SETTLE_V0).map((r) => r.type)).toEqual(["chunk", "line-step", "lines-progress", "settled"]);
