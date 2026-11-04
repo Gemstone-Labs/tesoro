@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { PrivyProvider, useCreateWallet, useLogin, usePrivy, useWallets, type ConnectedWallet, type PrivyClientConfig } from "@privy-io/react-auth";
+import { PrivyProvider, getIdentityToken, useCreateWallet, useLogin, usePrivy, useWallets, type ConnectedWallet, type PrivyClientConfig } from "@privy-io/react-auth";
 import { createWalletClient, custom, type Address } from "viem";
 import {
   toSolanaWalletConnectors,
@@ -16,6 +16,8 @@ import { AccountSheet } from "@/components/shell/AccountSheet";
 import { SignInSheet } from "@/components/shell/SignInSheet";
 import type { ChainSigner } from "@/games/block-puzzle/chain";
 import { DEV_WALLET } from "@/lib/chain/config";
+import { setIdentityTokenGetter } from "@/lib/chain/sponsor-client";
+import { counted } from "@/lib/seat/signature-counter";
 import { EVM_CHAINS, hoodi } from "@/lib/chains";
 import { CLUSTER } from "@/lib/cluster-settings";
 import { solanaNetwork } from "@/lib/solana-network";
@@ -183,7 +185,7 @@ function PrivyBridge({ children }: { children: ReactNode }) {
     const wallet = solana ? solanaWallets.find((w) => w.address === solana) : undefined;
     if (!wallet || !solana) return null;
     const uiOptions = { showWalletUIs: false };
-    return {
+    return counted<ChainSigner>({
       publicKey: new PublicKey(solana),
       signTransaction: async (tx: Transaction) => {
         const { signedTransaction } = await signingTimeout(
@@ -199,8 +201,14 @@ function PrivyBridge({ children }: { children: ReactNode }) {
       signSerialized: async (transaction: Uint8Array) =>
         (await signingTimeout(signTransaction({ transaction, wallet, chain: "solana:devnet", options: { uiOptions } }))).signedTransaction,
       signMessage: async (message: Uint8Array) => (await signingTimeout(signMessage({ message, wallet, options: { uiOptions } }))).signature,
-    };
+    });
   }, [solana, solanaWallets, signTransaction, signMessage]);
+
+  // The sponsor's login-only entry step shows the Privy identity token, so the entry needs no wallet signature for its request.
+  useEffect(() => {
+    setIdentityTokenGetter(authenticated ? () => getIdentityToken() : null);
+    return () => setIdentityTokenGetter(null);
+  }, [authenticated]);
 
   // The embedded EVM wallet signs on Hoodi; a linked external EVM wallet stands in when there is none.
   const evmSigner = useMemo<EvmSigner | null>(() => {

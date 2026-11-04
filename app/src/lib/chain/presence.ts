@@ -1,4 +1,4 @@
-import type { ChainSigner } from "@/games/block-puzzle/chain";
+import { walletOf, type ChainSigner } from "@/games/block-puzzle/chain";
 import { PRESENCE_EVERY_MS } from "../../server/presence/lease";
 import type { GetToken } from "./demo-client";
 import { newNonce, signedMessage } from "./signed-request";
@@ -7,17 +7,21 @@ export { PRESENCE_EVERY_MS };
 
 const b64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
 
-/** The opener of a Queue Match says "still here" (POST /api/queue/presence). Throws when the call fails. */
+/**
+ * The opener of a Queue Match says "still here" (POST /api/queue/presence). Throws when the call fails. The request speaks for
+ * the wallet (`address`); a seat key signs it (and says so in `signer`), the wallet only when the device holds no key.
+ */
 export async function touchPresence(signer: ChainSigner, getToken: GetToken, matchKey: string): Promise<void> {
-  const address = signer.publicKey.toBase58();
+  const address = walletOf(signer).toBase58();
+  const seatKey = signer.seatMatch ? signer.publicKey.toBase58() : undefined;
   const ts = Date.now();
   const nonce = newNonce();
-  const signature = await signer.signMessage(new TextEncoder().encode(signedMessage("tesoro-presence", "touch", address, ts, nonce, { match: matchKey })));
+  const signature = await signer.signMessage(new TextEncoder().encode(signedMessage("tesoro-presence", "touch", address, ts, nonce, { match: matchKey }, seatKey)));
   const token = await getToken().catch(() => null);
   const res = await fetch("/api/queue/presence", {
     method: "POST",
     headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
-    body: JSON.stringify({ step: "touch", address, ts, nonce, match: matchKey, signature: b64(signature) }),
+    body: JSON.stringify({ step: "touch", address, ...(seatKey ? { signer: seatKey } : {}), ts, nonce, match: matchKey, signature: b64(signature) }),
   });
   if (!res.ok) throw new Error("presence");
 }

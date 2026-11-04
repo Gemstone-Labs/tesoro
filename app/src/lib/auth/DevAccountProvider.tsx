@@ -11,6 +11,7 @@ import { Keypair, VersionedTransaction, type Transaction } from "@solana/web3.js
 import nacl from "tweetnacl";
 import bs58 from "bs58";
 import { AccountSheet } from "@/components/shell/AccountSheet";
+import { counted } from "@/lib/seat/signature-counter";
 import type { ChainSigner } from "@/games/block-puzzle/chain";
 import { createWalletClient } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
@@ -88,7 +89,7 @@ function DevBridge({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<AuthState>(() => {
-    const signer: ChainSigner | null = keypair && {
+    const signer: ChainSigner | null = keypair && counted<ChainSigner>({
       publicKey: keypair.publicKey,
       signTransaction: async (tx: Transaction) => {
         tx.partialSign(keypair);
@@ -100,7 +101,7 @@ function DevBridge({ children }: { children: ReactNode }) {
         return tx.serialize();
       },
       signMessage: async (m) => nacl.sign.detached(m, keypair.secretKey),
-    };
+    });
     const evm: EvmSigner | null = evmKey && {
       address: privateKeyToAccount(evmKey).address,
       account: privateKeyToAccount(evmKey),

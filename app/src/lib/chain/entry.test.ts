@@ -28,7 +28,7 @@ import { cancelTicketIx, closeTicketIx, openTicketIx, stageEntryIx, decodeTicket
 const { sendBase, sponsoredSend, readAccounts, readSlice } = vi.hoisted(() => ({ sendBase: vi.fn(), sponsoredSend: vi.fn(), readSlice: vi.fn(), readAccounts: vi.fn(async (keys: unknown[]): Promise<({ data: Uint8Array } | null)[]> => keys.map(() => null)) }));
 
 vi.mock("./client", () => ({ getChain: () => ({ base: { getMultipleAccountsInfo: readAccounts, getAccountInfo: readSlice }, sendBase }) }));
-vi.mock("./sponsor-client", async (orig) => ({ ...(await orig<typeof import("./sponsor-client")>()), sponsorStatus: async () => ({ relayer: Keypair.generate().publicKey.toBase58(), paused: false, low: false }), sponsoredSend }));
+vi.mock("./sponsor-client", async (orig) => ({ ...(await orig<typeof import("./sponsor-client")>()), sponsorStatus: async () => ({ relayer: Keypair.generate().publicKey.toBase58(), paused: false, low: false }), sponsoredSend, sponsoredSendBuilt: async (...a: unknown[]) => ({ sig: await (sponsoredSend as (...x: unknown[]) => Promise<string>)(...a), table: false }) }));
 vi.mock("./demo-client", () => ({ ensureSol: async () => undefined }));
 
 const coder = new BorshInstructionCoder(coreIdl as unknown as Idl);
@@ -291,7 +291,7 @@ describe("sendEntryTx", () => {
     sponsoredSend.mockResolvedValue("sig1");
     const seen: boolean[] = [];
     const r = await sendEntryTx(signer, async () => null, async (_p, sponsored) => (seen.push(sponsored), []));
-    expect(r).toEqual({ sig: "sig1", sponsored: true });
+    expect(r).toEqual({ sig: "sig1", sponsored: true, table: false });
     expect(seen).toEqual([true]);
     expect(sendBase).not.toHaveBeenCalled();
   });
@@ -301,7 +301,7 @@ describe("sendEntryTx", () => {
     sponsoredSend.mockRejectedValue(new SponsorError("empty", "sponsor-empty", 503));
     sendBase.mockResolvedValue("sig2");
     const seen: boolean[] = [];
-    expect(await sendEntryTx(signer, async () => null, async (_p, s) => (seen.push(s), []))).toEqual({ sig: "sig2", sponsored: false });
+    expect(await sendEntryTx(signer, async () => null, async (_p, s) => (seen.push(s), []))).toEqual({ sig: "sig2", sponsored: false, table: false });
     expect(seen).toEqual([true, false]);
     sponsoredSend.mockClear();
     expect((await sendEntryTx(signer, async () => null, async () => [], { sponsorable: false })).sponsored).toBe(false);
@@ -321,7 +321,7 @@ describe("sendEntryTx", () => {
     sendBase.mockResolvedValue("self-paid-close");
     const originalPayer = k();
     const close = closeTicketIx((signer as { publicKey: PublicKey }).publicKey, k(), originalPayer, true);
-    expect(await sendEntryTx(signer, async () => null, async () => [close])).toEqual({ sig: "self-paid-close", sponsored: false });
+    expect(await sendEntryTx(signer, async () => null, async () => [close])).toEqual({ sig: "self-paid-close", sponsored: false, table: false });
     const sent = sendBase.mock.calls[0][1][0];
     expect(sent.keys[2].pubkey.equals(originalPayer)).toBe(true);
     expect(sent.keys[3].pubkey.equals(sponsorPda())).toBe(true);

@@ -1,4 +1,5 @@
 import type { ChainSigner } from "@/games/block-puzzle/chain";
+import { signAsWallet } from "@/lib/seat/wallet-only";
 import { newNonce, signedMessage, type SignedFields } from "./signed-request";
 
 /** Client side of the email settings route (app/src/app/api/notify/route.ts). */
@@ -16,7 +17,7 @@ export async function notifyCall(step: NotifyStep, signer: ChainSigner, getToken
   const address = signer.publicKey.toBase58();
   const ts = Date.now();
   const nonce = newNonce();
-  const signature = await signer.signMessage(new TextEncoder().encode(signedMessage("tesoro-notify", step, address, ts, nonce, body)));
+  const signature = await signAsWallet(signer, signedMessage("tesoro-notify", step, address, ts, nonce, body));
   const token = await getToken().catch(() => null);
   const res = await fetch("/api/notify", {
     method: "POST",

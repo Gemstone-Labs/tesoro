@@ -1,6 +1,6 @@
 import type { PublicKey } from "@solana/web3.js";
 import { atNextEpoch, startNote } from "../../lib/chain/table-clean";
-import { BlockPuzzleChain, type ChainSigner } from "./chain";
+import { accountOfSigner, BlockPuzzleChain, type ChainSigner } from "./chain";
 import { sessionFromTable, type BurstSession } from "@/lib/chain/burst-read";
 import { matchAddressOf } from "@/lib/chain/match-id";
 import { matchProgress } from "@/lib/chain/match-progress";
@@ -397,7 +397,7 @@ export class BurstDriver {
     const p = this.p;
     const mk = this.mk;
     if (mk === null) return;
-    const me = BlockPuzzleChain.coreAccount(signer.publicKey);
+    const me = accountOfSigner(signer);
     // Read the Match every tick until it is fully done: the result is shown as soon as the chain has fixed it, and the Match
     // is read again until the last chunk has paid it out and its account is closed (then the history has the final numbers).
     const paying = !!this.matchRef && this.matchRef.running !== null && !this.gone;

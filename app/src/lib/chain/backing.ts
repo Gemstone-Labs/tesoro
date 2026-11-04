@@ -1,7 +1,7 @@
 import "./polyfill";
 import { BN } from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
-import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
+import { accountOfSigner, type ChainSigner } from "@/games/block-puzzle/chain";
 import type { GameId } from "@/lib/mock/types";
 import { gameRecordPda } from "./game-record";
 import { protectionsPda } from "./native";
@@ -224,7 +224,7 @@ const nonce = () => new BN((BigInt(Date.now()) * 1000n + BigInt(Math.floor(Math.
  */
 export async function withdrawOwnOpenItems(signer: ChainSigner): Promise<number> {
   const chain = getChain();
-  const me = BlockPuzzleChain.coreAccount(signer.publicKey);
+  const me = accountOfSigner(signer);
   const [matchRows, reqRows, offerRows]: any[][] = await Promise.all([
     chain.core.account.matchState.all(),
     chain.core.account.requestState.all(),
@@ -285,7 +285,7 @@ export async function cancelRequest(signer: ChainSigner, request: PublicKey) {
   const chain = getChain();
   const ix = await chain.core.methods
     .cancelRequest()
-    .accountsPartial({ playerAuthority: signer.publicKey, playerAccount: BlockPuzzleChain.coreAccount(signer.publicKey), request })
+    .accountsPartial({ playerAuthority: signer.publicKey, playerAccount: accountOfSigner(signer), request })
     .instruction();
   return chain.sendBase(signer, [ix]);
 }
@@ -328,7 +328,7 @@ export async function acceptOffer(signer: ChainSigner, request: PublicKey, offer
   const chain = getChain();
   const ix = await chain.core.methods
     .acceptOffer()
-    .accountsPartial({ playerAuthority: signer.publicKey, playerAccount: BlockPuzzleChain.coreAccount(signer.publicKey), protections: protectionsPda(BlockPuzzleChain.coreAccount(signer.publicKey)), request, offer })
+    .accountsPartial({ playerAuthority: signer.publicKey, playerAccount: accountOfSigner(signer), protections: protectionsPda(accountOfSigner(signer)), request, offer })
     .instruction();
   return chain.sendBase(signer, [ix]);
 }
@@ -336,7 +336,7 @@ export async function acceptOffer(signer: ChainSigner, request: PublicKey, offer
 /** The Backer withdraws an Offer that has not started a Match; the reservation is released. */
 export async function cancelOffer(signer: ChainSigner, offer: ChainOffer) {
   const chain = getChain();
-  const backerAccount = BlockPuzzleChain.coreAccount(signer.publicKey);
+  const backerAccount = accountOfSigner(signer);
   const ix = coreIx("cancel_offer", {
     backerAuthority: signer.publicKey,
     backerAccount,
@@ -389,7 +389,7 @@ async function requireBacking(signer: ChainSigner, address: string, game: GameId
   if (!offer) throw new BackingError("missing");
   if (offer.status === "consumed") throw new BackingError("used");
   if (offer.status !== "accepted") throw new BackingError(offer.status === "expired" ? "expired" : "not-accepted");
-  if (offer.player !== BlockPuzzleChain.coreAccount(signer.publicKey).toBase58()) throw new BackingError("not-yours");
+  if (offer.player !== accountOfSigner(signer).toBase58()) throw new BackingError("not-yours");
   if (now() >= offer.useBy) throw new BackingError("expired");
   if (offer.game !== game || offer.entry !== entry) throw new BackingError("not-accepted");
   return offer;

@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useAuth } from "@/lib/auth/context";
 import type { AccountSnapshot } from "./read";
 import { plainError } from "@/lib/errors";
+import { pruneSeatKeys } from "@/lib/seat/prune";
 
 interface ChainData {
   snapshot: AccountSnapshot | null;
@@ -37,6 +38,13 @@ export function ChainDataProvider({ children }: { children: ReactNode }) {
     error: null,
   });
   const inflight = useRef<Promise<boolean> | null>(null);
+
+  // Seat keys of Matches that are over (or never happened) are deleted from this device once the page has settled.
+  useEffect(() => {
+    if (!address) return;
+    const t = setTimeout(() => void pruneSeatKeys().catch(() => undefined), 20_000);
+    return () => clearTimeout(t);
+  }, [address]);
   const again = useRef(false);
   /** A refresh after a transaction: the server re-reads its lists instead of answering from its cache. */
   const freshWanted = useRef(0);
