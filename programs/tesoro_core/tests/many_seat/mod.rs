@@ -80,7 +80,9 @@ impl Env {
     }
 
     fn car(&self, car: Car) -> ManySeatMatch {
-        self.load(car.key)
+        let d = self.svm.get_account(&s(car.key)).expect("car").data;
+        assert_eq!(&d[..8], ManySeatMatch::DISCRIMINATOR);
+        *bytemuck::from_bytes::<ManySeatMatch>(&d[8..ManySeatMatch::SPACE])
     }
 
     fn page(&self, car: Car, page: u8) -> SeatPage {
@@ -186,7 +188,7 @@ impl Env {
         for src in sources {
             out.extend(book_metas(&self.svm, src));
         }
-        let id = self.svm.get_account(&s(car.key)).map(|_| self.car(car).inner.id);
+        let id = self.svm.get_account(&s(car.key)).map(|_| self.car(car).inner.id());
         if let Some(id) = id {
             let record = overflow_address(&funder, OVERFLOW_MATCH, &id.seed()).0;
             if self.svm.get_account(&s(record)).is_some() {
@@ -304,7 +306,7 @@ impl Env {
             accounts::CloseManySeatMatch {
                 caller: a(caller.pubkey()),
                 match_state: car.key,
-                match_payer: st.payer,
+                match_payer: APk::new_from_array(st.payer),
             },
             instruction::CloseManySeatMatch {},
             remaining,
@@ -341,7 +343,7 @@ fn five_players_board_and_the_game_departs_the_car() {
     let car = env.open_car(&riders[0], (5, 100));
     let st = env.car(car);
     assert_eq!(st.inner.stage(), ManyStage::Boarding);
-    assert_eq!((st.inner.seated, st.inner.entry), (0, CAR_ENTRY));
+    assert_eq!((st.inner.seated, st.inner.entry()), (0, CAR_ENTRY));
     for (i, p) in riders.iter().enumerate() {
         let t = 1_000_000 + i as i64;
         env.set_time(t);
@@ -350,7 +352,7 @@ fn five_players_board_and_the_game_departs_the_car() {
         let st = env.car(car);
         assert_eq!(st.inner.seated, i as u8 + 1);
         // the countdown starts at the fifth seat
-        assert_eq!(st.inner.min_since, if i == 4 { t } else { 0 });
+        assert_eq!(st.inner.min_since(), if i == 4 { t } else { 0 });
     }
     let page = env.page(car, 0);
     for (i, p) in riders.iter().enumerate() {
@@ -362,7 +364,7 @@ fn five_players_board_and_the_game_departs_the_car() {
     env.depart(car).expect("depart");
     let st = env.car(car);
     assert_eq!(st.inner.stage(), ManyStage::Departed);
-    assert_eq!((st.inner.seated, st.inner.departed_at), (5, 1_000_040));
+    assert_eq!((st.inner.seated, st.inner.departed_at()), (5, 1_000_040));
 }
 
 #[test]
@@ -473,15 +475,15 @@ fn stepping_off_gives_the_whole_entry_back_frees_the_seat_and_every_rent() {
 #[test]
 fn the_countdown_stops_when_a_step_off_drops_the_car_below_its_minimum() {
     let (mut env, car, riders) = seated_car(5, (5, 100));
-    assert_ne!(env.car(car).inner.min_since, 0);
+    assert_ne!(env.car(car).inner.min_since(), 0);
     let kp = riders[2].kp.insecure_clone();
     env.step_off(&kp, car, &riders[2]).expect("step off");
-    assert_eq!(env.car(car).inner.min_since, 0);
+    assert_eq!(env.car(car).inner.min_since(), 0);
     let err = env.depart(car).unwrap_err();
     assert_eq!(custom_code(&err), seat_err(ManySeatError::BelowMinimum));
     env.set_time(1_000_100);
     env.board(&riders[2], car).expect("back on");
-    assert_eq!(env.car(car).inner.min_since, 1_000_100);
+    assert_eq!(env.car(car).inner.min_since(), 1_000_100);
     env.depart(car).expect("depart");
 }
 
@@ -675,7 +677,7 @@ fn an_empty_car_closes_with_every_page_and_returns_their_rent() {
     }
     let err = env.close_car(&caller, car, &[0]).unwrap_err();
     assert_eq!(custom_code(&err), seat_err(ManySeatError::PagesMissing));
-    let payer = env.car(car).payer;
+    let payer = APk::new_from_array(env.car(car).payer);
     let before = (env.sol_of(payer), env.sol_of(page1_payer));
     let page1_rent = env.sol_of(page_pda(car.key, 1));
     let match_rent = env.sol_of(car.key);

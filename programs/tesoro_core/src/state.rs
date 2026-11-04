@@ -522,21 +522,24 @@ impl MatchState {
 
 /// A many-seat Match (ADR 0015) at the same address as a head-to-head one,
 /// `["match", opener Account, n]` with the opener's `next_match`, so its id, overflow records and
-/// receipt work like a head-to-head Match's. The seats are in `SeatPage`s.
-#[account]
+/// receipt work like a head-to-head Match's. Read in place (no Borsh, see `ManySeatRecord`). The
+/// seats are in `SeatPage`s.
+#[account(zero_copy)]
 pub struct ManySeatMatch {
     pub bump: u8,
-    pub inner: ledger::many_seat::ManySeatRecord,
-    /// The Game was listed when the car opened.
-    pub listed: bool,
-    /// `GameRecord.listing_epoch` when the car opened.
-    pub listing_epoch: u32,
+    /// `GameRecord.listing_epoch` when the car opened (little endian).
+    pub listing_epoch: [u8; 4],
     /// Who paid the rent of this account; it goes back there when the Match is closed.
-    pub payer: Pubkey,
+    pub payer: [u8; 32],
+    pub inner: ledger::many_seat::ManySeatRecord,
 }
 
 impl ManySeatMatch {
-    pub const SPACE: usize = 8 + 1 + ledger::many_seat::ManySeatRecord::LEN + 1 + 4 + 32;
+    pub const SPACE: usize = 8 + 1 + 4 + 32 + ledger::many_seat::ManySeatRecord::LEN;
+
+    pub fn listing_epoch(&self) -> u32 {
+        u32::from_le_bytes(self.listing_epoch)
+    }
 }
 
 pub const SEAT_PAGE_SEED: &[u8] = b"seat_page";
@@ -569,9 +572,10 @@ pub struct SeatMark {
     pub match_key: Pubkey,
     pub account: Pubkey,
     pub payer: Pubkey,
-    /// While returning: the Match's id (its overflow records), the funder the lines go back to,
-    /// the Pot that holds them and the slots held for them in the funder's stores.
-    pub match_id: ledger::lifecycle::MatchId,
+    /// While returning: the Match's id as its seed bytes (opener, n: its overflow records), the
+    /// funder the lines go back to, the Pot that holds them and the slots held for them in the
+    /// funder's stores.
+    pub match_seed: [u8; 40],
     pub funder: Pubkey,
     pub pot: Pubkey,
     pub hold: u32,

@@ -14,8 +14,6 @@
 //! Seats live in pages of [`SEATS_PER_PAGE`] (`state::SeatPage`); a seat's index is
 //! `page * SEATS_PER_PAGE + slot` and never changes while the seat is taken.
 
-use anchor_lang::prelude::{borsh, AnchorDeserialize, AnchorSerialize};
-
 use super::lifecycle::{MatchId, MatchMeta, Terms, MAX_MATCH_LIFETIME_SECS};
 use super::{is_ladder_entry, Key, MATCH_TIMEOUT_SECS};
 
@@ -44,7 +42,7 @@ pub enum SeatError {
 
 pub type SeatResult<T> = Result<T, SeatError>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, AnchorSerialize, AnchorDeserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ManyStage {
     Boarding,
     /// The Game ended boarding: the seats are the ride.
@@ -53,36 +51,51 @@ pub enum ManyStage {
     Closed,
 }
 
-/// The many-seat Match record (`state::ManySeatMatch`).
-#[derive(Debug, Clone, PartialEq, Eq, AnchorSerialize, AnchorDeserialize)]
+/// The many-seat Match record (`state::ManySeatMatch`), read and written in place.
+///
+/// Byte arrays only (alignment 1, no padding), and no Borsh: a record that shared `MatchId`,
+/// `MatchMeta` or `Terms` Borsh code with the head-to-head `MatchState` changed how the
+/// head-to-head settle chunk was compiled (its 12-step worst case rose 24-30 CU), so the
+/// many-seat path keeps its own layout and builds those values through accessors.
+#[anchor_lang::zero_copy]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ManySeatRecord {
-    pub id: MatchId,
-    pub meta: MatchMeta,
-    pub game: Key,
+    /// The id: the opener's Account and its `next_match` (little endian).
+    pub opener: [u8; 32],
+    pub n: [u8; 8],
+    pub game: [u8; 32],
     /// The Game's settle authority when the car opened: only it departs and settles.
-    pub settle_authority: Key,
-    /// The Game program's deploy slot when the car opened.
-    pub deploy_slot: u64,
-    pub terms: Terms,
-    pub entry: u64,
-    pub opened_at: i64,
-    /// Settlement must start before this; fixed at open.
-    pub deadline_abs: i64,
+    pub settle_authority: [u8; 32],
+    pub studio_owner: [u8; 32],
+    deploy_slot: [u8; 8],
+    entry: [u8; 8],
+    opened_at: [u8; 8],
+    deadline_abs: [u8; 8],
+    min_since: [u8; 8],
+    departed_at: [u8; 8],
+    platform_bps: [u8; 2],
+    studio_bps: [u8; 2],
+    has_studio_owner: u8,
+    studio_priority: u8,
+    challenge: u8,
+    asset: u8,
+    listed: u8,
     pub min_seats: u8,
     pub max_seats: u8,
     /// Seats taken right now.
     pub seated: u8,
     /// Seat pages created so far (always in order, page `pages` is the next one).
     pub pages: u8,
-    /// When `seated` last reached `min_seats`; 0 while below it.
-    pub min_since: i64,
-    pub departed_at: i64,
-    stage: ManyStage,
+    stage: u8,
+    pub reserved: [u8; 6],
 }
 
+const BOARDING: u8 = 0;
+const DEPARTED: u8 = 1;
+const CLOSED: u8 = 2;
+
 impl ManySeatRecord {
-    /// Borsh size of the record.
-    pub const LEN: usize = 40 + 3 + 32 + 32 + 8 + (2 + 2 + 33 + 1) + 8 + 8 + 8 + 4 + 8 + 8 + 1;
+    pub const LEN: usize = 32 * 5 + 8 * 7 + 2 * 2 + 10 + 6;
 
     #[allow(clippy::too_many_arguments)]
     pub fn open(
@@ -107,32 +120,87 @@ impl ManySeatRecord {
             .checked_add(MAX_MATCH_LIFETIME_SECS)
             .ok_or(SeatError::Math)?;
         Ok(Self {
-            id,
-            meta,
+            opener: id.opener,
+            n: id.n.to_le_bytes(),
             game,
             settle_authority,
-            deploy_slot,
-            terms,
-            entry,
-            opened_at: now,
-            deadline_abs,
+            studio_owner: terms.studio_owner.unwrap_or_default(),
+            deploy_slot: deploy_slot.to_le_bytes(),
+            entry: entry.to_le_bytes(),
+            opened_at: now.to_le_bytes(),
+            deadline_abs: deadline_abs.to_le_bytes(),
+            min_since: [0; 8],
+            departed_at: [0; 8],
+            platform_bps: terms.platform_bps.to_le_bytes(),
+            studio_bps: terms.studio_bps.to_le_bytes(),
+            has_studio_owner: u8::from(terms.studio_owner.is_some()),
+            studio_priority: u8::from(terms.studio_priority),
+            challenge: u8::from(meta.challenge),
+            asset: meta.asset,
+            listed: u8::from(meta.listed),
             min_seats,
             max_seats,
             seated: 0,
             pages: 0,
-            min_since: 0,
-            departed_at: 0,
-            stage: ManyStage::Boarding,
+            stage: BOARDING,
+            reserved: [0; 6],
         })
     }
 
+    pub fn id(&self) -> MatchId {
+        MatchId {
+            opener: self.opener,
+            n: u64::from_le_bytes(self.n),
+        }
+    }
+    pub fn meta(&self) -> MatchMeta {
+        MatchMeta {
+            challenge: self.challenge != 0,
+            asset: self.asset,
+            listed: self.listed != 0,
+        }
+    }
+    /// Fee terms snapshotted at open (the Leaderboard Fee is read when settling starts).
+    pub fn terms(&self) -> Terms {
+        Terms {
+            platform_bps: u16::from_le_bytes(self.platform_bps),
+            studio_bps: u16::from_le_bytes(self.studio_bps),
+            studio_owner: (self.has_studio_owner != 0).then_some(self.studio_owner),
+            studio_priority: self.studio_priority != 0,
+        }
+    }
+    pub fn deploy_slot(&self) -> u64 {
+        u64::from_le_bytes(self.deploy_slot)
+    }
+    pub fn entry(&self) -> u64 {
+        u64::from_le_bytes(self.entry)
+    }
+    pub fn opened_at(&self) -> i64 {
+        i64::from_le_bytes(self.opened_at)
+    }
+    /// Settlement must start before this; fixed at open.
+    pub fn deadline_abs(&self) -> i64 {
+        i64::from_le_bytes(self.deadline_abs)
+    }
+    /// When `seated` last reached `min_seats`; 0 while below it.
+    pub fn min_since(&self) -> i64 {
+        i64::from_le_bytes(self.min_since)
+    }
+    pub fn departed_at(&self) -> i64 {
+        i64::from_le_bytes(self.departed_at)
+    }
+
     pub fn stage(&self) -> ManyStage {
-        self.stage
+        match self.stage {
+            BOARDING => ManyStage::Boarding,
+            DEPARTED => ManyStage::Departed,
+            _ => ManyStage::Closed,
+        }
     }
 
     /// Seats and departure are refused from this time on.
     pub fn boarding_ends(&self) -> i64 {
-        self.deadline_abs.saturating_sub(BOARDING_MARGIN_SECS)
+        self.deadline_abs().saturating_sub(BOARDING_MARGIN_SECS)
     }
 
     /// Usable slots of page `page`: a car of 25 seats has pages of 10, 10 and 5.
@@ -144,7 +212,7 @@ impl ManySeatRecord {
     }
 
     fn boarding(&self) -> SeatResult<()> {
-        if self.stage != ManyStage::Boarding {
+        if self.stage != BOARDING {
             return Err(SeatError::NotBoarding);
         }
         Ok(())
@@ -161,7 +229,7 @@ impl ManySeatRecord {
         }
         self.seated += 1;
         if self.seated == self.min_seats {
-            self.min_since = now;
+            self.min_since = now.to_le_bytes();
         }
         Ok(())
     }
@@ -171,7 +239,7 @@ impl ManySeatRecord {
         self.boarding()?;
         self.seated = self.seated.checked_sub(1).ok_or(SeatError::Math)?;
         if self.seated < self.min_seats {
-            self.min_since = 0;
+            self.min_since = [0; 8];
         }
         Ok(())
     }
@@ -186,14 +254,14 @@ impl ManySeatRecord {
         if now >= self.boarding_ends() {
             return Err(SeatError::BoardingOver);
         }
-        if deploy_slot_now != self.deploy_slot {
+        if deploy_slot_now != self.deploy_slot() {
             return Err(SeatError::GameUpgraded);
         }
         if self.seated < self.min_seats {
             return Err(SeatError::BelowMinimum);
         }
-        self.stage = ManyStage::Departed;
-        self.departed_at = now;
+        self.stage = DEPARTED;
+        self.departed_at = now.to_le_bytes();
         Ok(())
     }
 
@@ -203,7 +271,7 @@ impl ManySeatRecord {
         if self.seated != 0 {
             return Err(SeatError::NotEmpty);
         }
-        self.stage = ManyStage::Closed;
+        self.stage = CLOSED;
         Ok(())
     }
 }

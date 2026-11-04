@@ -44,8 +44,11 @@ fn car(min: u8, max: u8) -> ManySeatRecord {
 fn a_car_opens_empty_and_boarding_with_its_bounds() {
     let c = car(5, 100);
     assert_eq!(c.stage(), ManyStage::Boarding);
-    assert_eq!((c.min_seats, c.max_seats, c.seated, c.min_since), (5, 100, 0, 0));
-    assert_eq!(c.deadline_abs, T + 7 * 24 * 3600);
+    assert_eq!((c.min_seats, c.max_seats, c.seated, c.min_since()), (5, 100, 0, 0));
+    assert_eq!(c.deadline_abs(), T + 7 * 24 * 3600);
+    assert_eq!((c.entry(), c.deploy_slot(), c.opened_at()), (500, SLOT, T));
+    assert_eq!(c.terms(), terms());
+    assert_eq!(c.id().n, 0);
     assert_eq!(c.boarding_ends(), T + 7 * 24 * 3600 - 3600);
 }
 
@@ -92,19 +95,19 @@ fn the_countdown_starts_at_the_minth_seat_and_stops_below_it() {
     let mut c = car(5, 100);
     for i in 0..4 {
         c.take_seat(T + i).unwrap();
-        assert_eq!(c.min_since, 0);
+        assert_eq!(c.min_since(), 0);
     }
     c.take_seat(T + 10).unwrap();
-    assert_eq!(c.min_since, T + 10);
+    assert_eq!(c.min_since(), T + 10);
     // a sixth seat leaves the countdown where it is
     c.take_seat(T + 12).unwrap();
-    assert_eq!(c.min_since, T + 10);
+    assert_eq!(c.min_since(), T + 10);
     c.leave_seat().unwrap();
-    assert_eq!(c.min_since, T + 10);
+    assert_eq!(c.min_since(), T + 10);
     c.leave_seat().unwrap();
-    assert_eq!((c.seated, c.min_since), (4, 0));
+    assert_eq!((c.seated, c.min_since()), (4, 0));
     c.take_seat(T + 20).unwrap();
-    assert_eq!(c.min_since, T + 20);
+    assert_eq!(c.min_since(), T + 20);
 }
 
 #[test]
@@ -128,7 +131,7 @@ fn only_the_game_departs_and_only_with_the_minimum_seated() {
     let end = c.boarding_ends();
     assert_eq!(c.depart(end, &AUTH, SLOT), Err(SeatError::BoardingOver));
     c.depart(T + 7, &AUTH, SLOT).expect("depart");
-    assert_eq!((c.stage(), c.departed_at), (ManyStage::Departed, T + 7));
+    assert_eq!((c.stage(), c.departed_at()), (ManyStage::Departed, T + 7));
     assert_eq!(c.depart(T + 8, &AUTH, SLOT), Err(SeatError::NotBoarding));
 }
 
@@ -186,11 +189,32 @@ fn a_seat_round_trips_its_fields() {
 }
 
 #[test]
-fn the_record_len_is_its_largest_borsh_size() {
-    let mut c = car(5, 100);
-    c.terms.studio_owner = Some([4; 32]);
-    let bytes = anchor_lang::AnchorSerialize::try_to_vec(&c).unwrap();
-    assert_eq!(bytes.len(), ManySeatRecord::LEN);
+fn the_record_and_a_seat_are_flat_bytes_and_keep_an_outside_studio() {
+    let mut t = terms();
+    t.studio_owner = Some([4; 32]);
+    t.studio_priority = false;
+    let c = ManySeatRecord::open(
+        MatchId {
+            opener: [1; 32],
+            n: 7,
+        },
+        MatchMeta {
+            challenge: false,
+            asset: 2,
+            listed: false,
+        },
+        (GAME, AUTH, SLOT),
+        t,
+        500,
+        &SIZES,
+        (5, 100),
+        T,
+    )
+    .unwrap();
+    assert_eq!(c.terms(), t);
+    assert_eq!((c.id().n, c.meta().asset, c.meta().listed), (7, 2, false));
+    assert_eq!(std::mem::size_of::<ManySeatRecord>(), ManySeatRecord::LEN);
+    assert_eq!(std::mem::align_of::<ManySeatRecord>(), 1);
     assert_eq!(std::mem::size_of::<Seat>(), Seat::LEN);
     assert_eq!(std::mem::align_of::<Seat>(), 1);
 }

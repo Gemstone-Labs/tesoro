@@ -150,6 +150,18 @@ fn page_in<'d>(info: &AccountInfo, data: &'d mut [u8]) -> Result<&'d mut SeatPag
     Ok(bytemuck::from_bytes_mut(&mut data[DISC..]))
 }
 
+/// The Match id behind a seed (`MatchId::seed`).
+fn id_of_seed(seed: &[u8; 40]) -> MatchId {
+    let mut opener = [0u8; 32];
+    opener.copy_from_slice(&seed[..32]);
+    let mut n = [0u8; 8];
+    n.copy_from_slice(&seed[32..]);
+    MatchId {
+        opener,
+        n: u64::from_le_bytes(n),
+    }
+}
+
 fn is_empty(info: &AccountInfo) -> bool {
     info.owner == &system_program::ID && info.data_is_empty()
 }
@@ -198,7 +210,7 @@ pub struct OpenManySeatMatch<'info> {
         seeds = [MATCH_SEED, opener_account.key().as_ref(), &n.to_le_bytes()],
         bump
     )]
-    pub match_state: Box<Account<'info, ManySeatMatch>>,
+    pub match_state: AccountLoader<'info, ManySeatMatch>,
     pub system_program: Program<'info, System>,
 }
 
@@ -254,15 +266,15 @@ pub(crate) fn open_many_seat_match(
         ts,
     )
     .map_err(seat_err)?;
-    let listing_epoch = record.listing_epoch;
-    let state = &mut ctx.accounts.match_state;
-    state.bump = ctx.bumps.match_state;
-    state.inner = rec;
-    state.listed = listed;
-    state.listing_epoch = listing_epoch;
-    state.payer = ctx.accounts.payer.key();
+    {
+        let mut state = ctx.accounts.match_state.load_init()?;
+        state.bump = ctx.bumps.match_state;
+        state.inner = rec;
+        state.listing_epoch = record.listing_epoch.to_le_bytes();
+        state.payer = ctx.accounts.payer.key().to_bytes();
+    }
     emit!(ManySeatOpened {
-        match_state: state.key(),
+        match_state: ctx.accounts.match_state.key(),
         game: ctx.accounts.game_program.key(),
         entry,
         min_seats,
@@ -324,16 +336,16 @@ pub struct JoinManySeatMatch<'info> {
         mut,
         seeds = [
             MATCH_SEED,
-            match_state.inner.id.opener.as_ref(),
-            &match_state.inner.id.n.to_le_bytes()
+            match_state.load()?.inner.opener.as_ref(),
+            &match_state.load()?.inner.n
         ],
-        bump = match_state.bump
+        bump = match_state.load()?.bump
     )]
-    pub match_state: Box<Account<'info, ManySeatMatch>>,
-    #[account(seeds = [GAME_SEED, match_state.inner.game.as_ref()], bump = game_record.bump)]
+    pub match_state: AccountLoader<'info, ManySeatMatch>,
+    #[account(seeds = [GAME_SEED, match_state.load()?.inner.game.as_ref()], bump = game_record.bump)]
     pub game_record: Box<Account<'info, GameRecord>>,
     /// CHECK: the Game program the car was opened for; its loader state is read.
-    #[account(address = Pubkey::new_from_array(match_state.inner.game))]
+    #[account(address = Pubkey::new_from_array(match_state.load()?.inner.game))]
     pub game_program: UncheckedAccount<'info>,
     /// CHECK: the program's ProgramData; `judged_slot_at` derives and checks it.
     pub program_data: UncheckedAccount<'info>,
@@ -360,25 +372,26 @@ pub(crate) fn join_many_seat_match<'info>(
     let match_key = ctx.accounts.match_state.key();
     let player = ctx.accounts.player_account.key();
     let (game, entry, id) = {
-        let state = &ctx.accounts.match_state;
+        let state = ctx.accounts.match_state.load()?;
         let slot = judged_slot_at(
             &ctx.accounts.game_record,
-            (state.inner.deploy_slot, state.listing_epoch),
+            (state.inner.deploy_slot(), state.listing_epoch()),
             &ctx.accounts.game_program.to_account_info(),
             &ctx.accounts.program_data.to_account_info(),
         )?;
         require!(
-            slot == state.inner.deploy_slot,
+            slot == state.inner.deploy_slot(),
             MatchError::GameUpgraded
         );
         (
             Pubkey::new_from_array(state.inner.game),
-            state.inner.entry,
-            state.inner.id,
+            state.inner.entry(),
+            state.inner.id(),
         )
     };
     ctx.accounts
         .match_state
+        .load_mut()?
         .inner
         .take_seat(ts)
         .map_err(seat_err)?;
@@ -399,11 +412,16 @@ pub(crate) fn join_many_seat_match<'info>(
 
     // the page and the lowest free slot in it
     let page_info = ctx.accounts.seat_page.to_account_info();
-    let slots = ctx.accounts.match_state.inner.page_slots(page);
+    let slots = ctx.accounts.match_state.load()?.inner.page_slots(page);
     if is_empty(&page_info) {
-        let rec = &mut ctx.accounts.match_state.inner;
-        require!(page == rec.pages && slots > 0, ManySeatError::BadPage);
-        rec.pages += 1;
+        {
+            let mut state = ctx.accounts.match_state.load_mut()?;
+            require!(
+                page == state.inner.pages && slots > 0,
+                ManySeatError::BadPage
+            );
+            state.inner.pages += 1;
+        }
         let bump = [ctx.bumps.seat_page];
         create_pda(
             &page_info,
@@ -513,7 +531,7 @@ pub(crate) fn join_many_seat_match<'info>(
         match_key,
         account: player,
         payer: payer.key(),
-        match_id: id,
+        match_seed: id.seed(),
         funder: Pubkey::default(),
         pot: Pubkey::default(),
         hold: 0,
@@ -523,14 +541,14 @@ pub(crate) fn join_many_seat_match<'info>(
         mark.try_serialize(&mut &mut data[..])?;
     }
     books.flush()?;
-    let rec = &ctx.accounts.match_state.inner;
+    let rec = ctx.accounts.match_state.load()?.inner;
     emit!(SeatTaken {
         match_state: match_key,
         seat,
         player,
         funder: player,
         seated: rec.seated,
-        min_since: rec.min_since,
+        min_since: rec.min_since(),
     });
     Ok(())
 }
@@ -570,7 +588,7 @@ fn return_lines<'info>(
             account: funder,
             left: mark.hold,
         }]);
-        settlement.set_match(&mark.match_id);
+        settlement.set_match(&id_of_seed(&mark.match_seed));
         let mut moved = 0u8;
         while moved < max {
             let Some(line) = pot.last_line() else { break };
@@ -624,12 +642,12 @@ pub struct StepOffManySeatMatch<'info> {
         mut,
         seeds = [
             MATCH_SEED,
-            match_state.inner.id.opener.as_ref(),
-            &match_state.inner.id.n.to_le_bytes()
+            match_state.load()?.inner.opener.as_ref(),
+            &match_state.load()?.inner.n
         ],
-        bump = match_state.bump
+        bump = match_state.load()?.bump
     )]
-    pub match_state: Box<Account<'info, ManySeatMatch>>,
+    pub match_state: AccountLoader<'info, ManySeatMatch>,
     #[account(
         mut,
         seeds = [
@@ -670,10 +688,10 @@ pub struct StepOffManySeatMatch<'info> {
     pub pot_payer: UncheckedAccount<'info>,
     #[account(mut, seeds = [SPONSOR_SEED], bump = sponsor.bump)]
     pub sponsor: Option<Account<'info, SponsorState>>,
-    #[account(seeds = [GAME_SEED, match_state.inner.game.as_ref()], bump = game_record.bump)]
+    #[account(seeds = [GAME_SEED, match_state.load()?.inner.game.as_ref()], bump = game_record.bump)]
     pub game_record: Option<Box<Account<'info, GameRecord>>>,
     /// CHECK: the Game program the car was opened for.
-    #[account(address = Pubkey::new_from_array(match_state.inner.game))]
+    #[account(address = Pubkey::new_from_array(match_state.load()?.inner.game))]
     pub game_program: Option<UncheckedAccount<'info>>,
     /// CHECK: the program's ProgramData; `judged_slot_at` derives and checks it.
     pub program_data: Option<UncheckedAccount<'info>>,
@@ -705,7 +723,8 @@ pub(crate) fn step_off_many_seat_match<'info>(
     );
 
     // who may
-    let rec = &ctx.accounts.match_state.inner;
+    let car = *ctx.accounts.match_state.load()?;
+    let rec = &car.inner;
     let caller = ctx.accounts.caller.key();
     let callers_account =
         Pubkey::find_program_address(&[ACCOUNT_SEED, caller.as_ref()], &crate::ID).0;
@@ -717,10 +736,10 @@ pub(crate) fn step_off_many_seat_match<'info>(
         (Some(record), Some(program), Some(data)) => {
             judged_slot_at(
                 record,
-                (rec.deploy_slot, ctx.accounts.match_state.listing_epoch),
+                (rec.deploy_slot(), car.listing_epoch()),
                 &program.to_account_info(),
                 &data.to_account_info(),
-            )? != rec.deploy_slot
+            )? != rec.deploy_slot()
         }
         _ => false,
     };
@@ -734,11 +753,11 @@ pub(crate) fn step_off_many_seat_match<'info>(
     );
 
     // the seat empties; what it counted is released
-    ctx.accounts
-        .match_state
-        .inner
-        .leave_seat()
-        .map_err(seat_err)?;
+    let (seated, min_since) = {
+        let mut state = ctx.accounts.match_state.load_mut()?;
+        state.inner.leave_seat().map_err(seat_err)?;
+        (state.inner.seated, state.inner.min_since())
+    };
     ctx.accounts.player_counters.open_matches =
         ctx.accounts.player_counters.open_matches.saturating_sub(1);
     if let Some((gemas, period)) = s.counted() {
@@ -749,21 +768,19 @@ pub(crate) fn step_off_many_seat_match<'info>(
         )?;
     }
     ctx.accounts.seat_page.load_mut()?.seats[slot].clear();
-    let id = ctx.accounts.match_state.inner.id;
     let mark = &mut ctx.accounts.seat_mark;
     mark.returning = true;
-    mark.match_id = id;
+    mark.match_seed = rec.id().seed();
     mark.funder = Pubkey::new_from_array(s.funder());
     mark.pot = Pubkey::new_from_array(s.pot());
     mark.hold = s.hold();
     let player = mark.account;
-    let rec = &ctx.accounts.match_state.inner;
     emit!(SeatSteppedOff {
         match_state: match_key,
         seat,
         player,
-        seated: rec.seated,
-        min_since: rec.min_since,
+        seated,
+        min_since,
     });
 
     let mark_info = ctx.accounts.seat_mark.to_account_info();
@@ -856,10 +873,10 @@ pub(crate) fn return_stepped_off<'info>(
 #[derive(Accounts)]
 pub struct DepartManySeatMatch<'info> {
     pub game_authority: Signer<'info>,
-    #[account(seeds = [GAME_SEED, match_state.inner.game.as_ref()], bump = game_record.bump)]
+    #[account(seeds = [GAME_SEED, match_state.load()?.inner.game.as_ref()], bump = game_record.bump)]
     pub game_record: Box<Account<'info, GameRecord>>,
     /// CHECK: the Game program the car was opened for; its loader state is read.
-    #[account(address = Pubkey::new_from_array(match_state.inner.game))]
+    #[account(address = Pubkey::new_from_array(match_state.load()?.inner.game))]
     pub game_program: UncheckedAccount<'info>,
     /// CHECK: the program's ProgramData; `judged_slot_at` derives and checks it.
     pub program_data: UncheckedAccount<'info>,
@@ -867,32 +884,35 @@ pub struct DepartManySeatMatch<'info> {
         mut,
         seeds = [
             MATCH_SEED,
-            match_state.inner.id.opener.as_ref(),
-            &match_state.inner.id.n.to_le_bytes()
+            match_state.load()?.inner.opener.as_ref(),
+            &match_state.load()?.inner.n
         ],
-        bump = match_state.bump
+        bump = match_state.load()?.bump
     )]
-    pub match_state: Box<Account<'info, ManySeatMatch>>,
+    pub match_state: AccountLoader<'info, ManySeatMatch>,
 }
 
 pub(crate) fn depart_many_seat_match(ctx: Context<DepartManySeatMatch>) -> Result<()> {
     let ts = now()?;
-    let state = &ctx.accounts.match_state;
+    let car = *ctx.accounts.match_state.load()?;
     let slot = judged_slot_at(
         &ctx.accounts.game_record,
-        (state.inner.deploy_slot, state.listing_epoch),
+        (car.inner.deploy_slot(), car.listing_epoch()),
         &ctx.accounts.game_program.to_account_info(),
         &ctx.accounts.program_data.to_account_info(),
     )?;
     let authority = ctx.accounts.game_authority.key().to_bytes();
-    let state = &mut ctx.accounts.match_state;
-    state
-        .inner
-        .depart(ts, &authority, slot)
-        .map_err(seat_err)?;
+    let seated = {
+        let mut state = ctx.accounts.match_state.load_mut()?;
+        state
+            .inner
+            .depart(ts, &authority, slot)
+            .map_err(seat_err)?;
+        state.inner.seated
+    };
     emit!(ManySeatDeparted {
-        match_state: state.key(),
-        seated: state.inner.seated,
+        match_state: ctx.accounts.match_state.key(),
+        seated,
         ts,
     });
     Ok(())
@@ -908,15 +928,15 @@ pub struct CloseManySeatMatch<'info> {
         mut,
         seeds = [
             MATCH_SEED,
-            match_state.inner.id.opener.as_ref(),
-            &match_state.inner.id.n.to_le_bytes()
+            match_state.load()?.inner.opener.as_ref(),
+            &match_state.load()?.inner.n
         ],
-        bump = match_state.bump,
+        bump = match_state.load()?.bump,
         close = match_payer
     )]
-    pub match_state: Box<Account<'info, ManySeatMatch>>,
+    pub match_state: AccountLoader<'info, ManySeatMatch>,
     /// CHECK: whoever paid the Match's rent.
-    #[account(mut, address = match_state.payer @ TesoroError::InvalidAccount)]
+    #[account(mut, address = Pubkey::new_from_array(match_state.load()?.payer) @ TesoroError::InvalidAccount)]
     pub match_payer: UncheckedAccount<'info>,
 }
 
@@ -924,12 +944,11 @@ pub(crate) fn close_many_seat_match<'info>(
     ctx: Context<'_, '_, 'info, 'info, CloseManySeatMatch<'info>>,
 ) -> Result<()> {
     let match_key = ctx.accounts.match_state.key();
-    let pages = ctx.accounts.match_state.inner.pages as usize;
-    ctx.accounts
-        .match_state
-        .inner
-        .close_empty()
-        .map_err(seat_err)?;
+    let pages = {
+        let mut state = ctx.accounts.match_state.load_mut()?;
+        state.inner.close_empty().map_err(seat_err)?;
+        state.inner.pages as usize
+    };
     let infos = ctx.remaining_accounts;
     require!(infos.len() == 2 * pages, ManySeatError::PagesMissing);
     for (i, pair) in infos.chunks_exact(2).enumerate() {
