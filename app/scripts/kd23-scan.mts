@@ -43,7 +43,12 @@ for (const g of GAMES.filter((x) => !process.env.ONLY || x.name === process.env.
   }
   console.log(g.name, "tables over on base:", found.length);
   for (const f of found) {
-    const sigs = await c.getSignaturesForAddress(f.address, { limit: Number(process.env.LIMIT ?? 40) });
+    const sigs: Awaited<ReturnType<typeof c.getSignaturesForAddress>> = [];
+    for (let page = 0; page < Number(process.env.PAGES ?? 1); page++) {
+      const part = await c.getSignaturesForAddress(f.address, { limit: Number(process.env.LIMIT ?? 40), before: sigs.at(-1)?.signature });
+      sigs.push(...part);
+      if (part.length < Number(process.env.LIMIT ?? 40)) break;
+    }
     let done = false;
     for (const s of sigs) {
       if (s.err) continue;
