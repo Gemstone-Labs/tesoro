@@ -138,10 +138,16 @@ describe("the safety sweep: a Backer-funded Match nobody joined", () => {
     assert.deepEqual(sent, [`refund ${h.address.toBase58().slice(0, 4)}`]);
   });
 
-  it("leaves alone an Open Match before its deadline, one nobody backed, and one somebody joined", async () => {
-    const early = head(1, { stage: "open", joined: false, backed: true, deadline: T0 + 5 });
+  it("refunds an Open Match nobody backed too, as the old loop did", async () => {
     const plain = head(2, { stage: "open", joined: false, backed: false, deadline: T0 - 1 });
-    const { deps, sent } = fake([early, plain]);
+    const { deps, sent } = fake([plain]);
+    await run(deps, memorySweepStore(), T0);
+    assert.deepEqual(sent, [`refund ${plain.address.toBase58().slice(0, 4)}`]);
+  });
+
+  it("leaves alone an Open Match before its deadline", async () => {
+    const early = head(1, { stage: "open", joined: false, backed: true, deadline: T0 + 5 });
+    const { deps, sent } = fake([early]);
     const r = await run(deps, memorySweepStore(), T0);
     assert.deepEqual(sent, []);
     assert.deepEqual(r.candidates, []);
@@ -255,5 +261,236 @@ describe("the safety sweep: --dry-run", () => {
     assert.deepEqual(r.candidates.map((c) => [c.case, c.action]), [["finish", "send"], ["refund", "send"]]);
     assert.deepEqual(r.scanned, { settling: 1, open: 1 });
     assert.equal(JSON.stringify(store.load()), before);
+  });
+});
+
+// ---- candidates from the database ---------------------------------------------------------------------------------
+
+/** The fake chain plus a database: `db` lists the Matches it knows; `scans` and `reads` count the chain calls. */
+function withDb(heads: Head[], db: Head[], opts: { committed?: Set<string>; dbFails?: boolean } = {}) {
+  const base = fake(heads, { committed: opts.committed });
+  const calls = { committed: 0, scans: 0, reads: [] as string[][], gone: [] as string[] };
+  const deps: SweepDeps = {
+    ...base.deps,
+    committed: async (h) => {
+      calls.committed++;
+      return base.deps.committed(h);
+    },
+    scan: async () => {
+      calls.scans++;
+      return base.deps.scan();
+    },
+    dbMatches: async () => {
+      if (opts.dbFails) throw new Error("database down");
+      return db.map((h) => h.address);
+    },
+    readHeads: async (addresses) => {
+      calls.reads.push(addresses.map((a) => a.toBase58()));
+      const live = (await base.deps.scan()).filter((h) => addresses.some((a) => a.equals(h.address)));
+      return { heads: live, gone: addresses.filter((a) => !live.some((h) => h.address.equals(a))) };
+    },
+    markGone: async (addresses) => void calls.gone.push(...addresses.map((a) => a.toBase58())),
+  };
+  return { ...base, deps, calls };
+}
+
+describe("the safety sweep: candidates from the database", () => {
+  it("a 5-minute run reads only the database's Matches by address and scans nothing", async () => {
+    const known = head(1, { stage: "settling" });
+    const unknown = head(2, { stage: "settling" });
+    const { deps, calls, sent } = withDb([known, unknown], [known]);
+    const r = await run(deps, memorySweepStore({ seen: {}, fullScanAt: T0 - 60 }), T0);
+    assert.equal(r.mode, "db");
+    assert.equal(calls.scans, 0);
+    assert.deepEqual(calls.reads, [[known.address.toBase58()]]);
+    assert.deepEqual(r.candidates.map((c) => c.address.toBase58()), [known.address.toBase58()]);
+    assert.deepEqual(sent, []);
+  });
+
+  it("tells the database about a Match whose account is gone, and keeps no state for it", async () => {
+    const gone = head(1);
+    const { deps, calls, progress } = withDb([gone], [gone]);
+    progress.set(gone.address.toBase58(), null);
+    const store = memorySweepStore({ seen: { [gone.address.toBase58()]: { since: T0 - 900 } }, fullScanAt: T0 - 60 });
+    await run(deps, store, T0);
+    assert.deepEqual(calls.gone, [gone.address.toBase58()]);
+    assert.deepEqual(store.load().seen, {});
+  });
+
+  it("the hourly run scans the chain, finishes what it finds, and alerts on a Match the database missed", async () => {
+    const known = head(1, { stage: "settling" });
+    const missed = head(2, { stage: "settling" });
+    const { deps, calls } = withDb([known, missed], [known]);
+    const store = memorySweepStore({ seen: {}, fullScanAt: T0 - 3600 });
+    const r = await run(deps, store, T0);
+    assert.equal(r.mode, "full");
+    assert.equal(calls.scans, 1);
+    assert.deepEqual(r.dbMisses, [missed.address.toBase58()]);
+    assert.equal(r.candidates.length, 2);
+    assert.equal(store.load().fullScanAt, T0);
+  });
+
+  it("a Match with nothing to do is not a miss", async () => {
+    const quiet = head(1, { openedAt: T0 - 30 });
+    const { deps } = withDb([quiet], []);
+    const r = await run(deps, memorySweepStore(), T0);
+    assert.deepEqual(r.dbMisses, []);
+  });
+
+  it("a Match the webhook never delivered is finished within 1 h 15 min of 5-minute runs", async () => {
+    const missed = head(1, { stage: "settling" });
+    const { deps, sent, progress } = withDb([missed], []);
+    const store = memorySweepStore();
+    let sentAt: number | null = null;
+    // The last hourly scan was 10 minutes before the Match settled; ticks follow every 5 minutes.
+    store.save({ seen: {}, fullScanAt: T0 - 600 });
+    for (let t = T0; t <= T0 + 75 * 60 && sentAt === null; t += 300) {
+      await run(deps, store, t);
+      if (sent.length) sentAt = t - T0;
+    }
+    assert.ok(sentAt !== null && sentAt <= 75 * 60, `sent at ${sentAt}`);
+    assert.ok(sentAt >= 60 * 60 - 600, "not before the hourly scan found it");
+    assert.equal(progress.get(missed.address.toBase58()), null);
+  });
+
+  it("falls back to the full scan when the database cannot be read", async () => {
+    const h = head(1, { stage: "settling" });
+    const { deps, calls } = withDb([h], [], { dbFails: true });
+    const r = await run(deps, memorySweepStore({ seen: {}, fullScanAt: T0 - 60 }), T0);
+    assert.equal(r.mode, "fallback");
+    assert.equal(calls.scans, 1);
+    assert.equal(r.candidates.length, 1);
+    assert.deepEqual(r.dbMisses, []);
+  });
+
+  it("runs the full scan every time when deps have no database", async () => {
+    const { deps } = fake([head(1, { stage: "settling" })]);
+    const r = await run(deps, memorySweepStore({ seen: {}, fullScanAt: T0 - 60 }), T0);
+    assert.equal(r.mode, "full");
+  });
+
+  it("dry-run saves nothing and tells the database nothing", async () => {
+    const gone = head(1);
+    const { deps, calls, progress } = withDb([gone], [gone]);
+    progress.set(gone.address.toBase58(), null);
+    const store = memorySweepStore({ seen: {}, fullScanAt: T0 - 3600 });
+    await run(deps, store, T0, true);
+    assert.deepEqual(calls.gone, []);
+    assert.equal(store.load().fullScanAt, T0 - 3600);
+  });
+});
+
+describe("the safety sweep: an Active Match with no result backs off", () => {
+  const zombie = () => head(1, { openedAt: T0 - 3600 });
+
+  it("is asked about at 5, 15, 30 minutes, then left to the hourly scan", async () => {
+    const z = zombie();
+    const { deps, calls } = withDb([z], [z]);
+    const store = memorySweepStore({ seen: {}, fullScanAt: T0 });
+    const checkedAt: number[] = [];
+    for (let t = T0; t < T0 + 2 * 3600; t += 300) {
+      const before = calls.committed;
+      await run(deps, store, t);
+      if (calls.committed > before) checkedAt.push((t - T0) / 60);
+    }
+    // 0, +5, +20 (15 later), +50 (30 later); the hourly scan at 60 asks again, then the schedule restarts from there.
+    assert.deepEqual(checkedAt.slice(0, 4), [0, 5, 20, 50]);
+    assert.ok(checkedAt.includes(60), "the hourly scan asks regardless");
+    assert.ok(calls.committed <= 8, `asked ${calls.committed} times in 2 hours`);
+  });
+
+  it("finds a result that commits during the back-off by the next hourly scan, and finishes it", async () => {
+    const z = zombie();
+    const committed = new Set<string>();
+    const { deps, sent } = withDb([z], [z], { committed });
+    const store = memorySweepStore({ seen: {}, fullScanAt: T0 });
+    for (let t = T0; t <= T0 + 3 * 3600 && !sent.length; t += 300) {
+      if (t === T0 + 3300) committed.add(z.address.toBase58());
+      await run(deps, store, t);
+    }
+    assert.equal(sent.length, 2, "finalize and finish went out");
+  });
+
+  it("asks again at once when the Match changes (a new deadline)", async () => {
+    const z = zombie();
+    const { deps, calls } = withDb([z], [z]);
+    const store = memorySweepStore({ seen: {}, fullScanAt: T0 });
+    await run(deps, store, T0);
+    await run(deps, store, T0 + 300);
+    assert.equal(calls.committed, 2);
+    z.deadline += 600;
+    await run(deps, store, T0 + 360);
+    assert.equal(calls.committed, 3);
+  });
+
+  it("does not ask a Match the sweep has no reason to look at", async () => {
+    const young = head(1, { openedAt: T0 - 30 });
+    const { deps, calls } = withDb([young], [young]);
+    await run(deps, memorySweepStore({ seen: {}, fullScanAt: T0 }), T0);
+    assert.equal(calls.committed, 0);
+  });
+});
+
+describe("the safety sweep: an Active Match past its deadline with no result", () => {
+  const late = (n = 1) => head(n, { openedAt: T0 - 7200, deadline: T0 - 1 });
+  const short = (h: Head) => h.address.toBase58().slice(0, 4);
+
+  it("is refunded at once, with no grace and no back-off", async () => {
+    const z = late();
+    const { deps, sent } = withDb([z], [z]);
+    const store = memorySweepStore({ seen: {}, fullScanAt: T0, quiet: { [z.address.toBase58()]: { key: `active:${z.deadline}`, asked: 3, next: T0 + 3600 } } });
+    const r = await run(deps, store, T0);
+    assert.deepEqual(sent, [`refund ${short(z)}`]);
+    assert.equal(r.candidates[0].case, "refund");
+  });
+
+  it("is not refunded before its deadline", async () => {
+    const z = head(1, { openedAt: T0 - 7200, deadline: T0 + 1 });
+    const { deps, sent } = fake([z]);
+    await run(deps, memorySweepStore(), T0);
+    assert.deepEqual(sent, []);
+  });
+
+  it("is finished, not refunded, when the Table holds its result", async () => {
+    const z = late();
+    const { deps, sent } = fake([z], { committed: new Set([z.address.toBase58()]) });
+    const store = memorySweepStore();
+    await run(deps, store, T0);
+    assert.deepEqual(sent, [], "waits out the finalize grace");
+    await run(deps, store, T0 + GRACE_SECS);
+    assert.deepEqual(sent, [`finalize ${short(z)}`, `finish ${short(z)}`]);
+  });
+
+  it("is finished, not refunded, when the result commits after the first look and before the send", async () => {
+    const z = late();
+    const base = fake([z]);
+    let reads = 0;
+    const deps: SweepDeps = { ...base.deps, committed: async () => ++reads > 1 };
+    const store = memorySweepStore();
+    const r = await run(deps, store, T0);
+    assert.equal(reads, 2, "read again just before the send");
+    assert.deepEqual(base.sent, []);
+    assert.equal(r.candidates[0].case, "finalize");
+    await run(deps, store, T0 + GRACE_SECS);
+    assert.deepEqual(base.sent, [`finalize ${short(z)}`, `finish ${short(z)}`]);
+  });
+
+  it("is not refunded when the Table cannot be read, and the rest of the run goes on", async () => {
+    const bad = late(1);
+    const other = head(2, { stage: "settling" });
+    const base = fake([bad, other]);
+    const deps: SweepDeps = { ...base.deps, committed: async () => { throw new Error("rpc down"); } };
+    const store = memorySweepStore();
+    await run(deps, store, T0);
+    await run(deps, store, T0 + GRACE_SECS);
+    assert.deepEqual(base.sent, [`finish ${short(other)}`]);
+  });
+
+  it("dry-run reports the refund it would send and sends nothing", async () => {
+    const z = late();
+    const { deps, sent } = fake([z]);
+    const r = await run(deps, memorySweepStore(), T0, true);
+    assert.deepEqual(sent, []);
+    assert.deepEqual([r.candidates[0].case, r.candidates[0].action], ["refund", "send"]);
   });
 });
