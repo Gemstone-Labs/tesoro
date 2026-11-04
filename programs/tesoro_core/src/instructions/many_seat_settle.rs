@@ -89,8 +89,36 @@ pub struct ManySeatChunkDone {
     pub done: bool,
     pub blocked: bool,
     pub overflowed: u32,
-    pub lines: Vec<SettlementLine>,
+    pub lines: Vec<SeatLine>,
 }
+
+/// One line record of a many-seat chunk: `SettlementLine`'s bytes (`pot_side` = the seat), as
+/// its own type so the head-to-head event keeps its serializer to itself.
+#[repr(C)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    AnchorSerialize,
+    AnchorDeserialize,
+    bytemuck::Pod,
+    bytemuck::Zeroable,
+)]
+pub struct SeatLine {
+    pub pot_side: u8,
+    pub pot_index_le: [u8; 4],
+    /// 0/1/2 fee, 3 entry back, 4 winnings, 5 early refund.
+    pub purpose: u8,
+    pub incoming: [u8; ledger::line_store::LINE_LEN],
+    pub outgoing: [u8; ledger::line_store::LINE_LEN],
+    pub recipient_kind: u8,
+    pub recipient: [u8; 32],
+    pub placement: u8,
+}
+
+const _: () = assert!(std::mem::size_of::<SeatLine>() == std::mem::size_of::<SettlementLine>());
 
 #[event]
 pub struct ManySeatSettled {
@@ -564,15 +592,18 @@ pub(crate) fn many_seat_chunk<'info>(
         let mut car = ctx.accounts.match_state.load_mut()?;
         let was_paid = car.inner.stage() == ManyStage::Paid;
         let mut seats = ChainSeats::find(&match_key, ctx.remaining_accounts)?;
-        let mut settlement = ChainSettlement::load(ctx.remaining_accounts)?;
+        // Held without drop glue: a failed chunk fails the transaction, and a second user of
+        // `ChainSettlement`'s drop made the head-to-head chunk dearer.
+        let mut settlement =
+            std::mem::ManuallyDrop::new(ChainSettlement::load(ctx.remaining_accounts)?);
         settlement.set_match(&car.inner.id());
         let report = car
             .inner
-            .chunk(&mut seats, &mut settlement, steps)
+            .chunk(&mut seats, &mut *settlement, steps)
             .map_err(lc_err)?;
         drop(seats);
         let overflowed = settlement.overflowed();
-        settlement.finish()?;
+        std::mem::ManuallyDrop::into_inner(settlement).finish()?;
         let settled = (!was_paid && report.done).then(|| (car.inner.run.kind(), report.chunk_no));
         (report, overflowed, settled)
     };
@@ -905,7 +936,7 @@ mod tests {
                 done: count == 7,
                 blocked: count == 1,
                 overflowed: 3,
-                lines: lines.clone(),
+                lines: bytemuck::cast_slice::<SettlementLine, SeatLine>(&lines).to_vec(),
             };
             let mut want = anchor_lang::event::EVENT_IX_TAG_LE.to_vec();
             want.extend_from_slice(&anchor_lang::Event::data(&event));

@@ -240,6 +240,7 @@ impl<'info> ChainSettlement<'info> {
 }
 
 impl<'info> Settlement for ChainSettlement<'info> {
+    #[inline(always)]
     fn books(&mut self) -> &mut dyn SourceBooks {
         &mut self.books
     }

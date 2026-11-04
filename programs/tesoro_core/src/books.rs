@@ -277,6 +277,7 @@ impl SourceBooks for OnchainBooks<'_, '_> {
         Ok(())
     }
 
+    #[inline(always)]
     fn book_mut(&mut self, source: &Key) -> DrawResult<&mut SourceBook> {
         Ok(self.entry(source)?.0)
     }
