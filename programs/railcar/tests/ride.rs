@@ -1091,7 +1091,6 @@ impl Env {
             railcar::ID,
             railcar::accounts::Jump {
                 player: p.key,
-                player_account: p.account,
                 table,
                 vault: vault_addr(table),
                 sponsor: sponsor_addr(),
@@ -1872,4 +1871,40 @@ fn only_one_car_boards_at_a_time() {
     assert_eq!(code(&err), rcode(railcar::RailcarError::CarBoarding));
     assert_eq!(env.config().next_car, 1);
     drop((car, riders));
+}
+
+#[test]
+fn a_seat_key_jumps_for_its_seat_and_no_other_key_does() {
+    let (mut env, car, riders) = riding(draw_where(|r| r.crash_ms >= 30_000));
+    // the seat key core records at join (seat-keys ticket 08), written here as it would be copied
+    let key = Keypair::new();
+    env.svm.airdrop(&key.pubkey(), SOL).expect("airdrop");
+    let seat = env.seat_of(car.table, &riders[ANA]);
+    env.patch_table(car.table, |t| {
+        t.seats[usize::from(seat)].signer = key.pubkey().to_bytes();
+    });
+    env.at_ride(car.table, 15.0);
+    let as_key = Person {
+        kp: key.insecure_clone(),
+        key: a(key.pubkey()),
+        account: riders[ANA].account,
+        source: riders[ANA].source,
+    };
+    // the key acts for Ana's seat only
+    let bens = env.seat_of(car.table, &riders[BEN]);
+    let wrong = env.jump_ix(car.table, &as_key, car.no, bens);
+    let err = env.send(&[wrong], &key, &[]).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::NotAPlayer));
+    // a stranger's key acts for nobody
+    let stranger = Keypair::new();
+    env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
+    let mut not_hers = dup(&as_key);
+    not_hers.kp = stranger.insecure_clone();
+    not_hers.key = a(stranger.pubkey());
+    let i = env.jump_ix(car.table, &not_hers, car.no, seat);
+    let err = env.send(&[i], &stranger, &[]).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::NotAPlayer));
+    env.jump(car.table, &as_key).expect("the seat key jumps");
+    let t = env.table(car.table);
+    assert_eq!((t.jumps, t.seats[usize::from(seat)].order), (1, 1));
 }
