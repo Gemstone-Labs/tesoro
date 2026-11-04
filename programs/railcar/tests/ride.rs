@@ -244,6 +244,8 @@ struct Env {
     last_events: Vec<Vec<u8>>,
     /// Cases for the TypeScript port of core's `ahead` (see `record_ahead`), when recording.
     ahead_cases: Option<Vec<String>>,
+    /// Chunks seen while recording (the case's number).
+    ahead_seen: u32,
 }
 
 impl Env {
@@ -535,6 +537,7 @@ impl Env {
             last_logs: vec![],
             last_events: vec![],
             ahead_cases: std::env::var("TESORO_RAILCAR_FIXTURE").ok().map(|_| vec![]),
+            ahead_seen: 0,
         };
         for k in [&env.admin, &env.oracle, &env.ctl, &env.operator] {
             env.svm.airdrop(&k.pubkey(), 1_000 * SOL).expect("airdrop");
@@ -2027,7 +2030,9 @@ impl Env {
     fn drain_sponsor(&mut self) {
         let mut acct = self.svm.get_account(&s(sponsor_addr())).expect("sponsor");
         acct.lamports = self.svm.minimum_balance_for_rent_exemption(acct.data.len());
-        self.svm.set_account(s(sponsor_addr()), acct).expect("drain");
+        self.svm
+            .set_account(s(sponsor_addr()), acct)
+            .expect("drain");
     }
 
     /// One case for the TypeScript `ahead` port, before a chunk: the car's and its pages' raw
@@ -2044,14 +2049,19 @@ impl Env {
         let st = self.core_car(car);
         let (seats, lines) = self.seats_and_lines(car);
         let plan = st.inner.ahead(&seats, &lines, steps as usize);
-        let chunk_no = st.inner.run.chunks();
+        let chunk_no = self.ahead_seen;
+        self.ahead_seen += 1;
         if chunk_no >= 3 && chunk_no % 25 != 0 {
             return;
         }
         let raw = self.svm.get_account(&s(car.tesoro)).expect("car").data;
         let pages: Vec<String> = (0..st.inner.pages)
             .map(|p| {
-                let d = self.svm.get_account(&s(page_pda(car.tesoro, p))).expect("page").data;
+                let d = self
+                    .svm
+                    .get_account(&s(page_pda(car.tesoro, p)))
+                    .expect("page")
+                    .data;
                 format!("\"{}\"", hex(&d))
             })
             .collect();
@@ -2083,7 +2093,10 @@ impl Env {
 
     /// Writes the recorded `ahead` cases to `<dir>/ahead-<name>.json`.
     fn write_ahead_fixture(&mut self, name: &str) {
-        let (Ok(dir), Some(cases)) = (std::env::var("TESORO_RAILCAR_FIXTURE"), self.ahead_cases.take()) else {
+        let (Ok(dir), Some(cases)) = (
+            std::env::var("TESORO_RAILCAR_FIXTURE"),
+            self.ahead_cases.take(),
+        ) else {
             return;
         };
         std::fs::create_dir_all(&dir).expect("fixture dir");
@@ -2142,7 +2155,13 @@ fn an_outage_voids_the_ride_and_refunds_every_entry_with_no_fee() {
     let t = env.table(car.table);
     assert_eq!(
         (t.phase, t.outcome, t.reason, t.jumps, t.dirty),
-        (PHASE_OVER, OUTCOME_REFUND, railcar::state::REASON_OUTAGE, 1, 0)
+        (
+            PHASE_OVER,
+            OUTCOME_REFUND,
+            railcar::state::REASON_OUTAGE,
+            1,
+            0
+        )
     );
     let ben = env.seat_of(car.table, &riders[BEN]);
     assert!(
@@ -2352,7 +2371,11 @@ fn only_the_operator_refills_the_sponsor_and_the_fuel_keeps_its_rent() {
     let op = env.operator.insecure_clone();
     let (fuel_before, sponsor_before) = (env.lamports(fuel), env.lamports(sponsor_addr()));
     let err = env.refill(&op, fuel, fuel_before).unwrap_err();
-    assert_eq!(code(&err), rcode(railcar::RailcarError::Overflow), "keeps rent");
+    assert_eq!(
+        code(&err),
+        rcode(railcar::RailcarError::Overflow),
+        "keeps rent"
+    );
     env.refill(&op, fuel, SOL / 2).expect("refill");
     assert_eq!(env.lamports(fuel), fuel_before - SOL / 2);
     assert_eq!(env.lamports(sponsor_addr()), sponsor_before + SOL / 2);

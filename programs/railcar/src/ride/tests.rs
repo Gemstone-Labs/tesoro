@@ -250,7 +250,10 @@ fn a_stop_of_five_seconds_voids_at_the_next_transaction() {
     let mut t = paced();
     assert!(pace(&mut t, RIDE_SLOT + 249, T0 + 5));
     let mut t = paced();
-    assert!(!pace(&mut t, RIDE_SLOT, T0 + 4), "under 5 s nothing is judged");
+    assert!(
+        !pace(&mut t, RIDE_SLOT, T0 + 4),
+        "under 5 s nothing is judged"
+    );
 }
 
 #[test]
@@ -285,7 +288,12 @@ fn a_clock_or_slot_that_goes_back_is_not_a_void_and_does_not_overflow() {
     assert!(!pace(&mut t, RIDE_SLOT + 400, T0 + 2));
     // the mark did not move back: 5 s after it, on pace, is fine
     assert!(!pace(&mut t, RIDE_SLOT + 500, T0 + 5));
-    for (slot, ts) in [(u64::MAX, i64::MAX), (0, i64::MIN), (u64::MAX, i64::MIN), (0, i64::MAX)] {
+    for (slot, ts) in [
+        (u64::MAX, i64::MAX),
+        (0, i64::MIN),
+        (u64::MAX, i64::MIN),
+        (0, i64::MAX),
+    ] {
         let _ = pace(&mut paced(), slot, ts);
     }
 }
