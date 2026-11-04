@@ -39,7 +39,7 @@ describe("Railcar in the Season's Points", () => {
       wins.map((w) => [w.player, w.loser, w.points]),
       [[dee, ben, 5]],
     );
-    const table = standings(wins.map(winOf));
+    const table = standings(wins);
     assert.deepEqual(
       table.map((s) => [s.account, s.points]),
       [[dee, 5]],
