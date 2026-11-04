@@ -24,7 +24,6 @@ use crate::ledger::lifecycle::{ChunkReport, LcResult, LifecycleError, Settlement
 use crate::ledger::many_seat::{
     ManySeatResult, ManyStage, Seat, SeatCredits, Seats, Started, KIND_WIN, SEATS_PER_PAGE,
 };
-use crate::ledger::Key;
 use crate::pots::*;
 use crate::state::*;
 use crate::storage::*;
@@ -122,7 +121,7 @@ fn seat_at(slot: usize) -> usize {
 struct ChainSeats<'b, 'info> {
     pages: [Option<&'b AccountInfo<'info>>; ledger::many_seat::MAX_SEAT_PAGES as usize],
     infos: &'b [AccountInfo<'info>],
-    pot: Option<(Key, OnchainPot<'b, 'info>)>,
+    pot: Option<(ledger::Key, OnchainPot<'b, 'info>)>,
 }
 
 impl<'b, 'info> ChainSeats<'b, 'info> {
@@ -180,7 +179,7 @@ impl<'b, 'info> Seats<AccountWindow<'b, 'info>> for ChainSeats<'b, 'info> {
         Ok(())
     }
 
-    fn pot(&mut self, _i: u8, key: &Key) -> LcResult<&mut OnchainPot<'b, 'info>> {
+    fn pot(&mut self, _i: u8, key: &ledger::Key) -> LcResult<&mut OnchainPot<'b, 'info>> {
         if self.pot.as_ref().is_none_or(|(k, _)| k != key) {
             self.pot = None;
             let info = self
@@ -199,13 +198,13 @@ impl<'info> SeatCredits for ChainSettlement<'info> {
     fn settlement(&mut self) -> &mut dyn Settlement {
         self
     }
-    fn set_hold(&mut self, owner: &Key, slots: u32) {
+    fn set_hold(&mut self, owner: &ledger::Key, slots: u32) {
         self.set_holds(&[RoomHold {
             account: *owner,
             left: slots,
         }]);
     }
-    fn hold_of(&self, owner: &Key) -> u32 {
+    fn hold_of(&self, owner: &ledger::Key) -> u32 {
         ChainSettlement::hold_of(self, owner).unwrap_or(0)
     }
 }
