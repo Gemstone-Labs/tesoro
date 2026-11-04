@@ -170,6 +170,12 @@ An orchestrator step; needs a Helius key and migration `0020_webhook_tx.sql` app
 5. Set `KEEPER_WEBHOOK_HISTORY=1` in `~/.config/tesoro-keeper.env` and restart the keeper. Its history scan then stops writing the history tables (it still feeds the notify job) and a catch-up job runs on boot and every 15 minutes: it stores finalized core transactions the webhook missed, marks delivered rows finalized, and decodes them.
 6. Rows that cannot be decoded keep `decode_error` in `webhook_tx`; clear it (`update webhook_tx set decode_error = null where signature = ...`) to retry.
 
+## Final boards from the webhook (keeper diet ticket 23)
+
+An orchestrator step; needs the webhook above running and migration `0024_end_state_missing.sql` applied (after 0013 and 0023). No new env: the route reads base through `TESORO_BASE_RPC`, the keeper catch-up through its own RPC.
+
+When a delivered transaction holds a Game's `finalize` of a won or drawn Match, the route reads base's Table (and Vanguard's Battle) at that slot and stores the public board in `match_end_states`. It keeps a board only when base's Table names that Match and is Over; otherwise it writes a row in `match_end_missing` (reason in the row). A catch-up row gets one more try. A marker never blocks a board: a later capture replaces it. Check: `select game, count(*) from match_end_states where captured_at > now() - interval '1 day' group by 1;` and `select reason, count(*) from match_end_missing group by 1;`.
+
 ## Emails from the webhook (keeper diet ticket 13)
 
 An orchestrator step; needs ticket 12's webhook running and migration `0022_notify_webhook.sql`. Email itself also needs `RESEND_API_KEY` and `NOTIFY_FROM` (prod has no `RESEND_API_KEY` yet); without them the webhook still keeps the `open_match` table up to date and sends nothing.
