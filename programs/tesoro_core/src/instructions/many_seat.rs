@@ -32,8 +32,10 @@ use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 use anchor_lang::Discriminator;
 
-/// Lines one step-off or return call moves at most (measured: `tests/many_seat`).
-pub const MAX_RETURN_LINES: u8 = 16;
+/// Lines one step-off or return call moves at most. Measured worst case (every line merges into
+/// one the funder still holds, each from its own Source): 8 lines 119,828 CU, 16 lines 210,876,
+/// so 8 keeps a call under the 140,000 chunk budget (`tests/many_seat`).
+pub const MAX_RETURN_LINES: u8 = 8;
 
 #[event]
 pub struct ManySeatOpened {

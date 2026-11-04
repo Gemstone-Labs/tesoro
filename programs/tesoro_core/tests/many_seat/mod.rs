@@ -232,7 +232,7 @@ impl Env {
         car: Car,
         p: &Person,
     ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
-        let i = self.step_off_ix(a(caller.pubkey()), car, p, 16, false);
+        let i = self.step_off_ix(a(caller.pubkey()), car, p, tesoro_core::MAX_RETURN_LINES, false);
         let kp = caller.insecure_clone();
         self.send_v0(&[i], &kp).map(drop)
     }
@@ -579,7 +579,7 @@ fn an_entry_limit_stops_boarding_over_it() {
 }
 
 #[test]
-fn an_entry_staged_in_an_entry_ticket_boards_and_comes_back_over_two_calls() {
+fn an_entry_staged_in_an_entry_ticket_boards_and_comes_back_over_several_calls() {
     let mut env = Env::new();
     let opener = env.rider(2_000);
     let ana = env.person();
@@ -601,17 +601,21 @@ fn an_entry_staged_in_an_entry_ticket_boards_and_comes_back_over_two_calls() {
         env.page(car, 0).seats[seat as usize].pot(),
         ticket_pda(ana.account, 5).to_bytes()
     );
-    let i = env.step_off_ix(ana.key, car, &ana, 16, false);
+    let i = env.step_off_ix(ana.key, car, &ana, tesoro_core::MAX_RETURN_LINES, false);
     env.send_v0(&[i], &kp).expect("step off");
-    assert_eq!(env.total_gemas(&ana), 16 * 20);
+    assert_eq!(env.total_gemas(&ana), 8 * 20);
     let mark = env.mark(car, &ana).expect("still returning");
     assert!(mark.returning);
     assert_eq!(env.car(car).inner.seated, 0, "the seat is free at once");
     let err = env.board(&ana, car).unwrap_err();
     assert_eq!(custom_code(&err), seat_err(ManySeatError::StillReturning));
-    // anyone finishes the return
+    // anyone finishes the return, a call at a time
     let other = opener.kp.insecure_clone();
-    env.return_rest(&other, car, &ana, 16).expect("rest");
+    for _ in 0..2 {
+        env.return_rest(&other, car, &ana, 8).expect("rest");
+        assert!(env.mark(car, &ana).is_some());
+    }
+    env.return_rest(&other, car, &ana, 8).expect("last");
     assert_eq!(env.total_gemas(&ana), CAR_ENTRY);
     assert!(env.mark(car, &ana).is_none());
     assert!(env
