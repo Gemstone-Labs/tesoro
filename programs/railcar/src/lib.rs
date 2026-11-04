@@ -1047,10 +1047,10 @@ pub struct SetConfig<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
     #[account(
-        init_if_needed, payer = authority, space = 8 + Config::INIT_SPACE,
+        init_if_needed, payer = authority, space = 8 + RailcarConfig::INIT_SPACE,
         seeds = [CONFIG_SEED], bump
     )]
-    pub config: Account<'info, Config>,
+    pub config: Account<'info, RailcarConfig>,
     #[account(
         constraint = program.programdata_address()? == Some(program_data.key())
             @ RailcarError::NotUpgradeAuthority
@@ -1070,7 +1070,7 @@ pub struct CreateTable<'info> {
     #[account(mut, address = config.operator @ RailcarError::NotOperator)]
     pub operator: Signer<'info>,
     #[account(seeds = [CONFIG_SEED], bump = config.bump)]
-    pub config: Account<'info, Config>,
+    pub config: Account<'info, RailcarConfig>,
     #[account(
         init, payer = operator, space = Table::SPACE,
         seeds = [TABLE_SEED, &index.to_le_bytes()], bump
@@ -1084,7 +1084,7 @@ pub struct CreateSponsor<'info> {
     #[account(mut, address = config.operator @ RailcarError::NotOperator)]
     pub operator: Signer<'info>,
     #[account(seeds = [CONFIG_SEED], bump = config.bump)]
-    pub config: Account<'info, Config>,
+    pub config: Account<'info, RailcarConfig>,
     #[account(init, payer = operator, space = 8 + Sponsor::INIT_SPACE, seeds = [SPONSOR_SEED], bump)]
     pub sponsor: Account<'info, Sponsor>,
     pub system_program: Program<'info, System>,
@@ -1096,7 +1096,7 @@ pub struct CreateFuel<'info> {
     #[account(mut, address = config.operator @ RailcarError::NotOperator)]
     pub operator: Signer<'info>,
     #[account(seeds = [CONFIG_SEED], bump = config.bump)]
-    pub config: Account<'info, Config>,
+    pub config: Account<'info, RailcarConfig>,
     #[account(init, payer = operator, space = 8 + Fuel::INIT_SPACE, seeds = [FUEL_SEED, &[n]], bump)]
     pub fuel: Account<'info, Fuel>,
     pub system_program: Program<'info, System>,
@@ -1109,7 +1109,7 @@ pub struct DelegateTable<'info> {
     #[account(mut, address = config.operator @ RailcarError::NotOperator)]
     pub operator: Signer<'info>,
     #[account(seeds = [CONFIG_SEED], bump = config.bump)]
-    pub config: Account<'info, Config>,
+    pub config: Account<'info, RailcarConfig>,
     /// CHECK: the Table PDA to delegate
     #[account(mut, del, seeds = [TABLE_SEED, &index.to_le_bytes()], bump)]
     pub table: AccountInfo<'info>,
@@ -1123,7 +1123,7 @@ pub struct DelegateSponsor<'info> {
     #[account(mut, address = config.operator @ RailcarError::NotOperator)]
     pub operator: Signer<'info>,
     #[account(seeds = [CONFIG_SEED], bump = config.bump)]
-    pub config: Account<'info, Config>,
+    pub config: Account<'info, RailcarConfig>,
     /// CHECK: the Sponsor PDA to delegate
     #[account(mut, del, seeds = [SPONSOR_SEED], bump)]
     pub sponsor: AccountInfo<'info>,
@@ -1138,7 +1138,7 @@ pub struct DelegateFuel<'info> {
     #[account(mut, address = config.operator @ RailcarError::NotOperator)]
     pub operator: Signer<'info>,
     #[account(seeds = [CONFIG_SEED], bump = config.bump)]
-    pub config: Account<'info, Config>,
+    pub config: Account<'info, RailcarConfig>,
     /// CHECK: the fuel PDA to delegate
     #[account(mut, del, seeds = [FUEL_SEED, &[n]], bump)]
     pub fuel: AccountInfo<'info>,
@@ -1153,7 +1153,7 @@ pub struct OpenCar<'info> {
     pub payer: Signer<'info>,
     pub opener: Signer<'info>,
     #[account(mut, seeds = [CONFIG_SEED], bump = config.bump)]
-    pub config: Box<Account<'info, Config>>,
+    pub config: Box<Account<'info, RailcarConfig>>,
     #[account(
         init, payer = payer, space = 8 + Car::INIT_SPACE,
         seeds = [CAR_SEED, &config.next_car.to_le_bytes()], bump
@@ -1347,7 +1347,7 @@ pub struct SkipCar<'info> {
     #[account(mut, seeds = [TABLE_SEED, &table.load()?.index], bump = table.load()?.bump)]
     pub table: AccountLoader<'info, Table>,
     #[account(seeds = [CONFIG_SEED], bump = config.bump)]
-    pub config: Box<Account<'info, Config>>,
+    pub config: Box<Account<'info, RailcarConfig>>,
     /// CHECK: the Table's next car at `["car", next]`, read by hand (it may be closed).
     pub car: UncheckedAccount<'info>,
     /// CHECK: that car's core Match, checked against the car.
@@ -1439,7 +1439,7 @@ pub struct RefillSponsor<'info> {
     #[account(address = config.operator @ RailcarError::NotOperator)]
     pub operator: Signer<'info>,
     #[account(seeds = [CONFIG_SEED], bump = config.bump)]
-    pub config: Account<'info, Config>,
+    pub config: Account<'info, RailcarConfig>,
     #[account(mut, seeds = [FUEL_SEED, &[fuel.n]], bump = fuel.bump)]
     pub fuel: Account<'info, Fuel>,
     #[account(mut, seeds = [SPONSOR_SEED], bump = sponsor.bump)]

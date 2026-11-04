@@ -69,7 +69,7 @@ pub const NO_SEAT: u8 = 255;
 /// `car_no % tables`).
 #[account]
 #[derive(InitSpace, Debug)]
-pub struct Config {
+pub struct RailcarConfig {
     pub bump: u8,
     pub operator: Pubkey,
     pub tables: u16,

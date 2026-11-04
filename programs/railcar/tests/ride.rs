@@ -711,7 +711,7 @@ impl Env {
         self.load(vault_addr(table))
     }
 
-    fn config(&self) -> railcar::state::Config {
+    fn config(&self) -> railcar::state::RailcarConfig {
         self.load(config_addr())
     }
 
@@ -775,6 +775,10 @@ impl Env {
 
     fn join_ix(&self, p: &Person, car: &Car) -> Instruction {
         let page = self.page_with_room(car);
+        self.join_page_ix(p, car, page)
+    }
+
+    fn join_page_ix(&self, p: &Person, car: &Car, page: u8) -> Instruction {
         let counters: Option<AccountCounters> = self
             .svm
             .get_account(&s(tpda(&[COUNTERS_SEED, p.account.as_ref()])))
@@ -867,7 +871,7 @@ impl Env {
             tesoro,
             table: railcar::table_address((no % u64::from(self.config().tables)) as u16),
         };
-        let ixs = [open, self.join_ix(p, &car), self.check_ix(&car)];
+        let ixs = [open, self.join_page_ix(p, &car, 0), self.check_ix(&car)];
         let kp = p.kp.insecure_clone();
         self.send(&ixs, &kp, &[])?;
         Ok(car)
@@ -1247,10 +1251,14 @@ impl Env {
 
 /// A VRF output whose ride satisfies `want`.
 fn draw_where(want: impl Fn(&railcar::engine::Ride) -> bool) -> [u8; 32] {
-    for i in 0u32..100_000 {
-        let mut d = [7u8; 32];
-        d[..4].copy_from_slice(&i.to_le_bytes());
-        d[8..12].copy_from_slice(&i.wrapping_mul(2_654_435_761).to_le_bytes());
+    for i in 0u64..100_000 {
+        let mut d = [0u8; 32];
+        for (k, w) in d.chunks_exact_mut(8).enumerate() {
+            let mut z = (i * 4 + k as u64).wrapping_add(1).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z ^= z >> 31;
+            w.copy_from_slice(&z.to_le_bytes());
+        }
         if want(&railcar::engine::ride(&d)) {
             return d;
         }
