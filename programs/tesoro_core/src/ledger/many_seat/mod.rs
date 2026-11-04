@@ -15,6 +15,9 @@
 //! `page * SEATS_PER_PAGE + slot` and never changes while the seat is taken.
 
 use super::lifecycle::{MatchId, MatchMeta, Terms, MAX_MATCH_LIFETIME_SECS};
+
+pub mod settle;
+pub use settle::*;
 use super::{is_ladder_entry, Key, MATCH_TIMEOUT_SECS};
 
 /// Most seats a many-seat Match has.
