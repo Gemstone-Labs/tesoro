@@ -109,3 +109,322 @@ fn a_result_that_does_not_fit_the_car_is_refused() {
         SeatError::FeeTooHigh
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// The line walk, over a memory world
+// ---------------------------------------------------------------------------------------------
+
+use crate::ledger::book::SourceBook;
+use crate::ledger::draw::{grow_spill_body, spill_body, DrawError, MemBooks, Placed, Pool, SourceBooks};
+use crate::ledger::lifecycle::{MatchId, MatchMeta, Settlement};
+use crate::ledger::line_store::{
+    required_len, Line, LineStore, CLASS_GENERAL, SIDE_OWN, SIDE_WON,
+};
+use crate::ledger::many_seat::{ManySeatRecord, ManyStage, Seat, SeatFill, SEATS_PER_PAGE};
+use crate::ledger::Key;
+use std::collections::BTreeMap;
+
+fn key(n: u8) -> Key {
+    [n; 32]
+}
+const ENTRY: u64 = 500;
+const T: i64 = 1_000_000;
+const AUTH: Key = [8; 32];
+const SLOT: u64 = 100;
+
+struct Store {
+    basket: Vec<u8>,
+    spill: Vec<u8>,
+}
+
+struct World {
+    accts: BTreeMap<Key, Store>,
+    books: MemBooks,
+    /// Fee Gemas per (class, Source).
+    counters: BTreeMap<(u8, Key), Line>,
+}
+
+impl World {
+    fn new() -> World {
+        let mut books = MemBooks::default();
+        for s in 100..110u8 {
+            let mut b = SourceBook::new();
+            b.start_extension().unwrap();
+            books.insert(key(s), b);
+        }
+        World {
+            accts: BTreeMap::new(),
+            books,
+            counters: BTreeMap::new(),
+        }
+    }
+
+    fn account(&mut self, who: Key, basket_lines: usize) {
+        let mut basket = vec![0u8; required_len(basket_lines)];
+        LineStore::init(basket.as_mut_slice(), who, 1).unwrap();
+        self.accts.insert(
+            who,
+            Store {
+                basket,
+                spill: spill_body(who, 0).unwrap(),
+            },
+        );
+    }
+
+    fn grow_spill(&mut self, who: &Key, by: usize) {
+        let a = self.accts.get_mut(who).unwrap();
+        let cap = LineStore::new(a.spill.as_slice()).unwrap().capacity();
+        grow_spill_body(&mut a.spill, cap + by);
+    }
+
+    fn lines_of(&self, who: &Key) -> Vec<Line> {
+        let a = &self.accts[who];
+        let mut v: Vec<Line> = LineStore::new(a.basket.as_slice()).unwrap().lines().collect();
+        v.extend(LineStore::new(a.spill.as_slice()).unwrap().lines());
+        v
+    }
+
+    fn gemas(&self, who: u8) -> u64 {
+        self.lines_of(&key(who)).iter().map(|l| l.amount).sum()
+    }
+
+    /// Gemas `who` holds of Source `src` on `side`.
+    fn held(&self, who: u8, src: u8, side: u8) -> u64 {
+        self.lines_of(&key(who))
+            .iter()
+            .filter(|l| l.source == key(src) && l.side == side)
+            .map(|l| l.amount)
+            .sum()
+    }
+
+    fn fees(&self) -> [u64; 3] {
+        let mut out = [0; 3];
+        for ((class, _), l) in &self.counters {
+            out[*class as usize - 1] += l.amount;
+        }
+        out
+    }
+
+    fn fee_of(&self, class: u8, src: u8) -> u64 {
+        self.counters.get(&(class, key(src))).map_or(0, |l| l.amount)
+    }
+}
+
+impl Settlement for World {
+    fn books(&mut self) -> &mut dyn SourceBooks {
+        &mut self.books
+    }
+    fn sync_source(&mut self, _source: &Key) -> LcResult<()> {
+        Ok(())
+    }
+    fn credit(&mut self, owner: &Key, line: &Line) -> LcResult<Placed> {
+        let a = self.accts.get_mut(owner).ok_or(LifecycleError::MissingAccount)?;
+        let mut b = LineStore::new(a.basket.as_mut_slice()).unwrap();
+        let mut s = LineStore::new(a.spill.as_mut_slice()).unwrap();
+        Ok(Pool::new(&mut b, &mut s).put(&mut self.books, line)?)
+    }
+    fn credit_fee(&mut self, class: u8, owner: Option<&Key>, line: &Line) -> LcResult<()> {
+        assert!(owner.is_none(), "Tesoro's own Studio: every fee is a counter");
+        let mut counter = self
+            .counters
+            .get(&(class, line.source))
+            .copied()
+            .unwrap_or_else(|| SourceBook::blank_line(SIDE_OWN, 0, line.source, class, 0));
+        let mut l = *line;
+        let (book, history) = self.books.book_with_history(&line.source)?;
+        book.transfer(&mut l, &mut counter, line.amount, &*history)?;
+        self.counters.insert((class, line.source), counter);
+        Ok(())
+    }
+}
+
+impl SeatCredits for World {
+    fn settlement(&mut self) -> &mut dyn Settlement {
+        self
+    }
+    fn set_hold(&mut self, _owner: &Key, _slots: u32) {}
+    fn hold_of(&self, _owner: &Key) -> u32 {
+        0
+    }
+}
+
+/// The pages and Pots a transaction loaded.
+struct Pages {
+    seats: Vec<Seat>,
+    pots: Vec<PotPages>,
+    /// Pages a chunk was not given.
+    hidden: Vec<u8>,
+}
+
+impl Seats<Vec<u8>> for Pages {
+    fn seat(&mut self, i: u8) -> LcResult<Seat> {
+        if self.hidden.contains(&(i / SEATS_PER_PAGE as u8)) {
+            return Err(LifecycleError::MissingAccount);
+        }
+        Ok(self.seats.get(i as usize).copied().unwrap_or_else(Seat::zeroed))
+    }
+    fn set_seat(&mut self, i: u8, seat: &Seat) -> LcResult<()> {
+        self.seats[i as usize] = *seat;
+        Ok(())
+    }
+    fn pot(&mut self, i: u8, k: &Key) -> LcResult<&mut PotPages> {
+        assert_eq!(*k, pot_key(i));
+        Ok(&mut self.pots[i as usize])
+    }
+}
+
+fn pot_key(i: u8) -> Key {
+    let mut k = [200u8; 32];
+    k[0] = i;
+    k
+}
+
+struct Car {
+    rec: ManySeatRecord,
+    pages: Pages,
+}
+
+/// A departed car: each Player `who` boards with lines `(Source, Gemas)`, together 500.
+fn car(w: &mut World, riders: &[(u8, &[(u8, u64)])], t: Terms) -> Car {
+    let mut rec = ManySeatRecord::open(
+        MatchId {
+            opener: key(riders[0].0),
+            n: 0,
+        },
+        MatchMeta {
+            challenge: false,
+            asset: 0,
+            listed: true,
+        },
+        ([9; 32], AUTH, SLOT),
+        t,
+        ENTRY,
+        &[100, 500, 1_000],
+        (2, 100),
+        T,
+    )
+    .unwrap();
+    let mut seats = vec![];
+    let mut pots = vec![];
+    for (i, (who, lines)) in riders.iter().enumerate() {
+        w.account(key(*who), 32);
+        let mut p = PotPages::new(key(*who));
+        for (j, (src, amount)) in lines.iter().enumerate() {
+            let mut line = SourceBook::blank_line(SIDE_OWN, j as i64, key(*src), CLASS_GENERAL, 0);
+            w.books.issue(&key(*src), &mut line, *amount).unwrap();
+            p.push(&line).unwrap();
+        }
+        assert_eq!(p.total(), ENTRY);
+        let mut s = Seat::zeroed();
+        s.fill(&SeatFill {
+            player: key(*who),
+            funder: key(*who),
+            share_bps: 0,
+            pot: pot_key(i as u8),
+            pot_lines: p.len() as u32,
+            hold: 0,
+            counted: None,
+        });
+        seats.push(s);
+        pots.push(p);
+        rec.take_seat(T).unwrap();
+    }
+    rec.pages = riders.len().div_ceil(SEATS_PER_PAGE) as u8;
+    rec.depart(T + 40, &AUTH, SLOT).unwrap();
+    Car {
+        rec,
+        pages: Pages {
+            seats,
+            pots,
+            hidden: vec![],
+        },
+    }
+}
+
+impl Car {
+    fn settle(&mut self, result: &ManySeatResult) -> SeatResult<Started> {
+        self.rec
+            .start_settle(T + 100, &AUTH, SLOT, LB, result, &mut self.pages)
+    }
+
+    /// Chunks of `steps` until paid; returns how many chunks did work.
+    fn run(&mut self, w: &mut World, steps: u32) -> u32 {
+        let mut chunks = 0;
+        while self.rec.stage() != ManyStage::Paid {
+            let r = self.rec.chunk(&mut self.pages, w, steps).expect("chunk");
+            assert!(r.blocked.is_none(), "blocked: {:?}", r.blocked);
+            chunks += 1;
+            assert!(chunks < 10_000);
+        }
+        assert!(self.pages.pots.iter().all(|p| p.total() == 0));
+        chunks
+    }
+}
+
+fn places(list: &[(u8, u16)]) -> Vec<SeatPlace> {
+    list.iter()
+        .map(|&(seat, share_bps)| SeatPlace { seat, share_bps })
+        .collect()
+}
+fn refunds(list: &[(u8, u64)]) -> Vec<SeatRefund> {
+    list.iter()
+        .map(|&(seat, gemas)| SeatRefund { seat, gemas })
+        .collect()
+}
+
+const ANA: u8 = 1;
+const BEN: u8 = 2;
+const CY: u8 = 3;
+const DEE: u8 = 4;
+const EVE: u8 = 5;
+
+fn worked_example_car(w: &mut World) -> Car {
+    car(
+        w,
+        &[
+            (ANA, &[(100, 300), (101, 200)]),
+            (BEN, &[(102, 500)]),
+            (CY, &[(103, 250), (104, 250)]),
+            (DEE, &[(100, 500)]),
+            (EVE, &[(101, 200), (102, 300)]),
+        ],
+        terms(200, 300),
+    )
+}
+
+fn worked_example_result() -> ManySeatResult {
+    ManySeatResult::Placed {
+        places: places(&[(3, 6000), (1, 2500), (2, 1500)]),
+        refunds: refunds(&[(0, 350)]),
+    }
+}
+
+#[test]
+fn the_worked_example_moves_every_line_to_the_gema() {
+    let mut w = World::new();
+    let mut c = worked_example_car(&mut w);
+    let started = c.settle(&worked_example_result()).unwrap();
+    assert_eq!(started.kind, KIND_WIN);
+    assert_eq!((started.refunded, started.forfeited), (350, 650));
+    assert_eq!(started.opponent, key(BEN));
+    c.run(&mut w, 3);
+    let got: Vec<u64> = [ANA, BEN, CY, DEE, EVE].map(|p| w.gemas(p)).to_vec();
+    assert_eq!(got, vec![350, 630, 578, 813, 0]);
+    assert_eq!(w.fees(), [44, 64, 21]);
+    assert_eq!(got.iter().sum::<u64>() + 129, 2_500);
+    // Ana's refund is her own Gemas: her first line whole, 50 of the second
+    assert_eq!((w.held(ANA, 100, SIDE_OWN), w.held(ANA, 101, SIDE_OWN)), (300, 50));
+    // The forfeits, Ana's 150 of Source 101, then Eve's lines from her last: 300 of 102, 200 of
+    // 101. Fees take Ana's 150 down to 21, which goes to Dee with 292 of Eve's 102; Ben gets the
+    // last 8 of it and 122 of Eve's 101; Cy the 78 left.
+    assert_eq!(
+        (w.fee_of(1, 101), w.fee_of(2, 101), w.fee_of(3, 101)),
+        (44, 64, 21)
+    );
+    assert_eq!((w.held(DEE, 101, SIDE_WON), w.held(DEE, 102, SIDE_WON)), (21, 292));
+    assert_eq!((w.held(BEN, 102, SIDE_WON), w.held(BEN, 101, SIDE_WON)), (8, 122));
+    assert_eq!(w.held(CY, 101, SIDE_WON), 78);
+    // the placed seats' own entries came back as their own Gemas
+    assert_eq!(w.held(DEE, 100, SIDE_OWN), 500);
+    assert_eq!(c.rec.run.steps(), c.rec.run.steps());
+}

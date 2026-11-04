@@ -44,6 +44,16 @@ pub enum SeatError {
     /// seat, or place shares that are not 1 to 10 places summing to 10,000.
     BadResult,
     FeeTooHigh,
+    /// The car has not left (or already settles).
+    NotDeparted,
+    /// Seven days after open: only a refund can start.
+    PastDeadline,
+    /// A seat page the step needs was not passed.
+    PagesMissing,
+    /// Nobody but the Game may refund the car yet.
+    NotExpired,
+    /// The car's run has not paid out yet.
+    NotPaid,
     Math,
 }
 
@@ -54,7 +64,13 @@ pub enum ManyStage {
     Boarding,
     /// The Game ended boarding: the seats are the ride.
     Departed,
-    /// Nothing is owed any more (an empty car closed before departure).
+    /// The Game's result is frozen and the chunks pay it.
+    Settling,
+    /// Every entry is going back (the Game's refund, an abandoned car, an upgraded Game).
+    Refunding,
+    /// Every Gema is paid; the seats close one by one, then the car.
+    Paid,
+    /// Nothing is owed any more.
     Closed,
 }
 
@@ -95,14 +111,24 @@ pub struct ManySeatRecord {
     pub pages: u8,
     stage: u8,
     pub reserved: [u8; 6],
+    /// From departure: anyone may refund the car from this time on (`settle::start_refund`).
+    refund_after: [u8; 8],
+    /// The run (ticket 03), fixed when settling starts. See `settle`.
+    pub(crate) run: SeatRun,
 }
 
 const BOARDING: u8 = 0;
 const DEPARTED: u8 = 1;
 const CLOSED: u8 = 2;
+const SETTLING: u8 = 3;
+const REFUNDING: u8 = 4;
+const PAID: u8 = 5;
+
+/// Anyone may refund a car this long after it left, unless the Game settled it first.
+pub const REFUND_AFTER_SECS: i64 = 24 * 60 * 60;
 
 impl ManySeatRecord {
-    pub const LEN: usize = 32 * 4 + 8 * 7 + 2 * 2 + 10 + 6;
+    pub const LEN: usize = 32 * 4 + 8 * 7 + 2 * 2 + 10 + 6 + 8 + SeatRun::LEN;
 
     #[allow(clippy::too_many_arguments)]
     pub fn open(
@@ -151,6 +177,8 @@ impl ManySeatRecord {
             pages: 0,
             stage: BOARDING,
             reserved: [0; 6],
+            refund_after: [0; 8],
+            run: bytemuck::Zeroable::zeroed(),
         })
     }
 
@@ -201,8 +229,27 @@ impl ManySeatRecord {
         match self.stage {
             BOARDING => ManyStage::Boarding,
             DEPARTED => ManyStage::Departed,
+            SETTLING => ManyStage::Settling,
+            REFUNDING => ManyStage::Refunding,
+            PAID => ManyStage::Paid,
             _ => ManyStage::Closed,
         }
+    }
+
+    fn set_stage(&mut self, stage: ManyStage) {
+        self.stage = match stage {
+            ManyStage::Boarding => BOARDING,
+            ManyStage::Departed => DEPARTED,
+            ManyStage::Settling => SETTLING,
+            ManyStage::Refunding => REFUNDING,
+            ManyStage::Paid => PAID,
+            ManyStage::Closed => CLOSED,
+        };
+    }
+
+    /// Anyone may refund the car from this time on (0 before departure).
+    pub fn refund_after(&self) -> i64 {
+        i64::from_le_bytes(self.refund_after)
     }
 
     /// Seats and departure are refused from this time on.
@@ -269,6 +316,11 @@ impl ManySeatRecord {
         }
         self.stage = DEPARTED;
         self.departed_at = now.to_le_bytes();
+        let after = now
+            .checked_add(REFUND_AFTER_SECS)
+            .ok_or(SeatError::Math)?
+            .min(self.deadline_abs());
+        self.refund_after = after.to_le_bytes();
         Ok(())
     }
 
@@ -319,7 +371,9 @@ pub struct Seat {
     pub flags: u8,
     pub share_bps: [u8; 2],
     pub place_bps: [u8; 2],
-    pub reserved0: [u8; 2],
+    /// The seat's place in the Game's result (1 = first), 0 when unplaced (ticket 03).
+    pub place: u8,
+    pub reserved0: u8,
     pub pot_lines: [u8; 4],
     pub hold: [u8; 4],
     pub counted: [u8; 8],
@@ -389,6 +443,16 @@ impl Seat {
     pub fn counted(&self) -> Option<(u64, i64)> {
         let gemas = u64::from_le_bytes(self.counted);
         (gemas > 0).then(|| (gemas, i64::from_le_bytes(self.counted_window)))
+    }
+    /// Gemas of the entry the Game's result refunds (0 for a placed seat).
+    pub fn refund(&self) -> u64 {
+        u64::from_le_bytes(self.refund)
+    }
+    pub fn place_bps(&self) -> u16 {
+        u16::from_le_bytes(self.place_bps)
+    }
+    pub fn set_hold(&mut self, slots: u32) {
+        self.hold = slots.to_le_bytes();
     }
 }
 

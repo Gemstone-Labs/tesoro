@@ -406,7 +406,7 @@ impl SettlementLine {
         u32::from_le_bytes(self.pot_index_le)
     }
     #[inline(always)]
-    fn new(
+    pub(crate) fn new(
         side: u8,
         index: u32,
         purpose: u8,
