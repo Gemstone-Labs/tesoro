@@ -1796,13 +1796,6 @@
           "writable": true
         },
         {
-          "name": "seat_key_mark",
-          "docs": [
-            "seat's key. Empty for a seat boarded before seat keys."
-          ],
-          "writable": true
-        },
-        {
           "name": "player_counters",
           "writable": true
         },
@@ -1844,6 +1837,13 @@
           "name": "funder_mark",
           "writable": true,
           "optional": true
+        },
+        {
+          "name": "seat_key_mark",
+          "docs": [
+            "seat's key. Empty for a seat boarded before seat keys."
+          ],
+          "writable": true
         }
       ],
       "args": [
@@ -6529,13 +6529,6 @@
           "signer": true
         },
         {
-          "name": "seat_signer",
-          "docs": [
-            "The seat key that plays this seat; the wallet itself when it wants none."
-          ],
-          "signer": true
-        },
-        {
           "name": "player_account",
           "pda": {
             "seeds": [
@@ -6720,35 +6713,6 @@
           }
         },
         {
-          "name": "seat_key_mark",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  115,
-                  101,
-                  97,
-                  116,
-                  95,
-                  107,
-                  101,
-                  121
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "match_state"
-              },
-              {
-                "kind": "account",
-                "path": "seat_signer"
-              }
-            ]
-          }
-        },
-        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         },
@@ -6814,6 +6778,42 @@
           ],
           "writable": true,
           "optional": true
+        },
+        {
+          "name": "seat_signer",
+          "docs": [
+            "The seat key that plays this seat; the wallet itself when it wants none."
+          ],
+          "signer": true
+        },
+        {
+          "name": "seat_key_mark",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  97,
+                  116,
+                  95,
+                  107,
+                  101,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_state"
+              },
+              {
+                "kind": "account",
+                "path": "seat_signer"
+              }
+            ]
+          }
         }
       ],
       "args": [
@@ -14256,13 +14256,6 @@
           "writable": true
         },
         {
-          "name": "seat_key_mark",
-          "docs": [
-            "seat's key. Absent (empty) for a seat boarded before seat keys."
-          ],
-          "writable": true
-        },
-        {
           "name": "player_counters",
           "writable": true,
           "pda": {
@@ -14377,6 +14370,13 @@
           "name": "funder_mark",
           "writable": true,
           "optional": true
+        },
+        {
+          "name": "seat_key_mark",
+          "docs": [
+            "seat's key. Absent (empty) for a seat boarded before seat keys."
+          ],
+          "writable": true
         }
       ],
       "args": [

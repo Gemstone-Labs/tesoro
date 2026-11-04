@@ -983,7 +983,8 @@ impl Env {
                 .expect("compile v0");
         let mut signers = vec![payer];
         signers.extend_from_slice(also);
-        let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &signers).expect("sign v0");
+        let tx =
+            VersionedTransaction::try_new(VersionedMessage::V0(msg), &signers).expect("sign v0");
         let size = bincode_len(&tx);
         match self.svm.send_transaction(tx) {
             Ok(meta) => {

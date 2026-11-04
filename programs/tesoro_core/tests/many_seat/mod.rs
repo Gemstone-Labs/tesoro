@@ -890,14 +890,26 @@ fn seat_of(env: &Env, car: Car, p: &Person) -> tesoro_core::ledger::many_seat::S
 #[test]
 fn boarding_records_the_seat_key_and_a_wallet_records_itself() {
     let (env, car, riders, ka, kb) = keyed_car();
-    assert_eq!(seat_of(&env, car, &riders[0]).signer(), ka.pubkey().to_bytes());
-    assert_eq!(seat_of(&env, car, &riders[1]).signer(), kb.pubkey().to_bytes());
-    assert_eq!(seat_of(&env, car, &riders[2]).signer(), riders[2].key.to_bytes());
+    assert_eq!(
+        seat_of(&env, car, &riders[0]).signer(),
+        ka.pubkey().to_bytes()
+    );
+    assert_eq!(
+        seat_of(&env, car, &riders[1]).signer(),
+        kb.pubkey().to_bytes()
+    );
+    assert_eq!(
+        seat_of(&env, car, &riders[2]).signer(),
+        riders[2].key.to_bytes()
+    );
     for p in &riders {
         let st = seat_of(&env, car, p);
         assert_eq!(st.player(), p.account.to_bytes());
         let marker = key_mark_pda(car.key, APk::new_from_array(st.signer()));
-        assert!(env.svm.get_account(&s(marker)).is_some_and(|m| m.lamports > 0));
+        assert!(env
+            .svm
+            .get_account(&s(marker))
+            .is_some_and(|m| m.lamports > 0));
     }
 }
 
@@ -934,11 +946,15 @@ fn a_wallet_cannot_be_named_as_a_second_seats_key() {
 #[test]
 fn the_seat_key_steps_its_own_rider_off_and_frees_the_key() {
     let (mut env, car, riders, ka, _kb) = keyed_car();
-    env.step_off(&ka, car, &riders[0]).expect("seat key steps off");
+    env.step_off(&ka, car, &riders[0])
+        .expect("seat key steps off");
     assert_eq!(env.total_gemas(&riders[0]), 2_000);
     assert!(env.mark(car, &riders[0]).is_none());
     let marker = key_mark_pda(car.key, a(ka.pubkey()));
-    assert!(env.svm.get_account(&s(marker)).is_none_or(|m| m.lamports == 0));
+    assert!(env
+        .svm
+        .get_account(&s(marker))
+        .is_none_or(|m| m.lamports == 0));
     // the key can board again
     let page = env.page_with_room(car);
     let nonce = env.next_ticket(riders[0].account);

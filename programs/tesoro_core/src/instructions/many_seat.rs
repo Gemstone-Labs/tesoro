@@ -979,8 +979,7 @@ pub(crate) fn step_off_many_seat_match<'info>(
             &Pubkey::new_from_array(s.player()),
             &caller,
             &Pubkey::new_from_array(s.signer()),
-        )
-            || caller.to_bytes() == settle_authority
+        ) || caller.to_bytes() == settle_authority
             || ts >= boarding_ends
             || upgraded
             || is_away(&ctx.accounts.player_protections.to_account_info())?,
