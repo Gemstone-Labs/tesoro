@@ -1056,7 +1056,7 @@ mod tests {
 
     #[test]
     fn accounts_are_their_declared_sizes() {
-        assert_eq!(SeatPage::SPACE, 8 + 72 + 1_600);
+        assert_eq!(SeatPage::SPACE, 8 + 72 + 1_920);
         assert_eq!(std::mem::size_of::<SeatPage>(), SeatPage::SPACE - DISC);
         assert_eq!(std::mem::size_of::<SeatMark>(), SeatMark::SPACE - DISC);
         assert_eq!(

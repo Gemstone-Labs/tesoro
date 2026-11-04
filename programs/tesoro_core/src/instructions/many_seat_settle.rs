@@ -806,6 +806,7 @@ pub(crate) fn close_many_seat(ctx: Context<CloseManySeat>, seat: u8) -> Result<(
         p.seats[slot]
     };
     let player = Pubkey::new_from_array(s.player());
+    let seat_key = s.signer();
     // the mark is the Player's in this car
     let mark_info = ctx.accounts.seat_mark.to_account_info();
     let (mark_key, _) = Pubkey::find_program_address(
@@ -872,7 +873,7 @@ pub(crate) fn close_many_seat(ctx: Context<CloseManySeat>, seat: u8) -> Result<(
         ctx.accounts.player_counters.open_matches.saturating_sub(1);
     let key_info = ctx.accounts.seat_key_mark.to_account_info();
     let (key_mark, _) = Pubkey::find_program_address(
-        &[SEAT_KEY_SEED, match_key.as_ref(), &s.signer()],
+        &[SEAT_KEY_SEED, match_key.as_ref(), &seat_key],
         &crate::ID,
     );
     require_keys_eq!(key_mark, *key_info.key, ManySeatError::WrongSeat);
