@@ -88,7 +88,7 @@ describe("a Match written by tesoro_core", () => {
     assert.deepEqual(v.room.map((r) => [r.account.toBase58(), r.left]), [0, 1, 2, 3, 4].map((i) => [new PublicKey(Buffer.alloc(32, 40 + i)).toBase58(), 3 + i]));
     // each side names the seat key that co-signed its entry
     const record = coder.decode("matchState", core.match).inner;
-    assert.deepEqual([record.a.signer, record.b.signer].map((k: PublicKey) => k.toBase58()), [12, 13].map((n) => new PublicKey(Buffer.alloc(32, n)).toBase58()));
+    assert.deepEqual([record.a.signer, record.b.signer].map((k: number[]) => new PublicKey(Uint8Array.from(k)).toBase58()), [12, 13].map((n) => new PublicKey(Buffer.alloc(32, n)).toBase58()));
     assert.equal(v.stage, "settling");
     assert.equal(v.ref.n, 2n ** 64n - 1n);
     assert.equal(v.pots.length, 2);
