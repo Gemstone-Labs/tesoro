@@ -18,7 +18,8 @@ import { commitPhase, isCommitPending, setCommitPending, type CommitState } from
 import { plainError } from "@/lib/errors";
 import { absenceLine } from "@/lib/absence-copy";
 import { isStale, refusalLine } from "./refusal";
-import { TABLE_PHASE, canFinalizeTable, tableOf, type Assignment, type DeclareSeal, type PlayerSigner, type TableState } from "./chain";
+import { closedWhileSeen } from "@/lib/chain/closed-while-seen";
+import { TABLE_PHASE, canFinalizeTable, slotOf, tableOf, type Assignment, type DeclareSeal, type PlayerSigner, type TableState } from "./chain";
 import { SealLedger, SealLocked, sealDeclare, sealPad, type SealedEntry } from "./seal";
 import { turnKey } from "./clock";
 import { actionsDue, contributeBundled, readDue, tickDelayMs } from "./driver";
@@ -226,7 +227,14 @@ export function useVanguardMatch(id: string | null, signer: ChainSigner | null, 
     if (!p || !signer || id === null || mk === null) return;
     const vg = getVanguard();
     const me = BlockPuzzleChain.coreAccount(signer.publicKey);
-    const m = progress.match(await fetchMatch(id, me));
+    const fresh = await fetchMatch(id, me);
+    let m = progress.match(fresh);
+    // The account closed and the history row is not written yet: base's committed table already says how it ended.
+    if (!fresh && m && assignRef.current) {
+      const a = assignRef.current;
+      const base = await vg.readTableOnBase(a).catch(() => null);
+      m = closedWhileSeen(m, base ? { canFinalize: canFinalizeTable(base, a, Date.now() / 1000), hasResult: !!slotOf(base, a.tesoroMatch, a.epoch) } : null) ?? m;
+    }
     setView((v) => ({ ...v, match: m, refundable: !!m && m.status === "active" && Date.now() / 1000 > m.deadline }));
     if (!m) return setStage("notfound");
     if (m.seat === null) return setStage("spectator");
