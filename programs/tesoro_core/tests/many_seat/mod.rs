@@ -444,6 +444,8 @@ fn stepping_off_gives_the_whole_entry_back_frees_the_seat_and_every_rent() {
     env.set_entry_limit(ben, 600).expect("limit");
     // the limit counted nothing so far (it was set after boarding): set it before the next car
     let car2 = env.open_car(&riders[0], (2, 10));
+    // Ben's own spill growth is his storage, not this car's rent
+    env.ensure_spill(&ben.kp.insecure_clone(), ben.account, 24);
     let before = env.sol_of(ben.key);
     env.board(ben, car2).expect("board car 2");
     assert_eq!(env.entry_limit(ben).used(env.now()), 500);
@@ -684,11 +686,12 @@ fn an_empty_car_closes_with_every_page_and_returns_their_rent() {
     }
 }
 
-/// The compute a step-off holds under: the head-to-head chunk budget.
+/// The compute a step-off or return call holds under: the head-to-head chunk budget.
 const RETURN_CU_BUDGET: u64 = 140_000;
 
-#[test]
-fn a_step_off_returning_its_most_lines_fits_the_chunk_budget() {
+/// CU of a step-off that returns `k` lines from `k` Sources, each merging into a line Ana still
+/// holds of the same Source (the book of every Source is read and written: the worst return).
+fn step_off_cu(k: u8) -> u64 {
     let mut env = Env::new();
     let opener = env.rider(2_000);
     let ana = env.person();
@@ -703,14 +706,26 @@ fn a_step_off_returning_its_most_lines_fits_the_chunk_budget() {
     let car = env.open_car(&opener, (2, 10));
     env.board_ix(&ana, car, 0, (5, 1, ticket_pda(ana.account, 5)), vec![])
         .expect("board");
-    // the worst return merges every line into one Ana holds of the same Source (the book of each
-    // Source is read and written)
     env.give_lines(&ana, &sources, 5, |i| i as i64);
-    let i = env.step_off_ix(ana.key, car, &ana, tesoro_core::MAX_RETURN_LINES, false);
-    env.send_v0(&[i], &kp).expect("step off");
-    let worst = env.last_cu;
-    println!("step-off returning {} lines: {worst} CU", tesoro_core::MAX_RETURN_LINES);
-    assert!(worst < RETURN_CU_BUDGET, "step-off used {worst} CU");
-    env.return_rest(&kp, car, &ana, 16).expect("rest");
+    let i = env.step_off_ix(ana.key, car, &ana, k, false);
+    env.send_v0(&[cu_limit(1_400_000), i], &kp).expect("step off");
+    let cu = env.last_cu;
+    while env.mark(car, &ana).is_some() {
+        env.return_rest(&kp, car, &ana, k).expect("rest");
+        assert!(env.last_cu < RETURN_CU_BUDGET + 10_000);
+    }
     assert_eq!(env.total_gemas(&ana), CAR_ENTRY + 20 * 5);
+    cu
+}
+
+#[test]
+fn a_step_off_returning_its_most_lines_fits_the_chunk_budget() {
+    let max = tesoro_core::MAX_RETURN_LINES;
+    let sweep: Vec<(u8, u64)> = [1, max / 2, max]
+        .into_iter()
+        .map(|k| (k, step_off_cu(k)))
+        .collect();
+    println!("step-off CU by lines returned (cap {max}): {sweep:?}");
+    let at_cap = sweep.iter().find(|(k, _)| *k == max).expect("cap").1;
+    assert!(at_cap < RETURN_CU_BUDGET, "{max} lines used {at_cap} CU");
 }

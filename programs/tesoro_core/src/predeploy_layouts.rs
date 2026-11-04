@@ -32,6 +32,9 @@ fn emit_layouts() {
     fixed::<crate::state::SourceState>("SourceState", crate::state::SourceState::SPACE);
     fixed::<crate::state::AccountCounters>("AccountCounters", crate::state::AccountCounters::SPACE);
     fixed::<crate::state::MatchState>("MatchState", crate::state::MatchState::SPACE);
+    fixed::<crate::state::ManySeatMatch>("ManySeatMatch", crate::state::ManySeatMatch::SPACE);
+    fixed::<crate::state::SeatPage>("SeatPage", crate::state::SeatPage::SPACE);
+    fixed::<crate::state::SeatMark>("SeatMark", crate::state::SeatMark::SPACE);
     fixed::<crate::state::SettlementReceipt>(
         "SettlementReceipt",
         crate::state::SettlementReceipt::SPACE,
