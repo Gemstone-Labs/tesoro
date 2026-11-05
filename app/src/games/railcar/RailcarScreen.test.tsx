@@ -103,7 +103,7 @@ describe("my secret Brake", () => {
   });
 
   it("after my Jump: at least what comes back", () => {
-    expect(text(html(riding(PLAYERS[0], { jumpedMe: true })))).toMatch(/You jumped at 0:25 · at least .*350 back/);
+    expect(text(html(riding(PLAYERS[0], { jumpedMe: true })))).toMatch(/You jumped at 0:25 · at least 350 Gemas back/);
   });
 });
 

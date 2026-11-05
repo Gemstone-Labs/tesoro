@@ -192,7 +192,7 @@ function RailcarMenu() {
   const vibration = useSyncExternalStore(railcarHaptics.subscribe, railcarHaptics.enabled, () => true);
   const canVibrate = useSyncExternalStore(railcarHaptics.subscribe, railcarHaptics.supported, () => false);
   const items: GameMenuItem[] = [
-    { label: "How Railcar works", icon: <BookOpen aria-hidden="true" />, onSelect: () => window.location.assign("/docs/railcar") },
+    { label: "How Railcar works", icon: <BookOpen aria-hidden="true" />, href: "/docs/railcar" },
     ...(canVibrate
       ? [
           {

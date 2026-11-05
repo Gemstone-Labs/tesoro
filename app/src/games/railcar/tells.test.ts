@@ -11,7 +11,7 @@ const memory = () => {
 describe("Tells as sound and vibration", () => {
   it("each cue sounds and vibrates with its own pattern", () => {
     const { storage } = memory();
-    const vibrate = vi.fn(() => true);
+    const vibrate = vi.fn((_pattern: number | number[]) => true);
     const sound = vi.fn();
     const play = createTellPlayer({ sound, muted: () => false, haptics: createHaptics(() => storage, () => vibrate, RAILCAR_VIBRATION_KEY) });
     play(["screws", "sparks"]);
@@ -21,7 +21,7 @@ describe("Tells as sound and vibration", () => {
 
   it("sound off: no sound, the vibration stays; vibration off: no vibration, the sound stays", () => {
     const { storage, values } = memory();
-    const vibrate = vi.fn(() => true);
+    const vibrate = vi.fn((_pattern: number | number[]) => true);
     const sound = vi.fn();
     const haptics = createHaptics(() => storage, () => vibrate, RAILCAR_VIBRATION_KEY);
     createTellPlayer({ sound, muted: () => true, haptics })(["rattle"]);
