@@ -1001,6 +1001,7 @@ impl Env {
                 game_program: None,
                 program_data: None,
                 funder_mark: None,
+                funder_protections: None,
             },
             tesoro_core::instruction::StepOffManySeatMatch {
                 seat: mark.seat,

@@ -22,4 +22,5 @@ export const GAME_SHORT: Record<string, string> = {
   "block-puzzle": "Block Burst",
   "trading-duel": "Trading Duel",
   vanguard: "Vanguard",
+  railcar: "Railcar",
 };

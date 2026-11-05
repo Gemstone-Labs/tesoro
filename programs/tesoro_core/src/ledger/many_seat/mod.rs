@@ -383,7 +383,7 @@ pub struct SeatFill {
     pub pot_lines: u32,
     /// Slots held in the funder's stores for the seat's lines coming back.
     pub hold: u32,
-    /// Gemas the entry counted against the Entry Limit and the period they count in.
+    /// Gemas the entry counted against the funder's Entry Limit and the period they count in.
     pub counted: Option<(u64, i64)>,
 }
 
