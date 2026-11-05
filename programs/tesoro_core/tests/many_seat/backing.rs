@@ -490,11 +490,7 @@ fn the_sponsored_backed_join_with_a_seat_key_fits_a_transaction_with_no_table() 
     let relayer = env.fresh_key();
     let mut join = env.backed_join_ix(&ben, &bob, offer, car, Some(&key));
     join.accounts[0].pubkey = s(a(relayer.pubkey()));
-    let ixs = [
-        cu_limit(1_400_000),
-        cu_price(1_000),
-        join,
-    ];
+    let ixs = [cu_limit(1_400_000), cu_price(1_000), join];
     let m = v0::Message::try_compile(&relayer.pubkey(), &ixs, &[], env.svm.latest_blockhash())
         .expect("compile");
     let sigs = m.header.num_required_signatures as usize;
