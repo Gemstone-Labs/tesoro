@@ -74,6 +74,10 @@
 .rc-caption { flex-basis: 100%; margin: 0; text-align: center; color: var(--fg-2); font-size: var(--fs-13); display: inline-flex; justify-content: center; align-items: center; gap: 4px; }
 .rc-jumped { flex: 1; display: flex; justify-content: center; align-items: center; gap: 6px; margin: 0; padding: 14px; background: var(--surface); font-weight: 700; }
 .rc-error { margin: 0; color: var(--danger); font-size: var(--fs-14); text-align: center; }
+.rc-backed { flex-basis: 100%; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 10px; padding: 10px 14px 10px 10px; background: var(--surface); --edge: var(--edge-em); }
+.rc-backed-body { display: flex; flex-direction: column; gap: 2px; margin: 0; font-size: var(--fs-13); color: var(--fg-2); }
+.rc-backed-body b { color: var(--fg); font: 800 var(--fs-15) / 1.2 var(--f-display); letter-spacing: 0.04em; text-transform: uppercase; }
+.rc-backed-body span { display: inline; }
 
 /* ——— Result (re1 Podium) ——— */
 .rc-result { gap: 10px; }
@@ -86,6 +90,10 @@
 .rc-friend:hover { background: var(--surface-2); }
 .rc-friend svg { width: 16px; height: 16px; }
 .rc-res-won { padding: 4px 10px; background: var(--raised); --edge: var(--edge-em); }
+.rc-res-backer { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; color: var(--fg); font-weight: 700; font-size: var(--fs-14); }
+.rc-res-backer-note { flex-basis: 100%; color: var(--fg-2); font-weight: 400; font-size: var(--fs-13); }
+.rc-split { grid-column: 1 / -1; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 4px; color: var(--fg-2); font: 700 var(--fs-12) / 1.2 var(--f-body); text-transform: none; letter-spacing: 0; }
+.rc .rc-split .gema-amount { color: var(--fg); }
 .rc-res-facts { margin: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; color: var(--fg-2); font-size: var(--fs-13); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
 .rc-track { margin: 6px 0 0; }
 .rc-track-line { position: relative; height: 22px; margin: 0 8px; }
@@ -101,15 +109,15 @@
 .rc-plate.p3 { margin-inline: 24px 0; }
 .rc-plate-n { font: 800 26px / 1 var(--f-display); }
 .rc-plate-who { font: 800 var(--fs-18) / 1.2 var(--f-display); letter-spacing: 0.04em; text-transform: uppercase; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rc-plate .gema-amount { color: var(--em); }
+.rc-plate > .gema-amount { color: var(--em); }
 .rc-rows { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .rc-row { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; padding: 6px 14px 6px 8px; background: var(--surface); font-weight: 700; }
 .rc-row.fees { grid-template-columns: 1fr auto; padding: 10px 14px; text-transform: uppercase; letter-spacing: 0.04em; }
 .rc-row-who { text-transform: uppercase; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rc-row-word { color: var(--fg-2); }
-.rc-row.early .gema-amount { color: var(--em); }
+.rc-row.early > .gema-amount { color: var(--em); }
 .rc-row.aboard { --edge: linear-gradient(180deg, rgba(242, 104, 90, 0.7), rgba(242, 104, 90, 0.25)); background: linear-gradient(180deg, #2a1514, #1a0f0f); }
-.rc-row.aboard .rc-row-word, .rc-row.aboard .gema-amount { color: var(--danger); }
+.rc-row.aboard .rc-row-word, .rc-row.aboard > .gema-amount { color: var(--danger); }
 .rc-res-acts { display: grid; grid-template-columns: 3fr 2fr; gap: 10px; margin-top: 4px; }
 
 @media (min-width: 1024px) {

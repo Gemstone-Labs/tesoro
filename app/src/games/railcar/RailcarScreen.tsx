@@ -60,11 +60,35 @@ function BrakeButton({ brake }: { brake: RailcarBrake }) {
   );
 }
 
+/** An accepted Offer this page boards with (`/play/railcar?backing=<offer>`). */
+export interface RailcarOffer {
+  /** The Backer's core Account (base58). */
+  backer: string;
+  /** The Player's share of the winnings, in percent. */
+  sharePct: number;
+  /** Why it cannot board now (the Backer is in this car, the Offer is used or expired); the Board button then waits. */
+  blocked?: string;
+}
+
 /**
  * The one Railcar screen. Boarding and the Ride share the stage, so when the car leaves the layout turns into the Ride in
  * place: no navigation, no loading, the car starts rolling right. The Result follows. `busy` names the step being sent.
  */
-export function RailcarScreen({ view, actions = {}, busy = null, error = null, brake = null }: { view: RailcarView; actions?: RailcarActions; busy?: string | null; error?: string | null; brake?: RailcarBrake | null }) {
+export function RailcarScreen({
+  view,
+  actions = {},
+  busy = null,
+  error = null,
+  brake = null,
+  offer = null,
+}: {
+  view: RailcarView;
+  actions?: RailcarActions;
+  busy?: string | null;
+  error?: string | null;
+  brake?: RailcarBrake | null;
+  offer?: RailcarOffer | null;
+}) {
   if (view.phase === "result") return <RailcarResult view={view} actions={actions} />;
   const riding = view.phase === "ride";
   const aboard = riding ? view.aboard : view.riders;
@@ -136,7 +160,7 @@ export function RailcarScreen({ view, actions = {}, busy = null, error = null, b
           ) : view.me ? (
             <p className="cut cut-card rc-jumped">
               You jumped at <span className="mono">{clock(view.me.jumpMs)}</span> · at least
-              <GemaAmount value={g(view.me.back)} size="md" /> back
+              <GemaAmount value={g(view.me.back)} size="md" /> back{view.me.backer && <> to <PlayerName account={view.me.backer} /></>}
             </p>
           ) : null
         ) : view.mySeat !== null ? (
@@ -145,19 +169,26 @@ export function RailcarScreen({ view, actions = {}, busy = null, error = null, b
               {busy === "step-off" ? "Stepping off…" : "Step off"}
             </Button>
             <p className="rc-caption">
-              Full <GemaMark size={12} /> {fmtGemas(g(view.entry))} back
+              Full <GemaMark size={12} /> {fmtGemas(g(view.entry))} back{view.myBacker && <> to <PlayerName account={view.myBacker} /></>}
             </p>
           </>
         ) : (
           <>
-            <Button variant="money" size="lg" block onClick={actions.onBoard} disabled={!!busy || !actions.onBoard}>
+            {offer && <BackedBy offer={offer} entry={view.entry} />}
+            <Button variant="money" size="lg" block onClick={actions.onBoard} disabled={!!busy || !actions.onBoard || !!offer?.blocked}>
               {busy === "board" ? "Boarding…" : (
                 <>
                   Board · <GemaMark size={16} /> {fmtGemas(g(view.entry))}
                 </>
               )}
             </Button>
-            <p className="rc-caption">{actions.onBoard ? "Until it leaves you can step off and get your full entry back" : "Sign in to board"}</p>
+            <p className="rc-caption">
+              {!actions.onBoard
+                ? "Sign in to board"
+                : offer
+                  ? offer.blocked ?? "Until it leaves you can step off: the full entry goes back to your Backer"
+                  : "Until it leaves you can step off and get your full entry back"}
+            </p>
           </>
         )}
       </div>
@@ -167,6 +198,25 @@ export function RailcarScreen({ view, actions = {}, busy = null, error = null, b
         </p>
       )}
     </section>
+  );
+}
+
+/** Before boarding with an Offer: whose Gemas board and how a ride splits. */
+function BackedBy({ offer, entry }: { offer: RailcarOffer; entry: bigint }) {
+  return (
+    <div className="cut cut-card rc-backed" role="note" aria-label="Backing">
+      <span className="cut rc-av sm">
+        <PlayerAvatar account={offer.backer} size={32} />
+      </span>
+      <p className="rc-backed-body">
+        <b>
+          <PlayerName account={offer.backer} /> funds your entry
+        </b>
+        <span>
+          Their <GemaMark size={11} /> {fmtGemas(g(entry))} board for you. Place and you keep {offer.sharePct}% of the winnings; you never owe anything.
+        </span>
+      </p>
+    </div>
   );
 }
 
@@ -264,6 +314,12 @@ function RailcarResult({ view, actions }: { view: Extract<RailcarView, { phase: 
             )}
           </p>
         )}
+        {mine?.backer && (
+          <p className="rc-res-backer">
+            <PlayerName account={mine.backer.account} /> gets <GemaAmount value={g(mine.backer.gets)} size="sm" />
+            <span className="rc-res-backer-note">{mine.backer.gets === 0n ? "Your Backer bears the loss" : "Your Backer's entry comes back first"}</span>
+          </p>
+        )}
       </header>
       <Track wallMs={view.wallMs} jumps={view.jumps} outcome={view.outcome} />
       <p className="rc-res-facts">
@@ -286,6 +342,7 @@ function RailcarResult({ view, actions }: { view: Extract<RailcarView, { phase: 
                 <span />
               )}
               <GemaAmount value={g(r.gets)} size="lg" />
+              {r.backing && <BackedSplit b={r.backing} me={r.me} />}
             </li>
           ))}
         </ol>
@@ -325,7 +382,17 @@ function ResultLine({ r }: { r: ResultRow }) {
         {r.me ? "You" : <PlayerName account={r.account} />} <span className="rc-row-word">{ROW_WORD[r.kind]}</span>
       </span>
       <GemaAmount value={g(r.gets)} size="md" />
+      {r.backing && <BackedSplit b={r.backing} me={r.me} />}
     </li>
+  );
+}
+
+/** A Backed seat's line under its amount: the Backer's part and the Player's. */
+function BackedSplit({ b, me }: { b: NonNullable<ResultRow["backing"]>; me: boolean }) {
+  return (
+    <span className="rc-split">
+      <PlayerName account={b.backer} /> <GemaAmount value={g(b.backerGets)} size="sm" /> <span aria-hidden="true">·</span> {me ? "you" : "Player"} <GemaAmount value={g(b.playerGets)} size="sm" />
+    </span>
   );
 }
 
