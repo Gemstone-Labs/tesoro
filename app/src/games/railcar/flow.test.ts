@@ -106,6 +106,9 @@ const table = (o: Partial<TableView> = {}): TableView => ({
   dirty: false,
   commitAt: 0,
   seats: [],
+  brakesBound: 0,
+  revealed: false,
+  revealDraw: new Uint8Array(32),
   ...o,
 });
 

@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { PLAYERS, boardingCountdown, boardingNotAboard, boardingWaiting, nobodyJumped, rideStarting, riding, workedResult, ANA, EVE } from "./fixtures";
-import { brakeState } from "./brake";
+import { brakeState, type BrakeFacts } from "./brake";
 import { RailcarScreen, type RailcarBrake } from "./RailcarScreen";
 import type { RailcarView } from "./view";
 
@@ -71,12 +71,12 @@ describe("the Ride, in the same screen", () => {
 });
 
 describe("my secret Brake", () => {
-  const facts = { aboard: true, allBound: true, myBound: true, canSign: true, pressMs: null, pending: false, rideMs: 72_000 };
+  const facts: BrakeFacts = { aboard: true, allBound: true, myBound: true, canSign: true, pressMs: null, pending: false, rideMs: 72_000 };
   const button = (h: string) => text(h.match(/<div class="rc-brake[^"]*">.*?<\/div>/)?.[0] ?? "");
   const disabled = (h: string) => /<div class="rc-brake[^"]*"><button[^>]*disabled/.test(h);
 
   it("the button reads my Brake: ready, riding on the next tick, my 5 s, used, or waiting for the seats", () => {
-    const at = (o: Partial<typeof facts>) => html(riding(), brakeState({ ...facts, ...o }));
+    const at = (o: Partial<BrakeFacts>) => html(riding(), brakeState({ ...facts, ...o }));
     expect(button(at({}))).toContain("Brake 1 left");
     expect(disabled(at({}))).toBe(false);
     expect(button(at({ pending: true }))).toContain("Brake sending");

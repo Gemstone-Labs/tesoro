@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BIND_PER_SEND, bindTargets, brakeState, pageSend, tellCues } from "./brake";
+import { BIND_PER_SEND, bindTargets, brakeState, pageSend, tellCues, type BrakeFacts } from "./brake";
 import type { TableView } from "./chain";
 
 const table = (o: Partial<TableView>): TableView => ({ phase: "drawing", seated: 12, brakesBound: 0, ...o }) as TableView;
@@ -25,7 +25,7 @@ describe("binding every seat during the draw", () => {
 });
 
 describe("the Brake button", () => {
-  const ready = { aboard: true, allBound: true, myBound: true, canSign: true, pressMs: null, pending: false, rideMs: 40_000 };
+  const ready: BrakeFacts = { aboard: true, allBound: true, myBound: true, canSign: true, pressMs: null, pending: false, rideMs: 40_000 };
 
   it("ready: one left", () => {
     expect(brakeState(ready)).toEqual({ status: "ready", left: 1, activeMs: 0 });
@@ -38,9 +38,9 @@ describe("the Brake button", () => {
   });
 
   it("waits until every seat is bound and mine can be signed for", () => {
-    expect(brakeState({ ...ready, allBound: false }).status).toBe("waiting");
-    expect(brakeState({ ...ready, myBound: false }).status).toBe("waiting");
-    expect(brakeState({ ...ready, canSign: false }).status).toBe("waiting");
+    expect(brakeState({ ...ready, allBound: false })?.status).toBe("waiting");
+    expect(brakeState({ ...ready, myBound: false })?.status).toBe("waiting");
+    expect(brakeState({ ...ready, canSign: false })?.status).toBe("waiting");
   });
 
   it("none off the car", () => {
