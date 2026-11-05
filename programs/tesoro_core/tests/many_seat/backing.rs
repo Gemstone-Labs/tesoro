@@ -459,6 +459,19 @@ fn a_backed_seat_steps_off_with_its_seat_key_and_the_return_lands_on_the_backer(
     assert_eq!(env.total_gemas(&ben), 2_000);
 }
 
+/// The compute unit price instruction the sponsor puts in front of what it sends.
+fn cu_price(micro_lamports: u64) -> Instruction {
+    let mut data = vec![3u8];
+    data.extend_from_slice(&micro_lamports.to_le_bytes());
+    Instruction {
+        program_id: "ComputeBudget111111111111111111111111111111"
+            .parse()
+            .expect("compute budget program"),
+        accounts: vec![],
+        data,
+    }
+}
+
 /// What the sponsor sends: the relayer pays, the Player's wallet and the seat key co-sign, with the
 /// compute limit and price the sponsor puts in front. It must fit with no lookup table at all (the
 /// sponsor's table is optional). Bob's 500 come from 4 Sources.
@@ -479,7 +492,7 @@ fn the_sponsored_backed_join_with_a_seat_key_fits_a_transaction_with_no_table() 
     join.accounts[0].pubkey = s(a(relayer.pubkey()));
     let ixs = [
         cu_limit(1_400_000),
-        solana_sdk::compute_budget::ComputeBudgetInstruction::set_compute_unit_price(1_000),
+        cu_price(1_000),
         join,
     ];
     let m = v0::Message::try_compile(&relayer.pubkey(), &ixs, &[], env.svm.latest_blockhash())
