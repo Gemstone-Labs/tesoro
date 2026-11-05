@@ -41,8 +41,8 @@ describe("a Table reads as the program writes it", () => {
     ];
     const seat = (i: number) =>
       i < 5
-        ? { seat: i, order: jumps[i][0], flags: 0, reserved0: 0, jump_ms: le(jumps[i][1], 4), refund: le(jumps[i][2], 8), account: Array.from(players[i].toBytes()), reserved: zeros(24) }
-        : { seat: 0, order: 0, flags: 0, reserved0: 0, jump_ms: zeros(4), refund: zeros(8), account: zeros(32), reserved: zeros(24) };
+        ? { seat: i, order: jumps[i][0], flags: 0, reserved0: 0, jump_ms: le(jumps[i][1], 4), refund: le(jumps[i][2], 8), account: Array.from(players[i].toBytes()), signer: zeros(32), reserved: zeros(8) }
+        : { seat: 0, order: 0, flags: 0, reserved0: 0, jump_ms: zeros(4), refund: zeros(8), account: zeros(32), signer: zeros(32), reserved: zeros(8) };
     const data = encode("Table", {
       version: 1,
       bump: 255,
