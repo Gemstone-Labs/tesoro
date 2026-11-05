@@ -4140,8 +4140,8 @@ export type Railcar = {
           {
             "name": "signer",
             "docs": [
-              "The seat key core recorded for this seat at join (seat-keys decision D4); zero when none",
-              "is recorded, and then only the Player's wallet acts for the seat."
+              "The seat key core recorded for this seat at join (`Seat::signer`, seat-keys decision D4),",
+              "copied by `start_ride`. The Player's wallet acts for the seat too (`acts_for`)."
             ],
             "type": {
               "array": [
