@@ -1,4 +1,4 @@
-import type { GameId } from "@/lib/mock";
+import type { BackedGame } from "@/lib/backing/games";
 import type { ChainRequest } from "./backing";
 
 /** One Request per Player: their live Request that expires soonest. Expired and closed Requests are dropped. */
@@ -13,6 +13,6 @@ export function onePerPlayer(requests: ChainRequest[]): ChainRequest[] {
 }
 
 /** The Player's live Request for this Game and entry, if they already posted one. */
-export function liveRequestFor(requests: ChainRequest[], player: string, game: GameId, entry: number) {
+export function liveRequestFor(requests: ChainRequest[], player: string, game: BackedGame, entry: number) {
   return requests.find((r) => r.live && r.player === player && r.game === game && r.entry === entry);
 }
