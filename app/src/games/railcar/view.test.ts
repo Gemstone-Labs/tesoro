@@ -130,3 +130,80 @@ describe("one screen from boarding to the result", () => {
     expect(v.phase === "result" && v.mine?.headline).toBe("Nobody jumped");
   });
 });
+
+describe("a Backed seat on the result: the Backer's entry back first, the Player's Offer share of the winnings", () => {
+  const bob = key();
+  /** Seat `i` funded by Bob, the Player keeping `shareBps` of the winnings. */
+  const backedSeats = (i: number, shareBps = 4_000) => seats.map((s) => (s.index === i ? { ...s, funder: bob, shareBps } : s));
+  const worked = table({
+    phase: "over",
+    outcome: "placed",
+    reason: "played",
+    aboard: 1,
+    jumps: 4,
+    places: [3, 1, 2],
+    overMs: 104_000,
+    seats: [rideSeat(0, 1, 25_000, 350n), rideSeat(1, 3, 96_000), rideSeat(2, 2, 95_000), rideSeat(3, 4, 98_000), rideSeat(4, 0, 0)],
+  });
+  const result = (me: number, s: SeatView[], o: Partial<Parameters<typeof railcarView>[0]> = {}) => {
+    const v = railcarView({ me: players[me].toBase58(), core: coreCar({ stage: "departed" }), seats: s, table: worked, fees: FEES, nowMs: (T0 + 200) * 1000, ...o });
+    if (v.phase !== "result") throw new Error("expected the result");
+    return v;
+  };
+
+  it("Ben second-last off, backed by Bob at 40%: 630 back, Bob 578, Ben 52; Ben's own result says 52 and Bob's 578", () => {
+    const v = result(1, backedSeats(1));
+    expect(v.rows.find((r) => r.account === ben.toBase58())).toMatchObject({ gets: 630n, backing: { backer: bob.toBase58(), shareBps: 4_000, backerGets: 578n, playerGets: 52n } });
+    expect(v.mine).toEqual({ headline: "Second-last off", gets: 52n, won: 52n, backer: { account: bob.toBase58(), gets: 578n } });
+    // Nobody else's row is touched.
+    expect(v.rows.filter((r) => r.backing)).toHaveLength(1);
+  });
+
+  it("an early Jump under a Backing: Ana's 350 refund goes to Bob, Ana gets 0", () => {
+    const v = result(0, backedSeats(0));
+    expect(v.rows.find((r) => r.account === ana.toBase58())?.backing).toMatchObject({ backerGets: 350n, playerGets: 0n });
+    expect(v.mine).toMatchObject({ headline: "Jumped early", gets: 0n, won: 0n, backer: { gets: 350n } });
+  });
+
+  it("aboard at Impact under a Backing: Bob loses the 500, Eve owes nothing", () => {
+    const v = result(4, backedSeats(4));
+    expect(v.mine).toMatchObject({ headline: "Aboard at Impact", gets: 0n, backer: { gets: 0n } });
+  });
+
+  it("nobody jumped under a Backing: the full entry goes back to the Backer", () => {
+    const refund = table({ phase: "over", outcome: "refund", reason: "nobody-jumped", overMs: 31_000 });
+    const v = railcarView({ me: eve.toBase58(), core: coreCar({ stage: "departed" }), seats: backedSeats(4), table: refund, fees: FEES, nowMs: (T0 + 200) * 1000 });
+    expect(v.phase === "result" && v.mine).toMatchObject({ gets: 0n, backer: { account: bob.toBase58(), gets: 500n } });
+  });
+
+  it("once core froze the run its places name the funder, after the seat itself closed", () => {
+    const run = { nPlaces: 3, fees: [44n, 64n, 21n], places: [dee, ben, cy].map((p, k) => ({ seat: [3, 1, 2][k], shareBps: [6000, 2500, 1500][k], playerShareBps: p === ben ? 4_000 : 0, won: [313n, 130n, 78n][k], player: p, funder: p === ben ? bob : p })) } as unknown as CarView["run"];
+    const closed = seats.map((s) => (s.index === 1 ? { ...s, seated: false } : s));
+    const v = result(1, closed, { core: coreCar({ stage: "paid", run }) });
+    expect(v.mine).toMatchObject({ gets: 52n, backer: { gets: 578n } });
+  });
+
+  it("an early jumper's seat closed before the page read again: the page's own Backing still splits it", () => {
+    const closed = seats.map((s) => (s.index === 0 ? { ...s, seated: false } : s));
+    const v = result(0, closed, { myBacking: { backer: bob.toBase58(), shareBps: 4_000 } });
+    expect(v.mine).toMatchObject({ gets: 0n, backer: { account: bob.toBase58(), gets: 350n } });
+  });
+});
+
+describe("a Backed Player before the result: where the Backer's Gemas go", () => {
+  const bob = key();
+  const backed = seats.map((s) => (s.index === 1 ? { ...s, funder: bob, shareBps: 4_000 } : s));
+
+  it("boarding: Ben's seat names Bob, so a step-off says Bob's 500 go back to Bob", () => {
+    const v = railcarView({ me: ben.toBase58(), core: coreCar({ seated: 5 }), seats: backed, table: null, fees: FEES, nowMs: T0 * 1000 });
+    expect(v.phase === "boarding" && v.myBacker).toBe(bob.toBase58());
+    const own = railcarView({ me: ana.toBase58(), core: coreCar({ seated: 5 }), seats: backed, table: null, fees: FEES, nowMs: T0 * 1000 });
+    expect(own.phase === "boarding" && own.myBacker).toBeNull();
+  });
+
+  it("riding: after Ben's early Jump the refund is Bob's", () => {
+    const t = table({ aboard: 4, jumps: 1, seats: players.map((_, i) => (i === 1 ? rideSeat(1, 1, 25_000) : rideSeat(i, 0, 0))) });
+    const v = railcarView({ me: ben.toBase58(), core: coreCar({ stage: "departed" }), seats: backed, table: t, fees: FEES, nowMs: (T0 + 70) * 1000 });
+    expect(v.phase === "ride" && v.me).toEqual({ aboard: false, jumpMs: 25_000, back: 350n, backer: bob.toBase58() });
+  });
+});

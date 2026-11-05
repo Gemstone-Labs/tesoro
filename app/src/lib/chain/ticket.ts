@@ -301,7 +301,7 @@ export async function resumeTicket(signer: ChainSigner, getToken: GetToken, t: T
  * more staging transactions follow until the draw is complete. `lines` as for `prepareEntryTicket`.
  */
 export async function prepareBackingTicket(
-  a: Omit<PrepareArgs, "game"> & { game: GameId; backerAccount: PublicKey; offer: PublicKey },
+  a: PrepareArgs & { backerAccount: PublicKey; offer: PublicKey },
 ): Promise<TicketView> {
   const requester = a.signer.publicKey;
   const first = Math.min(a.lines, MAX_INITIAL_TICKET_LINES);
