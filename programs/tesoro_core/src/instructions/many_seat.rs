@@ -434,6 +434,8 @@ pub struct JoinManySeatMatch<'info> {
     /// created here.
     #[account(mut)]
     pub funder_mark: Option<UncheckedAccount<'info>>,
+    /// The seat key that plays this seat; the wallet itself when it wants none.
+    pub seat_signer: Signer<'info>,
 }
 
 /// Refuses a mark that exists: the Account is in a seat of this car, or its lines from a
@@ -686,6 +688,7 @@ pub(crate) fn join_many_seat_match<'info>(
         p.seats[slot].fill(&SeatFill {
             player: player.to_bytes(),
             funder: funder.to_bytes(),
+            signer: ctx.accounts.seat_signer.key().to_bytes(),
             share_bps,
             pot: pot_info.key.to_bytes(),
             pot_lines: lines,
@@ -936,8 +939,6 @@ pub(crate) fn step_off_many_seat_match<'info>(
         )
     };
     let caller = ctx.accounts.caller.key();
-    let callers_account =
-        Pubkey::find_program_address(&[ACCOUNT_SEED, caller.as_ref()], &crate::ID).0;
     let upgraded = match (
         &ctx.accounts.game_record,
         &ctx.accounts.game_program,
@@ -954,8 +955,11 @@ pub(crate) fn step_off_many_seat_match<'info>(
         _ => false,
     };
     require!(
-        callers_account.to_bytes() == s.player()
-            || caller.to_bytes() == settle_authority
+        acts_for(
+            &Pubkey::new_from_array(s.player()),
+            &caller,
+            &Pubkey::new_from_array(s.signer()),
+        ) || caller.to_bytes() == settle_authority
             || ts >= boarding_ends
             || upgraded
             || is_away(&ctx.accounts.player_protections.to_account_info())?,
@@ -1219,7 +1223,7 @@ mod tests {
 
     #[test]
     fn accounts_are_their_declared_sizes() {
-        assert_eq!(SeatPage::SPACE, 8 + 72 + 1_600);
+        assert_eq!(SeatPage::SPACE, 8 + 72 + 1_920);
         assert_eq!(std::mem::size_of::<SeatPage>(), SeatPage::SPACE - DISC);
         assert_eq!(std::mem::size_of::<SeatMark>(), SeatMark::SPACE - DISC);
         assert_eq!(

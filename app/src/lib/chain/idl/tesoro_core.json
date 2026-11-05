@@ -6771,6 +6771,13 @@
           ],
           "writable": true,
           "optional": true
+        },
+        {
+          "name": "seat_signer",
+          "docs": [
+            "The seat key that plays this seat; the wallet itself when it wants none."
+          ],
+          "signer": true
         }
       ],
       "args": [
@@ -22179,6 +22186,15 @@
           },
           {
             "name": "pot",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "signer",
             "type": {
               "array": [
                 "u8",

@@ -3,7 +3,7 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import idl from "../../lib/chain/idl/railcar.json";
 import { seatPagePda } from "../../lib/chain/many-seat";
-import { checkDepartureIx, decodeTable, finalizeIx, jumpIx, openCarIx, carPda, tablePda, NO_SEAT } from "./chain";
+import { checkDepartureIx, closeRailcarCarIx, configPda, decodeTable, finalizeIx, jumpIx, openCarIx, carPda, skipCarIx, tablePda, NO_SEAT } from "./chain";
 
 const coder = new BorshAccountsCoder(idl as unknown as Idl);
 const layout = (name: string) => (coder as unknown as { accountLayouts: Map<string, { layout: { encode(v: unknown, b: Buffer): number } }> }).accountLayouts.get(name)!.layout;
@@ -57,7 +57,7 @@ describe("a Table reads as the program writes it", () => {
       jumps: 4,
       places: [3, 1, 2],
       vault_ready: 1,
-      dirty: 0,
+      dirty: 1,
       req_pending: 0,
       req_count: 1,
       commit_tries: 0,
@@ -75,8 +75,10 @@ describe("a Table reads as the program writes it", () => {
       ride_ts: le(1_762_300_000, 8),
       over_ms: le(104_000, 4),
       over_at: le(1_762_300_104, 8),
-      commit_at: zeros(8),
-      reserved: zeros(128),
+      commit_at: le(1_762_300_090, 8),
+      reserved: zeros(112),
+      pace_slot: le(1_400, 8),
+      pace_ts: le(1_762_300_001, 8),
       seats: Array.from({ length: 100 }, (_, i) => seat(i)),
     });
     const t = decodeTable(data);
@@ -85,6 +87,7 @@ describe("a Table reads as the program writes it", () => {
     expect(t.places).toEqual([3, 1, 2]);
     expect([t.carNo, t.nextCar, t.entry, t.rideSlot]).toEqual([9n, 11n, 500n, 1_300n]);
     expect([t.rideTs, t.overMs, t.overAt]).toEqual([1_762_300_000, 104_000, 1_762_300_104]);
+    expect([t.dirty, t.commitAt]).toEqual([true, 1_762_300_090]);
     expect(t.car.equals(car)).toBe(true);
     expect(t.tesoroMatch.equals(match)).toBe(true);
     expect(t.seats).toHaveLength(5);
@@ -95,7 +98,27 @@ describe("a Table reads as the program writes it", () => {
   });
 });
 
+describe("an outage", () => {
+  it("reads as its own reason", () => {
+    const data = Buffer.alloc(8 + 7_508);
+    data[8 + 4] = 3;
+    data[8 + 5] = 2;
+    data[8 + 6] = 4;
+    expect([decodeTable(data).phase, decodeTable(data).outcome, decodeTable(data).reason]).toEqual(["over", "refund", "outage"]);
+  });
+});
+
 describe("Railcar instructions name the accounts the program checks", () => {
+  it("skip_car and close_car name the car by its number, its core Match and that Match's receipt", () => {
+    const match = key();
+    const payer = key();
+    const skip = named(skipCarIx(key(), 1, 7n, match), "skip_car");
+    expect([skip.table, skip.config, skip.car, skip.match_state].map(String)).toEqual([tablePda(1), configPda(), carPda(7n), match].map(String));
+    const close = named(closeRailcarCarIx(key(), { carNo: 7n, tesoroMatch: match, payer }), "close_car");
+    expect([close.car, close.car_payer, close.match_state].map(String)).toEqual([carPda(7n), payer, match].map(String));
+    expect(close.receipt.equals(skip.receipt)).toBe(true);
+  });
+
   it("the opener's open_car names the next car and the core Match the opener's counter gives", () => {
     const wallet = key();
     const boarding = key();

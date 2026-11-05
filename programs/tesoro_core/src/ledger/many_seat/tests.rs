@@ -195,6 +195,7 @@ fn a_seat_round_trips_its_fields() {
     s.fill(&SeatFill {
         player: [1; 32],
         funder: [2; 32],
+        signer: [4; 32],
         share_bps: 4_000,
         pot: [3; 32],
         pot_lines: 17,
@@ -208,6 +209,7 @@ fn a_seat_round_trips_its_fields() {
     );
     assert_eq!((s.share_bps(), s.pot_lines(), s.hold()), (4_000, 17, 15));
     assert_eq!(s.counted(), Some((500, T)));
+    assert_eq!(s.signer(), [4; 32]);
     s.clear();
     assert_eq!(s, Seat::zeroed());
 }

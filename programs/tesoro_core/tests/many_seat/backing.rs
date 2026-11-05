@@ -81,6 +81,38 @@ impl Env {
         offer: APk,
         car: Car,
     ) -> Result<u8, litesvm::types::FailedTransactionMetadata> {
+        self.board_backed_keyed(player, backer, offer, car, None)
+    }
+
+    /// As `board_backed`, naming `seat_key` as the Player's seat key.
+    fn board_backed_keyed(
+        &mut self,
+        player: &Person,
+        backer: &Person,
+        offer: APk,
+        car: Car,
+        seat_key: Option<&Keypair>,
+    ) -> Result<u8, litesvm::types::FailedTransactionMetadata> {
+        let join = self.backed_join_ix(player, backer, offer, car, seat_key);
+        let kp = player.kp.insecure_clone();
+        match seat_key {
+            Some(k) => self.send_v0_with(&[cu_limit(1_400_000), join], &kp, &[k])?,
+            None => self.send_v0(&[cu_limit(1_400_000), join], &kp)?,
+        };
+        println!("backed join: {} CU", self.last_cu);
+        Ok(self.mark(car, player).expect("mark").seat)
+    }
+
+    /// The Backed join with every optional Backer account (and the seat key, when named).
+    fn backed_join_ix(
+        &mut self,
+        player: &Person,
+        backer: &Person,
+        offer: APk,
+        car: Car,
+        seat_key: Option<&Keypair>,
+    ) -> Instruction {
+        let named = seat_key.map_or(player.key, |k| a(k.pubkey()));
         let page = self.page_with_room(car);
         let nonce = self.next_ticket(backer.account);
         let pot = ticket_pda(backer.account, nonce);
@@ -89,17 +121,14 @@ impl Env {
             books.extend(book_metas(&self.svm, src));
         }
         self.ensure_spill(&backer.kp.insecure_clone(), backer.account, 40);
-        let join = self.join_ix(
+        self.join_ix(
             player,
             car,
             page,
             (nonce, 12, pot),
             books,
-            Some((offer, backer.account)),
-        );
-        self.send_v0(&[cu_limit(1_400_000), join], &player.kp.insecure_clone())?;
-        println!("backed join: {} CU", self.last_cu);
-        Ok(self.mark(car, player).expect("mark").seat)
+            (Some((offer, backer.account)), named),
+        )
     }
 
     fn offer_status(&self, offer: APk) -> OfferStatus {
@@ -367,4 +396,78 @@ fn an_unbacked_step_off_ignores_a_funder_mark_passed_with_it() {
     assert_eq!(env.total_gemas(ben), 2_000);
     assert_eq!(env.mark(car, ana).expect("Ana's mark").returning, 0);
     assert_eq!(env.car(car).inner.seated, 2);
+}
+
+#[test]
+fn a_backed_seat_steps_off_with_its_seat_key_and_the_return_lands_on_the_backer() {
+    let mut env = Env::new();
+    let opener = env.rider(2_000);
+    let ben = env.rider(2_000);
+    let bob = env.person();
+    let sources: Vec<APk> = (0..10).map(|i| env.forge_source(70 + i as u8, 0)).collect();
+    env.give_lines(&bob, &sources, 50, |i| i as i64);
+    let offer = env.backing(&ben, &bob, 1, SHARE);
+    let car = env.open_car(&opener, (2, 10));
+    let key = env.fresh_key();
+    let stranger = env.fresh_key();
+    env.board_backed_keyed(&ben, &bob, offer, car, Some(&key))
+        .expect("backed with a key");
+    // a stranger cannot step Ben off
+    let i = env.step_off_ix(a(stranger.pubkey()), car, &ben, 8, false);
+    let err = env.send_v0(&[i], &stranger).unwrap_err();
+    assert_eq!(custom_code(&err), seat_err(ManySeatError::NotYourSeat));
+    // the seat key steps off; the lines land on the Backer's mark
+    let i = env.step_off_ix(a(key.pubkey()), car, &ben, 8, false);
+    env.send_v0(&[i], &key).expect("seat key steps off");
+    assert!(env.mark(car, &ben).is_none());
+    let mark = env.mark(car, &bob).expect("Bob's return");
+    assert_eq!((mark.returning, mark.funder), (1, bob.account.to_bytes()));
+    assert_eq!(env.total_gemas(&bob), 8 * 50);
+    let other = opener.kp.insecure_clone();
+    env.return_rest(&other, car, &bob, 8).expect("rest");
+    assert_eq!(env.total_gemas(&bob), 500);
+    assert_eq!(env.total_gemas(&ben), 2_000);
+}
+
+/// What the sponsor sends: the relayer pays, the Player's wallet and the seat key co-sign.
+/// Prints the serialized size with no lookup table, and with every non-signer account in one.
+#[test]
+fn the_sponsored_backed_join_with_a_seat_key_fits_a_transaction() {
+    use solana_sdk::message::{v0, Message, VersionedMessage};
+    let mut env = Env::new();
+    let opener = env.rider(2_000);
+    let ben = env.rider(2_000);
+    let bob = env.person();
+    let sources: Vec<APk> = (0..4).map(|i| env.forge_source(70 + i as u8, 0)).collect();
+    env.give_lines(&bob, &sources, 125, |i| i as i64);
+    let offer = env.backing(&ben, &bob, 1, SHARE);
+    let car = env.open_car(&opener, (2, 10));
+    let key = env.fresh_key();
+    let relayer = env.fresh_key();
+    let mut join = env.backed_join_ix(&ben, &bob, offer, car, Some(&key));
+    join.accounts[0].pubkey = s(a(relayer.pubkey()));
+    let ixs = [cu_limit(1_400_000), join];
+    let legacy = Message::new(&ixs, Some(&relayer.pubkey()));
+    let sigs = legacy.header.num_required_signatures as usize;
+    let legacy_len = legacy.serialize().len() + 1 + 64 * sigs;
+    let table: Vec<Pk> = ixs
+        .iter()
+        .flat_map(|i| i.accounts.iter())
+        .filter(|m| !m.is_signer)
+        .map(|m| m.pubkey)
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let alt = solana_sdk::message::AddressLookupTableAccount {
+        key: Pk::new_unique(),
+        addresses: table,
+    };
+    let v0m = v0::Message::try_compile(&relayer.pubkey(), &ixs, &[alt], env.svm.latest_blockhash())
+        .expect("compile");
+    let v0_len = VersionedMessage::V0(v0m).serialize().len() + 1 + 64 * sigs;
+    println!(
+        "sponsored Backed join + seat key: {legacy_len} B without a table, {v0_len} B with every non-signer in a table ({sigs} signatures, {} accounts)",
+        ixs[1].accounts.len()
+    );
+    assert!(v0_len <= 1_232, "{v0_len} B with a table");
 }

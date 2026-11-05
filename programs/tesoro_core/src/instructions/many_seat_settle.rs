@@ -370,7 +370,8 @@ pub struct SettleManySeatMatch<'info> {
             match_state.load()?.inner.opener.as_ref(),
             &match_state.load()?.inner.n
         ],
-        bump = match_state.load()?.bump
+        bump = match_state.load()?.bump,
+        constraint = match_state.load()?.inner.receipt_bump() != 0 @ ManySeatError::NoReceiptBump
     )]
     pub match_state: AccountLoader<'info, ManySeatMatch>,
     /// CHECK: the receipt PDA, created here (it must not exist); its canonical bump was found at
@@ -512,7 +513,8 @@ pub struct RefundManySeatMatch<'info> {
             match_state.load()?.inner.opener.as_ref(),
             &match_state.load()?.inner.n
         ],
-        bump = match_state.load()?.bump
+        bump = match_state.load()?.bump,
+        constraint = match_state.load()?.inner.receipt_bump() != 0 @ ManySeatError::NoReceiptBump
     )]
     pub match_state: AccountLoader<'info, ManySeatMatch>,
     /// CHECK: the receipt PDA, created here (it must not exist); its canonical bump was found at

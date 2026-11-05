@@ -97,11 +97,12 @@ describe("a Railcar ride's wallet signatures (Privy bills each one)", () => {
     expect(r.total).toBe(1);
   });
 
-  it("the Jump switches to the seat key with one flag; until then the wallet signs it", async () => {
+  it("the seat key signs the Jump; the wallet only when there is no seat key", async () => {
     const w = wallet();
     const seatKey = await new SeatKeyManager({ store: memorySeatKeyStore() }).forMatch(matchKey, walletKp.publicKey);
-    expect(jumpSigner(w, seatKey)).toBe(w);
-    expect(jumpSigner(w, seatKey, true)).toBe(seatKey);
+    expect(jumpSigner(w, seatKey)).toBe(seatKey);
+    expect(jumpSigner(w, null)).toBe(w);
+    expect(jumpSigner(w, seatKey, false)).toBe(w);
     expect(finishSender(null, async () => null, true)).toBeNull();
   });
 });

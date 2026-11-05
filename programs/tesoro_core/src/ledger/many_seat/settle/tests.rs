@@ -347,6 +347,7 @@ fn car(w: &mut World, riders: &[(u8, &[(u8, u64)])], t: Terms) -> Car {
         s.fill(&SeatFill {
             player: key(*who),
             funder: key(*who),
+            signer: key(*who),
             share_bps: 0,
             pot: pot_key(i as u8),
             pot_lines: p.len() as u32,

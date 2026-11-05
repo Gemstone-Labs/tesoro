@@ -206,13 +206,14 @@ fn still_boarding(info: &AccountInfo, now: i64) -> Result<bool> {
     Ok(car.inner.stage() == ManyStage::Boarding && now < car.inner.boarding_ends())
 }
 
-/// Calls `f(core seat index, player Account)` for every seated seat of the car, page by page.
+/// Calls `f(core seat index, player Account, seat key)` for every seated seat of the car, page by
+/// page.
 /// Every one of the car's `pages` pages must be among `infos`.
 fn for_each_seated(
     infos: &[AccountInfo],
     match_key: &Pubkey,
     pages: u8,
-    mut f: impl FnMut(u8, [u8; 32]) -> Result<()>,
+    mut f: impl FnMut(u8, [u8; 32], [u8; 32]) -> Result<()>,
 ) -> Result<()> {
     for p in 0..pages {
         let info = infos
@@ -223,7 +224,7 @@ fn for_each_seated(
         let page: &SeatPage = bytemuck::from_bytes(&data[8..SeatPage::SPACE]);
         for (slot, seat) in page.seats.iter().enumerate() {
             if seat.state() == SeatState::Seated {
-                f(seat_index(p, slot), seat.player())?;
+                f(seat_index(p, slot), seat.player(), seat.signer())?;
             }
         }
     }
@@ -596,15 +597,20 @@ pub mod railcar {
                 RailcarError::BadTable
             );
             let mut n = 0usize;
-            for_each_seated(ctx.remaining_accounts, &match_key, pages, |seat, player| {
-                let s = t.seats.get(n).ok_or(RailcarError::SeatsDiffer)?;
-                require!(
-                    s.seat == seat && s.account == player,
-                    RailcarError::SeatsDiffer
-                );
-                n += 1;
-                Ok(())
-            })?;
+            for_each_seated(
+                ctx.remaining_accounts,
+                &match_key,
+                pages,
+                |seat, player, _| {
+                    let s = t.seats.get(n).ok_or(RailcarError::SeatsDiffer)?;
+                    require!(
+                        s.seat == seat && s.account == player,
+                        RailcarError::SeatsDiffer
+                    );
+                    n += 1;
+                    Ok(())
+                },
+            )?;
             require!(n == usize::from(seated), RailcarError::SeatsDiffer);
             let result = ride::result(t).ok_or(RailcarError::BadTable)?;
             (result, t.outcome, t.reason)
@@ -726,13 +732,19 @@ pub mod railcar {
                 RailcarError::WrongCar
             );
             let mut n = 0usize;
-            for_each_seated(ctx.remaining_accounts, &match_key, pages, |seat, player| {
-                let s = t.seats.get_mut(n).ok_or(RailcarError::Overflow)?;
-                s.seat = seat;
-                s.account = player;
-                n += 1;
-                Ok(())
-            })?;
+            for_each_seated(
+                ctx.remaining_accounts,
+                &match_key,
+                pages,
+                |seat, player, signer| {
+                    let s = t.seats.get_mut(n).ok_or(RailcarError::Overflow)?;
+                    s.seat = seat;
+                    s.account = player;
+                    s.signer = signer;
+                    n += 1;
+                    Ok(())
+                },
+            )?;
             require!(n == usize::from(seated), RailcarError::PagesMissing);
             t.set_car_no(car.car_no);
             t.car = car.key().to_bytes();
@@ -856,8 +868,7 @@ pub mod railcar {
         );
         vault.store(randomness);
         t.req_pending = 0;
-        t.set_ride_slot(clock.slot);
-        t.set_ride_ts(clock.unix_timestamp);
+        t.start_pace(clock.slot, clock.unix_timestamp);
         t.phase = PHASE_RIDING;
         emit!(RideRunning {
             car_no: t.car_no(),
@@ -868,7 +879,8 @@ pub mod railcar {
 
     /// Rollup, anyone (each open page sends one about every second). Moves the public Tell
     /// stage; from the Impact slot on it ends the ride and commits the Table. A draw that never
-    /// came voids the ride once its window is over.
+    /// came voids the ride once its window is over, and so does a rollup that ran under half
+    /// speed for 5 s during the ride (the outage rule, judged before the Impact).
     pub fn signal(ctx: Context<Signal>) -> Result<()> {
         let clock = Clock::get()?;
         let over = {
@@ -877,7 +889,10 @@ pub mod railcar {
             match t.phase {
                 PHASE_RIDING => {
                     require!(v.ready && v.car_no == t.car_no(), RailcarError::WrongPhase);
-                    if ride::advance(&mut t, v, clock.slot) {
+                    if ride::pace(&mut t, clock.slot, clock.unix_timestamp) {
+                        ride::void(&mut t, REASON_OUTAGE, clock.unix_timestamp);
+                        true
+                    } else if ride::advance(&mut t, v, clock.slot) {
                         ride::conclude(&mut t, ride::impact_ms(v), clock.unix_timestamp);
                         true
                     } else {
@@ -919,7 +934,8 @@ pub mod railcar {
     /// seat's key (`tesoro_core::util::acts_for`, as core checks a seat's signer). Before
     /// the Impact slot the Player is off: the Jump takes the next place in the order. At or after
     /// it the Jump does not count: the ride ends with the Player aboard. When the last Player
-    /// aboard Jumps, the ride ends then. `car_no` makes a transaction held back from an earlier
+    /// aboard Jumps, the ride ends then. A Jump that finds the rollup stalled (the outage rule)
+    /// voids the ride and is not recorded. `car_no` makes a transaction held back from an earlier
     /// ride worthless on a later one.
     pub fn jump(ctx: Context<Jump>, car_no: u64, seat: u8) -> Result<()> {
         let clock = Clock::get()?;
@@ -942,7 +958,11 @@ pub mod railcar {
                 ),
                 RailcarError::NotAPlayer
             );
-            if ride::advance(&mut t, v, clock.slot) {
+            if ride::pace(&mut t, clock.slot, clock.unix_timestamp) {
+                // the rollup stalled: nobody could Jump, the Jump is not recorded
+                ride::void(&mut t, REASON_OUTAGE, clock.unix_timestamp);
+                true
+            } else if ride::advance(&mut t, v, clock.slot) {
                 ride::conclude(&mut t, ride::impact_ms(v), clock.unix_timestamp);
                 true
             } else {

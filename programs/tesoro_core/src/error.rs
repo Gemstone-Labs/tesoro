@@ -279,6 +279,8 @@ pub enum ManySeatError {
     NotPaid,
     #[msg("this car's run pays nothing to that Account")]
     NotPaidHere,
+    #[msg("the car was opened before cars kept their receipt bump: it cannot settle or refund")]
+    NoReceiptBump,
 }
 
 pub fn seat_err(e: crate::ledger::many_seat::SeatError) -> Error {

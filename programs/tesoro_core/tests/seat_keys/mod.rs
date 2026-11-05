@@ -11,7 +11,7 @@ const NOT_TICKET_OWNER: u32 = 6400 + tesoro_core::error::MatchError::NotTicketOw
 
 impl Env {
     /// A funded key that is nobody's wallet: a seat key, or a stranger.
-    fn fresh_key(&mut self) -> Keypair {
+    pub(crate) fn fresh_key(&mut self) -> Keypair {
         let k = Keypair::new();
         self.svm.airdrop(&k.pubkey(), 10 * SOL).expect("airdrop");
         k
