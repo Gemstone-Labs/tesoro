@@ -17,7 +17,7 @@ const relayer = key();
 const player = key();
 const seat = key();
 const backerAccount = key();
-const backing = { offer: key(), backerAccount };
+const backing = { offer: key(), offerNonce: 1n, backerAccount };
 const books = (n: number): AccountMeta[] =>
   Array.from({ length: n }, () => key()).flatMap((src) => [
     { pubkey: bookPda(src), isSigner: false, isWritable: true },

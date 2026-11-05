@@ -116,7 +116,7 @@ describe("open_match", () => {
   it("a backed open names the Backer's accounts and the Offer", () => {
     const backerAccount = k();
     const offer = k();
-    const ix = openMatchIx({ payer, player, game: "holdem", entry: 500n, n: 0n, challenge: false, asset: 0, pot: freshPot(backerAccount, 2, 12n), backing: { offer, backerAccount } });
+    const ix = openMatchIx({ payer, player, game: "holdem", entry: 500n, n: 0n, challenge: false, asset: 0, pot: freshPot(backerAccount, 2, 12n), backing: { offer, offerNonce: 1n, backerAccount } });
     const spec = idlIx("open_match");
     const at = (n: string) => ix.keys[spec.accounts.findIndex((a) => a.name === n)];
     expect(at("offer").pubkey).toEqual(offer);
