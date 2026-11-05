@@ -121,7 +121,7 @@ describe("Railcar instructions name the accounts the program checks", () => {
 
   it("jump names the Table seat and the car, signed by the Player", () => {
     const wallet = key();
-    const ix = jumpIx(wallet, wallet, 1, 9n, 4);
+    const ix = jumpIx(wallet, 1, 9n, 4);
     expect(named(ix, "jump").table.equals(tablePda(1))).toBe(true);
     expect(ix.keys[0].isSigner).toBe(true);
     // car_no (u64 LE) then seat (u8) after the 8-byte discriminator.

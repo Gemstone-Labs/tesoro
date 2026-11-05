@@ -489,7 +489,7 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][]): 
     const t = decodeTable(w.get(table)!.data);
     const seat = t.seats.find((s) => s.account.equals(riders[who].account))!;
     // The wallet signs the Jump until Railcar takes the seat key (seat keys ticket 08).
-    w.rollup([jumpIx(riders[who].key, riders[who].key, carAcct.table, carNo, seat.tableSeat)], riders[who].kp, carAcct.table);
+    w.rollup([jumpIx(riders[who].key, carAcct.table, carNo, seat.tableSeat)], riders[who].kp, carAcct.table);
   }
   w.phase = "finish";
   const vault = new BorshAccountsCoder(railcarIdl as unknown as Idl).decode("Vault", Buffer.from(w.get(vaultPda(table))!.data)) as { crash_ms: number };
