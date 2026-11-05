@@ -72,7 +72,8 @@ const H_COUNTED: usize = 184;
 pub const SIGNER_AT: usize = H_SIGNER;
 
 /// The start of the Entry Limit period a Pot's entry counted in on its funder (0: nothing counted).
-/// Only `open_match` and `join_match` write it, after the entry is in; every head starts zeroed.
+/// `open_match` and `join_match` always write it once the entry is in (0 when nothing counted), so a
+/// Pot never keeps what a Ticket's head held there.
 pub fn counted_in(head: &[u8]) -> i64 {
     i64::from_le_bytes(arr(&head[H_COUNTED..H_COUNTED + 8]))
 }

@@ -319,3 +319,39 @@ fn an_open_offer_of_the_old_layout_reads_as_counting_nothing() {
     assert_eq!(b.carol_used(), 500, "its period was never stored");
     assert_eq!(b.reserved(), 0);
 }
+
+#[test]
+fn a_pot_made_from_a_ticket_records_its_own_count_whatever_the_ticket_held() {
+    const COUNTED_AT: usize = DISC + 184;
+    let mut d = duel();
+    let kp = d.alice.kp.insecure_clone();
+    let open = |d: &mut Duel, nonce: u64| -> APk {
+        d.env.open_ticket(&d.alice, nonce, 500, 4).expect("ticket");
+        while d.env.load_ticket_staged(&d.alice, nonce) < 500 {
+            let books = d.env.books_of(d.alice.account);
+            d.env
+                .stage_with(&kp, &d.alice, nonce, 255, books)
+                .expect("stage");
+        }
+        // whatever a Ticket's head held at those bytes
+        let pot = ticket_pda(d.alice.account, nonce);
+        let mut acc = d.env.svm.get_account(&s(pot)).expect("ticket");
+        acc.data[COUNTED_AT..COUNTED_AT + 8].fill(0xAB);
+        d.env.svm.set_account(s(pot), acc).expect("dirty head");
+        d.env.open_match_ticket(&d.alice, 500, nonce).expect("open");
+        pot
+    };
+    let counted = |d: &Duel, pot: APk| {
+        let data = d.env.svm.get_account(&s(pot)).expect("pot").data;
+        i64::from_le_bytes(data[COUNTED_AT..COUNTED_AT + 8].try_into().unwrap())
+    };
+    // no Entry Limit in force: the Pot says nothing was counted
+    let pot = open(&mut d, 50);
+    assert_eq!(counted(&d, pot), 0);
+    // with one: the period it counted in
+    d.env.set_entry_limit(&d.alice, 1_000).unwrap();
+    let pot = open(&mut d, 51);
+    let window = d.env.entry_limit(&d.alice).window_start;
+    assert_ne!(window, 0);
+    assert_eq!(counted(&d, pot), window);
+}

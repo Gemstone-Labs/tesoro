@@ -615,10 +615,9 @@ pub(crate) fn open_match<'info>(
             hold,
         )
     };
-    // the funder's count rides with the Pot: a refund gives it back (`close_match`)
-    if let Some(period) = counted {
-        set_counted_in(pot.bytes_mut().head_mut(), period);
-    }
+    // the funder's count rides with the Pot (0: none), whatever a Ticket's head held there: a
+    // refund gives it back (`close_match`)
+    set_counted_in(pot.bytes_mut().head_mut(), counted.unwrap_or(0));
     let (entries, terms) = {
         let config = &ctx.accounts.config;
         (
@@ -962,10 +961,9 @@ pub(crate) fn join_match<'info>(
             hold,
         )
     };
-    // the funder's count rides with the Pot: a refund gives it back (`close_match`)
-    if let Some(period) = counted {
-        set_counted_in(pot.bytes_mut().head_mut(), period);
-    }
+    // the funder's count rides with the Pot (0: none), whatever a Ticket's head held there: a
+    // refund gives it back (`close_match`)
+    set_counted_in(pot.bytes_mut().head_mut(), counted.unwrap_or(0));
     let state = &mut ctx.accounts.match_state;
     state.inner.join(party, &pot, ts).map_err(lc_err)?;
     // the joiner's freed slots stay held for the lines that may come back; the slots the other
