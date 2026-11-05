@@ -5,7 +5,7 @@ import { fmtGemas } from "@/lib/format";
 import { practiceHref } from "@/lib/game-params";
 import { appHref } from "@/lib/landing/config";
 import "@/components/win/win.css";
-import { GAME_NAMES } from "@/lib/mock";
+import { historyGameName } from "@/lib/chain/history";
 import { parseWinKey, winShareText } from "@/lib/win-card";
 import { loadWin } from "@/server/win-card";
 import { CARD } from "@/server/spot-card";
@@ -20,7 +20,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const id = parseWinKey(raw);
   const win = id === null ? null : await loadWin(id);
   if (!win) return {};
-  const title = `${win.name} won a ${GAME_NAMES[win.game]} Match on ${BRAND.name}`;
+  const title = win.ride ? `${win.name} was last off a Railcar ride on ${BRAND.name}` : `${win.name} won a ${historyGameName(win.game)} Match on ${BRAND.name}`;
   const description = `Play casual games now with yield you haven't earned yet. Try ${BRAND.name} in test mode.`;
   const alt = winShareText(win);
   const images = [{ url: cardUrl(win.id), width: CARD.width, height: CARD.height, alt }];
@@ -41,16 +41,16 @@ export default async function WinPage({ params }: Props) {
   const id = parseWinKey((await params).match);
   const win = id === null ? null : await loadWin(id);
   if (!win) notFound();
-  const game = GAME_NAMES[win.game];
+  const game = historyGameName(win.game);
   return (
     <main className="win-page">
-      <h1>{win.gemas > 0 ? `${win.name} won ${fmtGemas(win.gemas)} Gemas playing ${game}` : `${win.name} won a ${game} Match`}</h1>
+      <h1>{win.gemas > 0 ? `${win.name} won ${fmtGemas(win.gemas)} Gemas playing ${game}` : `${win.name} won a ${game} ${win.ride ? "ride" : "Match"}`}</h1>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img className="win-card" src={cardUrl(win.id)} width={CARD.width} height={CARD.height} alt={winShareText(win)} />
       <p className="win-explain">Gemas are {BRAND.name}&apos;s in-game currency, advanced from staking yield. Practice is free, no account needed.</p>
       <div className="win-actions">
         <Button variant="money" size="lg" href={appHref(`/play/${win.game}`)}>Play {game}</Button>
-        <Button size="lg" href={appHref(practiceHref(win.game))}>Practice free</Button>
+        {win.game !== "railcar" && <Button size="lg" href={appHref(practiceHref(win.game))}>Practice free</Button>}
         <Button size="lg" href="/welcome">How it works</Button>
       </div>
     </main>
