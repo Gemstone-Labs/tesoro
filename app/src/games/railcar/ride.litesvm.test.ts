@@ -406,7 +406,7 @@ class World {
 
   offerStatus(offer: PublicKey): string {
     const o = new BorshAccountsCoder(coreIdl as unknown as Idl).decode("OfferState", Buffer.from(this.get(offer)!.data)) as { inner: { status: object } };
-    return Object.keys(o.inner.status)[0];
+    return Object.keys(o.inner.status)[0].toLowerCase();
   }
 
   rideSlot(index: number): bigint {
@@ -609,8 +609,8 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     // The result screen shows the split the chain paid.
     expect(r.shown).toEqual(r.deltas);
     expect(r.backer!.shown).toEqual({ backerGets: 578n, playerGets: 52n });
-    // Ben signed his boarding; Bob signed nothing after his Offer.
-    expect(r.walletSigs).toEqual({ boarding: 5, jumps: 4 });
+    // Ben signed his Request, the acceptance and his boarding; Bob nothing after his Offer.
+    expect(r.walletSigs).toEqual({ setup: 2, boarding: 5, jumps: 4 });
   });
 
   it("a backed step-off sends the Backer's 500 home and leaves the Player free to board again", { timeout: 120_000 }, async () => {
