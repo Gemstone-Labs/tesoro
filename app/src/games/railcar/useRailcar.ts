@@ -398,8 +398,10 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
     snap?.loaded && snap.car
       ? railcarView({ me: meKey, core: snap.loaded.car, seats: snap.loaded.seats, table: snap.rollup && snap.rollup.carNo === snap.car.carNo ? snap.rollup : snap.base && snap.base.carNo === snap.car.carNo ? snap.base : null, fees: FEES, nowMs: now, myBacking })
       : null;
-  const shownOffer: RailcarOffer | null = !offerAddress || offer === undefined ? null : offer && !offerProblem ? { backer: offer.backer, sharePct: offer.shareBps / 100, ...(snap?.backerSeated ? { blocked: "Your Backer is in this car: board the next one" } : {}) } : offer ? { backer: offer.backer, sharePct: offer.shareBps / 100, blocked: new BackingError(offerProblem ?? "missing").message } : null;
-  return { view, busy, error: error ?? (offerAddress && offer === null ? new BackingError("missing").message : null), signedIn: !!wallet, offer: shownOffer, offerSpent: offer?.status === "consumed", board, stepOff, jump, playAgain };
+  const blocked = offerProblem ? new BackingError(offerProblem).message : snap?.backerSeated ? "Your Backer is in this car: board the next one" : null;
+  const shownOffer: RailcarOffer | null = offer ? { backer: offer.backer, sharePct: offer.shareBps / 100, ...(blocked ? { blocked } : {}) } : null;
+  const missing = offerAddress && offer === null ? new BackingError("missing").message : null;
+  return { view, busy, error: error ?? missing, signedIn: !!wallet, offer: shownOffer, offerSpent: offer?.status === "consumed", board, stepOff, jump, playAgain };
 }
 
 /** A share of the finish (finalize, room, chunks, closes) through the relayer, sized against the server's lookup tables. */
