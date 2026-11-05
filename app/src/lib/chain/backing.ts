@@ -10,6 +10,7 @@ import { EntryError } from "./ledger";
 import { ChallengeError, enterQueue, createChallenge, joinChallenge, ensureReady, refundMatch } from "./match-flow";
 import { coreIx } from "./entry";
 import { basketPda, countersPda, spillPda } from "./basket";
+import { protectionsPda } from "./native";
 import { freeOf, readEntryStores, type BackingRef } from "./entry";
 import { DrawError } from "./draw";
 import { fetchMatch, matchKeyOfState } from "./read";
