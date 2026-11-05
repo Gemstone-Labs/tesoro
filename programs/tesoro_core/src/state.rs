@@ -544,8 +544,6 @@ impl ManySeatMatch {
 
 pub const SEAT_PAGE_SEED: &[u8] = b"seat_page";
 pub const SEAT_SEED: &[u8] = b"seat";
-/// `["seat_key", match, seat key]`: empty marker that keeps one seat key to one seat of a car.
-pub const SEAT_KEY_SEED: &[u8] = b"seat_key";
 
 /// Ten seats of a many-seat Match: `["seat_page", match, page]`. Created by the join that needs
 /// it, in order; closed with the Match, the rent back to `payer`.

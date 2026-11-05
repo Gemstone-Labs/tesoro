@@ -204,7 +204,7 @@ fn id_of_seed(seed: &[u8; 40]) -> MatchId {
     }
 }
 
-pub(crate) fn is_empty(info: &AccountInfo) -> bool {
+fn is_empty(info: &AccountInfo) -> bool {
     info.owner == &system_program::ID && info.data_is_empty()
 }
 
@@ -428,13 +428,6 @@ pub struct JoinManySeatMatch<'info> {
     pub funder_mark: Option<UncheckedAccount<'info>>,
     /// The seat key that plays this seat; the wallet itself when it wants none.
     pub seat_signer: Signer<'info>,
-    /// CHECK: the seat key's marker in this car; must not exist yet, created here.
-    #[account(
-        mut,
-        seeds = [SEAT_KEY_SEED, match_state.key().as_ref(), seat_signer.key().as_ref()],
-        bump
-    )]
-    pub seat_key_mark: UncheckedAccount<'info>,
 }
 
 /// Refuses a mark that exists: the Account is in a seat of this car, or its lines from a
@@ -539,23 +532,6 @@ pub(crate) fn join_many_seat_match<'info>(
             TesoroError::GameNotListed
         );
     }
-
-    // one seat per seat key: a key another seat of this car already uses is refused
-    let key_info = ctx.accounts.seat_key_mark.to_account_info();
-    require!(is_empty(&key_info), MatchError::SeatKeyShared);
-    let key_bump = [ctx.bumps.seat_key_mark];
-    create_pda(
-        &key_info,
-        &payer,
-        &system,
-        &[
-            SEAT_KEY_SEED,
-            match_key.as_ref(),
-            ctx.accounts.seat_signer.key.as_ref(),
-            &key_bump,
-        ],
-        0,
-    )?;
 
     // the page and the lowest free slot in it
     let page_info = ctx.accounts.seat_page.to_account_info();
@@ -915,10 +891,6 @@ pub struct StepOffManySeatMatch<'info> {
     /// CHECK: the Backer's mark of a backed seat (`funder_mark_of`); it carries the lines home.
     #[account(mut)]
     pub funder_mark: Option<UncheckedAccount<'info>>,
-    /// CHECK: the seat key's marker, closed here to the mark's payer; checked by seeds against the
-    /// seat's key. Absent (empty) for a seat boarded before seat keys.
-    #[account(mut)]
-    pub seat_key_mark: UncheckedAccount<'info>,
 }
 
 pub(crate) fn step_off_many_seat_match<'info>(
@@ -1002,19 +974,6 @@ pub(crate) fn step_off_many_seat_match<'info>(
         )?;
     }
     ctx.accounts.seat_page.load_mut()?.seats[slot].clear();
-    let key_info = ctx.accounts.seat_key_mark.to_account_info();
-    let (key_mark, _) = Pubkey::find_program_address(
-        &[SEAT_KEY_SEED, match_key.as_ref(), &s.signer()],
-        &crate::ID,
-    );
-    require_keys_eq!(key_mark, *key_info.key, ManySeatError::WrongSeat);
-    if !is_empty(&key_info) {
-        require!(
-            ctx.accounts.mark_payer.key.to_bytes() == mark.payer,
-            TesoroError::InvalidAccount
-        );
-        close_to(&key_info, &ctx.accounts.mark_payer.to_account_info())?;
-    }
     let player = Pubkey::new_from_array(mark.account);
     // the mark that carries the lines home: the funder's
     let mark_info = if s.funder() == s.player() {
