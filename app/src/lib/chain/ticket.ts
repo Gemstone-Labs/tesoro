@@ -164,7 +164,8 @@ export interface OpenTicketArgs {
   owner: PublicKey;
   nonce: bigint;
   kind: TicketKind;
-  game: GameId;
+  /** The Game the entry is for: a listed head-to-head Game by id, or a Game program (Railcar). */
+  game: GameId | PublicKey;
   /** The entry size. */
   target: bigint;
   /** Storage lines to open with (at most `MAX_INITIAL_TICKET_LINES`; `growTicketIxs` adds the rest). */
@@ -193,7 +194,7 @@ export function openTicketIx(a: OpenTicketArgs): TransactionInstruction {
       counters: countersPda(a.owner),
       systemProgram: SystemProgram.programId,
     },
-    { nonce: new BN(a.nonce.toString()), kind: a.kind === "backing" ? { Backing: {} } : { Entry: {} }, game: GAME_IDS[a.game], target: new BN(a.target.toString()), lines: Math.min(a.lines, MAX_INITIAL_TICKET_LINES) },
+    { nonce: new BN(a.nonce.toString()), kind: a.kind === "backing" ? { Backing: {} } : { Entry: {} }, game: typeof a.game === "string" ? GAME_IDS[a.game] : a.game, target: new BN(a.target.toString()), lines: Math.min(a.lines, MAX_INITIAL_TICKET_LINES) },
   );
 }
 
@@ -239,7 +240,7 @@ export interface PrepareArgs {
   /** The seat key named in the entry: it co-signs the Ticket's opening and stages the rest, so the wallet signs once. */
   seat?: SeatKey;
   getToken: GetToken;
-  game: GameId;
+  game: GameId | PublicKey;
   entry: bigint;
   /** Lines the draw needs (`previewEntry(...).ticketLines`). */
   lines: number;

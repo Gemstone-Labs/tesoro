@@ -3,8 +3,9 @@
 //!
 //! * **Open.** The Game opens an empty car with its seat bounds (`min_seats`, `max_seats`).
 //! * **Boarding.** Players take seats until `max_seats`; each seat is a Party plus its own Pot.
-//!   `min_since` is when the seat count last reached `min_seats` (0 while below), so a Game can
-//!   run its countdown from it. A Player may step off any time before departure.
+//!   `min_since` is when the seat count last reached `min_seats` (0 while below), and
+//!   `first_min_at` when it first did (never cleared), so a Game can run its countdown from
+//!   either. A Player may step off any time before departure.
 //! * **Departure.** The Game's authority ends boarding with at least `min_seats` seated. After it
 //!   nobody boards or steps off; the result and the settlement follow (ticket 03).
 //! * **Deadlines.** Settlement must start before `deadline_abs` (7 days after open, as
@@ -95,6 +96,8 @@ pub struct ManySeatRecord {
     opened_at: [u8; 8],
     deadline_abs: [u8; 8],
     min_since: [u8; 8],
+    /// When `seated` first reached `min_seats`; never cleared (a Game's fixed departure time).
+    first_min_at: [u8; 8],
     departed_at: [u8; 8],
     platform_bps: [u8; 2],
     studio_bps: [u8; 2],
@@ -128,7 +131,7 @@ const PAID: u8 = 5;
 pub const REFUND_AFTER_SECS: i64 = 24 * 60 * 60;
 
 impl ManySeatRecord {
-    pub const LEN: usize = 32 * 4 + 8 * 7 + 2 * 2 + 10 + 6 + 8 + SeatRun::LEN;
+    pub const LEN: usize = 32 * 4 + 8 * 8 + 2 * 2 + 10 + 6 + 8 + SeatRun::LEN;
 
     #[allow(clippy::too_many_arguments)]
     pub fn open(
@@ -163,6 +166,7 @@ impl ManySeatRecord {
             opened_at: now.to_le_bytes(),
             deadline_abs: deadline_abs.to_le_bytes(),
             min_since: [0; 8],
+            first_min_at: [0; 8],
             departed_at: [0; 8],
             platform_bps: terms.platform_bps.to_le_bytes(),
             studio_bps: terms.studio_bps.to_le_bytes(),
@@ -220,6 +224,10 @@ impl ManySeatRecord {
     /// When `seated` last reached `min_seats`; 0 while below it.
     pub fn min_since(&self) -> i64 {
         i64::from_le_bytes(self.min_since)
+    }
+    /// When `seated` first reached `min_seats`, 0 until then; a step-off never clears it.
+    pub fn first_min_at(&self) -> i64 {
+        i64::from_le_bytes(self.first_min_at)
     }
     pub fn departed_at(&self) -> i64 {
         i64::from_le_bytes(self.departed_at)
@@ -284,6 +292,9 @@ impl ManySeatRecord {
         self.seated += 1;
         if self.seated == self.min_seats {
             self.min_since = now.to_le_bytes();
+            if self.first_min_at == [0; 8] {
+                self.first_min_at = self.min_since;
+            }
         }
         Ok(())
     }

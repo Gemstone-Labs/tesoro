@@ -114,6 +114,21 @@ fn the_countdown_starts_at_the_minth_seat_and_stops_below_it() {
 }
 
 #[test]
+fn the_first_time_the_car_reached_its_minimum_is_kept_through_step_offs() {
+    let mut c = car(5, 100);
+    for i in 0..4 {
+        c.take_seat(T + i).unwrap();
+    }
+    assert_eq!(c.first_min_at(), 0);
+    c.take_seat(T + 10).unwrap();
+    assert_eq!(c.first_min_at(), T + 10);
+    // below the minimum and back: the countdown restarts, the first time does not
+    c.leave_seat().unwrap();
+    c.take_seat(T + 25).unwrap();
+    assert_eq!((c.min_since(), c.first_min_at()), (T + 25, T + 10));
+}
+
+#[test]
 fn no_seat_is_taken_once_boarding_has_ended() {
     let mut c = car(5, 100);
     let end = c.boarding_ends();

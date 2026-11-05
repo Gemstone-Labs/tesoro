@@ -220,9 +220,9 @@ The founder's rule (Oct 1): the website must not copy the mockups' density. Mock
 
 Dev only: `/design/result?case=won|lost|draw|refunded|backed-player|backed-lost|backer-won|backer-lost|holdem-won|holdem-lost` renders every result variant from fixtures (`NEXT_PUBLIC_DEV_WALLET=1`).
 
-## Railcar screens (founder-approved 2026-11-03, not built yet)
+## Railcar screens (founder-approved 2026-11-03)
 
-Mockups and the animated prototype: `art-source/railcar/` (`SCREEN-*.md` briefs, `round2/`, `proto/`). Rules and the numbers every screen shows: `/docs/railcar` (from `app/src/games/railcar/rules.ts`, which reads the engine). Phone first (390px). Picks: Boarding bo1, Ride and Spectator = the round-2 animated prototype, Result re1, Round history = the existing `/matches` layout (no mockup).
+Code: `app/src/games/railcar/` (`RailcarScreen.tsx` one screen for all three phases, `RailcarStage.tsx` the animated car, `view.ts` what each phase shows, `railcar.css`), route `/play/railcar` (shown where `NEXT_PUBLIC_SHOW_RAILCAR=1`), stories `Games/Railcar`. Art: `public/art/final/railcar/` (cut from `round2/`). Brake button and Spectator are tickets 11 and 12. Mockups and the animated prototype: `art-source/railcar/` (`SCREEN-*.md` briefs, `round2/`, `proto/`). Rules and the numbers every screen shows: `/docs/railcar` (from `app/src/games/railcar/rules.ts`, which reads the engine). Phone first (390px). Picks: Boarding bo1, Ride and Spectator = the round-2 animated prototype, Result re1, Round history = the existing `/matches` layout (no mockup).
 
 - **One railcar.** Boarding, Ride and Spectator draw the same real railcar in side view in the cave, on rails. Seats are small cut sockets that fill with Player avatars.
 - **Boarding.** Title RAILCAR and the entry; a big "Leaves in" countdown once five have boarded (before that, "Waiting for 5 Players" and how many are aboard); the boarded avatars with "You" marked; "Your seat N"; **Step off** as the one button (neutral, not emerald), captioned with the full entry coming back; an info icon for the rules. When the car leaves, the screen turns into the Ride in place: no navigation, no loading, the car starts moving right.
