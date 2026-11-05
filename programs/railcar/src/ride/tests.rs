@@ -178,3 +178,122 @@ fn early_refunds_follow_the_schedule_at_the_jump() {
     let refunds: Vec<u64> = t.seats[..6].iter().map(|s| s.refund()).collect();
     assert_eq!(refunds, vec![400, 350, 25, 0, 0, 0]);
 }
+
+// ---- the outage rule --------------------------------------------------------------------------
+
+const T0: i64 = 1_000_000;
+
+/// A riding Table whose pace mark starts at the draw: `RIDE_SLOT` at `T0`.
+fn paced() -> Box<Table> {
+    let mut t = riding(5);
+    t.start_pace(RIDE_SLOT, T0);
+    t
+}
+
+/// The rollup at real time `real` s after the draw, `rate` slots a second; the clock shows whole
+/// seconds (unix time rounds down).
+fn obs(real: f64, rate: f64) -> (u64, i64) {
+    (RIDE_SLOT + (real * rate) as u64, T0 + real.floor() as i64)
+}
+
+#[test]
+fn a_healthy_rollup_never_voids_whatever_its_jitter() {
+    // Pseudo-random observation times and rates from 63 to 140 slots/s, piecewise, with the
+    // clock in whole seconds: never a void over a ten-minute ride.
+    let mut seed = 0x2545_F491_4F6C_DD1Du64;
+    let mut rnd = || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    for _ in 0..200 {
+        let mut t = paced();
+        let (mut real, mut slot) = (0.0f64, RIDE_SLOT as f64);
+        while real < 600.0 {
+            let dt = 0.01 + (rnd() % 3_000) as f64 / 1_000.0;
+            let rate = 63.0 + (rnd() % 78) as f64;
+            real += dt;
+            slot += dt * rate;
+            let ts = T0 + real.floor() as i64;
+            assert!(!pace(&mut t, slot as u64, ts), "void at {real:.2} s");
+        }
+    }
+}
+
+#[test]
+fn bursty_slots_and_a_quiet_stretch_under_five_seconds_do_not_void() {
+    let mut t = paced();
+    // no slot for 0.8 s, then 80 at once (100 a second on average), observed on both sides
+    let mut slot = RIDE_SLOT;
+    for k in 1..=20u64 {
+        let real = k as f64 * 0.8;
+        let ts = T0 + real.floor() as i64;
+        assert!(!pace(&mut t, slot, ts), "before burst {k}");
+        slot += 80;
+        assert!(!pace(&mut t, slot, ts), "after burst {k}");
+    }
+    // then a 4 s stop (the clock shows at most 4 s more): not judged
+    assert!(!pace(&mut t, slot + 1, T0 + 16 + 4));
+}
+
+#[test]
+fn a_stop_of_five_seconds_voids_at_the_next_transaction() {
+    let mut t = paced();
+    let (slot, ts) = obs(12.0, 100.0);
+    assert!(!pace(&mut t, slot, ts));
+    // the validator stops for 8 s; the first transaction after finds 10 slots
+    assert!(pace(&mut t, slot + 10, ts + 8));
+    // exactly at the edge: 5 s and fewer than 250 slots voids, 250 does not
+    let mut t = paced();
+    assert!(!pace(&mut t, RIDE_SLOT + 250, T0 + 5));
+    let mut t = paced();
+    assert!(pace(&mut t, RIDE_SLOT + 249, T0 + 5));
+    let mut t = paced();
+    assert!(
+        !pace(&mut t, RIDE_SLOT, T0 + 4),
+        "under 5 s nothing is judged"
+    );
+}
+
+#[test]
+fn a_rollup_at_under_half_speed_voids_even_with_frequent_transactions() {
+    // 40 slots/s, a signal every 0.2 s: no gap is long, but the stretch since the ride was last
+    // on pace is.
+    let mut t = paced();
+    let mut voided_at = None;
+    for k in 1..=100 {
+        let (slot, ts) = obs(k as f64 * 0.2, 40.0);
+        if pace(&mut t, slot, ts) {
+            voided_at = Some(ts - T0);
+            break;
+        }
+    }
+    assert_eq!(voided_at, Some(5));
+    // after a healthy start, the slowdown is measured from the last moment on pace
+    let mut t = paced();
+    assert!(!pace(&mut t, RIDE_SLOT + 3_000, T0 + 30));
+    let mut voided = false;
+    for k in 1..=50 {
+        let (slot, ts) = (RIDE_SLOT + 3_000 + k * 8, T0 + 30 + (k as i64) / 5);
+        voided |= pace(&mut t, slot, ts);
+    }
+    assert!(voided);
+}
+
+#[test]
+fn a_clock_or_slot_that_goes_back_is_not_a_void_and_does_not_overflow() {
+    let mut t = paced();
+    assert!(!pace(&mut t, RIDE_SLOT - 5, T0 - 3));
+    assert!(!pace(&mut t, RIDE_SLOT + 400, T0 + 2));
+    // the mark did not move back: 5 s after it, on pace, is fine
+    assert!(!pace(&mut t, RIDE_SLOT + 500, T0 + 5));
+    for (slot, ts) in [
+        (u64::MAX, i64::MAX),
+        (0, i64::MIN),
+        (u64::MAX, i64::MIN),
+        (0, i64::MAX),
+    ] {
+        let _ = pace(&mut paced(), slot, ts);
+    }
+}

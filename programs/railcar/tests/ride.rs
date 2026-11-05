@@ -240,6 +240,12 @@ struct Env {
     slot: u64,
     last_cu: u64,
     last_logs: Vec<String>,
+    /// Inner instruction data of the last transaction that landed (the event CPIs among them).
+    last_events: Vec<Vec<u8>>,
+    /// Cases for the TypeScript port of core's `ahead` (see `record_ahead`), when recording.
+    ahead_cases: Option<Vec<String>>,
+    /// Chunks seen while recording (the case's number).
+    ahead_seen: u32,
 }
 
 impl Env {
@@ -266,6 +272,12 @@ impl Env {
         match r {
             Ok(meta) => {
                 self.last_cu = meta.compute_units_consumed;
+                self.last_events = meta
+                    .inner_instructions
+                    .iter()
+                    .flatten()
+                    .map(|i| i.instruction.data.clone())
+                    .collect();
                 self.last_logs = meta.logs;
                 Ok(())
             }
@@ -523,6 +535,9 @@ impl Env {
             slot: SLOT0,
             last_cu: 0,
             last_logs: vec![],
+            last_events: vec![],
+            ahead_cases: std::env::var("TESORO_RAILCAR_FIXTURE").ok().map(|_| vec![]),
+            ahead_seen: 0,
         };
         for k in [&env.admin, &env.oracle, &env.ctl, &env.operator] {
             env.svm.airdrop(&k.pubkey(), 1_000 * SOL).expect("airdrop");
@@ -1012,7 +1027,12 @@ impl Env {
 
     /// The VRF program's callback: its scoped identity signs, as the oracle's CPI makes it.
     fn callback(&mut self, table: APk, randomness: [u8; 32]) -> Result<(), Failed> {
-        let t = self.table(table);
+        let nonce = self.table(table).req_nonce();
+        self.callback_for(table, nonce, randomness)
+    }
+
+    /// The callback of request number `nonce` (an old request's answer names its own marker).
+    fn callback_for(&mut self, table: APk, nonce: u64, randomness: [u8; 32]) -> Result<(), Failed> {
         let identity = sdk_key(ephemeral_rollups_sdk::vrf::consts::scoped_vrf_identity(
             &railcar::ID,
         ));
@@ -1022,7 +1042,7 @@ impl Env {
                 vrf_program_identity: identity,
                 table,
                 vault: vault_addr(table),
-                request: Table::request_marker(&table, t.req_nonce()),
+                request: Table::request_marker(&table, nonce),
             },
             railcar::instruction::DrawCallback { randomness },
             vec![],
@@ -1299,6 +1319,7 @@ impl Env {
                 steps -= 1;
                 i = self.chunk_ix(car, steps);
             }
+            self.record_ahead(car, steps);
             self.send_v0(&[cu_limit(1_400_000), i], &payer)
                 .expect("chunk");
         }
@@ -1394,7 +1415,10 @@ fn the_worked_example_pays_to_the_gema() {
         (t.phase, t.outcome, t.dirty),
         (PHASE_OVER, OUTCOME_PLACED, 0)
     );
-    env.settle(&car);
+    env.finalize(&car).expect("finalize");
+    env.write_events_fixture("worked-example", &riders);
+    env.run_car(&car);
+    env.write_ahead_fixture("worked-example");
     let delta: Vec<i64> = riders
         .iter()
         .zip(&before)
@@ -1449,6 +1473,7 @@ fn nobody_jumping_refunds_every_entry_with_no_fee() {
         vec![500; 5]
     );
     assert_eq!(env.fee_gemas(&env.studio), studio_before);
+    env.write_ahead_fixture("refund");
 }
 
 #[test]
@@ -1721,6 +1746,7 @@ fn a_hundred_players_ride_one_car_and_the_hundred_and_first_boards_the_next() {
         flow::ensure_spill(&mut env.svm, &p.kp, p.account, 200);
     }
     env.run_car(&car);
+    env.write_ahead_fixture("hundred");
     let delta: Vec<i64> = riders
         .iter()
         .zip(&before)
@@ -1873,4 +1899,508 @@ fn only_one_car_boards_at_a_time() {
     assert_eq!(code(&err), rcode(railcar::RailcarError::CarBoarding));
     assert_eq!(env.config().next_car, 1);
     drop((car, riders));
+}
+
+// =========================================================================================
+// Outage, abandoned rides and the paths around the draw and the commit (ticket 08)
+// =========================================================================================
+
+impl Env {
+    fn request_draw(&mut self, table: APk) -> Result<(), Failed> {
+        let i = ix(
+            railcar::ID,
+            railcar::accounts::RequestDraw {
+                payer: a(self.oracle.pubkey()),
+                table,
+                vault: vault_addr(table),
+                oracle_queue: sdk_key(ephemeral_rollups_sdk::vrf::consts::DEFAULT_EPHEMERAL_QUEUE),
+                program_identity: rpda(&[ephemeral_rollups_sdk::vrf::consts::IDENTITY]),
+                vrf_program: sdk_key(ephemeral_rollups_sdk::vrf::consts::VRF_PROGRAM_ID),
+                slot_hashes: a(solana_sdk::sysvar::slot_hashes::ID),
+                system_program: anchor_lang::system_program::ID,
+            },
+            railcar::instruction::RequestDraw {},
+            vec![],
+        );
+        let payer = self.oracle.insecure_clone();
+        self.send(&[i], &payer, &[])
+    }
+
+    /// `commit_table` from a stranger; a commit that lands is stood in (base holds the Table).
+    fn commit_table(&mut self, table: APk) -> Result<(), Failed> {
+        let (fee, context, magic) = self.magic_accounts();
+        let i = ix(
+            railcar::ID,
+            railcar::accounts::CommitTable {
+                caller: a(self.oracle.pubkey()),
+                table,
+                sponsor: sponsor_addr(),
+                magic_fee_vault: fee,
+                magic_context: context,
+                magic_program: magic,
+            },
+            railcar::instruction::CommitTable {},
+            vec![],
+        );
+        let payer = self.oracle.insecure_clone();
+        self.send(&[i], &payer, &[])?;
+        self.commit_standin(table);
+        Ok(())
+    }
+
+    fn close_car(&mut self, car: &Car) -> Result<(), Failed> {
+        let c: railcar::state::Car = self.load(car.key);
+        let i = ix(
+            railcar::ID,
+            railcar::accounts::CloseCar {
+                caller: a(self.oracle.pubkey()),
+                car: car.key,
+                car_payer: c.payer,
+                receipt: receipt(car.tesoro),
+                match_state: car.tesoro,
+            },
+            railcar::instruction::CloseCar {},
+            vec![],
+        );
+        let payer = self.oracle.insecure_clone();
+        self.send(&[i], &payer, &[])
+    }
+
+    /// Core's anyone-refund of a car that left and was never settled.
+    fn refund_car(&mut self, car: &Car) -> Result<(), Failed> {
+        let i = ix(
+            tesoro_core::ID,
+            tesoro_core::accounts::RefundManySeatMatch {
+                caller: a(self.oracle.pubkey()),
+                payer: a(self.oracle.pubkey()),
+                game_record: game_record(),
+                game_program: railcar::ID,
+                program_data: program_data(),
+                match_state: car.tesoro,
+                receipt: receipt(car.tesoro),
+                system_program: anchor_lang::system_program::ID,
+                event_authority: tpda(&[b"__event_authority"]),
+                program: tesoro_core::ID,
+            },
+            tesoro_core::instruction::RefundManySeatMatch {},
+            vec![],
+        );
+        let payer = self.oracle.insecure_clone();
+        self.send(&[i], &payer, &[])
+    }
+
+    fn create_fuel(&mut self, n: u8, lamports: u64) -> APk {
+        let op = self.operator.insecure_clone();
+        let fuel = rpda(&[railcar::state::FUEL_SEED, &[n]]);
+        let i = ix(
+            railcar::ID,
+            railcar::accounts::CreateFuel {
+                operator: a(op.pubkey()),
+                config: config_addr(),
+                fuel,
+                system_program: anchor_lang::system_program::ID,
+            },
+            railcar::instruction::CreateFuel { n, lamports },
+            vec![],
+        );
+        self.send(&[i], &op, &[]).expect("create fuel");
+        fuel
+    }
+
+    fn refill(&mut self, signer: &Keypair, fuel: APk, amount: u64) -> Result<(), Failed> {
+        let i = ix(
+            railcar::ID,
+            railcar::accounts::RefillSponsor {
+                operator: a(signer.pubkey()),
+                config: config_addr(),
+                fuel,
+                sponsor: sponsor_addr(),
+            },
+            railcar::instruction::RefillSponsor { amount },
+            vec![],
+        );
+        let kp = signer.insecure_clone();
+        self.send(&[i], &kp, &[])
+    }
+
+    fn lamports(&self, k: APk) -> u64 {
+        self.svm.get_account(&s(k)).map_or(0, |acc| acc.lamports)
+    }
+
+    /// Leaves the Sponsor with its rent and nothing to pay a commit with.
+    fn drain_sponsor(&mut self) {
+        let mut acct = self.svm.get_account(&s(sponsor_addr())).expect("sponsor");
+        acct.lamports = self.svm.minimum_balance_for_rent_exemption(acct.data.len());
+        self.svm
+            .set_account(s(sponsor_addr()), acct)
+            .expect("drain");
+    }
+
+    /// One case for the TypeScript `ahead` port, before a chunk: the car's and its pages' raw
+    /// bytes, each seat's lines (source, amount) and what core's `ahead` names for `steps`. A long
+    /// run keeps its first three chunks and every 5th.
+    fn record_ahead(&mut self, car: &Car, steps: u8) {
+        if self.ahead_cases.is_none() {
+            return;
+        }
+        let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+        let key = |k: &[u8; 32]| format!("\"{}\"", APk::new_from_array(*k));
+        let keys = |v: &[[u8; 32]]| v.iter().map(key).collect::<Vec<_>>().join(",");
+        let nums = |v: &[u8]| v.iter().map(u8::to_string).collect::<Vec<_>>().join(",");
+        let st = self.core_car(car);
+        let (seats, lines) = self.seats_and_lines(car);
+        let plan = st.inner.ahead(&seats, &lines, steps as usize);
+        let chunk_no = self.ahead_seen;
+        self.ahead_seen += 1;
+        if chunk_no >= 3 && !chunk_no.is_multiple_of(5) {
+            return;
+        }
+        let raw = self.svm.get_account(&s(car.tesoro)).expect("car").data;
+        let pages: Vec<String> = (0..st.inner.pages)
+            .map(|p| {
+                let d = self
+                    .svm
+                    .get_account(&s(page_pda(car.tesoro, p)))
+                    .expect("page")
+                    .data;
+                format!("\"{}\"", hex(&d))
+            })
+            .collect();
+        let seat_lines: Vec<String> = lines
+            .iter()
+            .map(|ls| {
+                let l: Vec<String> = ls
+                    .iter()
+                    .map(|x| format!("[{},\"{}\"]", key(&x.source), x.amount))
+                    .collect();
+                format!("[{}]", l.join(","))
+            })
+            .collect();
+        let case = format!(
+            "{{\"chunk\":{chunk_no},\"steps\":{steps},\"match\":\"{}\",\"pages\":[{}],\"lines\":[{}],\"ahead\":{{\"pages\":[{}],\"seats\":[{}],\"owners\":[{}],\"sources\":[{}],\"cutSources\":[{}]}}}}",
+            hex(&raw),
+            pages.join(","),
+            seat_lines.join(","),
+            nums(&plan.pages),
+            nums(&plan.seats),
+            keys(&plan.owners),
+            keys(&plan.sources),
+            keys(&plan.cut_sources),
+        );
+        if let Some(c) = self.ahead_cases.as_mut() {
+            c.push(case);
+        }
+    }
+
+    /// Writes the recorded `ahead` cases to `<dir>/ahead-<name>.json`.
+    fn write_ahead_fixture(&mut self, name: &str) {
+        let (Ok(dir), Some(cases)) = (
+            std::env::var("TESORO_RAILCAR_FIXTURE"),
+            self.ahead_cases.take(),
+        ) else {
+            return;
+        };
+        std::fs::create_dir_all(&dir).expect("fixture dir");
+        std::fs::write(
+            format!("{dir}/ahead-{name}.json"),
+            format!("{{\"cases\":[\n{}\n]}}\n", cases.join(",\n")),
+        )
+        .expect("ahead fixture");
+    }
+
+    /// With `TESORO_RAILCAR_FIXTURE=<dir>` set, writes the riders and the event CPIs of the last
+    /// transaction (a `finalize`) to `<dir>/<name>.json` for the keeper's Points tests. Railcar's
+    /// own `RideSettled` is left out: the file stands for core's events.
+    fn write_events_fixture(&self, name: &str, riders: &[Person]) {
+        let Ok(dir) = std::env::var("TESORO_RAILCAR_FIXTURE") else {
+            return;
+        };
+        let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+        let ours = railcar::RideSettled::DISCRIMINATOR;
+        let events: Vec<String> = self
+            .last_events
+            .iter()
+            .filter(|e| e.len() < 16 || &e[8..16] != ours)
+            .map(|e| format!("\"{}\"", hex(e)))
+            .collect();
+        let who: Vec<String> = riders
+            .iter()
+            .map(|p| format!("\"{}\"", p.account))
+            .collect();
+        std::fs::create_dir_all(&dir).expect("fixture dir");
+        std::fs::write(
+            format!("{dir}/{name}.json"),
+            format!(
+                "{{\"riders\":[{}],\"events\":[{}]}}\n",
+                who.join(","),
+                events.join(",")
+            ),
+        )
+        .expect("fixture");
+    }
+}
+
+#[test]
+fn an_outage_voids_the_ride_and_refunds_every_entry_with_no_fee() {
+    let draw = draw_where(|r| r.crash_ms >= 60_000);
+    let (mut env, car, riders) = riding(draw);
+    let before: Vec<u64> = riders.iter().map(|p| env.gemas(p)).collect();
+    let studio_before = env.fee_gemas(&env.studio);
+    env.at_ride(car.table, 25.0);
+    env.jump(car.table, &riders[ANA]).expect("jump");
+    // the validator stops for 8 s: Ben's Jump is the first transaction after, 10 slots later
+    let (slot, now) = (env.slot, env.now);
+    env.set_clock(slot + 10, now + 8);
+    env.jump(car.table, &riders[BEN])
+        .expect("the Jump lands and voids the ride");
+    let t = env.table(car.table);
+    assert_eq!(
+        (t.phase, t.outcome, t.reason, t.jumps, t.dirty),
+        (
+            PHASE_OVER,
+            OUTCOME_REFUND,
+            railcar::state::REASON_OUTAGE,
+            1,
+            0
+        )
+    );
+    let ben = env.seat_of(car.table, &riders[BEN]);
+    assert!(
+        t.seats[usize::from(ben)].aboard(),
+        "Ben's Jump is not recorded"
+    );
+    assert_eq!(
+        settle_deltas(&mut env, &car, &riders, &before),
+        vec![500; 5],
+        "Ana jumped before the outage and still gets her whole entry"
+    );
+    assert_eq!(env.fee_gemas(&env.studio), studio_before, "no Studio Fee");
+    env.write_events_fixture("outage", &riders);
+}
+
+#[test]
+fn an_outage_is_judged_before_the_impact() {
+    let draw = draw_where(|r| (30_000..60_000).contains(&r.crash_ms));
+    let (mut env, car, riders) = riding(draw);
+    env.at_ride(car.table, 12.0);
+    env.jump(car.table, &riders[ANA]).expect("jump");
+    // the rollup crawls at 40 slots a second until past the Impact: the first signal there
+    // finds the slow stretch, not the wall
+    let (slot, now) = (env.slot, env.now);
+    let impact = env.impact_slot(car.table);
+    let secs = ((impact - slot) / 40 + 1) as i64;
+    env.set_clock(impact + 1, now + secs);
+    env.signal(car.table).expect("signal");
+    let t = env.table(car.table);
+    assert_eq!(
+        (t.outcome, t.reason),
+        (OUTCOME_REFUND, railcar::state::REASON_OUTAGE)
+    );
+}
+
+#[test]
+fn a_rollup_with_jitter_rides_to_the_impact_as_usual() {
+    let draw = draw_where(|r| (30_000..40_000).contains(&r.crash_ms));
+    let (mut env, car, riders) = riding(draw);
+    let (slot0, ts0) = (env.slot, env.now);
+    // 70 slots a second on average, in uneven steps, the clock in whole seconds; a signal every
+    // 0.3 s from one page, Ana Jumps 20 s in
+    let (mut real, mut k, mut jumped) = (0.0f64, 0u64, false);
+    while env.table(car.table).phase == PHASE_RIDING {
+        k += 1;
+        real += 0.3;
+        let wobble = [0.0, 0.25, -0.2, 0.1][(k % 4) as usize];
+        let slot = slot0 + ((real + wobble * 0.3) * 70.0) as u64;
+        env.set_clock(slot.max(env.slot), ts0 + real.floor() as i64);
+        if real >= 20.0 && !jumped {
+            jumped = true;
+            env.jump(car.table, &riders[ANA]).expect("jump");
+        } else {
+            env.signal(car.table).expect("signal");
+        }
+        assert!(k < 1_000, "the ride never ended");
+    }
+    let t = env.table(car.table);
+    assert_eq!(
+        (t.outcome, t.reason, t.jumps),
+        (OUTCOME_PLACED, railcar::state::REASON_PLAYED, 1)
+    );
+}
+
+#[test]
+fn a_ride_every_page_left_ends_at_its_impact_from_anyones_late_signal() {
+    let draw = draw_where(|r| (30_000..60_000).contains(&r.crash_ms));
+    let (mut env, car, riders) = riding(draw);
+    let before: Vec<u64> = riders.iter().map(|p| env.gemas(p)).collect();
+    env.at_ride(car.table, 12.0);
+    env.jump(car.table, &riders[ANA]).expect("jump");
+    // every page closed; the keeper's safety sweep signals 15 minutes later (healthy rollup)
+    env.set_time(env.now + 15 * 60);
+    env.signal(car.table).expect("the sweep's signal");
+    let t = env.table(car.table);
+    assert_eq!(
+        (t.phase, t.outcome, t.reason),
+        (PHASE_OVER, OUTCOME_PLACED, railcar::state::REASON_PLAYED)
+    );
+    assert_eq!(
+        t.over_ms(),
+        env.vault(car.table).crash_ms,
+        "ends where the wall was"
+    );
+    env.finalize(&car).expect("finalize");
+    env.write_events_fixture("one-jumper", &riders);
+    env.run_car(&car);
+    let deltas: Vec<i64> = riders
+        .iter()
+        .zip(&before)
+        .map(|(p, b)| env.gemas(p) as i64 - *b as i64)
+        .collect();
+    // Ana, the one Jumper, takes everything after fees (as in one_jumper)
+    assert_eq!(deltas, vec![2_350, 0, 0, 0, 0]);
+}
+
+#[test]
+fn a_missing_draw_is_asked_again_every_twenty_seconds_and_at_most_three_times() {
+    let mut env = Env::new(2);
+    let (car, _riders) = boarded(&mut env, 5);
+    env.set_time(env.now + COUNTDOWN_SECS);
+    env.check(&car).expect("depart");
+    env.start_ride(&car).expect("start");
+    let table = car.table;
+    let started = env.table(table).started_slot();
+    let retry = railcar::state::DRAW_RETRY_SLOTS;
+    let not_due = rcode(railcar::RailcarError::DrawNotDue);
+    env.set_slot(started + retry - 1);
+    assert_eq!(code(&env.request_draw(table).unwrap_err()), not_due);
+    env.set_slot(started + retry);
+    env.request_draw(table).expect("second request");
+    let t = env.table(table);
+    assert_eq!((t.req_count, t.req_nonce(), t.req_pending), (2, 1, 1));
+    // the answer to the first request is no longer accepted
+    let stale = env.callback_for(table, 0, [7; 32]).unwrap_err();
+    assert_eq!(code(&stale), rcode(railcar::RailcarError::StaleRequest));
+    env.set_slot(started + 2 * retry);
+    env.request_draw(table).expect("third request");
+    env.set_slot(started + 3 * retry);
+    assert_eq!(
+        code(&env.request_draw(table).unwrap_err()),
+        not_due,
+        "three in all"
+    );
+    env.callback(table, [7; 32]).expect("the third answer");
+    assert_eq!(env.table(table).phase, PHASE_RIDING);
+    env.set_slot(started + 4 * retry);
+    assert_eq!(
+        code(&env.request_draw(table).unwrap_err()),
+        not_due,
+        "never once the draw is in"
+    );
+}
+
+#[test]
+fn a_draw_request_past_the_window_is_refused() {
+    let mut env = Env::new(2);
+    let (car, _riders) = boarded(&mut env, 5);
+    env.set_time(env.now + COUNTDOWN_SECS);
+    env.check(&car).expect("depart");
+    env.start_ride(&car).expect("start");
+    let started = env.table(car.table).started_slot();
+    env.set_slot(started + railcar::state::DRAW_WINDOW_SLOTS + 1);
+    let err = env.request_draw(car.table).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::DrawNotDue));
+}
+
+#[test]
+fn a_commit_is_repeated_only_after_its_doubling_wait_while_the_result_is_young() {
+    let draw = draw_where(|r| r.crash_ms >= 30_000);
+    let (mut env, car, _riders) = riding(draw);
+    end_by_signal(&mut env, &car);
+    let table = car.table;
+    let not_due = rcode(railcar::RailcarError::CommitNotDue);
+    let over_at = env.table(table).over_at();
+    assert_eq!(env.table(table).commit_tries, 1);
+    assert_eq!(code(&env.commit_table(table).unwrap_err()), not_due);
+    let retry = table_kit::COMMIT_RETRY_SECS;
+    env.set_time(over_at + retry);
+    env.commit_table(table).expect("first repeat");
+    assert_eq!(env.table(table).commit_tries, 2);
+    env.set_time(over_at + 2 * retry);
+    assert_eq!(
+        code(&env.commit_table(table).unwrap_err()),
+        not_due,
+        "the wait doubled"
+    );
+    env.set_time(over_at + 3 * retry);
+    env.commit_table(table).expect("second repeat");
+    env.set_time(over_at + table_kit::COMMIT_WINDOW_SECS);
+    assert_eq!(
+        code(&env.commit_table(table).unwrap_err()),
+        not_due,
+        "an old result is not committed again"
+    );
+}
+
+#[test]
+fn a_ride_that_ends_with_a_dry_sponsor_is_committed_after_a_refill() {
+    let draw = draw_where(|r| r.crash_ms >= 30_000);
+    let (mut env, car, _riders) = riding(draw);
+    env.drain_sponsor();
+    let impact = env.impact_slot(car.table);
+    env.set_slot(impact);
+    env.signal(car.table)
+        .expect("the ride ends even with no Sponsor money");
+    let t = env.table(car.table);
+    assert_eq!((t.phase, t.dirty), (PHASE_OVER, 1), "owed its first commit");
+    let dry = env.commit_table(car.table).unwrap_err();
+    assert_eq!(code(&dry), rcode(railcar::RailcarError::SponsorDry));
+    let fuel = env.create_fuel(0, 2 * SOL);
+    let op = env.operator.insecure_clone();
+    env.refill(&op, fuel, SOL).expect("refill");
+    env.commit_table(car.table).expect("the owed commit");
+    assert_eq!(env.table(car.table).dirty, 0);
+    env.finalize(&car).expect("base has the result");
+}
+
+#[test]
+fn only_the_operator_refills_the_sponsor_and_the_fuel_keeps_its_rent() {
+    let mut env = Env::new(2);
+    let fuel = env.create_fuel(3, SOL);
+    let stranger = Keypair::new();
+    env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
+    let err = env.refill(&stranger, fuel, 1_000).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::NotOperator));
+    let op = env.operator.insecure_clone();
+    let (fuel_before, sponsor_before) = (env.lamports(fuel), env.lamports(sponsor_addr()));
+    let err = env.refill(&op, fuel, fuel_before).unwrap_err();
+    assert_eq!(
+        code(&err),
+        rcode(railcar::RailcarError::Overflow),
+        "keeps rent"
+    );
+    env.refill(&op, fuel, SOL / 2).expect("refill");
+    assert_eq!(env.lamports(fuel), fuel_before - SOL / 2);
+    assert_eq!(env.lamports(sponsor_addr()), sponsor_before + SOL / 2);
+}
+
+#[test]
+fn a_car_closes_only_once_core_froze_it_and_its_rent_goes_back() {
+    let mut env = Env::new(2);
+    let (car, riders) = boarded(&mut env, 5);
+    env.set_time(env.now + COUNTDOWN_SECS);
+    env.check(&car).expect("depart");
+    let c: railcar::state::Car = env.load(car.key);
+    let err = env.close_car(&car).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::NotFrozen));
+    // nobody ever started the ride: 24 h after departure anyone refunds it through core
+    env.set_time(env.now + tesoro_core::ledger::many_seat::REFUND_AFTER_SECS);
+    env.refund_car(&car).expect("core refund");
+    let payer_before = env.lamports(c.payer);
+    let rent = env.lamports(car.key);
+    env.close_car(&car).expect("close car");
+    assert_eq!(env.lamports(car.key), 0);
+    assert_eq!(env.lamports(c.payer), payer_before + rent);
+    let before: Vec<u64> = riders.iter().map(|p| env.gemas(p)).collect();
+    env.run_car(&car);
+    let after: Vec<u64> = riders.iter().map(|p| env.gemas(p)).collect();
+    assert!(after.iter().zip(&before).all(|(a, b)| a - b == 500));
 }
