@@ -851,6 +851,7 @@ impl Env {
                 backer_basket: None,
                 backer_spill: None,
                 funder_mark: None,
+                seat_signer: p.key,
             },
             tesoro_core::instruction::JoinManySeatMatch {
                 pot_nonce: nonce,
