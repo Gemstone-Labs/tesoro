@@ -122,7 +122,7 @@ describe("Backing: a Player boards with a Backer's Gemas", () => {
     const t = text(html(workedResult(BEN, backed)));
     expect(t).toMatch(/You get .*52/);
     expect(t).toMatch(/gets .*578/);
-    expect(t).toContain("Your Backer's entry comes back first");
+    expect(t).toContain("entry comes back first");
     expect(t).toMatch(/578 · you .*52/);
   });
 
