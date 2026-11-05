@@ -5,6 +5,9 @@
 import type { RideReason } from "../../games/railcar/chain";
 import { hexToBytes } from "../../games/railcar/engine";
 import type { RideRecord } from "../../games/railcar/replay";
+import { rideLine } from "../../games/railcar/words";
+import { fmtGemas } from "../format";
+import type { HistoryRow } from "./history";
 
 export interface StoredRide {
   carNo: string;
@@ -57,4 +60,23 @@ export function rideRoles(r: StoredRide): Map<number, RideRole> {
       return [s.seat, s.order === 0 ? { seated, kind: "aboard" } : { seated, kind: "early", jumpMs: s.jumpMs }];
     }),
   );
+}
+
+/**
+ * The ride a used Railcar Offer funded, from its Backer's history: the newest ride the Backer funded for the Offer's
+ * Player that opened before the Offer's use-by (a car can open before the Offer is accepted, never after it lapses).
+ */
+export function rideOfOffer(rows: HistoryRow[], offer: { player: string; useBy: number }): HistoryRow | null {
+  return rows.filter((r) => r.game === "railcar" && r.role === "backer" && r.backing?.other === offer.player && r.at <= offer.useBy * 1000).reduce<HistoryRow | null>((best, r) => (!best || r.at > best.at ? r : best), null);
+}
+
+/** What a ride did with the Backer's Gemas: the entry back first, then their share of any winnings. */
+export function backerRideLine(r: HistoryRow): string {
+  const entry = fmtGemas(r.entry);
+  const ride = r.ride;
+  if (!ride || ride.kind === "refund") return `Ride refunded: your ${entry} back`;
+  const how = rideLine(ride);
+  if (ride.kind === "place") return `${how}: your ${entry} back, then +${fmtGemas(r.delta)} of the winnings`;
+  if (ride.kind === "early") return `${how}: ${fmtGemas(r.entry + r.delta)} of your ${entry} back`;
+  return `${how}: your ${entry} is lost`;
 }
