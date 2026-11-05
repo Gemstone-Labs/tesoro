@@ -1,4 +1,5 @@
 import { HISTORY_PAGE, type HistoryRow } from "@/lib/chain/history";
+import type { StoredRide } from "@/lib/chain/ride-history";
 import { HIDDEN_GAMES } from "@/lib/games";
 import type { Win } from "@/lib/chain/season";
 import { matchKeyOf, type MatchKey } from "./match-key";
@@ -31,7 +32,10 @@ export interface MatchPage {
   fees: { platform: number; studio: number; leaderboard: number };
   chunks: number;
   scores: [number, number] | null;
-  parties: { account: string; role: "player" | "backer"; side: 0 | 1; result: string; delta: number; backingOther: string | null; shareBps: number | null }[];
+  /** `side` is the core seat on a ride. */
+  parties: { account: string; role: "player" | "backer"; side: number; result: string; delta: number; backingOther: string | null; shareBps: number | null }[];
+  /** A Railcar ride: everything it revealed, to replay it. */
+  ride?: StoredRide;
 }
 
 /** The Match page of a Match whose run has started, or null while it is unknown to the history. */
@@ -47,6 +51,8 @@ export interface WinCard {
   winner: string;
   /** Gemas the winner gained, net of Fees; 0 when a Backing share leaves the Player nothing. */
   gemas: number;
+  /** A Railcar ride's card: the winner is its last Player off. */
+  ride?: StoredRide;
 }
 
 /** The card of a settled Match with a winner, or null for any other Match. */

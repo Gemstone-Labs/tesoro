@@ -3,6 +3,8 @@ import type { IdlField } from "@coral-xyz/anchor/dist/cjs/idl";
 import { PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
 import coreIdl from "../../lib/chain/idl/tesoro_core.json";
+import railcarIdl from "../../lib/chain/idl/railcar.json";
+import type { StoredRide } from "../../lib/chain/ride-history";
 
 const CORE = new PublicKey((coreIdl as { address: string }).address);
 const EVENT_AUTHORITY = PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], CORE)[0].toBase58();
@@ -10,6 +12,10 @@ const EVENT_AUTHORITY = PublicKey.findProgramAddressSync([Buffer.from("__event_a
 const EVENT_TAG = Buffer.from("e445a52e51cb9a1d", "hex");
 /** Decoded event fields keep the IDL's snake_case names. */
 const coder = new anchor.BorshEventCoder(coreIdl as anchor.Idl);
+/** Railcar: its `finalize` reveals the ride (event-CPI under Railcar's own event authority). */
+const RAILCAR = new PublicKey((railcarIdl as { address: string }).address);
+const RAILCAR_EVENT_AUTHORITY = PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], RAILCAR)[0].toBase58();
+const railcarCoder = new anchor.BorshEventCoder(railcarIdl as anchor.Idl);
 // sha256("event:<name>")[..8], pinned independently of the IDL so a missing IDL event fails closed.
 const CHUNK_DISC = "f9dcbc7080eb500a";
 const LINE_DISCS = new Set(["2c6817949b2b6a55", CHUNK_DISC]);
@@ -110,7 +116,26 @@ export interface MatchLinesProgressRecord {
   type: "lines-progress"; opener: string; n: bigint; version: number; chunkNo: number; cumulativeSteps: number; done: boolean;
 }
 export type MatchLineRecord = MatchLinesStartedRecord | MatchLineStepRecord | MatchLinesProgressRecord;
-export type MatchRecord = (MatchRunStartedRecord | MatchWonRecord | MatchChunkRecord | MatchSettledRecord | MatchLineRecord) & { coreEvent?: string };
+/**
+ * The start of a many-seat Match's run (`ManySeatRunStarted`) with its paid places, and, for a Railcar ride finalized in
+ * the same transaction, the ride Railcar revealed (null otherwise: a refund core ran on its own names no seat).
+ */
+export interface ManySeatStartRecord {
+  type: "seats-start";
+  opener: string;
+  n: bigint;
+  game: string;
+  /** 0 win, 4 abandoned, 5 Game upgraded, 6 refunded by the Game. */
+  kind: number;
+  entry: number;
+  fees: [number, number, number];
+  seated: number;
+  /** MatchWon's open time when the transaction has one, else the run's start. */
+  openedAt: number;
+  ts: number;
+  ride: StoredRide | null;
+}
+export type MatchRecord = (MatchRunStartedRecord | MatchWonRecord | MatchChunkRecord | MatchSettledRecord | MatchLineRecord | ManySeatStartRecord) & { coreEvent?: string };
 
 const ZERO = PublicKey.default.toBase58();
 const opt = (k: string) => (k === ZERO ? null : k);
@@ -179,6 +204,43 @@ function toRecord(name: string, d: any): MatchRecord | null {
   }
 }
 
+const RIDE_OUTCOMES = { 1: "placed", 2: "refund" } as const;
+const RIDE_REASONS = ["none", "played", "nobody-jumped", "no-draw", "outage"] as const;
+const hex = (b: ArrayLike<number>) => Buffer.from(Uint8Array.from(b)).toString("hex");
+
+/** Railcar's `RideSettled` in this transaction, when Railcar itself emitted it (its program id and event authority). */
+function rideSettledOf(inner: InnerInstruction[]): any | null {
+  for (const ix of inner) {
+    if (ix.programId !== RAILCAR.toBase58() || ix.accounts[0] !== RAILCAR_EVENT_AUTHORITY) continue;
+    const data = Buffer.from(ix.data);
+    if (data.length <= 8 || !data.subarray(0, 8).equals(EVENT_TAG)) continue;
+    try {
+      const event = railcarCoder.decode(data.subarray(8).toString("base64"));
+      if (event?.name === "RideSettled") return event.data;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+/** The ride a Railcar `finalize` revealed, held to core's own records of the same transaction (same Match, Railcar's, same seats). */
+function storedRide(settled: any, run: any, placed: any[]): StoredRide | null {
+  const outcome = RIDE_OUTCOMES[settled.outcome as 1 | 2];
+  if (!outcome || key(settled.tesoro_match) !== key(run.match_state) || key(run.game) !== RAILCAR.toBase58() || settled.seats.length !== run.seated) return null;
+  const draw = Uint8Array.from(settled.draw);
+  return {
+    carNo: settled.car_no.toString(),
+    outcome,
+    reason: RIDE_REASONS[settled.reason] ?? "none",
+    draw: draw.some((b) => b !== 0) ? hex(draw) : null,
+    brakes: settled.brakes.map((b: any) => ({ seat: b.seat, ms: b.ms })),
+    seats: settled.seats.map((s: any) => ({ seat: s.seat, player: key(s.player), funder: key(s.funder), shareBps: s.share_bps, order: s.order, jumpMs: s.jump_ms, refund: num(s.refund) })),
+    places: placed.map((p) => ({ place: p.place, seat: p.seat, player: key(p.player), funder: key(p.funder), shareBps: p.share_bps, won: num(p.won) })),
+    fees: [num(run.fees[0]), num(run.fees[1]), num(run.fees[2])],
+  };
+}
+
 /**
  * The Match records among a transaction's inner instructions. Only an event-CPI that tesoro_core itself
  * issued counts: the instruction's program is tesoro_core and its first account is core's event-authority
@@ -187,6 +249,10 @@ function toRecord(name: string, d: any): MatchRecord | null {
  */
 export function decodeMatchRecords(inner: InnerInstruction[]): MatchRecord[] {
   const out: MatchRecord[] = [];
+  let run: any = null;
+  let runAt = 0;
+  let wonAt: number | null = null;
+  const placed: any[] = [];
   for (const ix of inner) {
     if (ix.programId !== CORE.toBase58() || ix.accounts[0] !== EVENT_AUTHORITY) continue;
     const data = Buffer.from(ix.data);
@@ -216,6 +282,16 @@ export function decodeMatchRecords(inner: InnerInstruction[]): MatchRecord[] {
     if (lineEvent && !event) throw new Error("Source-line event missing from core IDL; history cursor must wait");
     const prefix = event && toRecord(event.name, event.data);
     if (prefix) out.push({ ...prefix, coreEvent: data.toString("base64") });
+    if (event?.name === "ManySeatRunStarted") {
+      runAt = out.length;
+      run = event.data;
+    } else if (event?.name === "ManySeatPlaced") placed.push(event.data);
+    else if (event?.name === "MatchWon") wonAt = num(event.data.opened_at);
+    else if (event?.name === "ManySeatSettled" || event?.name === "ManySeatChunkDone") {
+      const d = event.data;
+      const id = { opener: key(d.opener), n: BigInt(d.n.toString()) };
+      out.push(event.name === "ManySeatSettled" ? { type: "settled", ...id, kind: d.kind, chunks: d.chunks } : { type: "chunk", ...id, chunkNo: d.chunk_no, steps: d.steps, done: d.done, blocked: d.blocked });
+    }
     if (sourceChunk && event?.name === "MatchChunkDone") {
       const d = event.data;
       if (d.record_version !== 1 || !Array.isArray(d.lines) || d.lines.length !== d.steps) throw new Error("Source-line chunk missing from core IDL; history cursor must wait");
@@ -227,6 +303,22 @@ export function decodeMatchRecords(inner: InnerInstruction[]): MatchRecord[] {
       if (d.steps > 0) out.push({ type: "lines-progress", opener: key(d.opener), n: BigInt(d.n.toString()), version: d.record_version,
         chunkNo: d.chunk_no, cumulativeSteps: d.first_step + d.steps - 1, done: d.done, coreEvent: data.toString("base64") });
     }
+  }
+  if (run) {
+    const settled = rideSettledOf(inner);
+    out.splice(runAt, 0, {
+      type: "seats-start",
+      opener: key(run.opener),
+      n: BigInt(run.n.toString()),
+      game: key(run.game),
+      kind: run.kind,
+      entry: num(run.entry),
+      fees: [num(run.fees[0]), num(run.fees[1]), num(run.fees[2])],
+      seated: run.seated,
+      openedAt: wonAt ?? num(run.ts),
+      ts: num(run.ts),
+      ride: settled ? storedRide(settled, run, placed.sort((a, b) => a.place - b.place)) : null,
+    });
   }
   return out;
 }

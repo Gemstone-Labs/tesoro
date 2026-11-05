@@ -2,6 +2,7 @@ import { fmtGemas } from "../format";
 import type { GameId, MatchResult } from "../mock/types";
 import { backerDelta, matchDelta, seatResult } from "./ledger";
 import type { ChainMatch } from "./read";
+import type { RideRole } from "./ride-history";
 
 /** One finished Match in an Account's history, as a Player or as the Backer who funded it. */
 export interface HistoryRow {
@@ -25,6 +26,8 @@ export interface HistoryRow {
   asset: number | null;
   /** What the Backer of this Player's side gained (+) or lost (−); present on rows read from the Match history, null for an unbacked Match. */
   backerDelta?: number | null;
+  /** A Railcar ride: this seat's part in it. */
+  ride?: RideRole;
 }
 
 /** The history row of a finished Match, or null while it is unfinished or its result is not read yet. */

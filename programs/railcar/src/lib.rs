@@ -47,7 +47,7 @@ use table_kit::{
     SeatKeys, COMMIT_WINDOW_SECS, DELEGATION_PROGRAM,
 };
 use tesoro_core::{
-    ledger::many_seat::{seat_index, ManyStage, SeatState},
+    ledger::many_seat::{seat_index, ManyStage, Seat, SeatState},
     state::{
         Config as CoreConfig, EconomyConfig, GameRecord, ManySeatMatch, SeatPage, TesoroAccount,
         ACCOUNT_SEED, CONFIG_SEED as CORE_CONFIG_SEED, COUNTERS_SEED, ECONOMY_SEED, GAME_SEED,
@@ -182,6 +182,27 @@ pub struct RideSettled {
     /// The reveal, for the round history: the draw (zero when it never came) and every Brake.
     pub draw: [u8; 32],
     pub brakes: Vec<RevealedBrake>,
+    /// Every seated Player, so the history can name each one and replay the ride.
+    pub seats: Vec<RevealedSeat>,
+}
+
+/// One seated Player of a finished ride.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct RevealedSeat {
+    /// The core seat index.
+    pub seat: u8,
+    /// 0 aboard at Impact, else the place in the Jump order (1 = first off).
+    pub order: u8,
+    /// Ride ms of the Jump (0 aboard).
+    pub jump_ms: u32,
+    /// Gemas of the entry the result refunds.
+    pub refund: u64,
+    /// The Player's core Account.
+    pub player: Pubkey,
+    /// Who funded the entry: the Backer of a backed seat, else the Player.
+    pub funder: Pubkey,
+    /// A backed seat's Player share of the winnings (the Offer's), in bps.
+    pub share_bps: u16,
 }
 
 /// One Player's Brake, made public with the ride's end.
@@ -230,13 +251,13 @@ fn still_boarding(info: &AccountInfo, now: i64) -> Result<bool> {
     Ok(car.inner.stage() == ManyStage::Boarding && now < car.inner.boarding_ends())
 }
 
-/// Calls `f(core seat index, player Account)` for every seated seat of the car, page by page.
+/// Calls `f(core seat index, core seat)` for every seated seat of the car, page by page.
 /// Every one of the car's `pages` pages must be among `infos`.
 fn for_each_seated(
     infos: &[AccountInfo],
     match_key: &Pubkey,
     pages: u8,
-    mut f: impl FnMut(u8, [u8; 32]) -> Result<()>,
+    mut f: impl FnMut(u8, &Seat) -> Result<()>,
 ) -> Result<()> {
     for p in 0..pages {
         let info = infos
@@ -247,7 +268,7 @@ fn for_each_seated(
         let page: &SeatPage = bytemuck::from_bytes(&data[8..SeatPage::SPACE]);
         for (slot, seat) in page.seats.iter().enumerate() {
             if seat.state() == SeatState::Seated {
-                f(seat_index(p, slot), seat.player())?;
+                f(seat_index(p, slot), seat)?;
             }
         }
     }
@@ -593,7 +614,7 @@ pub mod railcar {
         let car = &ctx.accounts.car;
         let match_key = car.tesoro_match;
         let (pages, seated) = car_shape(&ctx.accounts.match_state.to_account_info())?;
-        let (result, outcome, reason, draw, brakes) = {
+        let (result, outcome, reason, draw, brakes, seats) = {
             let info = ctx.accounts.table.to_account_info();
             require!(
                 info.owner == &DELEGATION_PROGRAM || info.owner == &ID,
@@ -619,23 +640,36 @@ pub mod railcar {
                     && t.seated == seated,
                 RailcarError::BadTable
             );
-            let mut n = 0usize;
-            for_each_seated(ctx.remaining_accounts, &match_key, pages, |seat, player| {
-                let s = t.seats.get(n).ok_or(RailcarError::SeatsDiffer)?;
-                require!(
-                    s.seat == seat && s.account == player,
-                    RailcarError::SeatsDiffer
-                );
-                n += 1;
-                Ok(())
-            })?;
-            require!(n == usize::from(seated), RailcarError::SeatsDiffer);
+            let mut seats = Vec::with_capacity(usize::from(seated));
+            for_each_seated(
+                ctx.remaining_accounts,
+                &match_key,
+                pages,
+                |seat, core| {
+                    let s = t.seats.get(seats.len()).ok_or(RailcarError::SeatsDiffer)?;
+                    require!(
+                        s.seat == seat && s.account == core.player(),
+                        RailcarError::SeatsDiffer
+                    );
+                    seats.push(RevealedSeat {
+                        seat,
+                        order: s.order,
+                        jump_ms: s.jump_ms(),
+                        refund: s.refund(),
+                        player: Pubkey::new_from_array(core.player()),
+                        funder: Pubkey::new_from_array(core.funder()),
+                        share_bps: core.share_bps(),
+                    });
+                    Ok(())
+                },
+            )?;
+            require!(seats.len() == usize::from(seated), RailcarError::SeatsDiffer);
             let result = ride::result(t).ok_or(RailcarError::BadTable)?;
             let brakes = t.seats[..usize::from(t.seated)]
                 .iter()
                 .filter_map(|s| s.brake_ms().map(|ms| RevealedBrake { seat: s.seat, ms }))
                 .collect::<Vec<_>>();
-            (result, t.outcome, t.reason, t.reveal_draw, brakes)
+            (result, t.outcome, t.reason, t.reveal_draw, brakes, seats)
         };
         let bump = [ctx.bumps.authority];
         let signer: &[&[&[u8]]] = &[&[AUTHORITY_SEED, &bump]];
@@ -665,6 +699,7 @@ pub mod railcar {
             reason,
             draw,
             brakes,
+            seats,
         });
         Ok(())
     }
@@ -756,10 +791,10 @@ pub mod railcar {
                 RailcarError::WrongCar
             );
             let mut n = 0usize;
-            for_each_seated(ctx.remaining_accounts, &match_key, pages, |seat, player| {
+            for_each_seated(ctx.remaining_accounts, &match_key, pages, |seat, core| {
                 let s = t.seats.get_mut(n).ok_or(RailcarError::Overflow)?;
                 s.seat = seat;
-                s.account = player;
+                s.account = core.player();
                 n += 1;
                 Ok(())
             })?;
