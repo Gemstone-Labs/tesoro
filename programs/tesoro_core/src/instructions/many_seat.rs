@@ -312,9 +312,17 @@ pub(crate) fn open_many_seat_match(
     )
     .map_err(seat_err)?;
     {
+        let (_, receipt_bump) = Pubkey::find_program_address(
+            &[
+                crate::ledger::lifecycle::RECEIPT_SEED,
+                ctx.accounts.match_state.key().as_ref(),
+            ],
+            &crate::ID,
+        );
         let mut state = ctx.accounts.match_state.load_init()?;
         state.bump = ctx.bumps.match_state;
         state.inner = rec;
+        state.inner.set_receipt_bump(receipt_bump);
         state.listing_epoch = record.listing_epoch.to_le_bytes();
         state.payer = ctx.accounts.payer.key().to_bytes();
     }

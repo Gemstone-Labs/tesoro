@@ -144,13 +144,13 @@ describe("finishing a ride from the Players' pages", () => {
 
   it("the Players the result pays send the finish; a Player aboard at Impact only watches", () => {
     const me = key();
-    const placed = table({ phase: "over", outcome: "placed", places: [2, 255, 255], seats: [0, 1, 2].map((i) => ({ tableSeat: i, seat: i, order: i === 2 ? 1 : 0, jumpMs: 0, refund: 0n, account: i === 2 ? me : key() })) });
+    const placed = table({ phase: "over", outcome: "placed", places: [2, 255, 255], seats: [0, 1, 2].map((i) => ({ tableSeat: i, seat: i, order: i === 2 ? 1 : 0, jumpMs: 0, refund: 0n, account: i === 2 ? me : key(), signer: PublicKey.default })) });
     expect(mayFinish(placed, me)).toBe(true);
-    const lost = table({ phase: "over", outcome: "placed", places: [2, 255, 255], seats: [0, 1, 2].map((i) => ({ tableSeat: i, seat: i, order: 0, jumpMs: 0, refund: 0n, account: i === 0 ? me : key() })) });
+    const lost = table({ phase: "over", outcome: "placed", places: [2, 255, 255], seats: [0, 1, 2].map((i) => ({ tableSeat: i, seat: i, order: 0, jumpMs: 0, refund: 0n, account: i === 0 ? me : key(), signer: PublicKey.default })) });
     expect(mayFinish(lost, me)).toBe(false);
-    const refunded = table({ phase: "over", outcome: "refund", seats: [{ tableSeat: 0, seat: 0, order: 0, jumpMs: 0, refund: 0n, account: me }] });
+    const refunded = table({ phase: "over", outcome: "refund", seats: [{ tableSeat: 0, seat: 0, order: 0, jumpMs: 0, refund: 0n, account: me, signer: PublicKey.default }] });
     expect(mayFinish(refunded, me)).toBe(true);
-    const early = table({ phase: "over", outcome: "placed", seats: [{ tableSeat: 0, seat: 0, order: 1, jumpMs: 25_000, refund: 350n, account: me }] });
+    const early = table({ phase: "over", outcome: "placed", seats: [{ tableSeat: 0, seat: 0, order: 1, jumpMs: 25_000, refund: 350n, account: me, signer: PublicKey.default }] });
     expect(mayFinish(early, me)).toBe(true);
   });
 });

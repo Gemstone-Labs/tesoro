@@ -45,6 +45,7 @@ use tesoro_core::{
         Config as CoreConfig, EconomyConfig, GameRecord, ManySeatMatch, SeatPage, TesoroAccount,
         ACCOUNT_SEED, CONFIG_SEED as CORE_CONFIG_SEED, COUNTERS_SEED, ECONOMY_SEED, GAME_SEED,
     },
+    util::acts_for,
 };
 
 pub use state::*;
@@ -205,13 +206,14 @@ fn still_boarding(info: &AccountInfo, now: i64) -> Result<bool> {
     Ok(car.inner.stage() == ManyStage::Boarding && now < car.inner.boarding_ends())
 }
 
-/// Calls `f(core seat index, player Account)` for every seated seat of the car, page by page.
+/// Calls `f(core seat index, player Account, seat key)` for every seated seat of the car, page by
+/// page.
 /// Every one of the car's `pages` pages must be among `infos`.
 fn for_each_seated(
     infos: &[AccountInfo],
     match_key: &Pubkey,
     pages: u8,
-    mut f: impl FnMut(u8, [u8; 32]) -> Result<()>,
+    mut f: impl FnMut(u8, [u8; 32], [u8; 32]) -> Result<()>,
 ) -> Result<()> {
     for p in 0..pages {
         let info = infos
@@ -222,7 +224,7 @@ fn for_each_seated(
         let page: &SeatPage = bytemuck::from_bytes(&data[8..SeatPage::SPACE]);
         for (slot, seat) in page.seats.iter().enumerate() {
             if seat.state() == SeatState::Seated {
-                f(seat_index(p, slot), seat.player())?;
+                f(seat_index(p, slot), seat.player(), seat.signer())?;
             }
         }
     }
@@ -580,6 +582,12 @@ pub mod railcar {
                 RailcarError::BadTable
             );
             let t: &Table = bytemuck::from_bytes(&data[8..Table::SPACE]);
+            let at = Pubkey::create_program_address(
+                &[TABLE_SEED, &car.table.to_le_bytes(), &[t.bump]],
+                &ID,
+            )
+            .map_err(|_| error!(RailcarError::BadTable))?;
+            require_keys_eq!(at, *info.key, RailcarError::BadTable);
             require!(
                 t.phase == PHASE_OVER
                     && t.car_no() == car.car_no
@@ -589,15 +597,20 @@ pub mod railcar {
                 RailcarError::BadTable
             );
             let mut n = 0usize;
-            for_each_seated(ctx.remaining_accounts, &match_key, pages, |seat, player| {
-                let s = t.seats.get(n).ok_or(RailcarError::SeatsDiffer)?;
-                require!(
-                    s.seat == seat && s.account == player,
-                    RailcarError::SeatsDiffer
-                );
-                n += 1;
-                Ok(())
-            })?;
+            for_each_seated(
+                ctx.remaining_accounts,
+                &match_key,
+                pages,
+                |seat, player, _| {
+                    let s = t.seats.get(n).ok_or(RailcarError::SeatsDiffer)?;
+                    require!(
+                        s.seat == seat && s.account == player,
+                        RailcarError::SeatsDiffer
+                    );
+                    n += 1;
+                    Ok(())
+                },
+            )?;
             require!(n == usize::from(seated), RailcarError::SeatsDiffer);
             let result = ride::result(t).ok_or(RailcarError::BadTable)?;
             (result, t.outcome, t.reason)
@@ -719,13 +732,19 @@ pub mod railcar {
                 RailcarError::WrongCar
             );
             let mut n = 0usize;
-            for_each_seated(ctx.remaining_accounts, &match_key, pages, |seat, player| {
-                let s = t.seats.get_mut(n).ok_or(RailcarError::Overflow)?;
-                s.seat = seat;
-                s.account = player;
-                n += 1;
-                Ok(())
-            })?;
+            for_each_seated(
+                ctx.remaining_accounts,
+                &match_key,
+                pages,
+                |seat, player, signer| {
+                    let s = t.seats.get_mut(n).ok_or(RailcarError::Overflow)?;
+                    s.seat = seat;
+                    s.account = player;
+                    s.signer = signer;
+                    n += 1;
+                    Ok(())
+                },
+            )?;
             require!(n == usize::from(seated), RailcarError::PagesMissing);
             t.set_car_no(car.car_no);
             t.car = car.key().to_bytes();
@@ -911,7 +930,8 @@ pub mod railcar {
         Ok(())
     }
 
-    /// Rollup, the Player of Table seat `seat` (the wallet of the seat's core Account). Before
+    /// Rollup, the Player of Table seat `seat`: the wallet of the seat's core Account or the
+    /// seat's key (`tesoro_core::util::acts_for`, as core checks a seat's signer). Before
     /// the Impact slot the Player is off: the Jump takes the next place in the order. At or after
     /// it the Jump does not count: the ride ends with the Player aboard. When the last Player
     /// aboard Jumps, the ride ends then. A Jump that finds the rollup stalled (the outage rule)
@@ -928,9 +948,14 @@ pub mod railcar {
                 RailcarError::WrongPhase
             );
             let i = usize::from(seat);
+            require!(i < usize::from(t.seated), RailcarError::NotAPlayer);
+            let s = t.seats[i];
             require!(
-                i < usize::from(t.seated)
-                    && t.seats[i].account == ctx.accounts.player_account.key().to_bytes(),
+                acts_for(
+                    &Pubkey::new_from_array(s.account),
+                    &ctx.accounts.player.key(),
+                    &Pubkey::new_from_array(s.signer)
+                ),
                 RailcarError::NotAPlayer
             );
             if ride::pace(&mut t, clock.slot, clock.unix_timestamp) {
@@ -1260,8 +1285,8 @@ pub struct Finalize<'info> {
     #[account(mut, address = car.payer)]
     pub car_payer: UncheckedAccount<'info>,
     /// CHECK: the car's Table as base holds it (owned by the delegation program while
-    /// delegated); its owner and contents are checked in `finalize`.
-    #[account(seeds = [TABLE_SEED, &car.table.to_le_bytes()], bump)]
+    /// delegated); its address (from its stored bump), owner and contents are checked in
+    /// `finalize`.
     pub table: UncheckedAccount<'info>,
     /// CHECK: the car's core Match; tesoro_core checks it in the settle.
     #[account(mut, address = car.tesoro_match @ RailcarError::WrongCar)]
@@ -1282,13 +1307,9 @@ pub struct Finalize<'info> {
     pub game_program: UncheckedAccount<'info>,
     /// CHECK: this program's ProgramData, checked by tesoro_core.
     pub program_data: UncheckedAccount<'info>,
-    /// CHECK: the settlement receipt, created by tesoro_core at `["settled", match]`.
-    #[account(
-        mut,
-        seeds = [b"settled", car.tesoro_match.as_ref()],
-        bump,
-        seeds::program = tesoro_core::ID
-    )]
+    /// CHECK: the settlement receipt, created by tesoro_core, which checks its address
+    /// `["settled", match]` (deriving it here too would repeat core's bump search).
+    #[account(mut)]
     pub receipt: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
     /// CHECK: tesoro_core's event authority PDA.
@@ -1422,12 +1443,8 @@ pub struct Signal<'info> {
 #[commit]
 #[derive(Accounts)]
 pub struct Jump<'info> {
+    /// The seat's Player: the wallet of its core Account, or the seat key core recorded for it.
     pub player: Signer<'info>,
-    /// The Player's core Account: its wallet must sign.
-    #[account(
-        constraint = player_account.authority == player.key() @ RailcarError::NotAPlayer
-    )]
-    pub player_account: Box<Account<'info, TesoroAccount>>,
     #[account(mut, seeds = [TABLE_SEED, &table.load()?.index], bump = table.load()?.bump)]
     pub table: AccountLoader<'info, Table>,
     #[account(seeds = [VAULT_SEED, table.key().as_ref()], bump = vault.bump)]
