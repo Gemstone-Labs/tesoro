@@ -9,7 +9,7 @@
  * Not run against a deployment yet: Railcar has no devnet program (ticket 15).
  */
 import { AddressLookupTableAccount, ComputeBudgetProgram, Keypair, PublicKey, type Connection, type TransactionInstruction } from "@solana/web3.js";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { accountOfSigner, keypairSigner, type ChainSigner } from "@/games/block-puzzle/chain";
 import { useAccount } from "@/lib/account";
 import { BackingError, backingProblem, fetchOffer, type ChainOffer } from "@/lib/chain/backing";
@@ -141,30 +141,33 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   const pageKey = useRef<ChainSigner>(keypairSigner(Keypair.generate()));
   const stepping = useRef(false);
   const read = useRef<Reader | null>(null);
-  // The Offer as the chain has it (undefined until read; null when it does not exist).
-  const [offer, setOffer] = useState<ChainOffer | null | undefined>(undefined);
+  // The Offer as the chain has it, read for one address (an address that is not a key reads as no Offer).
+  const offerKey = useMemo(() => {
+    try {
+      return offerAddress ? new PublicKey(offerAddress) : null;
+    } catch {
+      return null;
+    }
+  }, [offerAddress]);
+  const [offerRead, setOfferRead] = useState<{ address: string; offer: ChainOffer | null } | null>(null);
   // Read again after every action: boarding or a step-off uses the Offer.
   const [offerReads, setOfferReads] = useState(0);
   useEffect(() => {
-    if (!offerAddress) return;
+    if (!offerKey) return;
     let live = true;
-    let key: PublicKey;
-    try {
-      key = new PublicKey(offerAddress);
-    } catch {
-      setOffer(null);
-      return;
-    }
-    void fetchOffer(key)
+    void fetchOffer(offerKey)
       .catch(() => null)
-      .then((o) => live && setOffer(o));
+      .then((o) => live && setOfferRead({ address: offerKey.toBase58(), offer: o }));
     return () => {
       live = false;
     };
-  }, [offerAddress, offerReads]);
+  }, [offerKey, offerReads]);
+  // undefined while unread; null when there is none.
+  const offer: ChainOffer | null | undefined = !offerAddress ? undefined : !offerKey ? null : offerRead?.address === offerAddress ? offerRead.offer : undefined;
   // Judged once the Offer is read and, for one that exists, once the Player's Account is known.
-  const offerProblem = offerAddress && offer !== undefined && (offer === null || meKey) ? backingProblem(offer, { account: meKey ?? "", game: "railcar", entry: ENTRY_GEMAS, now: Math.floor(Date.now() / 1000) }) : null;
-  const backing: BoardingBacking | null = offer && !offerProblem ? { offer: offer.address, backerAccount: new PublicKey(offer.backer) } : null;
+  const nowSecs = Math.floor(now / 1000);
+  const offerProblem = offerAddress && offer !== undefined && (offer === null || meKey) ? backingProblem(offer, { account: meKey ?? "", game: "railcar", entry: ENTRY_GEMAS, now: nowSecs }) : null;
+  const backing = useMemo<BoardingBacking | null>(() => (offer && !offerProblem ? { offer: offer.address, backerAccount: new PublicKey(offer.backer) } : null), [offer, offerProblem]);
   const backerKey = backing?.backerAccount.toBase58() ?? null;
 
   const tee = useCallback(async () => {

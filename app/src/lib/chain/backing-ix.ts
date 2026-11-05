@@ -3,6 +3,7 @@ import { PublicKey, SystemProgram, type TransactionInstruction } from "@solana/w
 import { basketPda, countersPda, spillPda } from "./basket";
 import { coreIx, CORE_PROGRAM_ID } from "./core-ix";
 import { gameRecordPda } from "./game-record";
+import { u64 } from "./native";
 
 /**
  * The Backing instructions a Player and a Backer sign (tesoro_core `instructions/backing.rs`), built from the IDL with no
@@ -11,16 +12,11 @@ import { gameRecordPda } from "./game-record";
  */
 
 const key = (seeds: Buffer[]) => PublicKey.findProgramAddressSync(seeds, CORE_PROGRAM_ID)[0];
-const le64 = (n: bigint) => {
-  const b = Buffer.alloc(8);
-  b.writeBigUInt64LE(n);
-  return b;
-};
 const accountOf = (authority: PublicKey) => key([Buffer.from("account"), authority.toBuffer()]);
 const protectionsOf = (account: PublicKey) => key([Buffer.from("protections"), account.toBuffer()]);
 
-export const requestPda = (player: PublicKey, nonce: bigint) => key([Buffer.from("request"), player.toBuffer(), le64(nonce)]);
-export const offerPda = (backer: PublicKey, nonce: bigint) => key([Buffer.from("offer"), backer.toBuffer(), le64(nonce)]);
+export const requestPda = (player: PublicKey, nonce: bigint) => key([Buffer.from("request"), player.toBuffer(), u64(nonce)]);
+export const offerPda = (backer: PublicKey, nonce: bigint) => key([Buffer.from("offer"), backer.toBuffer(), u64(nonce)]);
 
 /** A fresh nonce for a Request or an Offer: the clock in ms with three random digits. */
 export const backingNonce = (): bigint => BigInt(Date.now()) * 1000n + BigInt(Math.floor(Math.random() * 1000));

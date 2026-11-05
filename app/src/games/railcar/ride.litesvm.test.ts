@@ -31,7 +31,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CLASS_STUDIO, basketPda, countersPda, matchPda, spillPda } from "../../lib/chain/basket";
 import { coreIx } from "../../lib/chain/core-ix";
-import { drawRemaining, freshPot, nextMatchOf, previewEntry, readEntryStores, readNextTicket } from "../../lib/chain/entry";
+import { drawRemaining, freshPot, nextMatchOf, readNextTicket } from "../../lib/chain/entry";
 import coreIdl from "../../lib/chain/idl/tesoro_core.json";
 import railcarIdl from "../../lib/chain/idl/railcar.json";
 import { acceptOfferIx, backingNonce, createOfferIx, createRequestIx } from "../../lib/chain/backing-ix";
