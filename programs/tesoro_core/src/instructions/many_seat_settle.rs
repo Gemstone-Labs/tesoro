@@ -373,8 +373,13 @@ pub struct SettleManySeatMatch<'info> {
         bump = match_state.load()?.bump
     )]
     pub match_state: AccountLoader<'info, ManySeatMatch>,
-    /// CHECK: the receipt PDA, created here (it must not exist).
-    #[account(mut, seeds = [ledger::lifecycle::RECEIPT_SEED, match_state.key().as_ref()], bump)]
+    /// CHECK: the receipt PDA, created here (it must not exist); its canonical bump was found at
+    /// open.
+    #[account(
+        mut,
+        seeds = [ledger::lifecycle::RECEIPT_SEED, match_state.key().as_ref()],
+        bump = match_state.load()?.inner.receipt_bump()
+    )]
     pub receipt: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
@@ -409,7 +414,7 @@ pub(crate) fn settle_many_seat_match<'info>(
         &ctx.accounts.receipt.to_account_info(),
         &ctx.accounts.payer.to_account_info(),
         &ctx.accounts.system_program.to_account_info(),
-        (&match_key, ctx.bumps.receipt),
+        (&match_key, car.inner.receipt_bump()),
         &car.inner.id(),
         (started.kind, first_seat),
         ts,
@@ -510,8 +515,13 @@ pub struct RefundManySeatMatch<'info> {
         bump = match_state.load()?.bump
     )]
     pub match_state: AccountLoader<'info, ManySeatMatch>,
-    /// CHECK: the receipt PDA, created here (it must not exist).
-    #[account(mut, seeds = [ledger::lifecycle::RECEIPT_SEED, match_state.key().as_ref()], bump)]
+    /// CHECK: the receipt PDA, created here (it must not exist); its canonical bump was found at
+    /// open.
+    #[account(
+        mut,
+        seeds = [ledger::lifecycle::RECEIPT_SEED, match_state.key().as_ref()],
+        bump = match_state.load()?.inner.receipt_bump()
+    )]
     pub receipt: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
@@ -535,7 +545,7 @@ pub(crate) fn refund_many_seat_match(ctx: Context<RefundManySeatMatch>) -> Resul
         &ctx.accounts.receipt.to_account_info(),
         &ctx.accounts.payer.to_account_info(),
         &ctx.accounts.system_program.to_account_info(),
-        (&match_key, ctx.bumps.receipt),
+        (&match_key, rec.receipt_bump()),
         &rec.id(),
         (kind, 0),
         ts,

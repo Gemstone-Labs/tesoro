@@ -211,12 +211,15 @@ pub struct RideSeat {
     refund: [u8; 8],
     /// The Player's core Account.
     pub account: [u8; 32],
-    /// Room for a per-seat key and the Brake (tickets 07 and seat keys).
-    pub reserved: [u8; 24],
+    /// The seat key core recorded for this seat at join (`Seat::signer`, seat-keys decision D4),
+    /// copied by `start_ride`. The Player's wallet acts for the seat too (`acts_for`).
+    pub signer: [u8; 32],
+    /// Room for the Brake (ticket 07).
+    pub reserved: [u8; 8],
 }
 
 impl RideSeat {
-    pub const LEN: usize = 72;
+    pub const LEN: usize = 88;
 
     pub fn jump_ms(&self) -> u32 {
         u32::from_le_bytes(self.jump_ms)

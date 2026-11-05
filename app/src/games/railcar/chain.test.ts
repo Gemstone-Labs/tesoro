@@ -41,8 +41,8 @@ describe("a Table reads as the program writes it", () => {
     ];
     const seat = (i: number) =>
       i < 5
-        ? { seat: i, order: jumps[i][0], flags: 0, reserved0: 0, jump_ms: le(jumps[i][1], 4), refund: le(jumps[i][2], 8), account: Array.from(players[i].toBytes()), reserved: zeros(24) }
-        : { seat: 0, order: 0, flags: 0, reserved0: 0, jump_ms: zeros(4), refund: zeros(8), account: zeros(32), reserved: zeros(24) };
+        ? { seat: i, order: jumps[i][0], flags: 0, reserved0: 0, jump_ms: le(jumps[i][1], 4), refund: le(jumps[i][2], 8), account: Array.from(players[i].toBytes()), signer: zeros(32), reserved: zeros(8) }
+        : { seat: 0, order: 0, flags: 0, reserved0: 0, jump_ms: zeros(4), refund: zeros(8), account: zeros(32), signer: zeros(32), reserved: zeros(8) };
     const data = encode("Table", {
       version: 1,
       bump: 255,
@@ -144,7 +144,7 @@ describe("Railcar instructions name the accounts the program checks", () => {
 
   it("jump names the Table seat and the car, signed by the Player", () => {
     const wallet = key();
-    const ix = jumpIx(wallet, wallet, 1, 9n, 4);
+    const ix = jumpIx(wallet, 1, 9n, 4);
     expect(named(ix, "jump").table.equals(tablePda(1))).toBe(true);
     expect(ix.keys[0].isSigner).toBe(true);
     // car_no (u64 LE) then seat (u8) after the 8-byte discriminator.

@@ -1249,27 +1249,9 @@ export type Railcar = {
         {
           "name": "table",
           "docs": [
-            "delegated); its owner and contents are checked in `finalize`."
-          ],
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  116,
-                  97,
-                  98,
-                  108,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "car.table",
-                "account": "car"
-              }
-            ]
-          }
+            "delegated); its address (from its stored bump), owner and contents are checked in",
+            "`finalize`."
+          ]
         },
         {
           "name": "matchState",
@@ -1450,65 +1432,10 @@ export type Railcar = {
         },
         {
           "name": "receipt",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  115,
-                  101,
-                  116,
-                  116,
-                  108,
-                  101,
-                  100
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "car.tesoro_match",
-                "account": "car"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                139,
-                232,
-                217,
-                200,
-                195,
-                196,
-                42,
-                210,
-                40,
-                249,
-                196,
-                130,
-                26,
-                66,
-                171,
-                32,
-                36,
-                239,
-                175,
-                140,
-                108,
-                61,
-                148,
-                110,
-                71,
-                7,
-                159,
-                115,
-                202,
-                186,
-                136,
-                218
-              ]
-            }
-          }
+          "docs": [
+            "`[\"settled\", match]` (deriving it here too would repeat core's bump search)."
+          ],
+          "writable": true
         },
         {
           "name": "systemProgram",
@@ -1751,7 +1678,8 @@ export type Railcar = {
     {
       "name": "jump",
       "docs": [
-        "Rollup, the Player of Table seat `seat` (the wallet of the seat's core Account). Before",
+        "Rollup, the Player of Table seat `seat`: the wallet of the seat's core Account or the",
+        "seat's key (`tesoro_core::util::acts_for`, as core checks a seat's signer). Before",
         "the Impact slot the Player is off: the Jump takes the next place in the order. At or after",
         "it the Jump does not count: the ride ends with the Player aboard. When the last Player",
         "aboard Jumps, the ride ends then. A Jump that finds the rollup stalled (the outage rule)",
@@ -1771,13 +1699,10 @@ export type Railcar = {
       "accounts": [
         {
           "name": "player",
-          "signer": true
-        },
-        {
-          "name": "playerAccount",
           "docs": [
-            "The Player's core Account: its wallet must sign."
-          ]
+            "The seat's Player: the wallet of its core Account, or the seat key core recorded for it."
+          ],
+          "signer": true
         },
         {
           "name": "table",
@@ -3925,11 +3850,19 @@ export type Railcar = {
             "type": "u8"
           },
           {
+            "name": "receiptBump",
+            "docs": [
+              "Canonical bump of the car's receipt `[\"settled\", match]`, found once at open so settling",
+              "checks the address with one hash instead of a bump search."
+            ],
+            "type": "u8"
+          },
+          {
             "name": "reserved",
             "type": {
               "array": [
                 "u8",
-                6
+                5
               ]
             }
           },
@@ -4205,14 +4138,27 @@ export type Railcar = {
             }
           },
           {
-            "name": "reserved",
+            "name": "signer",
             "docs": [
-              "Room for a per-seat key and the Brake (tickets 07 and seat keys)."
+              "The seat key core recorded for this seat at join (`Seat::signer`, seat-keys decision D4),",
+              "copied by `start_ride`. The Player's wallet acts for the seat too (`acts_for`)."
             ],
             "type": {
               "array": [
                 "u8",
-                24
+                32
+              ]
+            }
+          },
+          {
+            "name": "reserved",
+            "docs": [
+              "Room for the Brake (ticket 07)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                8
               ]
             }
           }

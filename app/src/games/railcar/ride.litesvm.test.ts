@@ -95,6 +95,8 @@ interface Person {
   kp: Keypair;
   key: PublicKey;
   account: PublicKey;
+  /** The seat key the wallet names when it boards (seat keys D5): it co-signs the join and plays the Jumps. */
+  seat: Keypair;
 }
 
 // The worked example's riders, by seat.
@@ -314,7 +316,9 @@ class World {
     this.svm.airdrop(kp.publicKey, 100n * SOL);
     const account = accountOf(kp.publicKey);
     this.send([coreIx("create_account", { authority: kp.publicKey, account, basket: basketPda(account), spill: spillPda(account), invite_gate: corePda("invite_gate"), payer: kp.publicKey }, { evm_address: new Array(20).fill(0) })], kp);
-    return { kp, key: kp.publicKey, account };
+    const seat = Keypair.generate();
+    this.svm.airdrop(seat.publicKey, SOL);
+    return { kp, key: kp.publicKey, account, seat };
   }
 
   /** A Player with 75,000 Gemas of a Source of their own (Position + Advance), and room in the spill. */
@@ -384,13 +388,13 @@ class World {
     const remaining = await drawRemaining(preview.plan, conn);
     const ixs: TransactionInstruction[] = [cu(1_000_000)];
     if (choice.kind === "join") {
-      ixs.push(joinSeatIx({ payer: p.key, player: p.key, car: choice.car, game: RAILCAR_PROGRAM_ID, page: choice.page, pot, backing, remaining }), checkDepartureIx(choice.carNo, choice.car));
+      ixs.push(joinSeatIx({ payer: p.key, player: p.key, seatSigner: p.seat.publicKey, car: choice.car, game: RAILCAR_PROGRAM_ID, page: choice.page, pot, backing, remaining }), checkDepartureIx(choice.carNo, choice.car));
     } else {
       const n = nextMatchOf(this.info(countersPda(p.account))?.data);
       const match = matchPda(p.account, n);
-      ixs.push(openCarIx({ payer: p.key, opener: p.key, config, n }), joinSeatIx({ payer: p.key, player: p.key, car: match, game: RAILCAR_PROGRAM_ID, page: 0, pot, backing, remaining }), checkDepartureIx(choice.carNo, match));
+      ixs.push(openCarIx({ payer: p.key, opener: p.key, config, n }), joinSeatIx({ payer: p.key, player: p.key, seatSigner: p.seat.publicKey, car: match, game: RAILCAR_PROGRAM_ID, page: 0, pot, backing, remaining }), checkDepartureIx(choice.carNo, match));
     }
-    this.send(ixs, p.kp);
+    this.send(ixs, p.kp, [p.seat]);
     return choice.kind;
   }
 
@@ -513,8 +517,9 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], b
     w.setSlot(rideSlot + BigInt(Math.round(secs * 100)));
     const t = decodeTable(w.get(table)!.data);
     const seat = t.seats.find((s) => s.account.equals(riders[who].account))!;
-    // The wallet signs the Jump until Railcar takes the seat key (seat keys ticket 08).
-    w.rollup([jumpIx(riders[who].key, riders[who].key, carAcct.table, carNo, seat.tableSeat)], riders[who].kp, carAcct.table);
+    // The seat key the wallet named at boarding plays the Jump: the wallet is not asked.
+    expect(seat.signer.equals(riders[who].seat.publicKey)).toBe(true);
+    w.rollup([jumpIx(riders[who].seat.publicKey, carAcct.table, carNo, seat.tableSeat)], riders[who].seat, carAcct.table);
   }
   w.phase = "finish";
   const vault = new BorshAccountsCoder(railcarIdl as unknown as Idl).decode("Vault", Buffer.from(w.get(vaultPda(table))!.data)) as { crash_ms: number };
@@ -586,8 +591,8 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     expect(r.shown).toEqual(r.deltas);
     // 11 steps in all (4 entries home, Ana's 150 cut three ways then to Dee, Eve's 500 to Dee, Ben, Cy).
     expect(r.chunkSteps.reduce((a, b) => a + b, 0)).toBe(11);
-    // The wallets signed boarding (5) and the Jumps (4, until the seat key plays them); nothing of the finish.
-    expect(r.walletSigs).toEqual({ boarding: 5, jumps: 4 });
+    // The wallets signed boarding (5) and nothing else: the seat keys played the Jumps, the relayer and page key the finish.
+    expect(r.walletSigs).toEqual({ boarding: 5 });
   });
 
   it("Ben rides backed by Bob (40% to Ben): Bob's 500 board for him, second place splits 52 to Ben and 578 to Bob", { timeout: 120_000 }, async () => {
@@ -609,8 +614,8 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     // The result screen shows the split the chain paid.
     expect(r.shown).toEqual(r.deltas);
     expect(r.backer!.shown).toEqual({ backerGets: 578n, playerGets: 52n });
-    // Ben signed his Request, the acceptance and his boarding; Bob nothing after his Offer.
-    expect(r.walletSigs).toEqual({ setup: 2, boarding: 5, jumps: 4 });
+    // Ben signed his Request, the acceptance and his boarding; Bob nothing after his Offer; the seat keys played the Jumps.
+    expect(r.walletSigs).toEqual({ setup: 2, boarding: 5 });
   });
 
   it("a backed step-off sends the Backer's 500 home and leaves the Player free to board again", { timeout: 120_000 }, async () => {
@@ -665,7 +670,7 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     const back = r.deltas.reduce((a, b) => a + b, 0n);
     expect(back + r.studioFee).toBeLessThan(50_000n);
     expect(r.studioFee).toBeGreaterThan(0n);
-    expect(r.walletSigs).toEqual({ boarding: 100, jumps: 90 });
+    expect(r.walletSigs).toEqual({ boarding: 100 });
     // First place's stores could not hold every credit: the page reserved its overflow record before the forfeits moved.
     expect(rooms).toBeGreaterThan(0);
     expect(r.chunkSteps.every((s) => s >= 1 && s <= 7)).toBe(true);
