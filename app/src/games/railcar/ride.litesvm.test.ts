@@ -673,6 +673,7 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     // Ben's seat is free again: he can board the same car (here with Gemas of his own from a second Backing).
     const ann = w.rider();
     expect(await w.board(ben, w.backing(ben, ann, 5_000))).toBe("join");
+    console.log(`Railcar transactions, a Backed opener and step-off, no lookup table:\n${[...w.sizes].map(([k, s]) => `  ${s.bytes} B, ${s.accounts} accounts: ${k}`).join("\n")}`);
   });
 
   it("a Backer already in the car: the Player is told to board the next one and nothing is sent", { timeout: 120_000 }, async () => {
