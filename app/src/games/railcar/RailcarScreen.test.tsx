@@ -1,10 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { PLAYERS, boardingCountdown, boardingNotAboard, boardingWaiting, nobodyJumped, rideStarting, riding, workedResult, ANA, EVE } from "./fixtures";
-import { RailcarScreen } from "./RailcarScreen";
+import { brakeState } from "./brake";
+import { RailcarScreen, type RailcarBrake } from "./RailcarScreen";
 import type { RailcarView } from "./view";
 
-const html = (view: RailcarView, brake: { left: number; activeMs: number } | null = null) => renderToStaticMarkup(<RailcarScreen view={view} brake={brake} />);
+const html = (view: RailcarView, brake: RailcarBrake | null = null) => renderToStaticMarkup(<RailcarScreen view={view} brake={brake} />);
 const text = (h: string) => h.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 
 describe("Boarding", () => {
@@ -66,6 +67,43 @@ describe("the Ride, in the same screen", () => {
     expect(text(html(riding(), { left: 0, activeMs: 3_200 }))).toContain("only you see this");
     expect(text(html(riding(PLAYERS[0], { jumpedMe: true }), { left: 0, activeMs: 3_200 }))).not.toContain("only you see this");
     expect(text(html(riding(null), { left: 0, activeMs: 3_200 }))).not.toContain("only you see this");
+  });
+});
+
+describe("my secret Brake", () => {
+  const facts = { aboard: true, allBound: true, myBound: true, canSign: true, pressMs: null, pending: false, rideMs: 72_000 };
+  const button = (h: string) => text(h.match(/<div class="rc-brake[^"]*">.*?<\/div>/)?.[0] ?? "");
+  const disabled = (h: string) => /<div class="rc-brake[^"]*"><button[^>]*disabled/.test(h);
+
+  it("the button reads my Brake: ready, riding on the next tick, my 5 s, used, or waiting for the seats", () => {
+    const at = (o: Partial<typeof facts>) => html(riding(), brakeState({ ...facts, ...o }));
+    expect(button(at({}))).toContain("Brake 1 left");
+    expect(disabled(at({}))).toBe(false);
+    expect(button(at({ pending: true }))).toContain("Braking…");
+    expect(button(at({ pressMs: 69_000 }))).toContain("Braking 2s");
+    expect(button(at({ pressMs: 60_000 }))).toContain("Brake used");
+    expect(button(at({ allBound: false }))).toContain("Brake ready soon");
+    for (const o of [{ pending: true }, { pressMs: 69_000 }, { pressMs: 60_000 }, { allBound: false }]) expect(disabled(at(o))).toBe(true);
+  });
+
+  it("while my Brake runs, only my screen slows the stage and shows the tag; another Player's screen is the same as before", () => {
+    const mine = html(riding(PLAYERS[0]), brakeState({ ...facts, pressMs: 69_000 }));
+    expect(mine).toContain("rc-stage moving slow");
+    expect(text(mine)).toContain("only you see this");
+    // Ben's page: his own Brake untouched, the same public Table, before and after Ana's Brake
+    const ben = () => html(riding(PLAYERS[1]), brakeState(facts));
+    expect(ben()).toBe(ben());
+    expect(ben()).not.toContain("only you see this");
+    expect(ben()).not.toContain("slow");
+  });
+
+  it("a spectator and a Player who Jumped get no Brake", () => {
+    expect(brakeState({ ...facts, aboard: false })).toBeNull();
+    expect(html(riding(null), null)).not.toContain("rc-brake");
+  });
+
+  it("after my Jump: at least what comes back", () => {
+    expect(text(html(riding(PLAYERS[0], { jumpedMe: true })))).toMatch(/You jumped at 0:25 · at least .*350 back/);
   });
 });
 

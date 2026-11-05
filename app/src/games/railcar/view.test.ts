@@ -15,7 +15,7 @@ const coreCar = (o: Partial<CarView> = {}): CarView =>
 const seat = (i: number): SeatView => ({ index: i, seated: true, shareBps: 0, placeBps: 0, place: 0, potLines: 1, hold: 0, refund: 0n, player: players[i], funder: players[i], pot: key(), signer: null });
 const seats = players.map((_, i) => seat(i));
 
-const rideSeat = (i: number, order: number, jumpMs: number, refund = 0n): RideSeatView => ({ tableSeat: i, seat: i, order, jumpMs, refund, account: players[i] });
+const rideSeat = (i: number, order: number, jumpMs: number, refund = 0n): RideSeatView => ({ tableSeat: i, seat: i, order, jumpMs, refund, account: players[i], signer: null, brakeMs: null });
 const table = (o: Partial<TableView> = {}): TableView => ({
   index: 0,
   phase: "riding",
@@ -39,6 +39,9 @@ const table = (o: Partial<TableView> = {}): TableView => ({
   overAt: 0,
   dirty: false,
   commitAt: 0,
+  brakesBound: 5,
+  revealed: false,
+  revealDraw: new Uint8Array(32),
   seats: players.map((_, i) => rideSeat(i, 0, 0)),
   ...o,
 });
@@ -92,6 +95,25 @@ describe("one screen from boarding to the result", () => {
     expect(v.me).toEqual({ aboard: false, jumpMs: 25_000, back: 350n });
     // The stake is every entry in the car; it never shows a live refund percentage.
     expect(v.stake).toBe(2_500n);
+  });
+
+  it("after a Jump the screen shows at least what comes back, counting my own Brake only", () => {
+    // Ana Braked at 15 s and Jumped at 21 s: 18.5 s of track, 80% (real time alone would say 70%)
+    const t = table({ seats: players.map((_, i) => (i === 0 ? rideSeat(0, 1, 21_000) : rideSeat(i, 0, 0))), aboard: 4, jumps: 1 });
+    const at = { core: coreCar({ stage: "departed" }), seats, table: t, fees: FEES, nowMs: (T0 + 40) * 1000 + 30_000 };
+    expect(railcarView({ ...at, me: ana.toBase58(), myBrakeMs: 15_000 })).toMatchObject({ me: { back: 400n } });
+    expect(railcarView({ ...at, me: ana.toBase58() })).toMatchObject({ me: { back: 350n } });
+    // a Brake pressed after the Jump never counts
+    expect(railcarView({ ...at, me: ana.toBase58(), myBrakeMs: 22_000 })).toMatchObject({ me: { back: 350n } });
+  });
+
+  it("another Player's Brake changes nothing on my screen: the public Table is all it reads", () => {
+    const t = table({});
+    const at = { core: coreCar({ stage: "departed" }), seats, table: t, fees: FEES, nowMs: (T0 + 40) * 1000 + 30_000 };
+    const ben = railcarView({ ...at, me: players[1].toBase58() });
+    // Ana's Brake lives in her Brake seat and the private Vault: Ben's page gets the same facts, so the same screen
+    expect(railcarView({ ...at, me: players[1].toBase58() })).toEqual(ben);
+    expect(railcarView({ ...at, me: ana.toBase58(), myBrakeMs: 29_000 })).toEqual(railcarView({ ...at, me: ana.toBase58() }));
   });
 
   it("the result: places last off first, the early jumper, the Player aboard at Impact, fees, the wall", () => {

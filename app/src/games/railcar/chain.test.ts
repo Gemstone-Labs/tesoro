@@ -1,9 +1,11 @@
 import { BorshAccountsCoder, type Idl } from "@coral-xyz/anchor";
+import { BN } from "@coral-xyz/anchor";
+import { PERMISSION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import idl from "../../lib/chain/idl/railcar.json";
 import { seatPagePda } from "../../lib/chain/many-seat";
-import { checkDepartureIx, closeRailcarCarIx, configPda, decodeTable, finalizeIx, jumpIx, openCarIx, carPda, skipCarIx, tablePda, NO_SEAT } from "./chain";
+import { bindBrakeIx, brakeSeatPda, checkDepartureIx, closeRailcarCarIx, configPda, decodeBrakeSeat, decodeTable, finalizeIx, jumpIx, openCarIx, carPda, skipCarIx, tablePda, tickIx, NO_SEAT } from "./chain";
 
 const coder = new BorshAccountsCoder(idl as unknown as Idl);
 const layout = (name: string) => (coder as unknown as { accountLayouts: Map<string, { layout: { encode(v: unknown, b: Buffer): number } }> }).accountLayouts.get(name)!.layout;
@@ -29,6 +31,8 @@ const named = (ix: { keys: { pubkey: PublicKey }[] }, name: string) => Object.fr
 describe("a Table reads as the program writes it", () => {
   it("the worked example after Impact: who Jumped when, the places last off first, Ana's refund", () => {
     const players = Array.from({ length: 5 }, key);
+    const benKey = key();
+    const draw = Array.from({ length: 32 }, (_, i) => i + 1);
     const car = key();
     const match = key();
     // Ana Jumped first at 25 s, then Cy, Ben, Dee; Eve aboard. Places: Dee (seat 3), Ben (1), Cy (2).
@@ -41,8 +45,8 @@ describe("a Table reads as the program writes it", () => {
     ];
     const seat = (i: number) =>
       i < 5
-        ? { seat: i, order: jumps[i][0], flags: 0, reserved0: 0, jump_ms: le(jumps[i][1], 4), refund: le(jumps[i][2], 8), account: Array.from(players[i].toBytes()), reserved: zeros(24) }
-        : { seat: 0, order: 0, flags: 0, reserved0: 0, jump_ms: zeros(4), refund: zeros(8), account: zeros(32), reserved: zeros(24) };
+        ? { seat: i, order: jumps[i][0], flags: 0, reserved0: 0, jump_ms: le(jumps[i][1], 4), refund: le(jumps[i][2], 8), account: Array.from(players[i].toBytes()), signer: Array.from((i === 1 ? benKey : PublicKey.default).toBytes()), brake_at: le(i === 0 ? 48_001 : 0, 4), reserved: zeros(4) }
+        : { seat: 0, order: 0, flags: 0, reserved0: 0, jump_ms: zeros(4), refund: zeros(8), account: zeros(32), signer: zeros(32), brake_at: zeros(4), reserved: zeros(4) };
     const data = encode("Table", {
       version: 1,
       bump: 255,
@@ -76,7 +80,10 @@ describe("a Table reads as the program writes it", () => {
       over_ms: le(104_000, 4),
       over_at: le(1_762_300_104, 8),
       commit_at: le(1_762_300_090, 8),
-      reserved: zeros(112),
+      reveal_draw: draw,
+      revealed: 1,
+      brakes_bound: 5,
+      reserved: zeros(78),
       pace_slot: le(1_400, 8),
       pace_ts: le(1_762_300_001, 8),
       seats: Array.from({ length: 100 }, (_, i) => seat(i)),
@@ -95,12 +102,25 @@ describe("a Table reads as the program writes it", () => {
     expect(t.seats[4].order).toBe(0);
     expect(t.seats[2].account.equals(players[2])).toBe(true);
     expect(NO_SEAT).toBe(255);
+    // the reveal, and the seat key core recorded for Ben
+    expect([t.revealed, t.brakesBound, Array.from(t.revealDraw)]).toEqual([true, 5, draw]);
+    expect(t.seats.map((x) => x.brakeMs)).toEqual([48_000, null, null, null, null]);
+    expect(t.seats[1].signer?.equals(benKey)).toBe(true);
+    expect(t.seats[0].signer).toBeNull();
+  });
+});
+
+describe("a Brake seat reads as the program writes it", () => {
+  it("bound to its car, used, pressed at 48 s", () => {
+    const table = key();
+    const data = encode("BrakeSeat", { version: 1, bump: 254, table, seat: 3, bound: 1, car_no: new BN(9), used: 1, press_ms: 48_000, reserved: zeros(16) });
+    expect(decodeBrakeSeat(data)).toEqual({ seat: 3, carNo: 9n, bound: true, used: true, pressMs: 48_000 });
   });
 });
 
 describe("an outage", () => {
   it("reads as its own reason", () => {
-    const data = Buffer.alloc(8 + 7_508);
+    const data = Buffer.alloc(8 + 9_108);
     data[8 + 4] = 3;
     data[8 + 5] = 2;
     data[8 + 6] = 4;
@@ -142,9 +162,30 @@ describe("Railcar instructions name the accounts the program checks", () => {
     expect(rest).toEqual([0, 1, 2].map((p) => seatPagePda(match, p).toBase58()));
   });
 
+  it("bind_brake names the seat's Brake seat, its permission and the seat's core Account", () => {
+    const account = key();
+    const caller = key();
+    const ix = bindBrakeIx(caller, 1, 9n, 4, account);
+    const a = named(ix, "bind_brake");
+    expect([a.table, a.brake_seat, a.player_account].map(String)).toEqual([tablePda(1), brakeSeatPda(tablePda(1), 4), account].map(String));
+    expect(a.brake_permission.equals(PublicKey.findProgramAddressSync([Buffer.from("permission:"), a.brake_seat.toBuffer()], PERMISSION_PROGRAM_ID)[0])).toBe(true);
+    expect(Array.from(ix.data.subarray(8))).toEqual([9, 0, 0, 0, 0, 0, 0, 0, 4]);
+  });
+
+  it("tick carries the Brake as a flag: the same accounts and size with or without it", () => {
+    const signer = key();
+    const off = tickIx(signer, 1, 9n, 4, false);
+    const on = tickIx(signer, 1, 9n, 4, true);
+    expect(on.keys.map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable])).toEqual(off.keys.map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable]));
+    expect(named(on, "tick").brake_seat.equals(brakeSeatPda(tablePda(1), 4))).toBe(true);
+    expect(on.data.length).toBe(off.data.length);
+    expect(Array.from(on.data.subarray(8))).toEqual([9, 0, 0, 0, 0, 0, 0, 0, 4, 1]);
+    expect(Array.from(off.data.subarray(8))).toEqual([9, 0, 0, 0, 0, 0, 0, 0, 4, 0]);
+  });
+
   it("jump names the Table seat and the car, signed by the Player", () => {
     const wallet = key();
-    const ix = jumpIx(wallet, wallet, 1, 9n, 4);
+    const ix = jumpIx(wallet, 1, 9n, 4);
     expect(named(ix, "jump").table.equals(tablePda(1))).toBe(true);
     expect(ix.keys[0].isSigner).toBe(true);
     // car_no (u64 LE) then seat (u8) after the 8-byte discriminator.

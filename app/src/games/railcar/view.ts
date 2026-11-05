@@ -4,7 +4,7 @@
  */
 import type { CarView, SeatView } from "../../lib/chain/many-seat";
 import { NO_SEAT, type TableView } from "./chain";
-import { placeSharesBps, refund as scheduleRefund } from "./engine";
+import { placeSharesBps, positionMs, refund as scheduleRefund } from "./engine";
 import { departsAt } from "./flow";
 
 export interface FeeRates {
@@ -77,7 +77,10 @@ export type RailcarView =
       /** Every entry in the car. */
       stake: bigint;
       entry: bigint;
-      /** Null for a spectator. */
+      /**
+       * Null for a spectator. After my Jump, `back` is at least what I get: the schedule at my position counting only my own
+       * Brake (another Player's Brake would add to it, and only shows at the end).
+       */
       me: { aboard: true } | { aboard: false; jumpMs: number; back: bigint } | null;
     }
   | {
@@ -103,6 +106,8 @@ export interface RailcarFacts {
   table: TableView | null;
   fees: FeeRates;
   nowMs: number;
+  /** Ride ms of my own Brake, when I pressed it (only my page knows). */
+  myBrakeMs?: number | null;
 }
 
 const PLACE_WORDS = ["Last off", "Second-last off", "Third-last off"];
@@ -137,12 +142,12 @@ export function railcarView(f: RailcarFacts): RailcarView {
     jumped: seated.filter((x) => x.s.order !== 0).map((x) => x.rider),
     stake: n * entry,
     entry,
-    me: !mine ? null : mine.s.order === 0 ? { aboard: true } : { aboard: false, jumpMs: mine.s.jumpMs, back: earlyBack(entry, mine.s.jumpMs) },
+    me: !mine ? null : mine.s.order === 0 ? { aboard: true } : { aboard: false, jumpMs: mine.s.jumpMs, back: earlyBack(entry, mine.s.jumpMs, f.myBrakeMs ?? null) },
   };
 }
 
-/** What an early Jump gets back: the published schedule at the Jump's position (no Brakes yet: position = ride time). */
-const earlyBack = (entry: bigint, jumpMs: number) => scheduleRefund(entry, jumpMs);
+/** The least an early Jump gets back: the published schedule at the Jump's position counting my own Brake only. */
+const earlyBack = (entry: bigint, jumpMs: number, myBrakeMs: number | null) => scheduleRefund(entry, positionMs(myBrakeMs === null || myBrakeMs > jumpMs ? [] : [myBrakeMs], jumpMs));
 
 function resultOf(t: TableView, me: string | null, rates: FeeRates, core: CarView | null): RailcarView {
   const entry = t.entry;

@@ -1,6 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { isMuted, subscribeMuted } from "@/games/fx/sfx";
+import { brakeState, type BrakeFacts, type TellCue } from "@/games/railcar/brake";
 import { RailcarScreen, type RailcarBrake } from "@/games/railcar/RailcarScreen";
+import { playTells, railcarHaptics } from "@/games/railcar/tells";
 import * as fx from "@/games/railcar/fixtures";
 import type { RailcarView } from "@/games/railcar/view";
 
@@ -29,8 +32,21 @@ export const RideStarting = screen(fx.rideStarting());
 export const Riding = screen(fx.riding());
 /** You jumped at 0:25: what came back, and you keep watching. */
 export const RidingAfterYourJump = screen(fx.riding(fx.PLAYERS[0], { jumpedMe: true }));
-/** Your own Brake running (ticket 11 wires the button): the tag shows only while you are aboard. */
-export const RidingWithYourBrake = screen(fx.riding(), { brake: { left: 0, activeMs: 3_400 } });
+const brake = (o: Partial<BrakeFacts>): RailcarBrake => ({ ...brakeState({ aboard: true, allBound: true, myBound: true, canSign: true, pressMs: null, pending: false, rideMs: 72_000, ...o })!, onBrake: noop });
+/** Your Brake, ready: one per ride, halves the car for 5 s, only you see it. */
+export const RidingBrakeReady = screen(fx.riding(), { brake: brake({}) });
+/** Pressed: it rides on your page's next tick (no transaction of its own). */
+export const RidingBrakeSending = screen(fx.riding(), { brake: brake({ pending: true }) });
+/** Your own Brake running: the car slows on your screen only, the tag counts your 5 s. */
+export const RidingWithYourBrake = screen(fx.riding(), { brake: brake({ pressMs: 68_600 }) });
+/** Used: no more Brakes this ride. */
+export const RidingBrakeUsed = screen(fx.riding(), { brake: brake({ pressMs: 40_000 }) });
+/** Not every seat is bound yet (the first seconds of the ride): the Brake waits. */
+export const RidingBrakeWaiting = screen(fx.riding(), { brake: brake({ allBound: false }) });
+/** Ben's screen while Ana's Brake runs: exactly the Riding screen. */
+export const RidingAnothersBrake = screen(fx.riding(fx.BEN), { brake: brake({}) });
+/** You jumped after your Brake: at least what comes back, counting your own Brake. */
+export const RidingAfterYourBrakeAndJump = screen(fx.riding(fx.PLAYERS[0], { jumpedMe: true, myBrakeMs: 15_000 }));
 /** A Player watching a car they are not in. */
 export const RidingWatching = screen(fx.riding(null));
 
@@ -54,5 +70,31 @@ export const LeavesInPlace: StoryObj = {
       return () => clearInterval(id);
     }, []);
     return <RailcarScreen view={fx.liveAt(t)} actions={actions} />;
+  },
+};
+
+/** The Tells as sound and vibration. Each button plays one cue through the Railcar Tell player; turn sound off (or vibration, on a phone) in the game menu and the cue respects it. */
+export const TellsSoundAndVibration: StoryObj = {
+  render: function Tells() {
+    const muted = useSyncExternalStore(subscribeMuted, isMuted, () => false);
+    const vibration = useSyncExternalStore(railcarHaptics.subscribe, railcarHaptics.enabled, () => true);
+    const cues: [TellCue, string][] = [
+      ["screws", "Screws (and every false screw)"],
+      ["rattle", "Bolt and panel rattle"],
+      ["sparks", "Sparks and creak"],
+    ];
+    return (
+      <div style={{ display: "grid", gap: 12, maxWidth: 480 }}>
+        <RailcarScreen view={fx.riding()} actions={actions} />
+        <p className="cut cut-chip" data-testid="tell-settings">
+          Sound {muted ? "off" : "on"} · Vibration {vibration ? "on" : "off"}
+        </p>
+        {cues.map(([cue, label]) => (
+          <button key={cue} type="button" className="btn" onClick={() => playTells([cue])}>
+            {label}
+          </button>
+        ))}
+      </div>
+    );
   },
 };

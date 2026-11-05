@@ -41,7 +41,11 @@ import { OVERFLOW_STORE_AT, matchOverflowPda } from "../../lib/chain/overflow";
 import { MAX_ACCOUNTS, MAX_TX_BYTES, type Reader } from "../../lib/chain/settle-plan";
 import {
   RAILCAR_PROGRAM_ID,
+  bindBrakeIx,
+  brakeSeatPda,
   checkDepartureIx,
+  decodeBrakeSeat,
+  tickIx,
   configPda,
   decodeCarAccount,
   decodeConfig,
@@ -55,7 +59,8 @@ import {
   vaultPda,
   carPda,
 } from "./chain";
-import { ride } from "./engine";
+import { BIND_PER_SEND } from "./brake";
+import { impactMs, ride } from "./engine";
 import { queueChoice } from "./flow";
 import { railcarView } from "./view";
 import { finishRide } from "./finish";
@@ -390,6 +395,15 @@ class World {
     this.send(ixs, p.kp);
   }
 
+  /** Stands in for a seat index's first `bind_brake` (the ephemeral-account CPI needs MagicBlock): the Brake seat exists, unbound. */
+  async brakeSeatStandIn(index: number, seat: number) {
+    const key = brakeSeatPda(tablePda(index), seat);
+    if (this.get(key)) return;
+    const bump = PublicKey.findProgramAddressSync([Buffer.from("brake"), tablePda(index).toBuffer(), Uint8Array.of(seat)], RAILCAR_PROGRAM_ID)[1];
+    const data = await new BorshAccountsCoder(railcarIdl as unknown as Idl).encode("BrakeSeat", { version: 1, bump, table: tablePda(index), seat, bound: 0, car_no: new BN(0), used: 0, press_ms: 0, reserved: new Array(16).fill(0) });
+    this.svm.set(key, { lamports: Number(SOL), data, owner: RAILCAR_PROGRAM_ID, executable: false });
+  }
+
   rideSlot(index: number): bigint {
     return decodeTable(this.get(tablePda(index))!.data).rideSlot;
   }
@@ -431,6 +445,23 @@ function drawWhere(want: (r: ReturnType<typeof ride>) => boolean): Uint8Array {
   throw new Error("no draw found");
 }
 
+/** A VRF output whose crash point is exactly `crashMs` (the crash falls as the first word grows; the rest is fixed). */
+function drawWithCrash(crashMs: number): Uint8Array {
+  const at = (w0: bigint) => {
+    const d = new Uint8Array(32).fill(0x5a);
+    d.set(u64(w0), 0);
+    return d;
+  };
+  let [lo, hi] = [0n, (1n << 64n) - 1n];
+  while (lo < hi) {
+    const mid = lo + (hi - lo) / 2n;
+    if (ride(at(mid)).crashMs > crashMs) lo = mid + 1n;
+    else hi = mid;
+  }
+  expect(ride(at(lo)).crashMs).toBe(crashMs);
+  return at(lo);
+}
+
 interface RideRun {
   riders: Person[];
   /** Gemas each rider got back (after the car closed, against after boarding). */
@@ -448,7 +479,7 @@ interface RideRun {
  * sent by the relayer or the page key, never a rider's wallet.
  */
 let rooms = 0;
-async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][]): Promise<RideRun> {
+async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], o: { brakes?: [number, number][]; watch?: (w: World, at: { secs: number; table: PublicKey; riders: Person[] }) => void } = {}): Promise<RideRun & { over: ReturnType<typeof decodeTable> }> {
   const w = await World.create();
   w.riders = Array.from({ length: n }, () => w.rider());
   const riders = w.riders;
@@ -482,18 +513,30 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][]): 
   w.send([railcarIx("draw_callback", { vrf_program_identity: identity, table, vault: vaultPda(table), request }, { randomness: Array.from(draw) })], w.oracle);
   expect(decodeTable(w.get(table)!.data).phase).toBe("riding");
 
-  w.phase = "jumps";
+  // Pages bind every seat's Brake seat, a page's own and the next ones per transaction, signed by page keys.
+  for (let first = 0; decodeTable(w.get(table)!.data).brakesBound < n; first += BIND_PER_SEND) {
+    const t = decodeTable(w.get(table)!.data);
+    const seats = Array.from({ length: Math.min(BIND_PER_SEND, n - first) }, (_, k) => first + k);
+    for (const i of seats) await w.brakeSeatStandIn(carAcct.table, i);
+    w.send(seats.map((i) => bindBrakeIx(w.pageKey.publicKey, carAcct.table, carNo, i, t.seats[i].account)), w.pageKey);
+  }
+
   const rideSlot = w.rideSlot(carAcct.table);
-  for (const [who, secs] of jumps) {
+  const events = [...jumps.map(([who, secs]) => ({ who, secs, brake: false })), ...(o.brakes ?? []).map(([who, secs]) => ({ who, secs, brake: true }))].sort((a, b) => a.secs - b.secs || Number(a.brake) - Number(b.brake));
+  for (const { who, secs, brake } of events) {
     w.setSlot(rideSlot + BigInt(Math.round(secs * 100)));
     const t = decodeTable(w.get(table)!.data);
     const seat = t.seats.find((s) => s.account.equals(riders[who].account))!;
-    // The wallet signs the Jump until Railcar takes the seat key (seat keys ticket 08).
-    w.rollup([jumpIx(riders[who].key, riders[who].key, carAcct.table, carNo, seat.tableSeat)], riders[who].kp, carAcct.table);
+    o.watch?.(w, { secs, table, riders });
+    // Until core records seat keys on seats, the wallet signs the Jump and the Brake's tick.
+    w.phase = brake ? "brakes" : "jumps";
+    w.rollup([brake ? tickIx(riders[who].key, carAcct.table, carNo, seat.tableSeat, true) : jumpIx(riders[who].key, carAcct.table, carNo, seat.tableSeat)], riders[who].kp, carAcct.table);
   }
   w.phase = "finish";
-  const vault = new BorshAccountsCoder(railcarIdl as unknown as Idl).decode("Vault", Buffer.from(w.get(vaultPda(table))!.data)) as { crash_ms: number };
-  w.setSlot(rideSlot + BigInt(Math.ceil(vault.crash_ms / 10)));
+  const vault = new BorshAccountsCoder(railcarIdl as unknown as Idl).decode("Vault", Buffer.from(w.get(vaultPda(table))!.data)) as { crash_ms: number; press_count: number; presses: number[] };
+  const impact = impactMs(vault.presses.slice(0, vault.press_count), vault.crash_ms);
+  o.watch?.(w, { secs: impact / 1000 - 0.01, table, riders });
+  w.setSlot(rideSlot + BigInt(Math.ceil(impact / 10)));
   w.rollup([signalIx(w.pageKey.publicKey, carAcct.table)], w.pageKey, carAcct.table);
   const over = decodeTable(w.get(table)!.data);
   expect(over.phase).toBe("over");
@@ -531,7 +574,7 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][]): 
   expect(sent.sent.filter((s) => s === "close-seat")).toHaveLength(n);
   expect(sent.sent.at(-1)).toBe("close-car");
 
-  return { riders, deltas: riders.map((p, i) => w.gemas(p, id) - before[i]), studioFee: w.studioFee() - studioBefore, chunkSteps, shown, walletSigs: w.walletSigs };
+  return { riders, deltas: riders.map((p, i) => w.gemas(p, id) - before[i]), studioFee: w.studioFee() - studioBefore, chunkSteps, shown, walletSigs: w.walletSigs, over };
 }
 
 describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders and the shared planner", () => {
@@ -551,6 +594,49 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     expect(r.chunkSteps.reduce((a, b) => a + b, 0)).toBe(11);
     // The wallets signed boarding (5) and the Jumps (4, until the seat key plays them); nothing of the finish.
     expect(r.walletSigs).toEqual({ boarding: 5, jumps: 4 });
+  });
+
+  it("a secret Brake (the spec's example): the wall moves from 52 s to 54.5 s; the Table and Ben's screen never change; Ana's Brake seat holds it", { timeout: 120_000 }, async () => {
+    const coder = new BorshAccountsCoder(railcarIdl as unknown as Idl);
+    let before: { table: Uint8Array; ben: unknown; ana: unknown } | null = null;
+    const screen = (t: ReturnType<typeof decodeTable>, who: Person, myBrakeMs: number | null) => railcarView({ me: who.account.toBase58(), core: null, seats: [], table: t, fees: { platformBps: 200, studioBps: 300, leaderboardBps: 100 }, nowMs: 0, myBrakeMs });
+    const r = await rideCar(5, drawWithCrash(52_000), [
+      [BEN, 50],
+      [ANA, 53],
+    ], {
+      brakes: [[ANA, 48]],
+      watch: (w, { secs, table, riders }) => {
+        if (secs !== 48 && before === null) return;
+        if (secs === 48) {
+          // a signal in the same slot first, so the Brake's tick is compared with what any page's signal leaves
+          w.rollup([signalIx(w.pageKey.publicKey, 0)], w.pageKey, 0);
+          const t = decodeTable(w.get(table)!.data);
+          before = { table: w.get(table)!.data, ben: screen(t, riders[BEN], null), ana: screen(t, riders[ANA], null) };
+          return;
+        }
+        if (secs === 50 && before) {
+          // after Ana's Brake (48 s): the public Table is byte for byte what it was, so every other screen is too
+          const now = w.get(table)!.data;
+          expect(Buffer.from(now).equals(Buffer.from(before.table))).toBe(true);
+          expect(screen(decodeTable(now), riders[BEN], null)).toEqual(before.ben);
+          // only Ana's own Brake seat says it, and only her page reads it (its permission names her keys)
+          const anaSeat = decodeBrakeSeat(w.get(brakeSeatPda(table, 0))!.data);
+          expect([anaSeat.bound, anaSeat.used, anaSeat.pressMs]).toEqual([true, true, 48_000]);
+          expect(decodeBrakeSeat(w.get(brakeSeatPda(table, 1))!.data).used).toBe(false);
+          expect(coder.decode("Vault", Buffer.from(w.get(vaultPda(table))!.data)).press_count).toBe(1);
+          before = null;
+        }
+      },
+    });
+    // Ana's Jump at 53 s counted (without her Brake the wall stood at 52 s): two off, Ana last
+    expect(r.over.overMs).toBe(54_500);
+    expect(r.deltas).toEqual([1_445n, 905n, 0n, 0n, 0n]);
+    expect(r.shown).toEqual(r.deltas);
+    // the end made every Brake public: the engine recomputes the wall from the draw and the Brakes
+    expect(r.over.revealed).toBe(true);
+    expect(r.over.seats.map((x) => x.brakeMs)).toEqual([48_000, null, null, null, null]);
+    expect(impactMs([48_000], ride(r.over.revealDraw).crashMs)).toBe(r.over.overMs);
+    expect(r.walletSigs).toEqual({ boarding: 5, brakes: 1, jumps: 2 });
   });
 
   it("100 Players: the car leaves full, 90 Jump, every page and chunk the planner sizes settles it to the Gema", { timeout: 600_000 }, async () => {

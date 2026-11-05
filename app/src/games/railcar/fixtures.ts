@@ -22,7 +22,7 @@ const coreCar = (o: Partial<CarView>): CarView =>
 
 const seats = (n: number): SeatView[] => PLAYERS.slice(0, n).map((p, i) => ({ index: i, seated: true, shareBps: 0, placeBps: 0, place: 0, potLines: 1, hold: 0, refund: 0n, player: p, funder: p, pot: keyOf(600 + i), signer: null }));
 
-const rideSeat = (i: number, order = 0, jumpMs = 0, refund = 0n): RideSeatView => ({ tableSeat: i, seat: i, order, jumpMs, refund, account: PLAYERS[i] });
+const rideSeat = (i: number, order = 0, jumpMs = 0, refund = 0n): RideSeatView => ({ tableSeat: i, seat: i, order, jumpMs, refund, account: PLAYERS[i], signer: null, brakeMs: null });
 
 const table = (n: number, o: Partial<TableView>): TableView => ({
   index: 0,
@@ -47,12 +47,15 @@ const table = (n: number, o: Partial<TableView>): TableView => ({
   overAt: 0,
   dirty: false,
   commitAt: 0,
+  brakesBound: n,
+  revealed: false,
+  revealDraw: new Uint8Array(32),
   seats: Array.from({ length: n }, (_, i) => rideSeat(i)),
   ...o,
 });
 
-const view = (me: PublicKey | null, core: CarView, n: number, t: TableView | null, nowSec: number): RailcarView =>
-  railcarView({ me: me?.toBase58() ?? null, core, seats: seats(n), table: t, fees: FIXTURE_FEES, nowMs: nowSec * 1000 });
+const view = (me: PublicKey | null, core: CarView, n: number, t: TableView | null, nowSec: number, myBrakeMs: number | null = null): RailcarView =>
+  railcarView({ me: me?.toBase58() ?? null, core, seats: seats(n), table: t, fees: FIXTURE_FEES, nowMs: nowSec * 1000, myBrakeMs });
 
 /** Boarding below 5: no countdown yet. `me` boarded as the 3rd. */
 export const boardingWaiting = (me: PublicKey | null = CY) => view(me, coreCar({ seated: 3, pages: 1 }), 3, null, T0 + 20);
@@ -62,12 +65,12 @@ export const boardingCountdown = (me: PublicKey | null = PLAYERS[13]) => view(me
 export const boardingNotAboard = () => boardingCountdown(null);
 
 /** Riding with 29 aboard of 40, 1:12 on the clock, screws heard; the Player (seat 1) still aboard. */
-export function riding(me: PublicKey | null = PLAYERS[0], o: { jumpedMe?: boolean } = {}): RailcarView {
+export function riding(me: PublicKey | null = PLAYERS[0], o: { jumpedMe?: boolean; myBrakeMs?: number } = {}): RailcarView {
   const n = 40;
   const out = new Set([3, 5, 8, 11, 14, 17, 20, 23, 26, 30, 33]);
   if (o.jumpedMe) out.add(0);
   const seatsT = Array.from({ length: n }, (_, i) => (out.has(i) ? rideSeat(i, [...out].indexOf(i) + 1, i === 0 ? 25_000 : 20_000 + i * 1_000) : rideSeat(i)));
-  return view(me, coreCar({ stage: "departed", seated: n, pages: 4 }), n, table(n, { tell: 1, aboard: n - out.size, jumps: out.size, seats: seatsT }), T0 + 60 + 72);
+  return view(me, coreCar({ stage: "departed", seated: n, pages: 4 }), n, table(n, { tell: 1, aboard: n - out.size, jumps: out.size, seats: seatsT }), T0 + 60 + 72, o.myBrakeMs ?? null);
 }
 
 /** The car just left: the ride clock waits for the draw (0:00), the car already rolls. */
