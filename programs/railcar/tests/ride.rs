@@ -242,6 +242,8 @@ struct Env {
     slot: u64,
     last_cu: u64,
     last_logs: Vec<String>,
+    /// The event-CPI data (tag + discriminator + body) of the last transaction's inner instructions.
+    last_events: Vec<Vec<u8>>,
 }
 
 impl Env {
@@ -269,11 +271,19 @@ impl Env {
             Ok(meta) => {
                 self.last_cu = meta.compute_units_consumed;
                 self.last_logs = meta.logs;
+                self.last_events = meta
+                    .inner_instructions
+                    .iter()
+                    .flatten()
+                    .map(|i| i.instruction.data.clone())
+                    .filter(|d| d.starts_with(anchor_lang::event::EVENT_IX_TAG_LE))
+                    .collect();
                 Ok(())
             }
             Err(e) => {
                 self.last_cu = e.meta.compute_units_consumed;
                 self.last_logs = e.meta.logs.clone();
+                self.last_events = vec![];
                 Err(e)
             }
         }
@@ -531,6 +541,7 @@ impl Env {
             slot: SLOT0,
             last_cu: 0,
             last_logs: vec![],
+            last_events: vec![],
         };
         for k in [&env.admin, &env.oracle, &env.ctl, &env.operator] {
             env.svm.airdrop(&k.pubkey(), 1_000 * SOL).expect("airdrop");
@@ -1315,8 +1326,6 @@ impl Env {
                 system_program: anchor_lang::system_program::ID,
                 core_event_authority: tpda(&[b"__event_authority"]),
                 tesoro_program: tesoro_core::ID,
-                event_authority: rpda(&[b"__event_authority"]),
-                program: railcar::ID,
             },
             railcar::instruction::Finalize {},
             pages,
@@ -1330,9 +1339,54 @@ impl Env {
         self.on_base(table, |env| env.send_v0(&[cu_limit(1_400_000), i], &payer))
     }
 
+    /// `finalize` as the finish flow sends it: `reveal_ride` first (unless done), then `finalize`.
     fn finalize(&mut self, car: &Car) -> Result<(), Failed> {
+        let c: railcar::state::Car = self.load(car.key);
+        if !c.revealed {
+            self.reveal(car)?;
+        }
         let pages = self.page_metas(car);
         self.finalize_with(car, pages)
+    }
+
+    fn reveal_ix(&self, car: &Car, pages: Vec<AccountMeta>) -> Instruction {
+        ix(
+            railcar::ID,
+            railcar::accounts::RevealRide {
+                caller: a(self.admin.pubkey()),
+                car: car.key,
+                table: car.table,
+                match_state: car.tesoro,
+                core_event_authority: tpda(&[b"__event_authority"]),
+                tesoro_program: tesoro_core::ID,
+                event_authority: rpda(&[b"__event_authority"]),
+                program: railcar::ID,
+            },
+            railcar::instruction::RevealRide {},
+            pages,
+        )
+    }
+
+    fn reveal(&mut self, car: &Car) -> Result<(), Failed> {
+        let pages = self.page_metas(car);
+        let i = self.reveal_ix(car, pages);
+        let payer = self.admin.insecure_clone();
+        let table = car.table;
+        self.on_base(table, |env| env.send_v0(&[cu_limit(1_400_000), i], &payer))
+    }
+
+    /// The `RideRevealed` the last transaction emitted, and its event-CPI data length.
+    fn revealed(&self) -> (railcar::RideRevealed, usize) {
+        use anchor_lang::{AnchorDeserialize, Discriminator};
+        let d = self
+            .last_events
+            .iter()
+            .find(|d| d[8..16] == *railcar::RideRevealed::DISCRIMINATOR)
+            .expect("RideRevealed");
+        (
+            railcar::RideRevealed::deserialize(&mut &d[16..]).expect("decode"),
+            d.len(),
+        )
     }
 
     /// Every seat of the car and its Pot's lines.
@@ -1834,6 +1888,13 @@ fn a_hundred_players_ride_one_car_and_the_hundred_and_first_boards_the_next() {
     }
     end_by_signal(&mut env, &car);
     println!("impact signal, 100 seats: {} CU", env.last_cu);
+    env.reveal(&car).expect("reveal");
+    let (event, bytes) = env.revealed();
+    println!(
+        "reveal_ride, 100 seats: {} CU, event {bytes} B",
+        env.last_cu
+    );
+    assert_eq!((event.seats.len(), event.brakes.len()), (100, 0));
     let pages = env.page_metas(&car);
     let finalize = env.finalize_ix(&car, pages);
     let payer = env.admin.insecure_clone();
@@ -1941,6 +2002,71 @@ fn finalize_needs_the_cars_own_finished_table_and_all_its_pages() {
     end_by_signal(&mut env, &car);
     let err = env.finalize_with(&car, vec![]).unwrap_err();
     assert_eq!(code(&err), rcode(railcar::RailcarError::PagesMissing));
+    env.finalize(&car).expect("finalize");
+    assert_eq!(env.stage(&car), ManyStage::Settling);
+}
+
+#[test]
+fn the_ride_is_revealed_once_after_impact_and_finalize_waits_for_it() {
+    let draw = draw_where(|r| r.crash_ms >= 30_000);
+    let (mut env, car, riders) = riding(draw);
+    // the committed Table still holds the ride before it: nothing to reveal
+    let err = env.reveal(&car).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::BadTable));
+    env.at_ride(car.table, 12.0);
+    env.jump(car.table, &riders[ANA]).expect("jump");
+    env.brake(car.table, &riders[BEN]).ok();
+    // a commit of the ride in progress is not a finished ride either
+    env.commit_standin(car.table);
+    let err = env.reveal(&car).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::BadTable));
+    env.at_ride(car.table, 20.0);
+    env.jump(car.table, &riders[BEN]).expect("jump");
+    end_by_signal(&mut env, &car);
+    // finalize refuses a ride nobody revealed
+    let pages = env.page_metas(&car);
+    let err = env.finalize_with(&car, pages).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::NotRevealed));
+    env.reveal(&car).expect("reveal");
+    let (e, _) = env.revealed();
+    let id = env.core_car(&car).inner.id();
+    assert_eq!(
+        (e.opener.to_bytes(), e.n, e.car_no, e.tesoro_match),
+        (id.opener, id.n, car.no, car.tesoro)
+    );
+    let t = env.table(car.table);
+    assert_eq!(e.draw, t.reveal_draw);
+    assert_eq!(e.seats.len(), 5);
+    for (s, ts) in e.seats.iter().zip(&t.seats[..5]) {
+        assert_eq!(
+            (
+                s.seat,
+                s.order,
+                s.jump_ms,
+                s.refund,
+                s.player.to_bytes(),
+                s.backer
+            ),
+            (
+                ts.seat,
+                ts.order,
+                ts.jump_ms(),
+                ts.refund(),
+                ts.account,
+                None
+            )
+        );
+    }
+    assert_eq!(
+        e.brakes.iter().map(|b| (b.seat, b.ms)).collect::<Vec<_>>(),
+        t.seats[..5]
+            .iter()
+            .filter_map(|s| s.brake_ms().map(|ms| (s.seat, ms)))
+            .collect::<Vec<_>>()
+    );
+    // once per car
+    let err = env.reveal(&car).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::AlreadyRevealed));
     env.finalize(&car).expect("finalize");
     assert_eq!(env.stage(&car), ManyStage::Settling);
 }
@@ -2427,6 +2553,17 @@ fn a_hundred_brakes_and_ninety_nine_jumps_end_inside_one_default_transaction() {
             .count(),
         100
     );
+    // the reveal of the worst case: 100 seats, 99 Jumps, 100 Brakes, inside the CPI data limit
+    env.reveal(&car).expect("reveal");
+    let (event, bytes) = env.revealed();
+    println!(
+        "reveal_ride, 100 Brakes, 99 Jumps: {} CU, event {bytes} B",
+        env.last_cu
+    );
+    assert_eq!((event.seats.len(), event.brakes.len()), (100, 100));
+    assert_eq!(event.seats.iter().filter(|s| s.order != 0).count(), 99);
+    assert!(bytes <= 10_240);
+    assert!(env.last_cu < 140_000);
     let pages = env.page_metas(&car);
     let finalize = env.finalize_ix(&car, pages);
     let payer = env.admin.insecure_clone();
@@ -2434,5 +2571,5 @@ fn a_hundred_brakes_and_ninety_nine_jumps_end_inside_one_default_transaction() {
         e.send_v0(&[cu_limit(1_400_000), finalize], &payer)
     })
     .expect("finalize");
-    println!("finalize with 100 Brakes revealed: {} CU", env.last_cu);
+    println!("finalize after 100 Brakes revealed: {} CU", env.last_cu);
 }

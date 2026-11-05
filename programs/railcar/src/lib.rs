@@ -116,6 +116,10 @@ pub enum RailcarError {
     SponsorDry,
     #[msg("Arithmetic overflow")]
     Overflow,
+    #[msg("The ride is not revealed yet: send reveal_ride first")]
+    NotRevealed,
+    #[msg("The ride is already revealed")]
+    AlreadyRevealed,
 }
 
 fn ride_err(e: ride::RideError) -> Error {
@@ -172,17 +176,20 @@ pub struct RideOver {
     pub over_ms: u32,
 }
 
-/// `finalize` handed the result to core (event-CPI).
+/// `reveal_ride` published a finished ride for the round history (event-CPI): everything the
+/// ride revealed (the draw and every Brake) and every seat, so anyone can name each Player and
+/// replay the ride. Keyed like core's Match records (`opener`, `n`).
 #[event]
-pub struct RideSettled {
+pub struct RideRevealed {
+    pub opener: Pubkey,
+    pub n: u64,
     pub car_no: u64,
     pub tesoro_match: Pubkey,
     pub outcome: u8,
     pub reason: u8,
-    /// The reveal, for the round history: the draw (zero when it never came) and every Brake.
+    /// The draw; zero when it never came.
     pub draw: [u8; 32],
     pub brakes: Vec<RevealedBrake>,
-    /// Every seated Player, so the history can name each one and replay the ride.
     pub seats: Vec<RevealedSeat>,
 }
 
@@ -208,23 +215,36 @@ pub struct RevealedSeat {
 /// Bytes of one `RevealedSeat` at most (a backed seat).
 const REVEALED_SEAT_MAX: usize = 1 + 1 + 4 + 8 + 32 + 33 + 2;
 
-/// `RideSettled` as event-CPI data, written field by field into one buffer of the exact size while `finalize` reads
-/// the seats. A 100-seat reveal is up to 8 KB and the program heap is 32 KB, which Anchor's `emit_cpi!` (a doubling
-/// buffer, then two copies) overflows after the settle CPI's own allocations.
+/// `RideRevealed` as event-CPI data, written field by field into one buffer of the exact size while `reveal_ride`
+/// reads the seats. A 100-seat reveal is up to 8.7 KB (under the 10,240 B CPI data limit) and Anchor's `emit_cpi!`
+/// (a doubling buffer, then two copies) would need over three times that of the 32 KB heap.
 struct RideReveal {
     data: Vec<u8>,
 }
 
 impl RideReveal {
     /// The head, the draw and every Brake; the seats follow with `seat`, in core seat order.
-    fn new(car_no: u64, tesoro_match: &Pubkey, t: &Table) -> Result<Self> {
+    fn new(opener: &Pubkey, n: u64, car_no: u64, tesoro_match: &Pubkey, t: &Table) -> Result<Self> {
         let seats = &t.seats[..usize::from(t.seated)];
         let brakes = seats.iter().filter(|s| s.brake_ms().is_some()).count();
-        let cap =
-            8 + 8 + 8 + 32 + 1 + 1 + 32 + 4 + brakes * 5 + 4 + seats.len() * REVEALED_SEAT_MAX;
+        let cap = 8
+            + 8
+            + 32
+            + 8
+            + 8
+            + 32
+            + 1
+            + 1
+            + 32
+            + 4
+            + brakes * 5
+            + 4
+            + seats.len() * REVEALED_SEAT_MAX;
         let mut data = Vec::with_capacity(cap);
         data.extend_from_slice(anchor_lang::event::EVENT_IX_TAG_LE);
-        data.extend_from_slice(RideSettled::DISCRIMINATOR);
+        data.extend_from_slice(RideRevealed::DISCRIMINATOR);
+        opener.serialize(&mut data)?;
+        n.serialize(&mut data)?;
         car_no.serialize(&mut data)?;
         tesoro_match.serialize(&mut data)?;
         t.outcome.serialize(&mut data)?;
@@ -371,6 +391,52 @@ fn car_shape(info: &AccountInfo) -> Result<(u8, u8)> {
     );
     let car: &ManySeatMatch = bytemuck::from_bytes(&data[8..ManySeatMatch::SPACE]);
     Ok((car.inner.pages, car.inner.seated))
+}
+
+/// The core car's Match id (`opener`, `n`), read in place.
+fn car_id(info: &AccountInfo) -> Result<(Pubkey, u64)> {
+    require_keys_eq!(*info.owner, tesoro_core::ID, RailcarError::BadTable);
+    let data = info.try_borrow_data()?;
+    require!(
+        data.len() == ManySeatMatch::SPACE && data[..8] == *ManySeatMatch::DISCRIMINATOR,
+        RailcarError::BadTable
+    );
+    let car: &ManySeatMatch = bytemuck::from_bytes(&data[8..ManySeatMatch::SPACE]);
+    let id = car.inner.id();
+    Ok((Pubkey::new_from_array(id.opener), id.n))
+}
+
+/// The car's Table as base holds it (the rollup's last commit), checked to hold this car's
+/// finished ride: its PDA by the stored bump, owned by the delegation program or Railcar,
+/// `OVER`, this car and Match, `seated` seats.
+fn finished_table<'a, 'info>(
+    info: &'a AccountInfo<'info>,
+    car: &Account<'_, Car>,
+    seated: u8,
+) -> Result<std::cell::Ref<'a, &'info mut [u8]>> {
+    require!(
+        info.owner == &DELEGATION_PROGRAM || info.owner == &ID,
+        RailcarError::BadTable
+    );
+    let data = info.try_borrow_data()?;
+    require!(
+        data.len() == Table::SPACE && data[..8] == *Table::DISCRIMINATOR,
+        RailcarError::BadTable
+    );
+    let t: &Table = bytemuck::from_bytes(&data[8..Table::SPACE]);
+    let at =
+        Pubkey::create_program_address(&[TABLE_SEED, &car.table.to_le_bytes(), &[t.bump]], &ID)
+            .map_err(|_| error!(RailcarError::BadTable))?;
+    require_keys_eq!(at, *info.key, RailcarError::BadTable);
+    require!(
+        t.phase == PHASE_OVER
+            && t.car_no() == car.car_no
+            && t.car == car.key().to_bytes()
+            && t.tesoro_match == car.tesoro_match.to_bytes()
+            && t.seated == seated,
+        RailcarError::BadTable
+    );
+    Ok(data)
 }
 
 /// Commits the Table to base, paid by the Sponsor. An empty Sponsor leaves the result `dirty`
@@ -685,33 +751,11 @@ pub mod railcar {
         let car = &ctx.accounts.car;
         let match_key = car.tesoro_match;
         let (pages, seated) = car_shape(&ctx.accounts.match_state.to_account_info())?;
-        let (result, reveal) = {
+        require!(car.revealed, RailcarError::NotRevealed);
+        let result = {
             let info = ctx.accounts.table.to_account_info();
-            require!(
-                info.owner == &DELEGATION_PROGRAM || info.owner == &ID,
-                RailcarError::BadTable
-            );
-            let data = info.try_borrow_data()?;
-            require!(
-                data.len() == Table::SPACE && data[..8] == *Table::DISCRIMINATOR,
-                RailcarError::BadTable
-            );
+            let data = finished_table(&info, car, seated)?;
             let t: &Table = bytemuck::from_bytes(&data[8..Table::SPACE]);
-            let at = Pubkey::create_program_address(
-                &[TABLE_SEED, &car.table.to_le_bytes(), &[t.bump]],
-                &ID,
-            )
-            .map_err(|_| error!(RailcarError::BadTable))?;
-            require_keys_eq!(at, *info.key, RailcarError::BadTable);
-            require!(
-                t.phase == PHASE_OVER
-                    && t.car_no() == car.car_no
-                    && t.car == car.key().to_bytes()
-                    && t.tesoro_match == match_key.to_bytes()
-                    && t.seated == seated,
-                RailcarError::BadTable
-            );
-            let mut reveal = RideReveal::new(car.car_no, &match_key, t)?;
             let mut n = 0usize;
             for_each_seated(ctx.remaining_accounts, &match_key, pages, |seat, core| {
                 let s = t.seats.get(n).ok_or(RailcarError::SeatsDiffer)?;
@@ -719,12 +763,11 @@ pub mod railcar {
                     s.seat == seat && s.account == core.player(),
                     RailcarError::SeatsDiffer
                 );
-                reveal.seat(s, core)?;
                 n += 1;
                 Ok(())
             })?;
             require!(n == usize::from(seated), RailcarError::SeatsDiffer);
-            (ride::result(t).ok_or(RailcarError::BadTable)?, reveal)
+            ride::result(t).ok_or(RailcarError::BadTable)?
         };
         let bump = [ctx.bumps.authority];
         let signer: &[&[&[u8]]] = &[&[AUTHORITY_SEED, &bump]];
@@ -746,7 +789,41 @@ pub mod railcar {
             signer,
         )
         .with_remaining_accounts(ctx.remaining_accounts.to_vec());
-        tesoro_core::cpi::settle_many_seat_match(cpi, result)?;
+        tesoro_core::cpi::settle_many_seat_match(cpi, result)
+    }
+
+    /// Base, anyone, once per car, after the rollup committed the car's finished ride and before
+    /// `finalize` (which waits for it). Publishes the ride for the round history: the draw, every
+    /// Brake, and every seat with its Player, Backer, Offer share, Jump and refund
+    /// (`RideRevealed`). Checks the committed Table as `finalize` does. `remaining_accounts`:
+    /// every seat page of the car.
+    pub fn reveal_ride<'info>(ctx: Context<'_, '_, 'info, 'info, RevealRide<'info>>) -> Result<()> {
+        let car = &ctx.accounts.car;
+        require!(!car.revealed, RailcarError::AlreadyRevealed);
+        let match_key = car.tesoro_match;
+        let info = ctx.accounts.match_state.to_account_info();
+        let (pages, seated) = car_shape(&info)?;
+        let (opener, n) = car_id(&info)?;
+        let reveal = {
+            let info = ctx.accounts.table.to_account_info();
+            let data = finished_table(&info, car, seated)?;
+            let t: &Table = bytemuck::from_bytes(&data[8..Table::SPACE]);
+            let mut reveal = RideReveal::new(&opener, n, car.car_no, &match_key, t)?;
+            let mut k = 0usize;
+            for_each_seated(ctx.remaining_accounts, &match_key, pages, |seat, core| {
+                let s = t.seats.get(k).ok_or(RailcarError::SeatsDiffer)?;
+                require!(
+                    s.seat == seat && s.account == core.player(),
+                    RailcarError::SeatsDiffer
+                );
+                reveal.seat(s, core)?;
+                k += 1;
+                Ok(())
+            })?;
+            require!(k == usize::from(seated), RailcarError::SeatsDiffer);
+            reveal
+        };
+        ctx.accounts.car.revealed = true;
         reveal.emit(
             &ctx.accounts.event_authority.to_account_info(),
             ctx.bumps.event_authority,
@@ -1507,6 +1584,23 @@ pub struct CheckDeparture<'info> {
 }
 
 #[event_cpi]
+#[derive(Accounts)]
+pub struct RevealRide<'info> {
+    pub caller: Signer<'info>,
+    #[account(mut, seeds = [CAR_SEED, &car.car_no.to_le_bytes()], bump = car.bump)]
+    pub car: Box<Account<'info, Car>>,
+    /// CHECK: the car's Table as base holds it; checked by `finished_table`.
+    pub table: UncheckedAccount<'info>,
+    /// CHECK: the car's core Match, read in place (owner and discriminator checked).
+    #[account(address = car.tesoro_match @ RailcarError::WrongCar)]
+    pub match_state: UncheckedAccount<'info>,
+    /// CHECK: tesoro_core's event authority, read-only and unused: listed so the history's
+    /// webhook and catch-up (which follow tesoro_core) see this transaction.
+    #[account(seeds = [b"__event_authority"], bump, seeds::program = tesoro_core::ID)]
+    pub core_event_authority: UncheckedAccount<'info>,
+    pub tesoro_program: Program<'info, tesoro_core::program::TesoroCore>,
+}
+
 #[derive(Accounts)]
 pub struct Finalize<'info> {
     /// Pays the settlement receipt's rent in tesoro_core.

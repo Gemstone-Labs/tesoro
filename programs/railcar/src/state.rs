@@ -99,6 +99,8 @@ pub struct Car {
     pub opened_at: i64,
     /// Who paid this account's rent; it goes back there when the car closes.
     pub payer: Pubkey,
+    /// `reveal_ride` published the ride for the round history; `finalize` waits for it.
+    pub revealed: bool,
 }
 
 /// A program-owned lamport holder, delegated once, that pays the commits as the fee payer.
