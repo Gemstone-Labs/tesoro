@@ -58,6 +58,9 @@ const SORT_OPTIONS: { value: Sort; label: string }[] = [
 import { GemasLabel } from "../wallet/AdvanceQuote";
 import { RequestCard } from "@/components/backing/RequestCard";
 import { MyOffer } from "@/components/backing/MyOffer";
+import { fetchAllHistory } from "@/lib/chain/history-client";
+import type { HistoryRow } from "@/lib/chain/history";
+import { rideOfOffer } from "@/lib/chain/ride-history";
 import { BackingExample, FEES } from "./BackingExample";
 import "./backing.css";
 import { entryError } from "@/lib/chain/entry-errors";
@@ -132,6 +135,17 @@ export default function Backing() {
     (r) => r.record,
   );
   const mine = offers.filter((o) => o.backer === me && ["open", "accepted", "consumed"].includes(o.status));
+  // A used Railcar Offer links its ride once the ride is in the Backer's Match history.
+  const usedRailcar = mine.some((o) => o.game === "railcar" && o.status === "consumed");
+  const [backed, setBacked] = useState<HistoryRow[] | null>(null);
+  useEffect(() => {
+    if (!usedRailcar || !me) return;
+    let live = true;
+    void fetchAllHistory(me).then((rows) => live && setBacked(rows));
+    return () => {
+      live = false;
+    };
+  }, [usedRailcar, me]);
   const offeredTo = new Set(mine.filter((o) => o.status === "open" && nowSecs < o.expiresAt).map((o) => o.request));
 
   const run = (key: string, label: string | (() => string), fn: () => Promise<string | undefined>) => {
@@ -347,6 +361,7 @@ export default function Backing() {
                   <MyOffer
                     key={o.address.toBase58()}
                     offer={o}
+                    ride={o.game === "railcar" && o.status === "consumed" && o.player && backed ? rideOfOffer(backed, { player: o.player, useBy: o.useBy }) : null}
                     requests={requestByAddress}
                     nowMs={nowMs}
                     busy={busy}
