@@ -172,3 +172,53 @@ pub(crate) fn migrate_counters(ctx: Context<MigrateCounters>) -> Result<()> {
     }
     grow_counters_account(&info, &ctx.accounts.admin, &ctx.accounts.system_program)
 }
+
+/// Ticket 17 (Railcar): Offers gained `counted_in` (174 -> 182 bytes). Anyone grows an old Offer
+/// (the payer pays the 8 bytes of rent); the sweep is `keeper/scripts/grow-offers.ts`. The new
+/// field is zero: the period an old Offer counted in was never stored, so nothing is given back
+/// for it. Only this program wrote an `OfferState`, so owner, discriminator and length are the
+/// whole check; a 182-byte Offer is left alone.
+#[derive(Accounts)]
+pub struct GrowOffer<'info> {
+    /// Pays the rent of the 8 new bytes.
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    /// CHECK: owner, discriminator and length are checked in the handler.
+    #[account(mut, owner = crate::ID @ TesoroError::InvalidAccount)]
+    pub offer: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+pub(crate) fn grow_offer(ctx: Context<GrowOffer>) -> Result<()> {
+    let info = ctx.accounts.offer.to_account_info();
+    {
+        let data = info.try_borrow_data()?;
+        require!(
+            data.len() >= 8 && data[..8] == *OfferState::DISCRIMINATOR,
+            TesoroError::InvalidAccount
+        );
+        match data.len() {
+            OfferState::SPACE => return Ok(()),
+            OfferState::SPACE_V1 => {}
+            _ => return err!(TesoroError::InvalidAccount),
+        }
+    }
+    let rent = Rent::get()?
+        .minimum_balance(OfferState::SPACE)
+        .saturating_sub(info.lamports());
+    if rent > 0 {
+        system_program::transfer(
+            CpiContext::new(
+                ctx.accounts.system_program.to_account_info(),
+                system_program::Transfer {
+                    from: ctx.accounts.payer.to_account_info(),
+                    to: info.clone(),
+                },
+            ),
+            rent,
+        )?;
+    }
+    info.resize(OfferState::SPACE)?;
+    info.try_borrow_mut_data()?[OfferState::SPACE_V1..].fill(0);
+    Ok(())
+}

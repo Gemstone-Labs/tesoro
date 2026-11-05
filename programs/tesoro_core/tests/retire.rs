@@ -648,6 +648,7 @@ fn offers_retire_when_old_sized_and_only_then() {
             use_by: 0,
             player: None,
             ticket_open: false,
+            counted_in: 0,
         },
     };
     put(
@@ -659,6 +660,16 @@ fn offers_retire_when_old_sized_and_only_then() {
     let err = env
         .retire_offer(live)
         .expect_err("nothing proves it is old");
+    assert_eq!(custom_code(&err), NOT_OLD_WORLD);
+    // nor one of the layout just before `counted_in`: it is grown, its reservation kept
+    let short = APk::new_unique();
+    put(
+        &mut env.svm,
+        short,
+        tesoro_core::ID,
+        serialized(&state, OfferState::SPACE_V1),
+    );
+    let err = env.retire_offer(short).expect_err("grown, not retired");
     assert_eq!(custom_code(&err), NOT_OLD_WORLD);
 }
 

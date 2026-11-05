@@ -182,7 +182,7 @@ pub(crate) fn create_offer(
     )
     .map_err(core_err)?;
     let entry = created.entry;
-    count_entry(&ctx.accounts.protections.to_account_info(), entry)?;
+    let counted_in = count_entry(&ctx.accounts.protections.to_account_info(), entry)?;
     let counters = &mut ctx.accounts.counters;
     if counters.bump == 0 {
         counters.bump = ctx.bumps.counters;
@@ -200,6 +200,7 @@ pub(crate) fn create_offer(
     offer.bump = ctx.bumps.offer;
     offer.nonce = nonce;
     offer.inner = created;
+    offer.inner.counted_in = counted_in.unwrap_or(0);
     Ok(())
 }
 
@@ -289,6 +290,14 @@ pub struct CancelOffer<'info> {
         bump = request.bump
     )]
     pub request: Option<Account<'info, RequestState>>,
+    /// CHECK: the Backer's Protections address; required when the Offer counted on the Backer's
+    /// Entry Limit, which is given back.
+    #[account(
+        mut,
+        seeds = [PROTECTIONS_SEED, backer_account.key().as_ref()],
+        bump
+    )]
+    pub backer_protections: Option<UncheckedAccount<'info>>,
 }
 
 /// An Accepted Offer that ends unused hands its Request back: the Player would otherwise be left
@@ -311,6 +320,17 @@ fn reopen_accepted_request(
     Ok(())
 }
 
+/// Gives the unused Offer's Entry Limit count back to the Backer (see `release_entry`).
+fn release_count(offer: &mut ledger::Offer, protections: &Option<UncheckedAccount>) -> Result<()> {
+    let Some((gemas, period)) = offer.take_count() else {
+        return Ok(());
+    };
+    let protections = protections
+        .as_ref()
+        .ok_or_else(|| error!(MatchError::AccountMissing))?;
+    release_entry(&protections.to_account_info(), gemas, period)
+}
+
 /// Releases the Offer's reserved amount and counts it closed.
 fn release_offer(
     basket: &AccountInfo,
@@ -331,6 +351,7 @@ pub(crate) fn cancel_offer(ctx: Context<CancelOffer>) -> Result<()> {
     let accepted = (offer.status == OfferStatus::Accepted).then_some(offer.request);
     let entry = offer.entry;
     offer.cancel().map_err(core_err)?;
+    release_count(offer, &ctx.accounts.backer_protections)?;
     release_offer(
         &ctx.accounts.basket.to_account_info(),
         &ctx.accounts.spill.to_account_info(),
@@ -382,8 +403,10 @@ pub struct ExpireOffer<'info> {
     )]
     pub request: Option<Account<'info, RequestState>>,
     /// CHECK: the Backer's Protections address. Optional: when the Backer is on a Break or
-    /// Self-Excluded, anyone may withdraw their unused Offer at once.
+    /// Self-Excluded, anyone may withdraw their unused Offer at once. Required when the Offer
+    /// counted on the Backer's Entry Limit, which is given back.
     #[account(
+        mut,
         seeds = [PROTECTIONS_SEED, offer.inner.backer.as_ref()],
         bump
     )]
@@ -406,6 +429,7 @@ pub(crate) fn expire_offer(ctx: Context<ExpireOffer>) -> Result<()> {
         offer.expire(now)
     }
     .map_err(core_err)?;
+    release_count(offer, &ctx.accounts.backer_protections)?;
     release_offer(
         &ctx.accounts.basket.to_account_info(),
         &ctx.accounts.spill.to_account_info(),

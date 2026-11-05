@@ -220,7 +220,7 @@ impl Env {
         panic!("the run did not finish");
     }
 
-    fn close_seat_ix(&self, caller: APk, car: Car, seat: u8) -> Instruction {
+    pub(super) fn close_seat_ix(&self, caller: APk, car: Car, seat: u8) -> Instruction {
         let page = self.page(car, seat / SEATS_PER_PAGE as u8);
         let st = page.seats[seat as usize % SEATS_PER_PAGE];
         let player = APk::new_from_array(st.player());
@@ -245,6 +245,7 @@ impl Env {
                 sponsor: None,
                 funder_spill: Some(spill_address(&APk::new_from_array(st.funder())).0),
                 funder_mark: self.funder_mark_of(car, seat),
+                funder_protections: Some(protections_pda(APk::new_from_array(st.funder()))),
             },
             instruction::CloseManySeat { seat },
             vec![],

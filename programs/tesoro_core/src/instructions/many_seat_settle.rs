@@ -747,7 +747,8 @@ pub(crate) fn reserve_many_seat_room(
 /// Closes one seat of a paid car (anyone): the seat's empty Pot goes back to whoever paid it
 /// (sponsor first), the hold left in the funder's spill is released, the Player's open-Match count
 /// goes down and the seat marks' rent (the Player's, and the Backer's on a backed seat) goes back
-/// to their payer. The car closes once every seat is.
+/// to their payer. After a refund run (no result: void, nobody Jumped, abandoned, Game upgraded)
+/// the seat's Entry Limit count goes back to its funder. The car closes once every seat is.
 #[derive(Accounts)]
 #[instruction(seat: u8)]
 pub struct CloseManySeat<'info> {
@@ -789,6 +790,10 @@ pub struct CloseManySeat<'info> {
     /// CHECK: the Backer's mark of a backed seat (`funder_mark_of`), closed here.
     #[account(mut)]
     pub funder_mark: Option<UncheckedAccount<'info>>,
+    /// CHECK: the funder's Protections, required when a refunded car gives back the seat's Entry
+    /// Limit count (checked by `release_entry_of`).
+    #[account(mut)]
+    pub funder_protections: Option<UncheckedAccount<'info>>,
 }
 
 pub(crate) fn close_many_seat(ctx: Context<CloseManySeat>, seat: u8) -> Result<()> {
@@ -834,12 +839,23 @@ pub(crate) fn close_many_seat(ctx: Context<CloseManySeat>, seat: u8) -> Result<(
     let (seat_pot, hold, funder) = (s.pot(), s.hold(), Pubkey::new_from_array(s.funder()));
     let pot = ctx.accounts.pot.to_account_info();
     require!(pot.key.to_bytes() == seat_pot, ManySeatError::WrongSeat);
+    let counted = s.counted();
     // the seat: free, and the car one seat fewer
-    let left = {
+    let (left, refunded) = {
         let mut car = ctx.accounts.match_state.load_mut()?;
         car.inner.close_seat(&mut s).map_err(seat_err)?;
-        car.inner.seated
+        (car.inner.seated, car.inner.run.is_refund())
     };
+    // a refund run in place of a result: the entry came back unplayed, its count goes back too
+    if let (true, Some((gemas, period))) = (refunded, counted) {
+        let info = ctx
+            .accounts
+            .funder_protections
+            .as_ref()
+            .ok_or_else(|| error!(MatchError::AccountMissing))?
+            .to_account_info();
+        release_entry_of(&info, &funder, gemas, period)?;
+    }
     {
         let mut data = page_info.try_borrow_mut_data()?;
         page_in(&page_info, &mut data)?.seats[slot] = s;

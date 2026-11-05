@@ -10,6 +10,7 @@ import { EntryError } from "./ledger";
 import { ChallengeError, enterQueue, createChallenge, joinChallenge, ensureReady, refundMatch } from "./match-flow";
 import { coreIx } from "./entry";
 import { basketPda, countersPda, spillPda } from "./basket";
+import { protectionsPda } from "./native";
 import { freeOf, readEntryStores, type BackingRef } from "./entry";
 import { DrawError } from "./draw";
 import { fetchMatch, matchKeyOfState } from "./read";
@@ -285,6 +286,8 @@ export function cancelOfferIx(owner: PublicKey, offer: PublicKey, acceptedReques
     offer,
     // An accepted Offer hands its Request back to Open, so the Request comes with the call.
     request: acceptedRequest ?? undefined,
+    // The Offer's Entry Limit count goes back to the Backer.
+    backerProtections: protectionsPda(backerAccount),
   });
 }
 
@@ -304,7 +307,8 @@ export async function expireOffer(signer: ChainSigner, offer: ChainOffer) {
     counters: countersPda(backerAccount),
     offer: offer.address,
     request: offer.status === "accepted" ? new PublicKey(offer.request) : undefined,
-    backerProtections: undefined,
+    // The Offer's Entry Limit count goes back to the Backer.
+    backerProtections: protectionsPda(backerAccount),
   });
   return chain.sendBase(signer, [ix]);
 }
