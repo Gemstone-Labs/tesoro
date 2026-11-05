@@ -79,7 +79,8 @@ pub fn count_entry(protections: &AccountInfo, gemas: u64) -> Result<Option<i64>>
 }
 
 /// Gives back `gemas` that `count_entry` counted in the period starting at `period_start`, while
-/// that period is still the current one.
+/// that period is still the current one. `protections` is the Account's address (checked by the
+/// caller's seeds).
 pub fn release_entry(protections: &AccountInfo, gemas: u64, period_start: i64) -> Result<()> {
     if protections.owner != &crate::ID || protections.data_is_empty() {
         return Ok(());
@@ -92,4 +93,63 @@ pub fn release_entry(protections: &AccountInfo, gemas: u64, period_start: i64) -
         .release_entry(now()?, gemas, period_start);
     p.try_serialize(&mut &mut data[..])?;
     Ok(())
+}
+
+/// [`release_entry`] into `account`'s Protections, an account the caller did not check: it must be
+/// this program's Protections of `account` (its recorded owner, or else its address). A count was
+/// stored, so the Protections exist; anything else is refused.
+pub fn release_entry_of(
+    protections: &AccountInfo,
+    account: &Pubkey,
+    gemas: u64,
+    period_start: i64,
+) -> Result<()> {
+    require_keys_eq!(*protections.owner, crate::ID, TesoroError::InvalidAccount);
+    require!(protections.is_writable, TesoroError::NotWritable);
+    let mut data = protections.try_borrow_mut_data()?;
+    let mut p = ProtectionsState::try_deserialize(&mut &data[..])?;
+    // `touch_protections` records the owner when the account is made; an account made before it
+    // did is checked by its address
+    require!(
+        p.account == *account
+            || *protections.key
+                == Pubkey::find_program_address(&[PROTECTIONS_SEED, account.as_ref()], &crate::ID)
+                    .0,
+        TesoroError::InvalidAccount
+    );
+    p.inner
+        .entry_limit
+        .release_entry(now()?, gemas, period_start);
+    p.try_serialize(&mut &mut data[..])?;
+    Ok(())
+}
+
+/// The Protections of `account` among `infos`: this program's, with the Protections
+/// discriminator, recorded for `account` (or, for one made before that was recorded, at its
+/// address). [`release_entry_of`] checks it again.
+pub fn find_protections<'a, 'info>(
+    infos: &'a [AccountInfo<'info>],
+    account: &Pubkey,
+) -> Option<&'a AccountInfo<'info>> {
+    use anchor_lang::Discriminator;
+    // discriminator, bump, then the recorded owner
+    const OWNER_AT: usize = 8 + 1;
+    let is_protections = |i: &AccountInfo| {
+        i.owner == &crate::ID
+            && i.try_borrow_data().is_ok_and(|d| {
+                d.len() >= OWNER_AT + 32 && d[..8] == *ProtectionsState::DISCRIMINATOR
+            })
+    };
+    infos
+        .iter()
+        .find(|i| {
+            is_protections(i)
+                && i.try_borrow_data()
+                    .is_ok_and(|d| d[OWNER_AT..OWNER_AT + 32] == account.to_bytes())
+        })
+        .or_else(|| {
+            let at =
+                Pubkey::find_program_address(&[PROTECTIONS_SEED, account.as_ref()], &crate::ID).0;
+            infos.iter().find(|i| i.key == &at && is_protections(i))
+        })
 }

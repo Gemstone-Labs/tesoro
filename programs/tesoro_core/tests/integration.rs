@@ -1796,6 +1796,10 @@ impl Env {
         if let Some(b) = rec.b {
             remaining.push(rem(counters_pda(APk::new_from_array(b.player))));
         }
+        // a refund gives each side's count back to its funder's Entry Limit
+        for party in [Some(rec.a), rec.b].into_iter().flatten() {
+            remaining.push(rem(protections_pda(APk::new_from_array(party.funder))));
+        }
         ix(
             accounts::CloseMatch {
                 caller,
@@ -2693,6 +2697,7 @@ fn backing_cannot_be_revoked_after_start_and_backed_player_cannot_move_backer_ge
             counters: counters_pda(b.carol.account),
             offer,
             request: None,
+            backer_protections: Some(protections_pda(b.carol.account)),
         },
         instruction::CancelOffer {},
         vec![],
@@ -3027,6 +3032,7 @@ fn f12_a_request_returns_to_open_when_its_accepted_offer_ends_unused() {
                             counters: counters_pda(b.carol.account),
                             offer,
                             request,
+                            backer_protections: Some(protections_pda(b.carol.account)),
                         },
                         instruction::CancelOffer {},
                         vec![],
@@ -5255,6 +5261,7 @@ fn a_backing_ticket_needs_the_requesters_signature_and_blocks_cancelling_the_off
             counters: counters_pda(carol.account),
             offer,
             request: None,
+            backer_protections: Some(protections_pda(b.carol.account)),
         },
         instruction::CancelOffer {},
         vec![],
@@ -6420,5 +6427,6 @@ fn a_match_opened_before_the_upgrade_still_closes_with_an_old_counters_account()
     assert_eq!(u32::from_le_bytes(c[17..21].try_into().unwrap()), 0);
 }
 
+mod entry_limit;
 mod many_seat;
 mod seat_keys;

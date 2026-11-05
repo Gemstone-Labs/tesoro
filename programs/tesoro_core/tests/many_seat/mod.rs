@@ -257,6 +257,8 @@ impl Env {
                 game_program: game.then_some(game_program),
                 program_data: game.then_some(program_data),
                 funder_mark: self.funder_mark_of(car, mark.seat),
+                funder_protections: (seat.funder() != seat.player())
+                    .then(|| protections_pda(APk::new_from_array(seat.funder()))),
             },
             instruction::StepOffManySeatMatch {
                 seat: mark.seat,
