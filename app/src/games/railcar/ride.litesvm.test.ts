@@ -10,8 +10,11 @@
  * Stand-ins, as the Rust ride tests (programs/railcar/tests/ride.rs) use them: one LiteSVM is both base and rollup; the
  * magic, permission and VRF programs accept anything (`test-programs/noop.so`); the Vault is written as `init_vault`
  * would; the VRF callback is signed by its scoped identity directly; a commit is base keeping the Table's bytes, and
- * `finalize` reads them owned by the delegation program. The lookup tables are written in place (the server's own tables
- * on devnet).
+ * `finalize` reads them owned by the delegation program.
+ *
+ * Every transaction is compiled by the app's one size rule (`lib/chain/tx-size`) with no lookup table, as the sponsor
+ * sends it when `TESORO_SPONSOR_LOOKUP_TABLES` is unset: one over 1,232 B or 64 accounts fails the test, naming its
+ * instructions. Boarding goes as the sponsor sends it: the relayer pays, the wallet and the seat key sign.
  */
 import { AnchorProvider, BN, BorshAccountsCoder, Program, type Idl } from "@coral-xyz/anchor";
 import { DELEGATION_PROGRAM_ID, PERMISSION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
@@ -20,7 +23,6 @@ import {
   ComputeBudgetProgram,
   Keypair,
   PublicKey,
-  TransactionMessage,
   VersionedTransaction,
   type AccountInfo,
   type TransactionInstruction,
@@ -38,7 +40,9 @@ import { joinSeatIx } from "../../lib/chain/many-seat";
 import { loadCar } from "../../lib/chain/many-seat-plan";
 import { decodeStore } from "../../lib/chain/pot-store";
 import { OVERFLOW_STORE_AT, matchOverflowPda } from "../../lib/chain/overflow";
-import { MAX_ACCOUNTS, MAX_TX_BYTES, type Reader } from "../../lib/chain/settle-plan";
+import { fits, type Reader } from "../../lib/chain/settle-plan";
+import { checkedV0, instructionName, messageSize, type TxSize } from "../../lib/chain/tx-size";
+import { sponsoredInstructions } from "../../server/sponsor/service";
 import {
   RAILCAR_PROGRAM_ID,
   checkDepartureIx,
@@ -66,7 +70,6 @@ const BUILT = existsSync(join(SO_DIR, "tesoro_core.so")) && existsSync(join(SO_D
 
 const CORE = new PublicKey((coreIdl as { address: string }).address);
 const UPGRADEABLE = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
-const ALT_PROGRAM = new PublicKey("AddressLookupTab1e1111111111111111111111111");
 const MAGIC = new PublicKey("Magic11111111111111111111111111111111111111");
 const VRF = new PublicKey("Vrf1RNUjXmQGjmQrQLvJHs9SNkvDJEsRVFPkfSQUwGz");
 const SOL = 1_000_000_000n;
@@ -196,9 +199,15 @@ class World {
 
   // ---- sending ------------------------------------------------------------------------------------------------------
 
+  /** The largest size each kind of transaction took (its instructions, compute budget left out). */
+  sizes = new Map<string, TxSize>();
+
   send(ixs: TransactionInstruction[], payer: Keypair, signers: Keypair[] = [], tables: AddressLookupTableAccount[] = []): void {
     this.svm.expireBlockhash();
-    const msg = new TransactionMessage({ payerKey: payer.publicKey, recentBlockhash: this.svm.latestBlockhash(), instructions: ixs }).compileToV0Message(tables);
+    const msg = checkedV0(payer.publicKey, this.svm.latestBlockhash(), ixs, tables);
+    const kind = ixs.map(instructionName).filter((n) => n !== "compute_budget").join(" + ");
+    const size = messageSize(msg);
+    if (size.bytes > (this.sizes.get(kind)?.bytes ?? 0)) this.sizes.set(kind, size);
     const tx = new VersionedTransaction(msg);
     const all = [payer, ...signers];
     tx.sign(all.filter((k, i) => all.findIndex((x) => x.publicKey.equals(k.publicKey)) === i && msg.staticAccountKeys.slice(0, msg.header.numRequiredSignatures).some((s) => s.equals(k.publicKey))));
@@ -206,28 +215,6 @@ class World {
     const res = this.svm.send(tx);
     this.lastLogs = res.logs;
     if (res.err) throw new Error(`transaction failed: ${String(res.err)}\n${this.lastLogs.join("\n")}`);
-  }
-
-  /** A lookup table holding every non-signer account of `ixs`, written in place (the server compiles with its own). */
-  table(ixs: TransactionInstruction[]): AddressLookupTableAccount {
-    const keys = [...new Map(ixs.flatMap((i) => [i.programId, ...i.keys.filter((k) => !k.isSigner).map((k) => k.pubkey)]).map((k) => [k.toBase58(), k])).values()];
-    const key = Keypair.generate().publicKey;
-    const head = Buffer.alloc(56);
-    head.writeUInt32LE(1, 0);
-    head.writeBigUInt64LE(0xffff_ffff_ffff_ffffn, 4);
-    this.svm.set(key, { lamports: Number(10n * SOL), data: Buffer.concat([head, ...keys.map((k) => k.toBuffer())]), owner: ALT_PROGRAM, executable: false });
-    return new AddressLookupTableAccount({ key, state: { deactivationSlot: 0xffff_ffff_ffff_ffffn, lastExtendedSlot: 0, lastExtendedSlotStartIndex: 0, authority: undefined, addresses: keys } });
-  }
-
-  fits(payer: PublicKey, ixs: TransactionInstruction[]): boolean {
-    const t = this.table(ixs);
-    try {
-      const msg = new TransactionMessage({ payerKey: payer, recentBlockhash: PublicKey.default.toBase58(), instructions: ixs }).compileToV0Message([t]);
-      const accounts = msg.staticAccountKeys.length + msg.addressTableLookups.reduce((n, l) => n + l.writableIndexes.length + l.readonlyIndexes.length, 0);
-      return new VersionedTransaction(msg).serialize().length <= MAX_TX_BYTES && accounts <= MAX_ACCOUNTS;
-    } catch {
-      return false;
-    }
   }
 
   setClock(slot: bigint, ts: number) {
@@ -379,15 +366,18 @@ class World {
     expect(preview.needsTicket).toBe(false);
     const pot = freshPot(p.account, preview.potLines, await readNextTicket(p.account, conn));
     const remaining = await drawRemaining(preview.plan, conn);
-    const ixs: TransactionInstruction[] = [cu(1_000_000)];
+    // Sponsored, as the page sends it: the relayer pays, the wallet signs the entry once, the seat key co-signs.
+    const payer = this.relayer.publicKey;
+    const seatKey = Keypair.generate();
+    const ixs: TransactionInstruction[] = [];
     if (choice.kind === "join") {
-      ixs.push(joinSeatIx({ payer: p.key, player: p.key, car: choice.car, game: RAILCAR_PROGRAM_ID, page: choice.page, pot, remaining }), checkDepartureIx(choice.carNo, choice.car));
+      ixs.push(joinSeatIx({ payer, player: p.key, car: choice.car, game: RAILCAR_PROGRAM_ID, page: choice.page, pot, remaining, seatSigner: seatKey.publicKey }), checkDepartureIx(choice.carNo, choice.car));
     } else if (choice.kind === "open") {
       const n = nextMatchOf(this.info(countersPda(p.account))?.data);
       const match = matchPda(p.account, n);
-      ixs.push(openCarIx({ payer: p.key, opener: p.key, config, n }), joinSeatIx({ payer: p.key, player: p.key, car: match, game: RAILCAR_PROGRAM_ID, page: 0, pot, remaining }), checkDepartureIx(choice.carNo, match));
+      ixs.push(openCarIx({ payer, opener: p.key, config, n }), joinSeatIx({ payer, player: p.key, car: match, game: RAILCAR_PROGRAM_ID, page: 0, pot, remaining, seatSigner: seatKey.publicKey }), checkDepartureIx(choice.carNo, match));
     } else throw new Error(`unexpected Queue choice ${choice.kind}`);
-    this.send(ixs, p.kp);
+    this.send(sponsoredInstructions({ cu: 1_000_000, grows: [], ixs, assignment: null }), this.relayer, [p.kp, seatKey]);
   }
 
   rideSlot(index: number): bigint {
@@ -502,7 +492,7 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][]): 
   const shown = riders.map((p) => shownView.rows.find((r) => r.account === p.account.toBase58())!.gets);
 
   // The finish as a paid Player's page sends it (finish.ts), the relayer as caller of every step: finalize on base (the
-  // committed Table), room, every chunk the planner sizes, every close. Compiled with a lookup table, as the server does.
+  // committed Table), room, every chunk the planner sizes, every close. Sized and sent with no lookup table.
   const core = new Program(coreIdl as Idl, { connection: {} } as unknown as AnchorProvider);
   const chunkSteps: number[] = [];
   const sent = await finishRide({
@@ -515,10 +505,10 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][]): 
       const t = decodeTable(w.committed.get(table.toBase58())!);
       return t.carNo === carNo && t.phase === "over";
     },
-    fits: (ix) => w.fits(w.relayer.publicKey, [cu(1_400_000), ix]),
+    fits: (ix) => fits(w.relayer.publicKey, [cu(1_400_000), ix]),
     send: async (ixs, step) => {
       const all = [cu(1_400_000), ...ixs];
-      const go = () => w.send(all, w.relayer, [], [w.table(all)]);
+      const go = () => w.send(all, w.relayer);
       if (step === "finalize") w.onBase(carAcct.table, go);
       else go();
       if (step === "chunk") chunkSteps.push(ixs[0].data[8]);
@@ -531,6 +521,7 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][]): 
   expect(sent.sent.filter((s) => s === "close-seat")).toHaveLength(n);
   expect(sent.sent.at(-1)).toBe("close-car");
 
+  console.log(`Railcar transactions, ${n} riders, no lookup table (largest of each kind):\n${[...w.sizes].map(([k, s]) => `  ${s.bytes} B, ${s.accounts} accounts: ${k}`).join("\n")}`);
   return { riders, deltas: riders.map((p, i) => w.gemas(p, id) - before[i]), studioFee: w.studioFee() - studioBefore, chunkSteps, shown, walletSigs: w.walletSigs };
 }
 

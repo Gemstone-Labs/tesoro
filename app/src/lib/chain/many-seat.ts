@@ -305,7 +305,6 @@ export function joinSeatIx(a: JoinSeatArgs): TransactionInstruction {
       ...(b
         ? {
             offer: b.offer,
-            backer_account: b.backerAccount,
             backer_counters: countersOf(b.backerAccount),
             backer_protections: protectionsOf(b.backerAccount),
             backer_basket: basketOf(b.backerAccount),
