@@ -4389,11 +4389,13 @@
             "type": "pubkey"
           },
           {
-            "name": "funder",
+            "name": "backer",
             "docs": [
-              "Who funded the entry: the Backer of a backed seat, else the Player."
+              "The Backer who funded a backed seat's entry; none when the Player funded it."
             ],
-            "type": "pubkey"
+            "type": {
+              "option": "pubkey"
+            }
           },
           {
             "name": "share_bps",

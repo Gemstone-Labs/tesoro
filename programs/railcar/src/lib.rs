@@ -199,10 +199,81 @@ pub struct RevealedSeat {
     pub refund: u64,
     /// The Player's core Account.
     pub player: Pubkey,
-    /// Who funded the entry: the Backer of a backed seat, else the Player.
-    pub funder: Pubkey,
+    /// The Backer who funded a backed seat's entry; none when the Player funded it.
+    pub backer: Option<Pubkey>,
     /// A backed seat's Player share of the winnings (the Offer's), in bps.
     pub share_bps: u16,
+}
+
+/// Bytes of one `RevealedSeat` at most (a backed seat).
+const REVEALED_SEAT_MAX: usize = 1 + 1 + 4 + 8 + 32 + 33 + 2;
+
+/// `RideSettled` as event-CPI data, written field by field into one buffer of the exact size while `finalize` reads
+/// the seats. A 100-seat reveal is up to 8 KB and the program heap is 32 KB, which Anchor's `emit_cpi!` (a doubling
+/// buffer, then two copies) overflows after the settle CPI's own allocations.
+struct RideReveal {
+    data: Vec<u8>,
+}
+
+impl RideReveal {
+    /// The head, the draw and every Brake; the seats follow with `seat`, in core seat order.
+    fn new(car_no: u64, tesoro_match: &Pubkey, t: &Table) -> Result<Self> {
+        let seats = &t.seats[..usize::from(t.seated)];
+        let brakes = seats.iter().filter(|s| s.brake_ms().is_some()).count();
+        let cap =
+            8 + 8 + 8 + 32 + 1 + 1 + 32 + 4 + brakes * 5 + 4 + seats.len() * REVEALED_SEAT_MAX;
+        let mut data = Vec::with_capacity(cap);
+        data.extend_from_slice(anchor_lang::event::EVENT_IX_TAG_LE);
+        data.extend_from_slice(RideSettled::DISCRIMINATOR);
+        car_no.serialize(&mut data)?;
+        tesoro_match.serialize(&mut data)?;
+        t.outcome.serialize(&mut data)?;
+        t.reason.serialize(&mut data)?;
+        t.reveal_draw.serialize(&mut data)?;
+        (brakes as u32).serialize(&mut data)?;
+        for s in seats {
+            if let Some(ms) = s.brake_ms() {
+                RevealedBrake { seat: s.seat, ms }.serialize(&mut data)?;
+            }
+        }
+        (seats.len() as u32).serialize(&mut data)?;
+        Ok(Self { data })
+    }
+
+    fn seat(&mut self, s: &RideSeat, core: &Seat) -> Result<()> {
+        let backed = core.funder() != core.player();
+        RevealedSeat {
+            seat: s.seat,
+            order: s.order,
+            jump_ms: s.jump_ms(),
+            refund: s.refund(),
+            player: Pubkey::new_from_array(core.player()),
+            backer: backed.then(|| Pubkey::new_from_array(core.funder())),
+            share_bps: core.share_bps(),
+        }
+        .serialize(&mut self.data)?;
+        Ok(())
+    }
+
+    /// The event-CPI `emit_cpi!` would make, moving the buffer into the instruction.
+    fn emit(self, authority: &AccountInfo, bump: u8) -> Result<()> {
+        let ix = anchor_lang::solana_program::instruction::Instruction {
+            program_id: ID,
+            accounts: vec![
+                anchor_lang::solana_program::instruction::AccountMeta::new_readonly(
+                    *authority.key,
+                    true,
+                ),
+            ],
+            data: self.data,
+        };
+        anchor_lang::solana_program::program::invoke_signed(
+            &ix,
+            &[authority.clone()],
+            &[&[b"__event_authority", &[bump]]],
+        )
+        .map_err(Into::into)
+    }
 }
 
 /// One Player's Brake, made public with the ride's end.
@@ -614,7 +685,7 @@ pub mod railcar {
         let car = &ctx.accounts.car;
         let match_key = car.tesoro_match;
         let (pages, seated) = car_shape(&ctx.accounts.match_state.to_account_info())?;
-        let (result, outcome, reason, draw, brakes, seats) = {
+        let (result, reveal) = {
             let info = ctx.accounts.table.to_account_info();
             require!(
                 info.owner == &DELEGATION_PROGRAM || info.owner == &ID,
@@ -640,36 +711,20 @@ pub mod railcar {
                     && t.seated == seated,
                 RailcarError::BadTable
             );
-            let mut seats = Vec::with_capacity(usize::from(seated));
-            for_each_seated(
-                ctx.remaining_accounts,
-                &match_key,
-                pages,
-                |seat, core| {
-                    let s = t.seats.get(seats.len()).ok_or(RailcarError::SeatsDiffer)?;
-                    require!(
-                        s.seat == seat && s.account == core.player(),
-                        RailcarError::SeatsDiffer
-                    );
-                    seats.push(RevealedSeat {
-                        seat,
-                        order: s.order,
-                        jump_ms: s.jump_ms(),
-                        refund: s.refund(),
-                        player: Pubkey::new_from_array(core.player()),
-                        funder: Pubkey::new_from_array(core.funder()),
-                        share_bps: core.share_bps(),
-                    });
-                    Ok(())
-                },
-            )?;
-            require!(seats.len() == usize::from(seated), RailcarError::SeatsDiffer);
-            let result = ride::result(t).ok_or(RailcarError::BadTable)?;
-            let brakes = t.seats[..usize::from(t.seated)]
-                .iter()
-                .filter_map(|s| s.brake_ms().map(|ms| RevealedBrake { seat: s.seat, ms }))
-                .collect::<Vec<_>>();
-            (result, t.outcome, t.reason, t.reveal_draw, brakes, seats)
+            let mut reveal = RideReveal::new(car.car_no, &match_key, t)?;
+            let mut n = 0usize;
+            for_each_seated(ctx.remaining_accounts, &match_key, pages, |seat, core| {
+                let s = t.seats.get(n).ok_or(RailcarError::SeatsDiffer)?;
+                require!(
+                    s.seat == seat && s.account == core.player(),
+                    RailcarError::SeatsDiffer
+                );
+                reveal.seat(s, core)?;
+                n += 1;
+                Ok(())
+            })?;
+            require!(n == usize::from(seated), RailcarError::SeatsDiffer);
+            (ride::result(t).ok_or(RailcarError::BadTable)?, reveal)
         };
         let bump = [ctx.bumps.authority];
         let signer: &[&[&[u8]]] = &[&[AUTHORITY_SEED, &bump]];
@@ -692,16 +747,10 @@ pub mod railcar {
         )
         .with_remaining_accounts(ctx.remaining_accounts.to_vec());
         tesoro_core::cpi::settle_many_seat_match(cpi, result)?;
-        emit_cpi!(RideSettled {
-            car_no: ctx.accounts.car.car_no,
-            tesoro_match: match_key,
-            outcome,
-            reason,
-            draw,
-            brakes,
-            seats,
-        });
-        Ok(())
+        reveal.emit(
+            &ctx.accounts.event_authority.to_account_info(),
+            ctx.bumps.event_authority,
+        )
     }
 
     /// Base, anyone. Closes a car core has frozen (its receipt exists) or closed (an empty car);

@@ -235,7 +235,7 @@ function storedRide(settled: any, run: any, placed: any[]): StoredRide | null {
     reason: RIDE_REASONS[settled.reason] ?? "none",
     draw: draw.some((b) => b !== 0) ? hex(draw) : null,
     brakes: settled.brakes.map((b: any) => ({ seat: b.seat, ms: b.ms })),
-    seats: settled.seats.map((s: any) => ({ seat: s.seat, player: key(s.player), funder: key(s.funder), shareBps: s.share_bps, order: s.order, jumpMs: s.jump_ms, refund: num(s.refund) })),
+    seats: settled.seats.map((s: any) => ({ seat: s.seat, player: key(s.player), funder: key(s.backer ?? s.player), shareBps: s.share_bps, order: s.order, jumpMs: s.jump_ms, refund: num(s.refund) })),
     places: placed.map((p) => ({ place: p.place, seat: p.seat, player: key(p.player), funder: key(p.funder), shareBps: p.share_bps, won: num(p.won) })),
     fees: [num(run.fees[0]), num(run.fees[1]), num(run.fees[2])],
   };

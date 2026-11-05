@@ -86,7 +86,7 @@ function rideEvents(n: number, riders: Rider[], o: { draw: Uint8Array; kind?: nu
       reason: o.reason ?? 1,
       draw: Array.from(o.draw),
       brakes: o.brakes ?? [],
-      seats: riders.map((r, i) => ({ seat: i, order: r.order ?? 0, jump_ms: r.jumpMs ?? 0, refund: r.refund ?? 0n, player: r.who, funder: funder(r), share_bps: r.share ?? 0 })),
+      seats: riders.map((r, i) => ({ seat: i, order: r.order ?? 0, jump_ms: r.jumpMs ?? 0, refund: r.refund ?? 0n, player: r.who, backer: r.funder ?? null, share_bps: r.share ?? 0 })),
     }),
   );
   const paid = [cpi(CORE, "ManySeatChunkDone", { opener: OPENER, n: BigInt(n), chunk_no: 1, first_step: 1, steps: 0, done: true, blocked: false, overflowed: 0, lines: [] }), cpi(CORE, "ManySeatSettled", { match_state: match, opener: OPENER, n: BigInt(n), kind, chunks: 1 })];
