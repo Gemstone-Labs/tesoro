@@ -1,14 +1,15 @@
 import Image from "next/image";
 import Link from "next/link";
+import { Users } from "lucide-react";
 import { AccountLink } from "@/components/account/AccountLink";
 import { PlayerAvatar, PlayerName } from "@/components/account/Player";
 import { SkelText } from "@/components/ui/skel-text";
 import { CheckIcon, MinusIcon, XIcon } from "@/components/ui";
 import { art } from "@/lib/art";
 import { ago } from "@/lib/catalogue";
-import { amountText, backingText, type HistoryRow } from "@/lib/chain/history";
+import { amountText, backingText, historyGameName, matchHref, type HistoryRow } from "@/lib/chain/history";
 import { fmtGemas } from "@/lib/format";
-import { GAME_NAMES } from "@/lib/mock";
+import { rideLine } from "@/games/railcar/words";
 import "./match-banner.css";
 
 const RESULT = { won: { text: "Won", Icon: CheckIcon }, lost: { text: "Lost", Icon: XIcon }, draw: { text: "Draw", Icon: MinusIcon }, "no-show": { text: "No-show", Icon: MinusIcon }, refunded: { text: "Refunded", Icon: MinusIcon } } as const;
@@ -21,6 +22,8 @@ const RESULT = { won: { text: "Won", Icon: CheckIcon }, lost: { text: "Lost", Ic
  * `account` is the Account whose history this is: its own seat, or, on a Match it backed, the
  * Player it backed. `backing` replaces the default Backing line under the entry. `me` is the
  * signed-in Account: its seat, when it played, carries a "You" tag.
+ * A Railcar ride has no one opponent: the Player's seat faces the count of Players who rode, and the line under the
+ * entry says how their ride went ("Last off at 1:39"). It opens the ride's own page.
  */
 export function MatchBanner({ r, account, now, backing, me }: { r: HistoryRow; account: string; now: number; backing?: string | null; me?: string | null }) {
   const res = RESULT[r.result];
@@ -28,19 +31,22 @@ export function MatchBanner({ r, account, now, backing, me }: { r: HistoryRow; a
   const player = r.role === "backer" && r.backing ? r.backing.other : account;
   const tone = r.delta > 0 ? "won" : r.delta < 0 ? "lost" : "even";
   const figure = r.delta === 0 && r.result !== "lost" ? amountText(r) : `${r.delta > 0 ? "+" : r.delta < 0 ? "−" : ""}${fmtGemas(Math.abs(r.delta))} Gemas`;
+  const game = historyGameName(r.game);
+  const ride = r.ride ? rideLine(r.ride) : null;
   return (
     <article className={`cut cut-card mb ${r.result}`}>
       <span className="mb-art">
-        <Image src={art.hero[r.game]} alt="" fill sizes="(max-width: 700px) 100vw, 980px" />
+        <Image src={r.game === "railcar" ? art.railcarTile : art.hero[r.game]} alt="" fill sizes="(max-width: 700px) 100vw, 980px" />
       </span>
-      <Link href={`/play/match/${r.id}`} className="mb-hit" aria-label={`See this ${GAME_NAMES[r.game]} Match: ${res.text}, ${figure}`} />
+      <Link href={matchHref(r)} className="mb-hit" aria-label={`See this ${game} ${r.ride ? "ride" : "Match"}: ${res.text}, ${figure}`} />
       <div className="mb-word">
         <span className="mb-kick">
-          {GAME_NAMES[r.game]} · {ago(r.at, now)}
+          {game} · {ago(r.at, now)}
         </span>
         <b>{res.text}</b>
         <small>
           Entry {fmtGemas(r.entry)}
+          {ride && <> · {ride}</>}
           {note && <> · {note}</>}
         </small>
       </div>
@@ -52,8 +58,17 @@ export function MatchBanner({ r, account, now, backing, me }: { r: HistoryRow; a
             <Seat account={player} score={r.scores?.[0]} lit={r.result === "won"} dim={r.result === "lost"} you={player === me} />
           </AccountLink>
         )}
-        <span className="mb-vs" aria-hidden="true">vs</span>
-        {r.opp ? (
+        <span className="mb-vs" aria-hidden="true">{r.ride ? "of" : "vs"}</span>
+        {r.ride ? (
+          <span className="mb-seat mb-crowd">
+            <span className="mb-av-wrap">
+              <span className="mb-av">
+                <Users aria-hidden="true" />
+              </span>
+            </span>
+            <span className="mb-plate">{r.ride.seated} Players</span>
+          </span>
+        ) : r.opp ? (
           <AccountLink account={r.opp} className="mb-seat-link">
             <Seat account={r.opp} score={r.scores?.[1]} lit={r.result === "lost"} dim={r.result === "won"} you={r.opp === me} />
           </AccountLink>

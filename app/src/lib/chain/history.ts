@@ -1,13 +1,22 @@
 import { fmtGemas } from "../format";
+import { GAME_NAMES } from "../mock";
 import type { GameId, MatchResult } from "../mock/types";
 import { backerDelta, matchDelta, seatResult } from "./ledger";
 import type { ChainMatch } from "./read";
 import type { RideRole } from "./ride-history";
 
+/** A Game a history row can name: the head-to-head Games, and Railcar (a ride of 5 to 100 Players). */
+export type HistoryGame = GameId | "railcar";
+
+export const historyGameName = (g: HistoryGame): string => (g === "railcar" ? "Railcar" : GAME_NAMES[g]);
+
+/** Where a finished Match opens: a ride on Railcar's own ride page, any other Match on the Match page. */
+export const matchHref = (r: { id: string; game: HistoryGame }): string => (r.game === "railcar" ? `/play/railcar/ride/${r.id}` : `/play/match/${r.id}`);
+
 /** One finished Match in an Account's history, as a Player or as the Backer who funded it. */
 export interface HistoryRow {
   id: string;
-  game: GameId;
+  game: HistoryGame;
   entry: number;
   role: "player" | "backer";
   /** From the result, never from `delta`: a backed Player's loss moves 0 Gemas and is still a loss. */

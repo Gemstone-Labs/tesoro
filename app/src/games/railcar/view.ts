@@ -6,6 +6,7 @@ import type { CarView, SeatView } from "../../lib/chain/many-seat";
 import { NO_SEAT, type TableView } from "./chain";
 import { placeSharesBps, refund as scheduleRefund } from "./engine";
 import { departsAt } from "./flow";
+import { PLACE_WORDS } from "./words";
 
 export interface FeeRates {
   platformBps: number;
@@ -104,8 +105,6 @@ export interface RailcarFacts {
   fees: FeeRates;
   nowMs: number;
 }
-
-const PLACE_WORDS = ["Last off", "Second-last off", "Third-last off"];
 
 export function railcarView(f: RailcarFacts): RailcarView {
   const core = f.core;

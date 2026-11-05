@@ -5,6 +5,7 @@
  */
 import { impactMs as clockAt, positionMs, refund, refundPct, ride } from "./engine";
 import type { RideReason } from "./chain";
+import { clock as rideClock } from "./words";
 
 /** What the Match history keeps of a ride (Railcar's `RideSettled` plus core's places and fees). */
 export interface RideRecord {
@@ -63,12 +64,6 @@ export interface RideReplay {
 }
 
 const STAGES: ReplayTell["stage"][] = ["screws", "panel", "sparks"];
-
-/** m:ss on the ride clock. */
-export const rideClock = (ms: number) => {
-  const s = Math.max(0, Math.floor(ms / 1000));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-};
 
 export function replayRide(rec: RideRecord): RideReplay {
   const presses = rec.brakes.map((b) => b.ms).sort((a, b) => a - b);

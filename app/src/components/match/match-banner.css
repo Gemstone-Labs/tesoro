@@ -42,6 +42,9 @@
 /* a lost Match: the winner's ring reads as your loss, not as a win (founder 2026-10-19) */
 .mb.lost .mb-seat.lit .mb-av { border-color: var(--danger); box-shadow: 0 0 0 4px rgba(242, 104, 90, 0.2); }
 .mb-seat.dim .mb-av { filter: grayscale(0.7) brightness(0.75); }
+/* a Railcar ride: the Players who rode, in place of one opponent */
+.mb-crowd .mb-av { display: grid; place-items: center; color: var(--fg-2); }
+.mb-crowd .mb-av svg { width: 55%; height: 55%; }
 .mb-plate {
   display: inline-flex; align-items: baseline; gap: 6px; max-width: 150px; padding: 4px 9px;
   background: rgba(6, 9, 11, 0.86); box-shadow: inset 0 0 0 1px var(--line); border-radius: 4px;

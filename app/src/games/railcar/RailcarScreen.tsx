@@ -7,13 +7,10 @@ import { Button, GemaAmount, GemaMark } from "@/components/ui";
 import { fmtGemas } from "@/lib/format";
 import { RailcarStage } from "./RailcarStage";
 import type { RailcarView, ResultRow, Rider } from "./view";
+import { clock } from "./words";
 import "./railcar.css";
 
-/** m:ss of a ride or a countdown. */
-export const clock = (ms: number) => {
-  const s = Math.max(0, Math.floor(ms / 1000));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-};
+export { clock };
 const g = (v: bigint) => Number(v);
 
 const TELLS: { name: string; Icon: LucideIcon }[] = [
