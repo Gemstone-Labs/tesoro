@@ -6742,10 +6742,6 @@
           }
         },
         {
-          "name": "backer_account",
-          "optional": true
-        },
-        {
           "name": "backer_counters",
           "writable": true,
           "optional": true
