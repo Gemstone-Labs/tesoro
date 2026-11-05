@@ -244,6 +244,8 @@ struct Env {
     last_logs: Vec<String>,
     /// Inner instruction data of the last transaction that landed (the event CPIs among them).
     last_events: Vec<Vec<u8>>,
+    /// Every event CPI since the last `take_events`.
+    all_events: Vec<Vec<u8>>,
     /// Cases for the TypeScript port of core's `ahead` (see `record_ahead`), when recording.
     ahead_cases: Option<Vec<String>>,
     /// Chunks seen while recording (the case's number).
@@ -280,6 +282,7 @@ impl Env {
                     .flatten()
                     .map(|i| i.instruction.data.clone())
                     .collect();
+                self.all_events.extend(self.last_events.iter().cloned());
                 self.last_logs = meta.logs;
                 Ok(())
             }
@@ -544,6 +547,7 @@ impl Env {
             last_cu: 0,
             last_logs: vec![],
             last_events: vec![],
+            all_events: vec![],
             ahead_cases: std::env::var("TESORO_RAILCAR_FIXTURE").ok().map(|_| vec![]),
             ahead_seen: 0,
         };
@@ -2475,6 +2479,60 @@ fn a_hundred_brakes_and_ninety_nine_jumps_end_inside_one_default_transaction() {
     })
     .expect("finalize");
     println!("finalize with 100 Brakes revealed: {} CU", env.last_cu);
+    assert!(
+        env.last_cu <= 140_000,
+        "finalize at 100 seats with every Brake revealed: {} CU, over the 140,000 budget",
+        env.last_cu
+    );
+}
+
+#[test]
+fn a_void_ride_after_brakes_reveals_them_refunds_in_full_with_no_fee_and_no_points() {
+    let draw = draw_where(|r| r.crash_ms >= 60_000);
+    let (mut env, car, riders) = braking(draw);
+    let before: Vec<u64> = riders.iter().map(|p| env.gemas(p)).collect();
+    let studio_before = env.fee_gemas(&env.studio);
+    for (who, secs) in [(ANA, 10.0), (CY, 12.0)] {
+        env.at_ride(car.table, secs);
+        env.brake(car.table, &riders[who]).expect("brake");
+    }
+    env.at_ride(car.table, 20.0);
+    env.jump(car.table, &riders[BEN]).expect("jump");
+    // the validator stops for 8 s: only ticks arrive after it, and the first one voids the ride
+    let (slot, now) = (env.slot, env.now);
+    env.set_clock(slot + 10, now + 8);
+    env.tick(car.table, &riders[DEE], false)
+        .expect("the tick lands and voids the ride");
+    let t = env.table(car.table);
+    assert_eq!(
+        (t.phase, t.outcome, t.reason),
+        (PHASE_OVER, OUTCOME_REFUND, railcar::state::REASON_OUTAGE)
+    );
+    // the void ride is revealed like any other: the draw and every Brake
+    let base = env.on_base(car.table, |e| {
+        let d = e.svm.get_account(&s(car.table)).expect("base").data;
+        *bytemuck::from_bytes::<Table>(&d[8..Table::SPACE])
+    });
+    assert_eq!((base.revealed, base.reveal_draw), (1, draw));
+    let brake_of = |p: &Person| base.seats[usize::from(env.seat_of(car.table, p))].brake_ms();
+    assert_eq!(
+        riders.iter().map(brake_of).collect::<Vec<_>>(),
+        vec![Some(10_000), None, Some(12_000), None, None]
+    );
+    env.all_events.clear();
+    assert_eq!(
+        settle_deltas(&mut env, &car, &riders, &before),
+        vec![500; 5],
+        "every entry back in full"
+    );
+    assert_eq!(env.fee_gemas(&env.studio), studio_before, "no Studio Fee");
+    let won = tesoro_core::state::MatchWon::DISCRIMINATOR;
+    assert!(
+        !env.all_events
+            .iter()
+            .any(|e| e.len() >= 16 && &e[8..16] == won),
+        "no win event, so no Points"
+    );
 }
 
 // =========================================================================================
