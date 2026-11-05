@@ -375,7 +375,7 @@ class World {
     let remaining: AccountMeta[] = [];
     if (backing) {
       const t = await this.stageBacking(backing, seatKey);
-      pot = { address: t.address, nonce: t.nonce, lines: t.lineCap };
+      pot = { address: t.address, nonce: t.nonce, lines: t.lineCap, ticket: true };
     } else {
       const { funder, preview } = await boardingEntry(conn, p.account);
       expect(preview.needsTicket).toBe(false);
