@@ -67,6 +67,16 @@ const recall = (account: string): MyCar | null => {
   }
 };
 
+/** The key an address names; null for none or for text that is not a key. */
+function keyOf(address: string | null): PublicKey | null {
+  if (!address) return null;
+  try {
+    return new PublicKey(address);
+  } catch {
+    return null;
+  }
+}
+
 interface Snapshot {
   config: RailcarConfigView | null;
   /** The car shown: the Player's, else the boarding one. */
@@ -142,13 +152,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   const stepping = useRef(false);
   const read = useRef<Reader | null>(null);
   // The Offer as the chain has it, read for one address (an address that is not a key reads as no Offer).
-  const offerKey = useMemo(() => {
-    try {
-      return offerAddress ? new PublicKey(offerAddress) : null;
-    } catch {
-      return null;
-    }
-  }, [offerAddress]);
+  const offerKey = useMemo(() => keyOf(offerAddress), [offerAddress]);
   const [offerRead, setOfferRead] = useState<{ address: string; offer: ChainOffer | null } | null>(null);
   // Read again after every action: boarding or a step-off uses the Offer.
   const [offerReads, setOfferReads] = useState(0);
@@ -166,7 +170,10 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   const offer: ChainOffer | null | undefined = !offerAddress ? undefined : !offerKey ? null : offerRead?.address === offerAddress ? offerRead.offer : undefined;
   // Judged once the Offer is read and, for one that exists, once the Player's Account is known.
   const nowSecs = Math.floor(now / 1000);
-  const offerProblem = offerAddress && offer !== undefined && (offer === null || meKey) ? backingProblem(offer, { account: meKey ?? "", game: "railcar", entry: ENTRY_GEMAS, now: nowSecs }) : null;
+  const offerProblem = useMemo(
+    () => (offerAddress && offer !== undefined && (offer === null || meKey) ? backingProblem(offer, { account: meKey ?? "", game: "railcar", entry: ENTRY_GEMAS, now: nowSecs }) : null),
+    [offerAddress, offer, meKey, nowSecs],
+  );
   const backing = useMemo<BoardingBacking | null>(() => (offer && !offerProblem ? { offer: offer.address, backerAccount: new PublicKey(offer.backer) } : null), [offer, offerProblem]);
   const backerKey = backing?.backerAccount.toBase58() ?? null;
 
