@@ -2000,6 +2000,7 @@ fn finalize_needs_the_cars_own_finished_table_and_all_its_pages() {
     let err = env.finalize(&car).unwrap_err();
     assert_eq!(code(&err), rcode(railcar::RailcarError::BadTable));
     end_by_signal(&mut env, &car);
+    env.reveal(&car).expect("reveal");
     let err = env.finalize_with(&car, vec![]).unwrap_err();
     assert_eq!(code(&err), rcode(railcar::RailcarError::PagesMissing));
     env.finalize(&car).expect("finalize");
