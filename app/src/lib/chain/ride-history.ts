@@ -49,8 +49,8 @@ export function rideRecordOf(m: { entry: number; ride?: StoredRide | null }): Ri
 export function rideRoles(r: StoredRide): Map<number, RideRole> {
   const seated = r.seats.length;
   const placeOf = new Map(r.places.map((p) => [p.seat, p.place]));
-  return new Map(
-    r.seats.map((s) => {
+  return new Map<number, RideRole>(
+    r.seats.map((s): [number, RideRole] => {
       if (r.outcome === "refund") return [s.seat, { seated, kind: "refund" }];
       const place = placeOf.get(s.seat);
       if (place) return [s.seat, { seated, kind: "place", place, jumpMs: s.jumpMs }];

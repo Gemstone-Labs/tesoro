@@ -5,7 +5,7 @@ import { AccountLink } from "@/components/account/AccountLink";
 import { PlayerAvatar, PlayerName } from "@/components/account/Player";
 import { SkelText } from "@/components/ui/skel-text";
 import { CheckIcon, MinusIcon, XIcon } from "@/components/ui";
-import { art } from "@/lib/art";
+import { heroOf } from "@/lib/art";
 import { ago } from "@/lib/catalogue";
 import { amountText, backingText, historyGameName, matchHref, type HistoryRow } from "@/lib/chain/history";
 import { fmtGemas } from "@/lib/format";
@@ -36,7 +36,7 @@ export function MatchBanner({ r, account, now, backing, me }: { r: HistoryRow; a
   return (
     <article className={`cut cut-card mb ${r.result}`}>
       <span className="mb-art">
-        <Image src={r.game === "railcar" ? art.railcarTile : art.hero[r.game]} alt="" fill sizes="(max-width: 700px) 100vw, 980px" />
+        <Image src={heroOf(r.game)} alt="" fill sizes="(max-width: 700px) 100vw, 980px" />
       </span>
       <Link href={matchHref(r)} className="mb-hit" aria-label={`See this ${game} ${r.ride ? "ride" : "Match"}: ${res.text}, ${figure}`} />
       <div className="mb-word">

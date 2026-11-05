@@ -1,9 +1,9 @@
 "use client";
 
 import { useId, useState } from "react";
+import { historyGameName } from "@/lib/chain/history";
 import type { PlayedRow } from "@/lib/chain/player-account";
 import { signed } from "@/lib/chain/player-account";
-import { GAME_NAMES } from "@/lib/mock";
 
 type Point = { row: PlayedRow; total: number };
 
@@ -51,7 +51,7 @@ export function RunningTotalChart({ series, showGame }: { series: Point[]; showG
           {read && at !== null ? (
             <>
               Match {at + 1} of {n}
-              {showGame && ` · ${GAME_NAMES[read.row.game]}`} · {day(read.row.at)} ·{" "}
+              {showGame && ` · ${historyGameName(read.row.game)}`} · {day(read.row.at)} ·{" "}
               <span className={read.row.result === "won" ? "pa-won" : "pa-lost"}>
                 {read.row.result === "won" ? "Won" : "Lost"} {signed(read.row.delta)}
               </span>

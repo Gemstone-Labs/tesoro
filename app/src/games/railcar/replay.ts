@@ -5,7 +5,8 @@
  */
 import { impactMs as clockAt, positionMs, refund, refundPct, ride } from "./engine";
 import type { RideReason } from "./chain";
-import { clock as rideClock } from "./words";
+import type { RailcarView, ResultRow } from "./view";
+import { PLACE_WORDS, clock as rideClock } from "./words";
 
 /** What the Match history keeps of a ride (Railcar's `RideSettled` plus core's places and fees). */
 export interface RideRecord {
@@ -107,4 +108,33 @@ export function replayRide(rec: RideRecord): RideReplay {
     if (got !== want) differences.push(`Place ${i + 1} went to ${got === undefined ? "nobody" : `seat ${shown(got)}`}, the replay gives ${want === undefined ? "nobody" : `seat ${shown(want)}`}.`);
   }
   return { crashMs: d?.crashMs ?? null, impactMs: impact, tells, falseScrewsMs: d ? d.falseScrews.map(onClock) : [], seats, agrees: differences.length === 0, differences };
+}
+
+/**
+ * The Result screen's model of a replayed ride, as `me` (a core Account, null for anyone else) sees it: the same podium,
+ * rows and wall strip the live Result shows.
+ */
+export function replayView(rec: RideRecord, r: RideReplay, me: string | null): Extract<RailcarView, { phase: "result" }> {
+  const rider = (s: ReplaySeat) => ({ account: s.player, seat: s.seat + 1, me: s.player === me });
+  const order: ReplaySeat["kind"][] = ["place", "early", "aboard", "refund"];
+  const rows: ResultRow[] = [...r.seats]
+    .sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind) || (a.place ?? 0) - (b.place ?? 0) || (b.jumpMs ?? 0) - (a.jumpMs ?? 0))
+    .map((s) => ({ ...rider(s), kind: s.kind, place: s.place, jumpMs: s.jumpMs, gets: s.gets }));
+  const jumps = r.seats
+    .filter((s) => s.jumpMs !== undefined)
+    .sort((a, b) => (a.jumpMs ?? 0) - (b.jumpMs ?? 0))
+    .map((s) => ({ account: s.player, ms: s.jumpMs ?? 0, me: s.player === me }));
+  const m = rows.find((x) => x.me);
+  const headline = (x: ResultRow) => (x.kind === "place" ? PLACE_WORDS[(x.place ?? 1) - 1] : x.kind === "early" ? "Jumped early" : x.kind === "aboard" ? "Aboard at Impact" : rec.reason === "nobody-jumped" ? "Nobody jumped" : "Ride void");
+  return {
+    phase: "result",
+    rows,
+    fees: rec.fees,
+    pot: BigInt(rec.seats.length) * rec.entry,
+    entry: rec.entry,
+    wallMs: r.impactMs ?? 0,
+    jumps,
+    mine: m ? { headline: headline(m), gets: m.gets, won: m.kind === "place" ? m.gets - rec.entry : 0n } : null,
+    outcome: rec.outcome,
+  };
 }

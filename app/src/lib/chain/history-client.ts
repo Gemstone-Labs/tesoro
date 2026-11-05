@@ -1,4 +1,5 @@
 import type { HistoryRow } from "./history";
+import type { StoredRide } from "./ride-history";
 import { readScores } from "./settled";
 
 export interface HistoryPageData {
@@ -35,6 +36,18 @@ export async function fetchAllHistory(account: string, fetcher: typeof fetch = (
     const res = await fetcher(`/api/history/${account}?all=1`);
     if (!res.ok) return null;
     return ((await res.json()) as HistoryPageData).rows.map(cleanRow);
+  } catch {
+    return null;
+  }
+}
+
+/** A Railcar ride from the history route (`/api/match/<id>`); null when it is unknown, not a ride, or the history is down. */
+export async function fetchRidePage(id: string, fetcher: typeof fetch = (...a) => fetch(...a)): Promise<{ id: string; entry: number; ride: StoredRide } | null> {
+  try {
+    const res = await fetcher(`/api/match/${encodeURIComponent(id)}`);
+    if (!res.ok) return null;
+    const page = (await res.json()) as { id: string; entry: number; game: string; ride?: StoredRide };
+    return page.game === "railcar" && page.ride ? { id: page.id, entry: page.entry, ride: page.ride } : null;
   } catch {
     return null;
   }

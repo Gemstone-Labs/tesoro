@@ -13,7 +13,7 @@ import "./railcar.css";
 export { clock };
 const g = (v: bigint) => Number(v);
 
-const TELLS: { name: string; Icon: LucideIcon }[] = [
+export const TELLS: { name: string; Icon: LucideIcon }[] = [
   { name: "Screws", Icon: CircleMinus },
   { name: "Panel", Icon: Hexagon },
   { name: "Sparks", Icon: Zap },

@@ -4,8 +4,9 @@
  */
 import { Keypair, PublicKey } from "@solana/web3.js";
 import type { CarView, SeatView } from "../../lib/chain/many-seat";
+import type { StoredRide } from "../../lib/chain/ride-history";
 import type { RideSeatView, TableView } from "./chain";
-import { refund } from "./engine";
+import { refund, ride } from "./engine";
 import { railcarView, type FeeRates, type RailcarView } from "./view";
 
 export const FIXTURE_FEES: FeeRates = { platformBps: 200, studioBps: 300, leaderboardBps: 100 };
@@ -114,4 +115,56 @@ export function liveAt(t: number, me: PublicKey = PLAYERS[0]): RailcarView {
   }
   const t2 = table(n, over ? { phase: "over", outcome: "placed", reason: "played", places: [...placed, 255, 255, 255].slice(0, 3), overMs: wall * 1000, aboard: n - order.length, jumps: order.length, seats: seatsT, tell: 3 } : { tell, aboard: n - order.length, jumps: order.length, seats: seatsT, rideTs: T0 + leaves + 1 });
   return view(me, coreCar({ stage: "departed", seated: n, pages: 3 }), n, t2, T0 + t);
+}
+
+/** A draw whose crash point is exactly `crashMs` (the Rust ride tests' search: words 1-3 fixed, word 0 searched). */
+export function drawWithCrash(crashMs: number): Uint8Array {
+  const withWord = (w0: bigint) => {
+    const d = new Uint8Array(32).fill(0x5a);
+    for (let i = 0; i < 8; i++) d[i] = Number((w0 >> BigInt(8 * i)) & 0xffn);
+    return d;
+  };
+  const crash = (w0: bigint) => ride(withWord(w0)).crashMs;
+  let [lo, hi] = [0n, (1n << 64n) - 1n];
+  while (lo < hi) {
+    const mid = lo + (hi - lo) / 2n;
+    if (crash(mid) > crashMs) lo = mid + 1n;
+    else hi = mid;
+  }
+  if (crash(lo) !== crashMs) throw new Error(`no draw gives ${crashMs} ms`);
+  return withWord(lo);
+}
+
+const hexOf = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+
+/**
+ * The worked example as the Match history keeps it (`/api/match/<id>`): the wall at 1:44 of track, Ana off at 0:25 (350),
+ * Cy, Ben, Dee off at 1:35-1:39, Eve aboard; fees 129. `brake`: Dee also Braked at 1:30, so the wall came 2.5 s later on
+ * the clock. `tamper`: the record says Ana got 400 back, which the replay does not give.
+ */
+export function storedWorkedRide(o: { brake?: boolean; tamper?: boolean } = {}): { id: string; game: "railcar"; entry: number; status: "settled"; openedAt: number; settledAt: number; ride: StoredRide } {
+  const who = [ANA, BEN, CY, DEE, EVE].map((k) => k.toBase58());
+  const seat = (i: number, order = 0, jumpMs = 0, back = 0) => ({ seat: i, player: who[i], funder: who[i], shareBps: 0, order, jumpMs, refund: back });
+  return {
+    id: `${who[0]}-7`,
+    game: "railcar",
+    entry: 500,
+    status: "settled",
+    openedAt: (T0 + 60) * 1000,
+    settledAt: (T0 + 200) * 1000,
+    ride: {
+      carNo: "7",
+      outcome: "placed",
+      reason: "played",
+      draw: hexOf(drawWithCrash(104_000)),
+      brakes: o.brake ? [{ seat: 3, ms: 90_000 }] : [],
+      seats: [seat(0, 1, 25_000, o.tamper ? 400 : 350), seat(1, 3, 97_000), seat(2, 2, 95_000), seat(3, 4, 99_000), seat(4)],
+      places: [
+        { place: 1, seat: 3, player: who[3], funder: who[3], shareBps: 0, won: 313 },
+        { place: 2, seat: 1, player: who[1], funder: who[1], shareBps: 0, won: 130 },
+        { place: 3, seat: 2, player: who[2], funder: who[2], shareBps: 0, won: 78 },
+      ],
+      fees: [44, 64, 21],
+    },
+  };
 }
