@@ -65,6 +65,13 @@ pub const REASON_PLAYED: u8 = 1;
 pub const REASON_NOBODY_JUMPED: u8 = 2;
 /// The draw never came: full refund.
 pub const REASON_NO_DRAW: u8 = 3;
+/// The rollup ran under half speed for 5 s during the ride: full refund.
+pub const REASON_OUTAGE: u8 = 4;
+
+/// Outage rule (Block Burst's thresholds): over a stretch of at least `STALL_SECS` of clock the
+/// rollup made fewer than this many slots per thousand it should (`SLOTS_PER_SEC` a second).
+pub const OUTAGE_RATIO_PERMILLE: u64 = 500;
+pub const STALL_SECS: i64 = 5;
 
 /// No Table seat.
 pub const NO_SEAT: u8 = 255;
@@ -338,8 +345,10 @@ pub struct Table {
     pub revealed: u8,
     /// Seats whose Brake seat is bound to this ride; no Brake counts until all are.
     pub brakes_bound: u8,
-    /// Room for the outage rule (ticket 08).
-    pub reserved: [u8; 94],
+    pub reserved: [u8; 78],
+    /// The pace mark: slot and time of the last moment the ride was on pace (outage rule).
+    pace_slot: [u8; 8],
+    pace_ts: [u8; 8],
     pub seats: [RideSeat; 100],
 }
 
@@ -371,6 +380,16 @@ impl Table {
     le!(over_ms, set_over_ms, over_ms, u32);
     le!(over_at, set_over_at, over_at, i64);
     le!(commit_at, set_commit_at, commit_at, i64);
+    le!(pace_slot, set_pace_slot, pace_slot, u64);
+    le!(pace_ts, set_pace_ts, pace_ts, i64);
+
+    /// Starts the ride clock and the pace mark at the draw's arrival.
+    pub fn start_pace(&mut self, slot: u64, ts: i64) {
+        self.set_ride_slot(slot);
+        self.set_ride_ts(ts);
+        self.set_pace_slot(slot);
+        self.set_pace_ts(ts);
+    }
 
     /// A new Table: idle, waiting for its first car (`car_no == index`).
     pub fn init(&mut self, bump: u8, index: u16) {

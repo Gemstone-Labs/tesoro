@@ -16,7 +16,10 @@ import { initCkptPageIx, refundMatchIx } from "./core-ix.ts";
 import { solanaFetch } from "./runtime.ts";
 import type { Rpc } from "../../app/src/server/history/rpc.ts";
 import { historyRpc } from "./history.ts";
-import { Deferred, SLICE_LEN, headOf, type Head, type SweepDeps } from "./safety-sweep.ts";
+import { Deferred, SLICE_LEN, anyHeadOf, carHeadAt, headOf, type Head, type SweepDeps } from "./safety-sweep.ts";
+import { RAILCAR_PROGRAM_ID } from "../../app/src/games/railcar/chain.ts";
+import { decodeCar } from "../../app/src/lib/chain/many-seat.ts";
+import { finishCarOf, railcarRideStep, rideProgress } from "./railcar-sweep.ts";
 import { compile, fits, lookupTables, sendIxs } from "./send.ts";
 
 /** The chain of each Game the sweep can finalize: its Assignment, base's committed copy of the Table, and `finalize`. */
@@ -132,7 +135,8 @@ export async function readHeadsByAddress(rpc: Pick<ScanRpc, "call">, addresses: 
     const value = res.value as ({ data: [string, string] } | null)[];
     batch.forEach((address, j) => {
       const row = value[j];
-      const head = row ? headOf(address, Buffer.from(row.data[0], "base64")) : null;
+      // A car is not a MatchState, and must not be told to the database as gone.
+      const head = row ? anyHeadOf(address, Buffer.from(row.data[0], "base64")) : null;
       if (head) heads.push(head);
       else gone.push(address);
     });
@@ -164,9 +168,10 @@ export function realSweepDeps(ctx: Ctx, env: NodeJS.ProcessEnv = process.env): S
       markGone: (addresses: PublicKey[]) => markGone(db, addresses),
     }),
     scan: async () => {
-      const filters = [{ memcmp: { offset: 0, bytes: anchor.utils.bytes.bs58.encode(discriminatorOf("MatchState")) } }];
-      const rows = await scanProgramAccounts(rpc, CORE_ID, { filters, dataSlice: { offset: 0, length: SLICE_LEN } });
-      return rows.map((r) => headOf(r.pubkey, r.account.data)).filter((h): h is Head => !!h);
+      const rowsOf = (name: string) => scanProgramAccounts(rpc, CORE_ID, { filters: [{ memcmp: { offset: 0, bytes: anchor.utils.bytes.bs58.encode(discriminatorOf(name)) } }], dataSlice: { offset: 0, length: SLICE_LEN } });
+      const matches = (await rowsOf("MatchState")).map((r) => headOf(r.pubkey, r.account.data));
+      const cars = (await rowsOf("ManySeatMatch")).map((r) => carHeadAt(r.pubkey, r.account.data));
+      return [...matches, ...cars].filter((h): h is Head => !!h);
     },
     committed: async (head) => {
       const game = gameOf(ctx, head.game);
@@ -177,6 +182,8 @@ export function realSweepDeps(ctx: Ctx, env: NodeJS.ProcessEnv = process.env): S
       return !!a && !!base && game.canFinalize(base, a, ctx.now);
     },
     progress: async (address) => {
+      const info = await ctx.conn.getAccountInfo(address);
+      if (info && carHeadAt(address, info.data)) return carProgressKey(ctx, address, info.data);
       const view = await fetchView(ctx, address);
       if (!view) return null;
       const p = progressOf(view);
@@ -194,8 +201,15 @@ export function realSweepDeps(ctx: Ctx, env: NodeJS.ProcessEnv = process.env): S
     },
     finish: async (address) => {
       await observeBalance();
+      const info = await ctx.conn.getAccountInfo(address);
+      if (info && carHeadAt(address, info.data)) return finishCarOf(ctx, address);
       const result = await finishMatch(finisher, address);
       if (result.stalled && result.stalled !== "step-limit") throw new Error(`stalled: ${result.stalled}`);
+    },
+    ride: async (head) => {
+      await observeBalance();
+      if (!head.game.equals(RAILCAR_PROGRAM_ID)) throw new Error(`no ride adapter for game ${head.game.toBase58()}`);
+      await railcarRideStep(ctx, head.address);
     },
     refund: async (head) => {
       await observeBalance();
@@ -208,3 +222,13 @@ export function realSweepDeps(ctx: Ctx, env: NodeJS.ProcessEnv = process.env): S
   };
 }
 
+
+// ---- many-seat cars (Railcar) -------------------------------------------------------------------------------------
+
+/** Where a car is: core's stage, run and seats, and while it rides its Table on both layers (a ride step moves one). */
+async function carProgressKey(ctx: Ctx, address: PublicKey, data: Buffer): Promise<string> {
+  const car = decodeCar(address, data);
+  const key = `car:${car.stage}:${car.run.steps}:${car.seated}`;
+  if (car.stage !== "departed" || !car.game.equals(RAILCAR_PROGRAM_ID)) return key;
+  return `${key}:${await rideProgress(ctx, address)}`;
+}
