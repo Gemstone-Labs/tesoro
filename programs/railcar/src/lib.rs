@@ -849,8 +849,7 @@ pub mod railcar {
         );
         vault.store(randomness);
         t.req_pending = 0;
-        t.set_ride_slot(clock.slot);
-        t.set_ride_ts(clock.unix_timestamp);
+        t.start_pace(clock.slot, clock.unix_timestamp);
         t.phase = PHASE_RIDING;
         emit!(RideRunning {
             car_no: t.car_no(),
@@ -861,7 +860,8 @@ pub mod railcar {
 
     /// Rollup, anyone (each open page sends one about every second). Moves the public Tell
     /// stage; from the Impact slot on it ends the ride and commits the Table. A draw that never
-    /// came voids the ride once its window is over.
+    /// came voids the ride once its window is over, and so does a rollup that ran under half
+    /// speed for 5 s during the ride (the outage rule, judged before the Impact).
     pub fn signal(ctx: Context<Signal>) -> Result<()> {
         let clock = Clock::get()?;
         let over = {
@@ -870,7 +870,10 @@ pub mod railcar {
             match t.phase {
                 PHASE_RIDING => {
                     require!(v.ready && v.car_no == t.car_no(), RailcarError::WrongPhase);
-                    if ride::advance(&mut t, v, clock.slot) {
+                    if ride::pace(&mut t, clock.slot, clock.unix_timestamp) {
+                        ride::void(&mut t, REASON_OUTAGE, clock.unix_timestamp);
+                        true
+                    } else if ride::advance(&mut t, v, clock.slot) {
                         ride::conclude(&mut t, ride::impact_ms(v), clock.unix_timestamp);
                         true
                     } else {
@@ -911,7 +914,8 @@ pub mod railcar {
     /// Rollup, the Player of Table seat `seat` (the wallet of the seat's core Account). Before
     /// the Impact slot the Player is off: the Jump takes the next place in the order. At or after
     /// it the Jump does not count: the ride ends with the Player aboard. When the last Player
-    /// aboard Jumps, the ride ends then. `car_no` makes a transaction held back from an earlier
+    /// aboard Jumps, the ride ends then. A Jump that finds the rollup stalled (the outage rule)
+    /// voids the ride and is not recorded. `car_no` makes a transaction held back from an earlier
     /// ride worthless on a later one.
     pub fn jump(ctx: Context<Jump>, car_no: u64, seat: u8) -> Result<()> {
         let clock = Clock::get()?;
@@ -929,7 +933,11 @@ pub mod railcar {
                     && t.seats[i].account == ctx.accounts.player_account.key().to_bytes(),
                 RailcarError::NotAPlayer
             );
-            if ride::advance(&mut t, v, clock.slot) {
+            if ride::pace(&mut t, clock.slot, clock.unix_timestamp) {
+                // the rollup stalled: nobody could Jump, the Jump is not recorded
+                ride::void(&mut t, REASON_OUTAGE, clock.unix_timestamp);
+                true
+            } else if ride::advance(&mut t, v, clock.slot) {
                 ride::conclude(&mut t, ride::impact_ms(v), clock.unix_timestamp);
                 true
             } else {
