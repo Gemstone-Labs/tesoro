@@ -27,6 +27,19 @@ describe("reading Match heads by address", () => {
   });
 });
 
+describe("reading a car's head by address", () => {
+  // The worked example's car as Railcar's LiteSVM left it before its first chunk (Settling).
+  const car = Buffer.from((JSON.parse(readFileSync(new URL("../../app/src/lib/chain/many-seat-ahead.worked-example.fixtures.json", import.meta.url), "utf8")) as { cases: { match: string }[] }).cases[0].match, "hex");
+
+  it("keeps a car the sweep tracks instead of telling the database it is gone", async () => {
+    const rpc = { call: async (_m: string, params: any[]) => ({ value: params[0].map(() => ({ data: [car.subarray(0, SLICE_LEN).toString("base64"), "base64"] })) }) };
+    const { heads, gone } = await readHeadsByAddress(rpc, [key(9)]);
+    assert.equal(gone.length, 0);
+    assert.deepEqual([heads[0].stage, heads[0].car?.seated, heads[0].car?.minSeats], ["settling", 5, 5]);
+    assert.ok(heads[0].car!.departedAt > 0 && heads[0].car!.refundAfter === heads[0].car!.departedAt + 86_400);
+  });
+});
+
 describe("the database side", () => {
   it("lists candidates and reports gone accounts through the two functions of migration 0024", async () => {
     const seen: [string, unknown][] = [];

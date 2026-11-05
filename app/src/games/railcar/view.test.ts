@@ -37,6 +37,8 @@ const table = (o: Partial<TableView> = {}): TableView => ({
   rideTs: T0 + 40,
   overMs: 0,
   overAt: 0,
+  dirty: false,
+  commitAt: 0,
   seats: players.map((_, i) => rideSeat(i, 0, 0)),
   ...o,
 });
