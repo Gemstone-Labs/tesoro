@@ -48,6 +48,7 @@ dialog.bk-drawer::backdrop { background: rgba(4, 7, 9, 0.66); backdrop-filter: b
 .bk-ico svg { width: 15px; height: 15px; }
 .bk-ico.won { background: rgba(36, 216, 168, 0.14); color: var(--em-hi); }
 .bk-ico.lost { background: rgba(242, 104, 90, 0.14); color: var(--danger); }
+.bk-ico:not(.won, .lost) { background: var(--surface-2); color: var(--fg-2); }
 
 /* pinned to the bottom of the scrolling box, so the action stays in view */
 .bk-drawer-foot { position: sticky; bottom: 0; z-index: 1; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 16px;

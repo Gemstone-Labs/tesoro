@@ -10,6 +10,7 @@ import {
   Button,
   Card,
   CheckIcon,
+  ClockIcon,
   toast,
   BustCard,
   Chip,
@@ -44,11 +45,11 @@ import { backedSplit, EntryError } from "@/lib/chain/ledger";
 import { recordFromMatches, recordText, timeLeft, useBackingBoard } from "@/lib/chain/useBackingBoard";
 import { fmtGemas } from "@/lib/format";
 import { backingQuery } from "@/lib/game-params";
-import { GAME_NAMES } from "@/lib/mock";
-import { GAME_LIST } from "@/lib/games";
-import type { EntrySize, GameId } from "@/lib/mock";
+import { backedEntries, backedGameName, backedGames, type BackedGame } from "@/lib/backing/games";
+import { backingTerms, railcarOfferOutcomes } from "@/lib/backing/railcar";
+import type { EntrySize } from "@/lib/mock";
 
-const GAME_OPTIONS = GAME_LIST.map((g) => ({ value: g, label: GAME_NAMES[g] }));
+const GAME_OPTIONS = backedGames().map((g) => ({ value: g, label: backedGameName(g) }));
 const SORT_OPTIONS: { value: Sort; label: string }[] = [
   { value: "recent", label: "Newest" },
   { value: "entry", label: "Biggest entry" },
@@ -235,15 +236,12 @@ export default function Backing() {
                   <span className="row-body">
                     <span className="row-title"><PlayerName account={o.backer} /> funds your {fmtGemas(o.entry)}</span>
                     <span className="row-meta">
-                      {GAME_NAMES[o.game]} · you keep {o.shareBps / 100}% of the surplus · start within {timeLeft(o.useBy, nowMs).replace(" left", "")}
+                      {backedGameName(o.game)} · you keep {o.shareBps / 100}% of the {o.game === "railcar" ? "winnings" : "surplus"} · start within {timeLeft(o.useBy, nowMs).replace(" left", "")}
                     </span>
                   </span>
                   <Chip tone="money">Funded</Chip>
                 </div>
-                <p className="note">
-                  Their Gemas fund your entry. If you lose, they bear it and you owe nothing. If you win, their entry returns first, then you
-                  keep {o.shareBps / 100}% of what remains.
-                </p>
+                <p className="note">{backingTerms(o.game, o.shareBps / 100)}</p>
                 <BackingEnter game={o.game} entry={o.entry} offer={o.address.toBase58()} />
               </div>
             </Card>
@@ -260,7 +258,7 @@ export default function Backing() {
                 <span className="row-body">
                   <span className="row-title"><PlayerName account={o.backer} /> offers to fund {fmtGemas(o.entry)}</span>
                   <span className="row-meta">
-                    {GAME_NAMES[o.game]} · you keep {o.shareBps / 100}% of the surplus · {timeLeft(o.expiresAt, nowMs)}
+                    {backedGameName(o.game)} · you keep {o.shareBps / 100}% of the {o.game === "railcar" ? "winnings" : "surplus"} · {timeLeft(o.expiresAt, nowMs)}
                   </span>
                 </span>
                 <Button
@@ -413,8 +411,21 @@ export default function Backing() {
   );
 }
 
-/** Enter the Queue or Challenge under a Backing. A Trading Duel Backing asks which asset to trade first. */
-function BackingEnter({ game, entry, offer }: { game: GameId; entry: number; offer: string }) {
+/** Enter the Queue or Challenge under a Backing (Railcar: board the car). A Trading Duel Backing asks which asset to trade first. */
+function BackingEnter({ game, entry, offer }: { game: BackedGame; entry: number; offer: string }) {
+  if (game === "railcar") {
+    return (
+      <div className="hstack wrap">
+        <Button variant="money" size="sm" href={`/play/railcar?backing=${offer}`}>
+          Board Railcar
+        </Button>
+      </div>
+    );
+  }
+  return <BackingEnterMatch game={game} entry={entry} offer={offer} />;
+}
+
+function BackingEnterMatch({ game, entry, offer }: { game: Exclude<BackedGame, "railcar">; entry: number; offer: string }) {
   const [asset, setAsset] = useState<0 | 1 | 2>(0);
   const q = backingQuery(game, asset, entry, offer);
   return (
@@ -452,10 +463,13 @@ function PostRequest({
   signedIn: boolean;
   busy: boolean;
   disabled: boolean;
-  onPost: (game: GameId, entry: EntrySize) => void;
+  onPost: (game: BackedGame, entry: EntrySize) => void;
 }) {
-  const [game, setGame] = useState<GameId>("block-puzzle");
+  const [game, setGame] = useState<BackedGame>("block-puzzle");
   const [entry, setEntry] = useState<EntrySize>(1000);
+  // A Game with fixed entries (Railcar: 500) asks for one of them.
+  const fixed = backedEntries(game);
+  const asked = fixed && !fixed.includes(entry) ? fixed[0] : entry;
   return (
     <section aria-label="Post a Request">
       <div className="stack">
@@ -467,8 +481,9 @@ function PostRequest({
           <label className="label" htmlFor="req-game">Game</label>
           <Select id="req-game" value={game} options={GAME_OPTIONS} onChange={setGame} />
         </div>
-        <EntryPicker value={entry} onChange={setEntry} legend="Entry to be backed" name="req-entry" />
-        <Button block disabled={disabled} onClick={() => onPost(game, entry)}>
+        <EntryPicker value={asked} onChange={setEntry} legend="Entry to be backed" name="req-entry" isDisabled={fixed ? (size) => !fixed.includes(size) : undefined} />
+        {fixed && <p className="note">{backedGameName(game)} has one entry: {fixed.map(fmtGemas).join(", ")} Gemas.</p>}
+        <Button block disabled={disabled} onClick={() => onPost(game, asked)}>
           {busy ? "Posting…" : "Post Request"}
         </Button>
         <p className="note">Requests expire after 24 hours.</p>
@@ -484,7 +499,7 @@ function MyRequest({ r, nowMs, busy, onCancel }: { r: ChainRequest; nowMs: numbe
         <span className="row-body">
           <span className="row-title">Your Request · {fmtGemas(r.entry)}</span>
           <span className="row-meta">
-            {GAME_NAMES[r.game]} · {r.status === "accepted" ? "accepted by a Backer" : timeLeft(r.expiresAt, nowMs)}
+            {backedGameName(r.game)} · {r.status === "accepted" ? "accepted by a Backer" : timeLeft(r.expiresAt, nowMs)}
           </span>
         </span>
         {r.status === "open" ? (
@@ -516,7 +531,7 @@ function OfferDrawer({
   nowMs: number;
   busy: boolean;
   onClose: () => void;
-  onSend: (game: GameId, entry: number, share: number, request: ChainRequest) => void;
+  onSend: (game: BackedGame, entry: number, share: number, request: ChainRequest) => void;
 }) {
   const { game, entry } = request;
   const [share, setShare] = useState(40);
@@ -560,31 +575,37 @@ function OfferDrawer({
             display={`${share}%`}
             format={(v) => `${v}%`}
           />
-          <p className="meta bk-keep">You keep {100 - share}% of the surplus.</p>
-          <table className="bk-outcomes">
-            <thead>
-              <tr>
-                <th />
-                <th scope="col">You</th>
-                <th scope="col">Player</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="won">
-                <th scope="row"><span className="bk-ico won"><CheckIcon /></span> They win</th>
-                <td><b className="tnum">+{fmtGemas(win.backerSurplus)}</b><small>net · your {fmtGemas(entry)} comes back, plus {100 - share}% of the surplus</small></td>
-                <td><b className="tnum">+{fmtGemas(win.playerShare)}</b><small>{share}% of the surplus</small></td>
-              </tr>
-              <tr className="lost">
-                <th scope="row"><span className="bk-ico lost"><XIcon /></span> They lose</th>
-                <td><b className="tnum">−{fmtGemas(entry)}</b><small>you lose your entry</small></td>
-                <td><b className="tnum">0</b><small>never owe anything</small></td>
-              </tr>
-            </tbody>
-          </table>
-          <p className="meta">
-            On a win the Pot is {fmtGemas(entry * 2)} Gemas; {fmtGemas(win.fees)} go to Fees. A Backing cannot be revoked once the Match starts.
-          </p>
+          <p className="meta bk-keep">You keep {100 - share}% of the {game === "railcar" ? "winnings" : "surplus"}.</p>
+          {game === "railcar" ? (
+            <RailcarOutcomes share={share} entry={entry} />
+          ) : (
+            <>
+              <table className="bk-outcomes">
+                <thead>
+                  <tr>
+                    <th />
+                    <th scope="col">You</th>
+                    <th scope="col">Player</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="won">
+                    <th scope="row"><span className="bk-ico won"><CheckIcon /></span> They win</th>
+                    <td><b className="tnum">+{fmtGemas(win.backerSurplus)}</b><small>net · your {fmtGemas(entry)} comes back, plus {100 - share}% of the surplus</small></td>
+                    <td><b className="tnum">+{fmtGemas(win.playerShare)}</b><small>{share}% of the surplus</small></td>
+                  </tr>
+                  <tr className="lost">
+                    <th scope="row"><span className="bk-ico lost"><XIcon /></span> They lose</th>
+                    <td><b className="tnum">−{fmtGemas(entry)}</b><small>you lose your entry</small></td>
+                    <td><b className="tnum">0</b><small>never owe anything</small></td>
+                  </tr>
+                </tbody>
+              </table>
+              <p className="meta">
+                On a win the Pot is {fmtGemas(entry * 2)} Gemas; {fmtGemas(win.fees)} go to Fees. A Backing cannot be revoked once the Match starts.
+              </p>
+            </>
+          )}
 
           {short && (
             <p className="status err" role="alert">
@@ -607,5 +628,44 @@ function OfferDrawer({
         </div>
       </div>
     </dialog>
+  );
+}
+
+/** A Railcar Offer by the worked example: last off of 5 wins 313 after fees; an early Jump returns part of the entry to the Backer. */
+function RailcarOutcomes({ share, entry }: { share: number; entry: number }) {
+  const o = railcarOfferOutcomes(share * 100);
+  return (
+    <>
+      <table className="bk-outcomes">
+        <thead>
+          <tr>
+            <th />
+            <th scope="col">You</th>
+            <th scope="col">Player</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr className="won">
+            <th scope="row"><span className="bk-ico won"><CheckIcon /></span> They place</th>
+            <td><b className="tnum">+{fmtGemas(Number(o.place.backer))}</b><small>net · your {fmtGemas(entry)} comes back, plus {100 - share}% of the winnings</small></td>
+            <td><b className="tnum">+{fmtGemas(Number(o.place.player))}</b><small>{share}% of the winnings</small></td>
+          </tr>
+          <tr>
+            <th scope="row"><span className="bk-ico"><ClockIcon /></span> They jump early</th>
+            <td><b className="tnum">{fmtGemas(Number(o.early.leastBack))}–{fmtGemas(Number(o.early.mostBack))}</b><small>back to you: the Early-jump refund, less the later they Jump</small></td>
+            <td><b className="tnum">0</b><small>never owe anything</small></td>
+          </tr>
+          <tr className="lost">
+            <th scope="row"><span className="bk-ico lost"><XIcon /></span> Aboard at Impact</th>
+            <td><b className="tnum">−{fmtGemas(entry)}</b><small>you lose your entry</small></td>
+            <td><b className="tnum">0</b><small>never owe anything</small></td>
+          </tr>
+        </tbody>
+      </table>
+      <p className="meta">
+        Winnings depend on how many board and when they Jump: here last off of 5 Players wins {fmtGemas(Number(o.exampleWon))} after Fees. A Backing cannot be revoked once the
+        car leaves.
+      </p>
+    </>
   );
 }
