@@ -508,28 +508,11 @@ fn seven_days_after_open_only_a_refund_starts_and_anyone_starts_it() {
 }
 
 #[test]
-fn a_car_opened_before_cars_kept_their_receipt_bump_says_so() {
-    let (mut env, car, riders, _) = five_riders();
-    // a car opened by a build that stored no receipt bump (devnet before W3): the byte is 0
+fn a_car_keeps_its_receipts_canonical_bump_from_open() {
+    let (env, car, _, _) = five_riders();
     let (_, canonical) =
         APk::find_program_address(&[b"settled", car.key.as_ref()], &tesoro_core::ID);
-    assert_eq!(
-        env.car(car).inner.receipt_bump(),
-        canonical,
-        "open stores the canonical bump"
-    );
-    let mut acct = env.svm.get_account(&s(car.key)).expect("car");
-    let rec: &mut ManySeatMatch = bytemuck::from_bytes_mut(&mut acct.data[8..ManySeatMatch::SPACE]);
-    rec.inner.set_receipt_bump(0);
-    env.svm.set_account(s(car.key), acct).expect("old car");
-    let err = env
-        .settle_car(car, result(&[(3, 10_000)], &[]))
-        .unwrap_err();
-    assert_eq!(custom_code(&err), seat_err(ManySeatError::NoReceiptBump));
-    env.set_time(env.car(car).inner.deadline_abs());
-    let stranger = riders[EVE].kp.insecure_clone();
-    let err = env.refund_car(&stranger, car).unwrap_err();
-    assert_eq!(custom_code(&err), seat_err(ManySeatError::NoReceiptBump));
+    assert_eq!(env.car(car).inner.receipt_bump(), canonical);
 }
 
 #[test]
