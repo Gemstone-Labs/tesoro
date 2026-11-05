@@ -439,6 +439,20 @@ struct Backer<'a, 'info> {
     spill: AccountInfo<'info>,
 }
 
+/// A Backing Ticket (`pot` is not a fresh address) is spent only with the Offer that opened it: its
+/// head records that Offer's nonce. Another Offer of the same Backer would be spent instead and the
+/// Ticket's own left tied to a Ticket that no longer exists.
+pub(crate) fn require_tickets_offer(pot: &AccountInfo, offer_nonce: u64) -> Result<()> {
+    if pot.owner == &system_program::ID && pot.data_is_empty() {
+        return Ok(());
+    }
+    require!(
+        offer_nonce_of(pot)? == offer_nonce,
+        crate::error::MatchError::BadBacking
+    );
+    Ok(())
+}
+
 pub(crate) fn counters_pda(account: &Pubkey) -> Pubkey {
     Pubkey::find_program_address(&[COUNTERS_SEED, account.as_ref()], &crate::ID).0
 }
@@ -549,6 +563,7 @@ pub(crate) fn open_match<'info>(
             .offer
             .as_mut()
             .ok_or(error!(crate::error::MatchError::BadBacking))?;
+        require_tickets_offer(&pot_info, offer.nonce)?;
         offer
             .inner
             .consume(player.to_bytes(), game.to_bytes(), entry, ts)
@@ -888,6 +903,7 @@ pub(crate) fn join_match<'info>(
             .offer
             .as_mut()
             .ok_or(error!(crate::error::MatchError::BadBacking))?;
+        require_tickets_offer(&pot_info, offer.nonce)?;
         offer
             .inner
             .consume(player.to_bytes(), game.to_bytes(), entry, ts)

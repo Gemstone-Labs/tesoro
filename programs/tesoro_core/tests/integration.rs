@@ -5227,6 +5227,127 @@ fn a_backed_player_cannot_be_matched_against_their_own_backer() {
     assert_eq!(custom_code(&err), core(CoreError::SelfMatch));
 }
 
+const ERR_BAD_BACKING: u32 = 6400 + tesoro_core::error::MatchError::BadBacking as u32;
+
+fn same_person(p: &Person) -> Person {
+    Person {
+        kp: p.kp.insecure_clone(),
+        key: p.key,
+        account: p.account,
+    }
+}
+
+/// Dave holds two accepted Offers from Carol; the first one opens a Backing Ticket and anyone
+/// stages it. Returns (first, second, the Ticket's books).
+fn two_offers_one_ticket(b: &mut Backing) -> (APk, APk, Vec<AccountMeta>) {
+    let r1 = b.request(1, 500);
+    let first = b.offer(1, r1, 5_000);
+    b.accept(first, r1);
+    let r2 = b.request(2, 500);
+    let second = b.offer(2, r2, 5_000);
+    b.accept(second, r2);
+    let (carol, dave) = (same_person(&b.carol), same_person(&b.dave));
+    b.d.env
+        .open_backing_ticket(&carol, &dave, first, 9, 500, 4)
+        .expect("backing ticket");
+    let books = b.d.env.books_of(carol.account);
+    let stranger = b.d.env.admin.insecure_clone();
+    b.d.env
+        .stage_with(&stranger, &carol, 9, 20, books.clone())
+        .expect("anyone stages");
+    (first, second, books)
+}
+
+/// An hour on, anyone may cancel the Ticket, but not naming Carol's other Offer: that one would be
+/// freed and the Ticket's own left tied to a Ticket that no longer exists.
+fn a_stranger_cannot_cancel_it_with_the_other_offer(
+    b: &mut Backing,
+    second: APk,
+    books: &[AccountMeta],
+) {
+    let carol = same_person(&b.carol);
+    let now = b.d.env.now();
+    b.d.env.set_time(now + 3_601);
+    let stranger = b.d.env.admin.insecure_clone();
+    let err =
+        b.d.env
+            .cancel_backing_ticket(&stranger, &carol, 9, Some(second), books.to_vec())
+            .unwrap_err();
+    assert_eq!(custom_code(&err), ERR_BAD_BACKING);
+}
+
+#[test]
+fn a_backing_ticket_opens_a_match_only_with_the_offer_that_opened_it() {
+    let mut b = backing_setup();
+    let (first, second, books) = two_offers_one_ticket(&mut b);
+    let (carol, dave) = (same_person(&b.carol), same_person(&b.dave));
+    let open = |b: &mut Backing, offer: APk| {
+        let n = b.d.env.counters_next(dave.account);
+        b.d.env.open_match_ix(
+            &dave,
+            500,
+            n,
+            9,
+            false,
+            0,
+            1,
+            ticket_pda(carol.account, 9),
+            books.clone(),
+            Some((offer, carol.account)),
+        )
+    };
+    let err = open(&mut b, second).unwrap_err();
+    assert_eq!(custom_code(&err), ERR_BAD_BACKING);
+    a_stranger_cannot_cancel_it_with_the_other_offer(&mut b, second, &books);
+    let id = open(&mut b, first).expect("the Ticket's own Offer opens the Match");
+    assert_eq!(b.d.env.mstate(id).inner.a.funder, carol.account.to_bytes());
+    assert_eq!(
+        b.d.env.load::<OfferState>(first).inner.status,
+        tesoro_core::ledger::OfferStatus::Consumed
+    );
+    let other = b.d.env.load::<OfferState>(second).inner;
+    assert_eq!(other.status, tesoro_core::ledger::OfferStatus::Accepted);
+    assert!(!other.ticket_open);
+}
+
+#[test]
+fn a_backing_ticket_joins_a_match_only_with_the_offer_that_opened_it() {
+    let mut b = backing_setup();
+    let (first, second, books) = two_offers_one_ticket(&mut b);
+    let (carol, dave) = (same_person(&b.carol), same_person(&b.dave));
+    let join = |b: &mut Backing, id: u64, offer: APk| {
+        b.d.env.join_match_ix(
+            &dave,
+            id,
+            9,
+            1,
+            ticket_pda(carol.account, 9),
+            books.clone(),
+            Some((offer, carol.account)),
+        )
+    };
+    let bob = same_person(&b.d.bob);
+    let id = b.d.env.open_match(&bob, 500).expect("Bob opens");
+    let err = join(&mut b, id, second).unwrap_err();
+    assert_eq!(custom_code(&err), ERR_BAD_BACKING);
+    a_stranger_cannot_cancel_it_with_the_other_offer(&mut b, second, &books);
+    // Bob's first Match has passed its Queue window by now: he opens another
+    let id = b.d.env.open_match(&bob, 500).expect("Bob opens again");
+    join(&mut b, id, first).expect("the Ticket's own Offer joins");
+    assert_eq!(
+        b.d.env.mstate(id).inner.b.expect("joined").funder,
+        carol.account.to_bytes()
+    );
+    assert_eq!(
+        b.d.env.load::<OfferState>(first).inner.status,
+        tesoro_core::ledger::OfferStatus::Consumed
+    );
+    assert_eq!(
+        b.d.env.load::<OfferState>(second).inner.status,
+        tesoro_core::ledger::OfferStatus::Accepted
+    );
+}
+
 #[test]
 fn a_backing_ticket_needs_the_requesters_signature_and_blocks_cancelling_the_offer() {
     let mut b = backing_setup();

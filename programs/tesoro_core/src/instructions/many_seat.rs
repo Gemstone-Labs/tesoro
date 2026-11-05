@@ -22,7 +22,7 @@ use crate::error::{core_err, seat_err, ManySeatError, MatchError, TesoroError};
 use crate::instructions::basket::move_lamports;
 use crate::instructions::matching::{
     add_hold, check_store, counters_pda, judged_slot_at, lc_err, listing, protections_pda,
-    take_entry, terms_of,
+    require_tickets_offer, take_entry, terms_of,
 };
 use crate::instructions::overflow::cover_room;
 use crate::instructions::settlement::ChainSettlement;
@@ -641,14 +641,12 @@ pub(crate) fn join_many_seat_match<'info>(
         // a Backing comes staged in a Backing Ticket: a direct draw would name the Backer's books
         // and, with the Backing's accounts, not fit one transaction
         require!(!is_empty(&pot_info), ManySeatError::BackingNeedsTicket);
-        let ticket_offer = offer_nonce_of(&pot_info)?;
         let offer = ctx
             .accounts
             .offer
             .as_mut()
             .ok_or_else(|| error!(MatchError::BadBacking))?;
-        // the Offer that opened this Ticket, and no other
-        require!(offer.nonce == ticket_offer, MatchError::BadBacking);
+        require_tickets_offer(&pot_info, offer.nonce)?;
         offer
             .inner
             .consume(player.to_bytes(), game.to_bytes(), entry, ts)
