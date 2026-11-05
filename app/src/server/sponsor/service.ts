@@ -10,6 +10,7 @@ import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import {
   AddressLookupTableAccount,
   ComputeBudgetProgram,
+  type AccountMeta,
   Keypair,
   PublicKey,
   TransactionInstruction,
@@ -26,6 +27,7 @@ import type { GameId } from "@/lib/mock/types";
 import { DemoHttpError } from "../request-auth";
 import { carNamesSeatKey, isManySeat, matchNamesSeatKey, matchSides } from "../seat-keys";
 import { seatMarkPda } from "@/lib/chain/many-seat";
+import { TxTooLarge, checkedV0 } from "@/lib/chain/tx-size";
 import { admissionFits, admit, checkOnboarding, exitFits, exitsBlocked, rentExitFits, onboardingAlertDue, onboardUserOf, recordCycle, recordFailure, takeOnboarding, type Balance, type Limits } from "./policy";
 import { CORE_ID, PRIORITY_MICROLAMPORTS, PROTECTIONS_BYTES, RECEIPT_RENT, SETTLEMENT_RECEIPT_BYTES, RuleError, SIGNATURE_LAMPORTS, planTransaction, type Ix, type Plan } from "./rules";
 import { EXIT_ATA_WINDOW_MS, verifyCkptPages, verifyExitSetup } from "./exit-setup";
@@ -286,6 +288,26 @@ interface Held {
   /** Gives back the day's bridge-send count when the build fails after it was taken. */
   undoSends: (() => Promise<void>) | null;
   assignment: Assignment | null;
+}
+
+/**
+ * What the relayer sends for an accepted request, in order: the compute limit and price, the counter grows, the Player's
+ * instructions (rebuilt from the accepted ones: the flags are those the allow-list checked), and the table assignment.
+ * The sponsor compiles exactly this (`checkedV0`); the LiteSVM ride test sends exactly this.
+ */
+export function sponsoredInstructions(o: {
+  cu: number;
+  grows: TransactionInstruction[];
+  ixs: { programId: PublicKey; keys: AccountMeta[]; data: Uint8Array }[];
+  assignment: TransactionInstruction | null;
+}): TransactionInstruction[] {
+  return [
+    ComputeBudgetProgram.setComputeUnitLimit({ units: o.cu }),
+    ComputeBudgetProgram.setComputeUnitPrice({ microLamports: PRIORITY_MICROLAMPORTS }),
+    ...o.grows,
+    ...o.ixs.map((i) => new TransactionInstruction({ programId: i.programId, keys: i.keys, data: Buffer.from(i.data) })),
+    ...(o.assignment ? [o.assignment] : []),
+  ];
 }
 
 export class Sponsor {
@@ -579,22 +601,15 @@ export class Sponsor {
     }
     const lookupTables = await this.d.lookupTables();
     const blockhash = await this.d.chain.latestBlockhash();
+    const refused: { last?: TxTooLarge } = {};
     const compile = (assignment: Assignment | null) => {
-      const instructions = [
-        ComputeBudgetProgram.setComputeUnitLimit({ units: plan.cu }),
-        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: PRIORITY_MICROLAMPORTS }),
-        ...grows,
-        // Rebuilt from the accepted instructions: the flags are the ones the allow-list checked.
-        ...ixs.map((i) => new TransactionInstruction({ programId: i.programId, keys: i.keys, data: Buffer.from(i.data) })),
-        ...(assignment ? [assignment.ix] : []),
-      ];
-      const message = new TransactionMessage({ payerKey: this.relayer, recentBlockhash: blockhash, instructions }).compileToV0Message(lookupTables);
+      const instructions = sponsoredInstructions({ cu: plan.cu, grows, ixs, assignment: assignment?.ix ?? null });
       try {
-        const bytes = message.serialize();
-        if (new VersionedTransaction(message).serialize().length > 1232) throw new RangeError("packet size");
-        return { message, bytes };
+        const message = checkedV0(this.relayer, blockhash, instructions, lookupTables);
+        return { message, bytes: message.serialize() };
       } catch (e) {
-        if (!(e instanceof RangeError)) throw e;
+        if (!(e instanceof TxTooLarge)) throw e;
+        refused.last = e;
         return null;
       }
     };
@@ -606,7 +621,7 @@ export class Sponsor {
       held.assignment = null;
       compiled = compile(null);
     }
-    if (!compiled) throw new DemoHttpError(400, "too-large", "This transaction is too large. Prepare fewer items at a time.");
+    if (!compiled) throw new DemoHttpError(400, "too-large", `This transaction is too large (${refused.last?.message ?? "over 1232 B"}). Prepare fewer items at a time.`);
     const { message, bytes } = compiled;
     if (held.undo) await this.checkGameStepSimulation(message, fee + plan.spend.refundable);
     const seeds = await holdSeeds(ixs, async (match) => {
@@ -700,18 +715,20 @@ export class Sponsor {
     if (assignment === "own") throw new DemoHttpError(409, "cannot-join", "You cannot join your own Match.");
     if (!assignment) throw new DemoHttpError(409, "no-table", "No table is free to assign right now.");
     try {
-      const message = new TransactionMessage({
-        payerKey: player,
-        recentBlockhash: await this.d.chain.latestBlockhash(),
-        instructions: [
-          ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 + ASSIGN_CU + GROW_COUNTERS_CU * grows.length }),
-          ...grows,
-          ...ixs.map((i) => new TransactionInstruction({ programId: i.programId, keys: i.keys, data: Buffer.from(i.data) })),
-          assignment.ix,
-        ],
-      }).compileToV0Message(await this.d.lookupTables());
+      const instructions = [
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 + ASSIGN_CU + GROW_COUNTERS_CU * grows.length }),
+        ...grows,
+        ...ixs.map((i) => new TransactionInstruction({ programId: i.programId, keys: i.keys, data: Buffer.from(i.data) })),
+        assignment.ix,
+      ];
+      let message;
+      try {
+        message = checkedV0(player, await this.d.chain.latestBlockhash(), instructions, await this.d.lookupTables());
+      } catch (e) {
+        if (e instanceof TxTooLarge) throw new DemoHttpError(400, "too-large", `This transaction is too large (${e.message}).`);
+        throw e;
+      }
       const tx = new VersionedTransaction(message);
-      if (tx.serialize().length > 1232) throw new DemoHttpError(400, "too-large", "This transaction is too large.");
       tx.sign([assigner.keypair]);
       // The Player's page sends this join itself, so only the short build lease holds the table. The pool claim waits for
       // `confirmSelfPaid`, which asks base whether the Assignment exists.

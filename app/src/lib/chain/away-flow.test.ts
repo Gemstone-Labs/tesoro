@@ -14,18 +14,18 @@ describe("how many clean-up steps fit one sponsored transaction", () => {
   it("all of a Player's withdrawn Requests fit up to the sponsor's bundle limit", async () => {
     const lead = [toWeb3(await coreIx("set_break", [3], { ownerAuthority: player }))];
     const steps = await Promise.all(Array.from({ length: 12 }, async () => toWeb3(await playerIx.cancelRequest(player))));
-    expect(stepsThatFit(relayer, [player], lead, steps)).toBe(MAX_CLEANUP);
+    expect(stepsThatFit(relayer, lead, steps)).toBe(MAX_CLEANUP);
   });
   it("refunds are big: the packed prefix still fits one transaction and one more would not (or hit the limit)", async () => {
     const lead = [toWeb3(await coreIx("set_break", [3], { ownerAuthority: player }))];
     const steps = await Promise.all(Array.from({ length: 8 }, refund));
-    const n = stepsThatFit(relayer, [player], lead, steps);
+    const n = stepsThatFit(relayer, lead, steps);
     expect(n).toBeGreaterThanOrEqual(2);
     expect(n).toBeLessThanOrEqual(MAX_CLEANUP);
   });
   it("always takes at least one step so a plan can make progress, and none from an empty list", async () => {
-    expect(stepsThatFit(relayer, [player], [], [])).toBe(0);
+    expect(stepsThatFit(relayer, [], [])).toBe(0);
     const steps = [await refund()];
-    expect(stepsThatFit(relayer, [player], [], steps)).toBe(1);
+    expect(stepsThatFit(relayer, [], steps)).toBe(1);
   });
 });

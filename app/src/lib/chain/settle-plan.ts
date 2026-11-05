@@ -1,8 +1,9 @@
-import { AddressLookupTableAccount, ComputeBudgetProgram, PublicKey, TransactionMessage, VersionedTransaction, type AccountInfo, type AccountMeta, type Connection, type TransactionInstruction } from "@solana/web3.js";
+import { AddressLookupTableAccount, ComputeBudgetProgram, PublicKey, VersionedTransaction, type AccountInfo, type AccountMeta, type Connection, type TransactionInstruction } from "@solana/web3.js";
 import { bookPda, ckptPda, TESORO_CORE } from "./basket";
 import { matchOverflowPda } from "./overflow";
 import { POT_AT, decodeStore, decodeTicketHead, slack, type Store } from "./pot-store";
 import { positionBytes } from "./position-size";
+import { checkedV0, fitsTx, sizeOf } from "./tx-size";
 
 /**
  * The one planner of a Settling or Refunding Match's `match_chunk` and `close_match`, used by the Player's page and by
@@ -358,42 +359,29 @@ export const closeMatchIx = (
 
 // ---- Does it fit one transaction -----------------------------------------------------------------------------------
 
-/** A transaction is at most this many bytes on the wire. */
-export const MAX_TX_BYTES = 1232;
-/** A transaction locks at most this many accounts. */
-export const MAX_ACCOUNTS = 64;
+export { MAX_TX_BYTES, MAX_TX_ACCOUNTS as MAX_ACCOUNTS } from "./tx-size";
 
-/** What sizing a transaction needs to know: the compute limit it asks for, the lookup tables it compiles with and the extra signatures it carries. */
+/** What sizing a transaction needs to know: the compute limit it asks for and the lookup tables it compiles with. */
 export interface FitOpts {
   units?: number;
   tables?: AddressLookupTableAccount[];
-  signers?: unknown[];
 }
 
+const withUnits = (ixs: TransactionInstruction[], opts: FitOpts) => (opts.units ? [ComputeBudgetProgram.setComputeUnitLimit({ units: opts.units }), ...ixs] : ixs);
+
+/** The v0 transaction of `ixs`; refused (`TxTooLarge`, naming the instructions) when it would not fit. */
 export function compileTx(payer: PublicKey, blockhash: string, ixs: TransactionInstruction[], opts: FitOpts = {}): VersionedTransaction {
-  const all = opts.units ? [ComputeBudgetProgram.setComputeUnitLimit({ units: opts.units }), ...ixs] : ixs;
-  return new VersionedTransaction(new TransactionMessage({ payerKey: payer, recentBlockhash: blockhash, instructions: all }).compileToV0Message(opts.tables));
+  return new VersionedTransaction(checkedV0(payer, blockhash, withUnits(ixs, opts), opts.tables));
 }
 
 /** Serialized size in bytes with every signature, as the network counts it. */
-export function wireSize(payer: PublicKey, ixs: TransactionInstruction[], opts: FitOpts = {}): number {
-  return compileTx(payer, PublicKey.default.toBase58(), ixs, opts).serialize().length + 64 * (opts.signers?.length ?? 0);
-}
+export const wireSize = (payer: PublicKey, ixs: TransactionInstruction[], opts: FitOpts = {}): number => sizeOf(payer, withUnits(ixs, opts), opts).bytes;
 
 /** Accounts a compiled transaction names, counting those read through lookup tables. */
-export function accountCount(payer: PublicKey, ixs: TransactionInstruction[], opts: FitOpts = {}): number {
-  const m = compileTx(payer, PublicKey.default.toBase58(), ixs, opts).message;
-  return m.staticAccountKeys.length + m.addressTableLookups.reduce((n, l) => n + l.writableIndexes.length + l.readonlyIndexes.length, 0);
-}
+export const accountCount = (payer: PublicKey, ixs: TransactionInstruction[], opts: FitOpts = {}): number => sizeOf(payer, withUnits(ixs, opts), opts).accounts;
 
 /** True when `ixs` fit one transaction: at most 1,232 bytes and 64 accounts. */
-export const fits = (payer: PublicKey, ixs: TransactionInstruction[], opts: FitOpts = {}) => {
-  try {
-    return wireSize(payer, ixs, opts) <= MAX_TX_BYTES && accountCount(payer, ixs, opts) <= MAX_ACCOUNTS;
-  } catch {
-    return false;
-  }
-};
+export const fits = (payer: PublicKey, ixs: TransactionInstruction[], opts: FitOpts = {}) => fitsTx(payer, withUnits(ixs, opts), opts);
 
 // ---- A Match and its pots -------------------------------------------------------------------------------------------
 
