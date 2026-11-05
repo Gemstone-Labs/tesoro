@@ -4352,6 +4352,68 @@ export type Railcar = {
       }
     },
     {
+      "name": "revealedSeat",
+      "docs": [
+        "One seated Player of a finished ride."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "seat",
+            "docs": [
+              "The core seat index."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "order",
+            "docs": [
+              "0 aboard at Impact, else the place in the Jump order (1 = first off)."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "jumpMs",
+            "docs": [
+              "Ride ms of the Jump (0 aboard)."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "refund",
+            "docs": [
+              "Gemas of the entry the result refunds."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "player",
+            "docs": [
+              "The Player's core Account."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "backer",
+            "docs": [
+              "The Backer who funded a backed seat's entry; none when the Player funded it."
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "shareBps",
+            "docs": [
+              "A backed seat's Player share of the winnings (the Offer's), in bps."
+            ],
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
       "name": "rideOver",
       "type": {
         "kind": "struct",
@@ -4543,6 +4605,19 @@ export type Railcar = {
               "vec": {
                 "defined": {
                   "name": "revealedBrake"
+                }
+              }
+            }
+          },
+          {
+            "name": "seats",
+            "docs": [
+              "Every seated Player, so the history can name each one and replay the ride."
+            ],
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "revealedSeat"
                 }
               }
             }
