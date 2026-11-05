@@ -66,7 +66,7 @@ class World {
 }
 
 describe("retire plan", () => {
-  it("keeps SPACE.offer equal to the program's OfferState::SPACE (174 B)", () => {
+  it("keeps SPACE.offer equal to the program's OfferState::SPACE (182 B)", () => {
     const rust = readFileSync(new URL("../../programs/tesoro_core/src/state.rs", import.meta.url), "utf8");
     const expr = /impl OfferState \{[^}]*?pub const SPACE: usize = ([0-9+ ]+);/s.exec(rust)?.[1];
     assert.ok(expr, "OfferState::SPACE not found in state.rs");
@@ -82,6 +82,8 @@ describe("retire plan", () => {
     w.add(row("NativeCustody", SPACE.custody));
     w.add(row("Treasury", SPACE.treasury));
     w.add(row("OfferState", SPACE.offer));
+    // A 174-byte Offer (before ticket 17) is grown by grow_offer, never retired: it may hold a reservation.
+    w.add(row("OfferState", SPACE.offerV1));
     const plan = planAll(w.snapshot());
     assert.equal(plan.phases.flat().length, 0);
   });
