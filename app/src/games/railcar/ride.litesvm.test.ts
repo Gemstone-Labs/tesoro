@@ -37,14 +37,14 @@ import { coreIx } from "../../lib/chain/core-ix";
 import { drawRemaining, freshPot, nextMatchOf, previewEntry, readEntryStores, readNextTicket } from "../../lib/chain/entry";
 import coreIdl from "../../lib/chain/idl/tesoro_core.json";
 import railcarIdl from "../../lib/chain/idl/railcar.json";
-import { backingNonce, createOfferIx, createRequestIx } from "../../lib/chain/backing-ix";
+import { acceptOfferIx, backingNonce, createOfferIx, createRequestIx } from "../../lib/chain/backing-ix";
 import { joinSeatIx, seatMarkPda } from "../../lib/chain/many-seat";
 import { loadCar } from "../../lib/chain/many-seat-plan";
 import { decodeStore } from "../../lib/chain/pot-store";
 import { OVERFLOW_STORE_AT, matchOverflowPda } from "../../lib/chain/overflow";
 import { fits, type Reader } from "../../lib/chain/settle-plan";
 import { checkedV0, instructionName, messageSize, type TxSize } from "../../lib/chain/tx-size";
-import { acceptWithBackingTicketIxs, findBackingTicket, nextStageIx, type TicketView } from "../../lib/chain/ticket";
+import { findBackingTicket, nextStageIx, openBackingTicketIxs, type TicketView } from "../../lib/chain/ticket";
 import { sponsoredInstructions } from "../../server/sponsor/service";
 import {
   RAILCAR_PROGRAM_ID,
@@ -259,6 +259,9 @@ class World {
     this.svm.set(treasury, { lamports: Number(SOL), data: tdata, owner: CORE, executable: false });
     const pool = corePda("leaderboard");
     this.send([coreIx("init_leaderboard", { admin: admin.publicKey, config: corePda("config"), pool_authority: pool, pool_account: corePda("account", pool.toBuffer()), treasury }, { leaderboard_bps: 100 })], admin);
+    // core's sponsor, which fronts the rent of the sponsored Tickets the relayer opens
+    this.send([coreIx("init_sponsor", { admin: admin.publicKey, config: corePda("config"), sponsor: corePda("sponsor") }, { relayer: this.relayer.publicKey, per_account_cap: 100n * SOL, total_cap: 1_000n * SOL, pages_cap: 100n * SOL })], admin);
+    this.svm.airdrop(corePda("sponsor"), 100n * SOL);
     // The control key is Railcar's upgrade authority; core approves the build's hash.
     const pd = programData(RAILCAR_PROGRAM_ID);
     const acct = this.get(pd)!;
@@ -374,7 +377,7 @@ class World {
     let pot: ReturnType<typeof freshPot>;
     let remaining: AccountMeta[] = [];
     if (backing) {
-      const t = await this.stageBacking(backing, seatKey);
+      const t = await this.stageBacking(p, backing, seatKey);
       pot = { address: t.address, nonce: t.nonce, lines: t.lineCap, ticket: true };
     } else {
       const { funder, preview } = await boardingEntry(conn, p.account);
@@ -399,26 +402,28 @@ class World {
     return choice.kind;
   }
 
-  /**
-   * The Backing flow as the Backing page sends it: the Player's Request for Railcar at 500, the Backer's Offer, the Player
-   * accepting it with its Backing Ticket opened in the same transaction (`acceptRailcarOffer`).
-   */
-  async backing(player: Person, backer: Person, shareBps: number): Promise<BoardingBacking> {
-    const conn = this.reader();
+  /** The Backing flow as the Backing page sends it: the Player's Request for Railcar at 500, the Backer's Offer, the Player accepting. */
+  backing(player: Person, backer: Person, shareBps: number): BoardingBacking {
     const request = createRequestIx({ player: player.key, game: RAILCAR_PROGRAM_ID, entry: 500n, nonce: backingNonce() });
     this.send([request.ix], player.kp);
     const offerNonce = backingNonce();
     const offer = createOfferIx({ backer: backer.key, request: request.address, game: RAILCAR_PROGRAM_ID, shareBps, nonce: offerNonce });
     this.send([offer.ix], backer.kp);
-    const preview = previewEntry(await readEntryStores(backer.account, conn), 500n, { backing: true });
-    const nonce = await readNextTicket(backer.account, conn);
-    this.send(acceptWithBackingTicketIxs({ player: player.key, request: request.address, offer: offer.address, backerAccount: backer.account, game: RAILCAR_PROGRAM_ID, entry: 500n, nonce, lines: preview.ticketLines }), player.kp);
+    this.send([acceptOfferIx({ player: player.key, request: request.address, offer: offer.address })], player.kp);
     return { offer: offer.address, offerNonce, backerAccount: backer.account };
   }
 
-  /** Stages the Offer's open Backing Ticket to the entry, as the page does (`readyBackingTicket`): the seat key signs, the relayer pays. */
-  async stageBacking(backing: BoardingBacking, seatKey: Keypair): Promise<TicketView> {
+  /**
+   * The Backing Ticket a backed seat boards from, as the page readies it (`readyBackingTicket`): the Player opens it with
+   * the first stage (wallet and seat key sign, the relayer pays), the seat key stages the rest.
+   */
+  async stageBacking(p: Person, backing: BoardingBacking, seatKey: Keypair): Promise<TicketView> {
     const conn = this.reader();
+    if (!(await findBackingTicket(conn, backing.backerAccount, backing.offerNonce))) {
+      const lines = previewEntry(await readEntryStores(backing.backerAccount, conn), 500n, { backing: true }).ticketLines;
+      const built = await openBackingTicketIxs({ payer: this.relayer.publicKey, requester: p.key, seat: seatKey.publicKey, backerAccount: backing.backerAccount, offer: backing.offer, game: RAILCAR_PROGRAM_ID, entry: 500n, lines, sponsored: true }, conn);
+      this.send(sponsoredInstructions({ cu: 700_000, grows: [], ixs: built.ixs, assignment: null }), this.relayer, [p.kp, seatKey]);
+    }
     for (let i = 0; i < 20; i++) {
       const t = await findBackingTicket(conn, backing.backerAccount, backing.offerNonce);
       if (!t) throw new Error("the Offer has no open Backing Ticket");
@@ -500,7 +505,7 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], b
   w.riders = Array.from({ length: n }, (_, i) => (i === backed?.seat ? w.person() : w.rider()));
   const riders = w.riders;
   const backer = backed ? w.rider() : null;
-  const backing = backed && backer ? await w.backing(riders[backed.seat], backer, backed.shareBps) : undefined;
+  const backing = backed && backer ? w.backing(riders[backed.seat], backer, backed.shareBps) : undefined;
 
   // Boarding: the first opens the car, the others join it, each in one wallet transaction.
   w.phase = "boarding";
@@ -635,8 +640,9 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     // The result screen shows the split the chain paid.
     expect(r.shown).toEqual(r.deltas);
     expect(r.backer!.shown).toEqual({ backerGets: 578n, playerGets: 52n });
-    // Ben signed his Request, the acceptance and his boarding; Bob nothing after his Offer.
-    expect(r.walletSigs).toEqual({ setup: 2, boarding: 5, jumps: 4 });
+    // Ben signed his Request, the acceptance, the opening of his Backing Ticket and his boarding (6 in boarding: his two
+    // and the four others'); Bob nothing after his Offer.
+    expect(r.walletSigs).toEqual({ setup: 2, boarding: 6, jumps: 4 });
   });
 
   it("a backed step-off sends the Backer's 500 home and leaves the Player free to board again", { timeout: 120_000 }, async () => {
@@ -644,7 +650,7 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     const ben = w.person();
     const bob = w.rider();
     const bobAtStart = w.gemas(bob);
-    const backing = await w.backing(ben, bob, 4_000);
+    const backing = w.backing(ben, bob, 4_000);
     expect(await w.board(ben, backing)).toBe("open");
     const config = decodeConfig(w.info(configPda())!.data);
     const match = decodeCarAccount(w.info(carPda(config.nextCar - 1n))!.data).tesoroMatch;
@@ -666,7 +672,7 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     expect(w.offerStatus(backing.offer)).toBe("consumed");
     // Ben's seat is free again: he can board the same car (here with Gemas of his own from a second Backing).
     const ann = w.rider();
-    expect(await w.board(ben, await w.backing(ben, ann, 5_000))).toBe("join");
+    expect(await w.board(ben, w.backing(ben, ann, 5_000))).toBe("join");
   });
 
   it("a Backer already in the car: the Player is told to board the next one and nothing is sent", { timeout: 120_000 }, async () => {
@@ -674,7 +680,7 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     const bob = w.rider();
     const ben = w.person();
     expect(await w.board(bob)).toBe("open");
-    const backing = await w.backing(ben, bob, 4_000);
+    const backing = w.backing(ben, bob, 4_000);
     expect(await w.board(ben, backing)).toBe("backer-seated");
     expect(w.offerStatus(backing.offer)).toBe("accepted");
   });

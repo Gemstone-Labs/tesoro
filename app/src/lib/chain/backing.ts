@@ -10,8 +10,7 @@ import { EntryError } from "./ledger";
 import { ChallengeError, enterQueue, createChallenge, joinChallenge, ensureReady, refundMatch } from "./match-flow";
 import { coreIx } from "./entry";
 import { basketPda, countersPda, spillPda } from "./basket";
-import { freeOf, previewEntry, readEntryStores, readNextTicket, type BackingRef } from "./entry";
-import { acceptWithBackingTicketIxs } from "./ticket";
+import { freeOf, readEntryStores, type BackingRef } from "./entry";
 import { DrawError } from "./draw";
 import { fetchMatch, matchKeyOfState } from "./read";
 import type { Entered } from "./queue";
@@ -274,18 +273,6 @@ export async function acceptOffer(signer: ChainSigner, request: PublicKey, offer
   return getChain().sendBase(signer, [acceptOfferIx({ player: signer.publicKey, request, offer })]);
 }
 
-/**
- * The Player accepts a Railcar Offer and opens its Backing Ticket in the same transaction: one wallet signature, and the
- * Railcar page stages the Backer's Gemas and boards from the Ticket (a backed seat takes only its Ticket).
- */
-export async function acceptRailcarOffer(signer: ChainSigner, o: Pick<ChainOffer, "address" | "request" | "backer" | "entry">) {
-  const backerAccount = new PublicKey(o.backer);
-  const preview = previewEntry(await readEntryStores(backerAccount), BigInt(o.entry), { backing: true });
-  const nonce = await readNextTicket(backerAccount);
-  const ixs = acceptWithBackingTicketIxs({ player: signer.publicKey, request: new PublicKey(o.request), offer: o.address, backerAccount, game: backedProgram("railcar"), entry: BigInt(o.entry), nonce, lines: preview.ticketLines });
-  return getChain().sendBase(signer, ixs);
-}
-
 /** The Backer withdraws an Offer that has not started a Match; the reservation is released. */
 export function cancelOfferIx(owner: PublicKey, offer: PublicKey, acceptedRequest: PublicKey | null) {
   const backerAccount = BlockPuzzleChain.coreAccount(owner);
@@ -357,7 +344,7 @@ export async function requireBacking(signer: ChainSigner, address: string, game:
   return offer!;
 }
 
-const backingRefOf = (o: ChainOffer): BackingRef => ({ offer: o.address, backerAccount: new PublicKey(o.backer) });
+const backingRefOf = (o: ChainOffer): BackingRef => ({ offer: o.address, offerNonce: o.nonce, backerAccount: new PublicKey(o.backer) });
 
 /** Queue under a Backing: join the oldest open Match at this entry, else open one. The Player is never debited. */
 export async function enterQueueBacked(signer: ChainSigner, backing: string, game: GameId, entry: number, getToken: GetToken, onStep?: (s: string) => void, asset: 0 | 1 | 2 = 0): Promise<Entered> {

@@ -299,6 +299,8 @@ export const matchRefKey = (m: MatchRef) => `${m.opener.toBase58()}-${m.n}`;
 /** A Backing the Player enters under: the accepted Offer and whose Account funds the entry. */
 export interface BackingRef {
   offer: PublicKey;
+  /** The Offer's nonce: the Backing Ticket it opens records it. */
+  offerNonce: bigint;
   backerAccount: PublicKey;
 }
 
