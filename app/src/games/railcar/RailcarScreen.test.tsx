@@ -123,7 +123,7 @@ describe("Backing: a Player boards with a Backer's Gemas", () => {
     expect(t).toMatch(/You get .*52/);
     expect(t).toMatch(/gets .*578/);
     expect(t).toContain("entry comes back first");
-    expect(t).toMatch(/578 · you .*52/);
+    expect(t).toMatch(/578[^·]*· you[^·]*52/);
   });
 
   it("aboard at Impact backed: the Backer bears the loss", () => {
