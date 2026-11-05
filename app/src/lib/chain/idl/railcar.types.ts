@@ -1639,38 +1639,6 @@ export type Railcar = {
         {
           "name": "tesoroProgram",
           "address": "AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh"
-        },
-        {
-          "name": "eventAuthority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  95,
-                  95,
-                  101,
-                  118,
-                  101,
-                  110,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "program"
         }
       ],
       "args": []
@@ -2609,6 +2577,165 @@ export type Railcar = {
       "args": []
     },
     {
+      "name": "revealRide",
+      "docs": [
+        "Base, anyone, once per car, after the rollup committed the car's finished ride and before",
+        "`finalize` (which waits for it). Publishes the ride for the round history: the draw, every",
+        "Brake, and every seat with its Player, Backer, Offer share, Jump and refund",
+        "(`RideRevealed`). Checks the committed Table as `finalize` does. `remaining_accounts`:",
+        "every seat page of the car."
+      ],
+      "discriminator": [
+        109,
+        84,
+        197,
+        181,
+        184,
+        126,
+        122,
+        130
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "car",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "car.car_no",
+                "account": "car"
+              }
+            ]
+          }
+        },
+        {
+          "name": "table"
+        },
+        {
+          "name": "matchState"
+        },
+        {
+          "name": "coreEventAuthority",
+          "docs": [
+            "webhook and catch-up (which follow tesoro_core) see this transaction."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
+          "name": "tesoroProgram",
+          "address": "AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "setConfig",
       "docs": [
         "Base, upgrade authority only. Names the operator and the number of Tables; the number is",
@@ -3250,6 +3377,19 @@ export type Railcar = {
       ]
     },
     {
+      "name": "rideRevealed",
+      "discriminator": [
+        3,
+        184,
+        78,
+        204,
+        79,
+        232,
+        171,
+        176
+      ]
+    },
+    {
       "name": "rideRunning",
       "discriminator": [
         146,
@@ -3260,19 +3400,6 @@ export type Railcar = {
         140,
         153,
         213
-      ]
-    },
-    {
-      "name": "rideSettled",
-      "discriminator": [
-        147,
-        166,
-        132,
-        241,
-        229,
-        70,
-        246,
-        239
       ]
     },
     {
@@ -3414,6 +3541,16 @@ export type Railcar = {
       "code": 6024,
       "name": "overflow",
       "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6025,
+      "name": "notRevealed",
+      "msg": "The ride is not revealed yet: send reveal_ride first"
+    },
+    {
+      "code": 6026,
+      "name": "alreadyRevealed",
+      "msg": "The ride is already revealed"
     }
   ],
   "types": [
@@ -3521,6 +3658,13 @@ export type Railcar = {
               "Who paid this account's rent; it goes back there when the car closes."
             ],
             "type": "pubkey"
+          },
+          {
+            "name": "revealed",
+            "docs": [
+              "`reveal_ride` published the ride for the round history; `finalize` waits for it."
+            ],
+            "type": "bool"
           }
         ]
       }
@@ -4438,6 +4582,75 @@ export type Railcar = {
       }
     },
     {
+      "name": "rideRevealed",
+      "docs": [
+        "`reveal_ride` published a finished ride for the round history (event-CPI): everything the",
+        "ride revealed (the draw and every Brake) and every seat, so anyone can name each Player and",
+        "replay the ride. Keyed like core's Match records (`opener`, `n`)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "opener",
+            "type": "pubkey"
+          },
+          {
+            "name": "n",
+            "type": "u64"
+          },
+          {
+            "name": "carNo",
+            "type": "u64"
+          },
+          {
+            "name": "tesoroMatch",
+            "type": "pubkey"
+          },
+          {
+            "name": "outcome",
+            "type": "u8"
+          },
+          {
+            "name": "reason",
+            "type": "u8"
+          },
+          {
+            "name": "draw",
+            "docs": [
+              "The draw; zero when it never came."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "brakes",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "revealedBrake"
+                }
+              }
+            }
+          },
+          {
+            "name": "seats",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "revealedSeat"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "rideRunning",
       "docs": [
         "The draw is in and the ride clock runs from `ride_slot`."
@@ -4558,68 +4771,6 @@ export type Railcar = {
                 "u8",
                 4
               ]
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "rideSettled",
-      "docs": [
-        "`finalize` handed the result to core (event-CPI)."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "carNo",
-            "type": "u64"
-          },
-          {
-            "name": "tesoroMatch",
-            "type": "pubkey"
-          },
-          {
-            "name": "outcome",
-            "type": "u8"
-          },
-          {
-            "name": "reason",
-            "type": "u8"
-          },
-          {
-            "name": "draw",
-            "docs": [
-              "The reveal, for the round history: the draw (zero when it never came) and every Brake."
-            ],
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
-            "name": "brakes",
-            "type": {
-              "vec": {
-                "defined": {
-                  "name": "revealedBrake"
-                }
-              }
-            }
-          },
-          {
-            "name": "seats",
-            "docs": [
-              "Every seated Player, so the history can name each one and replay the ride."
-            ],
-            "type": {
-              "vec": {
-                "defined": {
-                  "name": "revealedSeat"
-                }
-              }
             }
           }
         ]

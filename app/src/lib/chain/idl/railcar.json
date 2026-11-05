@@ -2572,6 +2572,13 @@
     },
     {
       "name": "reveal_ride",
+      "docs": [
+        "Base, anyone, once per car, after the rollup committed the car's finished ride and before",
+        "`finalize` (which waits for it). Publishes the ride for the round history: the draw, every",
+        "Brake, and every seat with its Player, Backer, Offer share, Jump and refund",
+        "(`RideRevealed`). Checks the committed Table as `finalize` does. `remaining_accounts`:",
+        "every seat page of the car."
+      ],
       "discriminator": [
         109,
         84,
@@ -2589,7 +2596,24 @@
         },
         {
           "name": "car",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "car.car_no",
+                "account": "Car"
+              }
+            ]
+          }
         },
         {
           "name": "table"
@@ -2599,6 +2623,9 @@
         },
         {
           "name": "core_event_authority",
+          "docs": [
+            "webhook and catch-up (which follow tesoro_core) see this transaction."
+          ],
           "pda": {
             "seeds": [
               {
@@ -3508,6 +3535,16 @@
       "code": 6024,
       "name": "Overflow",
       "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6025,
+      "name": "NotRevealed",
+      "msg": "The ride is not revealed yet: send reveal_ride first"
+    },
+    {
+      "code": 6026,
+      "name": "AlreadyRevealed",
+      "msg": "The ride is already revealed"
     }
   ],
   "types": [
@@ -3618,6 +3655,9 @@
           },
           {
             "name": "revealed",
+            "docs": [
+              "`reveal_ride` published the ride for the round history; `finalize` waits for it."
+            ],
             "type": "bool"
           }
         ]
@@ -4537,6 +4577,11 @@
     },
     {
       "name": "RideRevealed",
+      "docs": [
+        "`reveal_ride` published a finished ride for the round history (event-CPI): everything the",
+        "ride revealed (the draw and every Brake) and every seat, so anyone can name each Player and",
+        "replay the ride. Keyed like core's Match records (`opener`, `n`)."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -4566,6 +4611,9 @@
           },
           {
             "name": "draw",
+            "docs": [
+              "The draw; zero when it never came."
+            ],
             "type": {
               "array": [
                 "u8",
