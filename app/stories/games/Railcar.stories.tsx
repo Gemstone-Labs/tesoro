@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useEffect, useState } from "react";
-import { RailcarScreen, type RailcarBrake, type RailcarWatch } from "@/games/railcar/RailcarScreen";
+import { RailcarScreen, type RailcarBrake, type RailcarOffer, type RailcarWatch } from "@/games/railcar/RailcarScreen";
 import { RideHistory } from "@/games/railcar/RideHistory";
 import * as fx from "@/games/railcar/fixtures";
 import type { RailcarView } from "@/games/railcar/view";
@@ -13,8 +13,8 @@ export default meta;
 
 const noop = () => undefined;
 const actions = { onBoard: noop, onStepOff: noop, onJump: noop, onPlayAgain: noop, onShare: noop, onAddFriend: noop, onSignIn: noop };
-const screen = (view: RailcarView, o: { busy?: string; error?: string; brake?: RailcarBrake; watch?: RailcarWatch } = {}): StoryObj => ({
-  render: () => <RailcarScreen view={view} actions={actions} busy={o.busy ?? null} error={o.error ?? null} brake={o.brake ?? null} watch={o.watch ?? null} />,
+const screen = (view: RailcarView, o: { busy?: string; error?: string; brake?: RailcarBrake; offer?: RailcarOffer; watch?: RailcarWatch } = {}): StoryObj => ({
+  render: () => <RailcarScreen view={view} actions={actions} busy={o.busy ?? null} error={o.error ?? null} brake={o.brake ?? null} offer={o.offer ?? null} watch={o.watch ?? null} />,
 });
 const phone = { globals: { viewport: { value: "phone390", isRotated: false } } };
 const desk = { globals: { viewport: { value: "desktop1440", isRotated: false } } };
@@ -49,6 +49,26 @@ export const ResultJumpedEarly = screen(fx.workedResult(fx.ANA));
 export const ResultAboardAtImpact = screen(fx.workedResult(fx.EVE));
 /** Nobody jumped: every entry back, no fees. */
 export const ResultNobodyJumped = screen(fx.nobodyJumped());
+
+// ---- Backing (ticket 13): Ben rides with Bob's Gemas, keeping 40% of any winnings --------------------------------------
+
+const BOB = fx.BOB.toBase58();
+const benBacked = { seat: 1, backer: fx.BOB, shareBps: 4_000 };
+
+/** `/play/railcar?backing=<offer>`: Bob's accepted Offer, before boarding. Their 500 board for you. */
+export const BoardingWithBacking = screen(fx.boardingCountdown(null), { offer: { backer: BOB, sharePct: 40 } });
+/** Bob already has a seat in this car: the Offer waits for the next one (core would refuse it here). */
+export const BoardingBackerInThisCar = screen(fx.boardingCountdown(null), { offer: { backer: BOB, sharePct: 40, blocked: "Your Backer is in this car: board the next one" } });
+/** Boarded with Bob's Gemas: a step-off sends the full 500 back to Bob. */
+export const BoardingBackedAboard = screen(fx.boardingCountdown(fx.BEN, benBacked));
+/** Ben jumped early under the Backing: the refund is Bob's. */
+export const RidingBackedAfterJump = screen(fx.riding(fx.ANA, { jumpedMe: true, backed: { ...benBacked, seat: 0 } }));
+/** The worked example as Ben, backed: 630 back, Bob 578 (his 500 first), Ben 52 (40% of 130). */
+export const ResultBackedSecondLastOff = screen(fx.workedResult(fx.BEN, benBacked));
+/** Backed and aboard at Impact: Bob bears the 500, Eve owes nothing. */
+export const ResultBackedAboard = screen(fx.workedResult(fx.EVE, { ...benBacked, seat: 4 }));
+/** Someone else's backed place on the result: Ben's plate shows the split. */
+export const ResultWithABackedPlace = screen(fx.workedResult(fx.DEE, benBacked));
 
 /** Boarding turns into the Ride in place: the countdown runs out, the same car starts rolling right, Players leap off, then the Result. 4x speed. */
 export const LeavesInPlace: StoryObj = {

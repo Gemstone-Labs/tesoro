@@ -32,6 +32,16 @@ describe("Railcar boarding on the relayer", () => {
     expect(p.spend.refundable).toBeGreaterThan(0n);
   });
 
+  it("boards with a Backer's Offer: the same admission, the Backer named as the entry's funder", () => {
+    const car = key();
+    const backerAccount = key();
+    const backed = joinSeatIx({ payer: relayer, player, car, game: RAILCAR_PROGRAM_ID, page: 0, pot: pot(), backing: { offer: key(), backerAccount } });
+    const p = plan([backed, checkDepartureIx(7n, car)]);
+    expect(p).toMatchObject({ names: ["join_many_seat_match", "check_departure"], class: "admission" });
+    expect(p.funders.map((k) => k.toBase58())).toEqual([backerAccount.toBase58()]);
+    expect(p.signers.map((k) => k.toBase58())).toEqual([player.toBase58()]);
+  });
+
   it("opens the next car and boards it, and the 101st Player's full car leaves in the same transaction", () => {
     const p = plan([open(), join(mine()), checkDepartureIx(8n, mine())]);
     expect(p).toMatchObject({ names: ["open_car", "join_many_seat_match", "check_departure"], class: "admission", obligations: [] });

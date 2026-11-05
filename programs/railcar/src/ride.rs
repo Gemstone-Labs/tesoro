@@ -70,6 +70,38 @@ pub fn impact_ms(v: &Vault) -> u32 {
     u32::try_from(t).unwrap_or(RIDE_CAP_MS)
 }
 
+/// Whether the rollup made fewer than half the slots it should over `secs` of clock, judged only
+/// over at least `STALL_SECS` (Block Burst's `stalled`).
+pub fn stalled(slots: u64, secs: u64) -> bool {
+    secs >= STALL_SECS as u64
+        && u128::from(slots) * 1_000
+            < u128::from(OUTAGE_RATIO_PERMILLE) * u128::from(SLOTS_PER_SEC) * u128::from(secs)
+}
+
+/// The outage rule at an observation (a signal or a Jump while riding) at `slot` and unix `ts`:
+/// whether the rollup ran under half speed for 5 s since the pace mark, the last moment the ride
+/// was on pace. Otherwise the mark moves here when the stretch since it ran faster than half pace
+/// (the mark is the observation furthest ahead of half pace, so a slow stretch is measured from
+/// its start however often transactions land). A slot or clock behind the mark is not judged.
+pub fn pace(t: &mut Table, slot: u64, ts: i64) -> bool {
+    let (mark_slot, mark_ts) = (t.pace_slot(), t.pace_ts());
+    if slot < mark_slot || ts < mark_ts {
+        return false;
+    }
+    let slots = slot - mark_slot;
+    let secs = ts.abs_diff(mark_ts);
+    if stalled(slots, secs) {
+        return true;
+    }
+    if u128::from(slots) * 1_000
+        > u128::from(OUTAGE_RATIO_PERMILLE) * u128::from(SLOTS_PER_SEC) * u128::from(secs)
+    {
+        t.set_pace_slot(slot);
+        t.set_pace_ts(ts);
+    }
+    false
+}
+
 /// A signal, a tick or the start of a Jump at `slot`: moves the public Tell stage and the false
 /// screws passed, and says whether the car has hit the wall (or the ride reached ten minutes).
 /// Nothing changes once it has.
@@ -168,7 +200,8 @@ pub fn conclude(t: &mut Table, v: &Vault, over_ms: u32, now: i64) {
     finish(t, Some(v), over_ms, now);
 }
 
-/// The ride is void: every entry back. `v` is the Vault when the draw is in (it is revealed).
+/// The ride is void (the draw never came, or the rollup stalled): every entry back. `v` is the
+/// Vault when the draw is in (it is revealed).
 pub fn void(t: &mut Table, v: Option<&Vault>, reason: u8, now: i64) {
     t.places = [NO_SEAT; 3];
     t.outcome = OUTCOME_REFUND;

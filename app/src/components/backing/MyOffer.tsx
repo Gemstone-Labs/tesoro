@@ -5,7 +5,7 @@ import { PlayerName } from "@/components/account/Player";
 import type { ChainOffer, ChainRequest } from "@/lib/chain/backing";
 import { timeLeft } from "@/lib/chain/useBackingBoard";
 import { fmtGemas } from "@/lib/format";
-import { GAME_NAMES } from "@/lib/mock";
+import { backedGameName } from "@/lib/backing/games";
 
 export function MyOffer({
   offer,
@@ -33,7 +33,9 @@ export function MyOffer({
     offer.status === "consumed"
       ? offer.refundableMatchId !== null
         ? "Nobody joined this Match and its time is up: refund it to get your Gemas back"
-        : "Match started: your Gemas are in the Pot"
+        : offer.game === "railcar"
+          ? "Boarded: your Gemas ride in the Player's seat. A step-off or an early Jump sends them back to you"
+          : "Match started: your Gemas are in the Pot"
       : lapsed
         ? "Expired: release your reserved Gemas"
         : offer.status === "accepted"
@@ -45,7 +47,7 @@ export function MyOffer({
         <div className="spread">
           <span className="row-body">
             <span className="row-title">Offer · {fmtGemas(offer.entry)}</span>
-            <span className="row-meta">{GAME_NAMES[offer.game]} · Player keeps {offer.shareBps / 100}% of the surplus</span>
+            <span className="row-meta">{backedGameName(offer.game)} · Player keeps {offer.shareBps / 100}% of the {offer.game === "railcar" ? "winnings" : "surplus"}</span>
           </span>
           {offer.status === "consumed" ? <Chip tone="money">Used</Chip> : <Chip tone="strong">{fmtGemas(reserved)} reserved</Chip>}
         </div>

@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { PLAYERS, boardingCountdown, boardingNotAboard, boardingWaiting, nobodyJumped, rideStarting, riding, workedResult, ANA, EVE } from "./fixtures";
+import { PLAYERS, boardingCountdown, boardingNotAboard, boardingWaiting, nobodyJumped, rideStarting, riding, workedResult, ANA, BEN, BOB, EVE } from "./fixtures";
 import { RailcarScreen } from "./RailcarScreen";
 import type { RailcarView } from "./view";
 
@@ -127,5 +127,40 @@ describe("Spectators", () => {
     expect(t).toContain("Ride over");
     expect(t).toContain("Play the next ride");
     expect(t).not.toContain("Play again");
+  });
+});
+
+describe("Backing: a Player boards with a Backer's Gemas", () => {
+  const offer = { backer: BOB.toBase58(), sharePct: 40 };
+  const backed = { seat: 1, backer: BOB, shareBps: 4_000 };
+  const board = (o = offer) => renderToStaticMarkup(<RailcarScreen view={boardingCountdown(null)} offer={o} actions={{ onBoard: () => undefined }} />);
+
+  it("before boarding: whose Gemas board, the Player's share, and a step-off that goes back to the Backer", () => {
+    const t = text(board());
+    expect(t).toContain("funds your entry");
+    expect(t).toMatch(/Their .*500 board for you\. Place and you keep 40% of the winnings; you never owe anything\./);
+    expect(t).toContain("the full entry goes back to your Backer");
+  });
+
+  it("the Backer already in this car: Board waits and says why", () => {
+    const h = board({ ...offer, blocked: "Your Backer is in this car: board the next one" } as typeof offer);
+    expect(text(h)).toContain("Your Backer is in this car: board the next one");
+    expect(h).toMatch(/<button[^>]*disabled[^>]*>[^<]*Board/);
+  });
+
+  it("aboard with the Backer's Gemas: Step off sends the full 500 back to them", () => {
+    expect(text(html(boardingCountdown(BEN, backed)))).toMatch(/Full .*500 back to /);
+  });
+
+  it("the result as Ben: he gets 52, Bob 578 with his entry back first, and Ben's plate shows the split", () => {
+    const t = text(html(workedResult(BEN, backed)));
+    expect(t).toMatch(/You get .*52/);
+    expect(t).toMatch(/gets .*578/);
+    expect(t).toContain("entry comes back first");
+    expect(t).toMatch(/578[^·]*· you[^·]*52/);
+  });
+
+  it("aboard at Impact backed: the Backer bears the loss", () => {
+    expect(text(html(workedResult(EVE, { ...backed, seat: 4 })))).toContain("Your Backer bears the loss");
   });
 });

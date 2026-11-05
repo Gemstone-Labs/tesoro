@@ -1779,7 +1779,8 @@ export type Railcar = {
         "seat's key (`tesoro_core::util::acts_for`, as core checks a seat's signer). Before",
         "the Impact slot the Player is off: the Jump takes the next place in the order. At or after",
         "it the Jump does not count: the ride ends with the Player aboard. When the last Player",
-        "aboard Jumps, the ride ends then. `car_no` makes a transaction held back from an earlier",
+        "aboard Jumps, the ride ends then. A Jump that finds the rollup stalled (the outage rule)",
+        "voids the ride and is not recorded. `car_no` makes a transaction held back from an earlier",
         "ride worthless on a later one."
       ],
       "discriminator": [
@@ -2804,7 +2805,8 @@ export type Railcar = {
       "docs": [
         "Rollup, anyone (each open page sends one about every second). Moves the public Tell",
         "stage; from the Impact slot on it ends the ride and commits the Table. A draw that never",
-        "came voids the ride once its window is over."
+        "came voids the ride once its window is over, and so does a rollup that ran under half",
+        "speed for 5 s during the ride (the outage rule, judged before the Impact)."
       ],
       "discriminator": [
         106,
@@ -5252,13 +5254,31 @@ export type Railcar = {
           },
           {
             "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                78
+              ]
+            }
+          },
+          {
+            "name": "paceSlot",
             "docs": [
-              "Room for the outage rule (ticket 08)."
+              "The pace mark: slot and time of the last moment the ride was on pace (outage rule)."
             ],
             "type": {
               "array": [
                 "u8",
-                94
+                8
+              ]
+            }
+          },
+          {
+            "name": "paceTs",
+            "type": {
+              "array": [
+                "u8",
+                8
               ]
             }
           },

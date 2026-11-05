@@ -103,6 +103,8 @@ const table = (o: Partial<TableView> = {}): TableView => ({
   rideTs: T0,
   overMs: 0,
   overAt: 0,
+  dirty: false,
+  commitAt: 0,
   seats: [],
   ...o,
 });

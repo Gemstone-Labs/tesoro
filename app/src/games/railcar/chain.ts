@@ -36,8 +36,8 @@ export type TablePhase = "idle" | "drawing" | "riding" | "over";
 const PHASES: TablePhase[] = ["idle", "drawing", "riding", "over"];
 export type RideOutcome = "none" | "placed" | "refund";
 const OUTCOMES: RideOutcome[] = ["none", "placed", "refund"];
-export type RideReason = "none" | "played" | "nobody-jumped" | "no-draw";
-const REASONS: RideReason[] = ["none", "played", "nobody-jumped", "no-draw"];
+export type RideReason = "none" | "played" | "nobody-jumped" | "no-draw" | "outage";
+const REASONS: RideReason[] = ["none", "played", "nobody-jumped", "no-draw", "outage"];
 
 // ---- Addresses -------------------------------------------------------------------------------------------------------
 
@@ -146,6 +146,10 @@ export interface TableView {
   rideTs: number;
   overMs: number;
   overAt: number;
+  /** The result waits for its first commit (the Sponsor could not pay it). */
+  dirty: boolean;
+  /** Unix time of the last commit sent. */
+  commitAt: number;
   seats: RideSeatView[];
 }
 
@@ -184,6 +188,8 @@ export function decodeTable(data: Uint8Array): TableView {
     rideTs: Number(v.getBigInt64(b + 152, true)),
     overMs: v.getUint32(b + 160, true),
     overAt: Number(v.getBigInt64(b + 164, true)),
+    dirty: data[b + 16] === 1,
+    commitAt: Number(v.getBigInt64(b + 172, true)),
     seats,
   };
 }
@@ -277,6 +283,10 @@ export function finalizeIx(caller: PublicKey, car: { carNo: bigint; table: numbe
   );
 }
 
+/** Railcar's `close_car`: anyone, once core froze the car (its receipt) or closed it; the rent goes back to its payer. */
+export const closeRailcarCarIx = (caller: PublicKey, car: { carNo: bigint; tesoroMatch: PublicKey; payer: PublicKey }): TransactionInstruction =>
+  railcarIx("close_car", { caller, car: carPda(car.carNo), car_payer: car.payer, receipt: settledPda(car.tesoroMatch), match_state: car.tesoroMatch });
+
 // ---- Instructions: rollup ---------------------------------------------------------------------------------------------
 
 const magic = () => ({ sponsor: sponsorPda(), magic_fee_vault: magicFeeVault(), magic_program: MAGIC_PROGRAM, magic_context: MAGIC_CONTEXT });
@@ -320,6 +330,10 @@ export const jumpIx = (signer: PublicKey, wallet: PublicKey, tableIndex: number,
 /** `commit_table`: anyone; a result's commit, or a repeat of one that may have been lost. */
 export const commitTableIx = (caller: PublicKey, tableIndex: number): TransactionInstruction =>
   railcarIx("commit_table", { caller, table: tablePda(tableIndex), sponsor: sponsorPda(), magic_fee_vault: magicFeeVault(), magic_program: MAGIC_PROGRAM, magic_context: MAGIC_CONTEXT });
+
+/** `skip_car`: anyone; the Table passes over its next car when that car will never ride (core froze or closed it). */
+export const skipCarIx = (caller: PublicKey, tableIndex: number, carNo: bigint, tesoroMatch: PublicKey): TransactionInstruction =>
+  railcarIx("skip_car", { caller, table: tablePda(tableIndex), config: configPda(), car: carPda(carNo), match_state: tesoroMatch, receipt: settledPda(tesoroMatch) });
 
 /** `request_draw`: anyone; asks again when no draw came within 20 s. */
 export const requestDrawIx = (payer: PublicKey, tableIndex: number): TransactionInstruction => {
