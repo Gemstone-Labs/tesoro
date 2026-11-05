@@ -269,7 +269,7 @@ impl RideReveal {
         };
         anchor_lang::solana_program::program::invoke_signed(
             &ix,
-            &[authority.clone()],
+            std::slice::from_ref(authority),
             &[&[b"__event_authority", &[bump]]],
         )
         .map_err(Into::into)
