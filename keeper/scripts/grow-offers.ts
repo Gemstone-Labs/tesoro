@@ -1,8 +1,8 @@
 /**
  * Grows every 174-byte `OfferState` to 182 bytes (`grow_offer`, anyone may send it, the payer pays 8 bytes of rent each) right after
  * tesoro_core gains `counted_in` (Railcar ticket 17). The new field is zero: an old Offer's Entry Limit count is not given back.
- * Until an Offer is grown the program cannot read it, and the keeper's `offerState.all()` decoders throw on it, so run this before
- * restarting the keeper. A 182-byte Offer is left alone, so a re-run only touches what is still short.
+ * An old Offer still Open reads as is (its unused Player slot holds the zero), but an Accepted one cannot be read until it is
+ * grown, by the program or by the keeper's `offerState.all()` decoders, so run this before restarting the keeper. A 182-byte Offer is left alone, so a re-run only touches what is still short.
  *
  *   pnpm --filter @tesoro/keeper exec tsx scripts/grow-offers.ts [--read-rpc <url>]
  *   pnpm --filter @tesoro/keeper exec tsx scripts/grow-offers.ts --send --keypair <payer.json> [--rpc <url>]
