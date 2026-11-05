@@ -11,8 +11,8 @@
 //! * **Step-off.** Before departure the seat empties at once and the funder's mark carries the
 //!   lines home (`return_stepped_off` continues when one transaction cannot move them all). The
 //!   Entry Limit and the open-Match count are released at the step-off.
-//! * **Backing.** With an accepted Offer of a listed Game the Backer funds the seat (as
-//!   `join_match`): the Offer is spent, the Backer's limit counted the entry when it was made,
+//! * **Backing.** With an accepted Offer of a listed Game the Backer funds the seat from the
+//!   Backing Ticket that Offer opened: the Offer is spent, the Backer's limit counted the entry,
 //!   refunds and the entry go back to the Backer, a place's winnings split by the Offer's share.
 //!   The Backer has a seat mark too, so it funds one seat per car and rides in none of it.
 //! * **Departure** is the Game's call, with at least the car's minimum seated.
@@ -21,7 +21,8 @@ use crate::books::OnchainBooks;
 use crate::error::{core_err, seat_err, ManySeatError, MatchError, TesoroError};
 use crate::instructions::basket::move_lamports;
 use crate::instructions::matching::{
-    add_hold, backer_side, check_store, judged_slot_at, lc_err, listing, take_entry, terms_of,
+    add_hold, check_store, counters_pda, judged_slot_at, lc_err, listing, protections_pda,
+    take_entry, terms_of,
 };
 use crate::instructions::overflow::cover_room;
 use crate::instructions::settlement::ChainSettlement;
@@ -330,10 +331,13 @@ pub(crate) fn open_many_seat_match(
 // ---------------------------------------------------------------------------------------------
 
 /// Takes the lowest free seat of `page` (created when it is the car's next page). The entry is
-/// taken as `join_match` takes it; `pot` is a fresh address or a complete Entry Ticket (a Backing
-/// Ticket when backed). With an accepted `offer` the Backer funds the seat (a listed Game only)
-/// and gets a seat mark too: one seat per Account per car, whether it rides or funds.
-/// `remaining_accounts`: the books of the Sources the entry draws, and the funder's overflow
+/// taken as `join_match` takes it; `pot` is a fresh address or a complete Entry Ticket.
+///
+/// Backed (with `offer`, a listed Game only): `pot` is the complete Backing Ticket that Offer
+/// opened (its head records the Offer's nonce), so the join names no books and fits one
+/// transaction. The Backer gets a seat mark too: one seat per Account per car, rider or funder.
+///
+/// `remaining_accounts`: the books of the Sources a direct draw takes, and the funder's overflow
 /// record for this Match when its stores may be short.
 #[derive(Accounts)]
 #[instruction(pot_nonce: u64, pot_lines: u32, page: u8)]
@@ -411,7 +415,6 @@ pub struct JoinManySeatMatch<'info> {
         bump = offer.bump
     )]
     pub offer: Option<Box<Account<'info, OfferState>>>,
-    pub backer_account: Option<Box<Account<'info, TesoroAccount>>>,
     #[account(mut)]
     pub backer_counters: Option<Account<'info, AccountCounters>>,
     /// CHECK: the Backer's Protections address; a Backer who is away cannot fund a seat.
@@ -428,6 +431,42 @@ pub struct JoinManySeatMatch<'info> {
     pub funder_mark: Option<UncheckedAccount<'info>>,
     /// The seat key that plays this seat; the wallet itself when it wants none.
     pub seat_signer: Signer<'info>,
+}
+
+/// The Backer's accounts of a backed join, checked against the Offer's Backer (`offer.backer`,
+/// written from a checked Account when the Offer was made): counters and Protections by their
+/// seeds, basket and spill by `check_store`.
+struct BackerAccounts<'a, 'info> {
+    counters: &'a mut Account<'info, AccountCounters>,
+    protections: AccountInfo<'info>,
+    basket: AccountInfo<'info>,
+    spill: AccountInfo<'info>,
+}
+
+fn backer_accounts<'a, 'info>(
+    backer: &Pubkey,
+    counters: &'a mut Option<Account<'info, AccountCounters>>,
+    protections: &Option<UncheckedAccount<'info>>,
+    basket: &Option<UncheckedAccount<'info>>,
+    spill: &Option<UncheckedAccount<'info>>,
+) -> Result<BackerAccounts<'a, 'info>> {
+    let missing = || error!(MatchError::BadBacking);
+    let counters = counters.as_mut().ok_or_else(missing)?;
+    let protections = protections.as_ref().ok_or_else(missing)?.to_account_info();
+    let basket = basket.as_ref().ok_or_else(missing)?.to_account_info();
+    let spill = spill.as_ref().ok_or_else(missing)?.to_account_info();
+    require!(
+        counters.key() == counters_pda(backer) && protections.key() == protections_pda(backer),
+        MatchError::BadBacking
+    );
+    check_store(&basket, BASKET_SEED, backer)?;
+    check_store(&spill, SPILL_SEED, backer)?;
+    Ok(BackerAccounts {
+        counters,
+        protections,
+        basket,
+        spill,
+    })
 }
 
 /// Refuses a mark that exists: the Account is in a seat of this car, or its lines from a
@@ -599,27 +638,32 @@ pub(crate) fn join_many_seat_match<'info>(
     let mut books = OnchainBooks::load(ctx.remaining_accounts)?;
     let pot_info = ctx.accounts.pot.to_account_info();
     let (funder, share_bps, stores, pot, freed) = if backed {
+        // a Backing comes staged in a Backing Ticket: a direct draw would name the Backer's books
+        // and, with the Backing's accounts, not fit one transaction
+        require!(!is_empty(&pot_info), ManySeatError::BackingNeedsTicket);
+        let ticket_offer = offer_nonce_of(&pot_info)?;
         let offer = ctx
             .accounts
             .offer
             .as_mut()
             .ok_or_else(|| error!(MatchError::BadBacking))?;
+        // the Offer that opened this Ticket, and no other
+        require!(offer.nonce == ticket_offer, MatchError::BadBacking);
         offer
             .inner
             .consume(player.to_bytes(), game.to_bytes(), entry, ts)
             .map_err(core_err)?;
         let share = offer.inner.player_share_bps;
-        let backer = backer_side(
-            &ctx.accounts.offer,
-            &ctx.accounts.backer_account,
+        let funder = Pubkey::new_from_array(offer.inner.backer);
+        let backer = backer_accounts(
+            &funder,
             &mut ctx.accounts.backer_counters,
             &ctx.accounts.backer_protections,
             &ctx.accounts.backer_basket,
             &ctx.accounts.backer_spill,
         )?;
-        require_can_play(backer.protections)?;
+        require_can_play(&backer.protections)?;
         backer.counters.open_offers = backer.counters.open_offers.saturating_sub(1);
-        let funder = backer.account.key();
         let backer_bump = backer.counters.bump;
         let (pot, freed) = take_entry(
             &pot_info,

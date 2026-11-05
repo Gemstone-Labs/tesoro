@@ -305,6 +305,11 @@ pub(crate) fn open_ticket(
     }
     let fields = HeadFields::of(&ticket);
     init_head(ticket.pages.bytes_mut(), &fields, &extra);
+    if let Some(offer) = &ctx.accounts.offer {
+        if kind == TicketKindArg::Backing {
+            set_offer_nonce(ticket.pages.bytes_mut(), offer.nonce);
+        }
+    }
     Ok(())
 }
 
@@ -498,6 +503,7 @@ pub(crate) fn cancel_ticket<'info>(
     let ts = now()?;
     let ticket_info = ctx.accounts.ticket.to_account_info();
     let spill_info = ctx.accounts.spill.to_account_info();
+    let offer_nonce = offer_nonce_of(&ticket_info)?;
     let (mut t, mut extra) = load_ticket(&ticket_info)?;
     require_keys_eq!(
         Pubkey::new_from_array(t.account),
@@ -534,10 +540,11 @@ pub(crate) fn cancel_ticket<'info>(
                 .offer
                 .as_mut()
                 .ok_or_else(|| error!(MatchError::BadBacking))?;
+            // the Offer that opened this Ticket, no other of the Backer's: that one would stay tied
+            // to a Ticket that no longer exists
             require!(
                 offer.inner.backer == ctx.accounts.owner.key().to_bytes()
-                    && offer.inner.entry == t.target
-                    && offer.inner.game == t.game,
+                    && offer.nonce == offer_nonce,
                 MatchError::BadBacking
             );
             offer.inner.ticket_open = false;

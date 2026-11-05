@@ -279,6 +279,8 @@ pub enum ManySeatError {
     NotPaid,
     #[msg("this car's run pays nothing to that Account")]
     NotPaidHere,
+    #[msg("a Backed seat takes the Backing staged in its Backing Ticket")]
+    BackingNeedsTicket,
 }
 
 pub fn seat_err(e: crate::ledger::many_seat::SeatError) -> Error {

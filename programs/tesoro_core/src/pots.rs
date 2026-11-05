@@ -30,7 +30,7 @@
 //! | 136 | reserved_left u64 (Backing: reservation not yet staged) |
 //! | 144 | sponsored_lamports u64 (rent the sponsor fronted, returned to it first) |
 //! | 152 | signer [32] (the seat key that co-signed `open_ticket`; may stage and cancel an Entry Ticket) |
-//! | 184 | reserved, 8 bytes |
+//! | 184 | offer_nonce u64 (Backing: the nonce of the Offer that opened it; with `account` its PDA) |
 
 use crate::error::TesoroError;
 use crate::ledger::draw::{PotBacking, PotPages, Ticket, TicketKind, TicketState};
@@ -67,6 +67,7 @@ const H_SPILL_ROOM: usize = 132;
 const H_RESERVED_LEFT: usize = 136;
 const H_SPONSORED: usize = 144;
 const H_SIGNER: usize = 152;
+const H_OFFER_NONCE: usize = 184;
 /// Where the seat key sits in the Ticket head (tests and decoders).
 pub const SIGNER_AT: usize = H_SIGNER;
 
@@ -233,6 +234,20 @@ pub(crate) fn write_head_fields(head: &mut [u8], f: &HeadFields, x: &TicketExtra
     head[H_RESERVED_LEFT..H_RESERVED_LEFT + 8].copy_from_slice(&f.reserved_left.to_le_bytes());
     head[H_SPONSORED..H_SPONSORED + 8].copy_from_slice(&x.sponsored_lamports.to_le_bytes());
     head[H_SIGNER..H_SIGNER + 32].copy_from_slice(x.signer.as_ref());
+}
+
+/// Records in a Backing Ticket's head the nonce of the Offer that opened it. Kept apart from the
+/// head fields (`TicketExtra`), which every Pot read builds, so no settle chunk reads it.
+pub fn set_offer_nonce(window: &mut AccountWindow, nonce: u64) {
+    window.head_mut()[H_OFFER_NONCE..H_OFFER_NONCE + 8].copy_from_slice(&nonce.to_le_bytes());
+}
+
+/// The Offer nonce a Backing Ticket recorded (`set_offer_nonce`), read from its account data.
+pub fn offer_nonce_of(info: &AccountInfo) -> Result<u64> {
+    let data = info.try_borrow_data()?;
+    let at = DISC + H_OFFER_NONCE;
+    require!(data.len() >= POT_AT, TesoroError::InvalidAccount);
+    Ok(u64::from_le_bytes(arr(&data[at..at + 8])))
 }
 
 /// Writes the head of a freshly created Ticket account: everything but the line store.
