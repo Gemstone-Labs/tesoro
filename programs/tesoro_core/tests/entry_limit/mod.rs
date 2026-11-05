@@ -6,7 +6,7 @@ use super::*;
 use tesoro_core::error::MatchError;
 
 fn match_code(e: MatchError) -> u32 {
-    anchor_lang::error::ERROR_CODE_OFFSET + e as u32
+    6400 + e as u32
 }
 
 impl Backing {
@@ -265,18 +265,20 @@ fn a_refund_closed_after_the_period_rolled_over_gives_nothing_back() {
 fn an_offer_of_the_old_layout_grows_and_then_gives_nothing_back() {
     let mut b = backing_setup();
     b.d.env.set_entry_limit(&b.carol, 1_000).unwrap();
-    let offer = {
-        let r = b.request(1, 500);
-        b.offer(1, r, 5_000)
-    };
+    let request = b.request(1, 500);
+    let offer = b.offer(1, request, 5_000);
+    // an Accepted Offer fills its Player slot, so the old 174 bytes hold no room for the period
+    b.accept(offer, request);
     // as the program before ticket 17 left it: 174 bytes, no period
     let mut old = b.d.env.svm.get_account(&s(offer)).expect("offer");
     old.data.truncate(OfferState::SPACE_V1);
     b.d.env.svm.set_account(s(offer), old).expect("old Offer");
-    assert!(
-        b.cancel_offer(offer, true).is_err(),
-        "unreadable until grown"
-    );
+    let withdraw = |b: &mut Backing| {
+        let i = b.cancel_offer_ix(offer, Some(request), true);
+        let carol = b.carol.kp.insecure_clone();
+        b.d.env.send(&[i], &carol, &[])
+    };
+    assert!(withdraw(&mut b).is_err(), "unreadable until grown");
 
     let grow = |b: &mut Backing| {
         let payer = b.d.env.admin.insecure_clone();
@@ -297,7 +299,23 @@ fn an_offer_of_the_old_layout_grows_and_then_gives_nothing_back() {
     assert_eq!(b.counted_in(offer), 0);
     grow(&mut b).expect("a grown Offer is left alone");
     // it withdraws as before; its period was never stored, so nothing is given back
-    b.cancel_offer(offer, true).expect("withdraw");
+    withdraw(&mut b).expect("withdraw");
     assert_eq!(b.carol_used(), 500);
+    assert_eq!(b.reserved(), 0);
+}
+
+#[test]
+fn an_open_offer_of_the_old_layout_reads_as_counting_nothing() {
+    // an Open Offer leaves its 32-byte Player slot unused: the old 174 bytes read `counted_in` 0
+    let mut b = backing_setup();
+    b.d.env.set_entry_limit(&b.carol, 1_000).unwrap();
+    let request = b.request(1, 500);
+    let offer = b.offer(1, request, 5_000);
+    let mut old = b.d.env.svm.get_account(&s(offer)).expect("offer");
+    old.data.truncate(OfferState::SPACE_V1);
+    old.data[OfferState::SPACE_V1 - 32..].fill(0);
+    b.d.env.svm.set_account(s(offer), old).expect("old Offer");
+    b.cancel_offer(offer, true).expect("withdraw");
+    assert_eq!(b.carol_used(), 500, "its period was never stored");
     assert_eq!(b.reserved(), 0);
 }
