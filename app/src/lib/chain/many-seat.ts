@@ -253,16 +253,12 @@ const sponsorKey = coreKey(["sponsor"]);
 const programDataOf = (program: PublicKey) => PublicKey.findProgramAddressSync([program.toBuffer()], new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111"))[0];
 
 /**
- * Whether the deployed core takes a seat key on many-seat seats (seat keys ticket 08: `seat_signer` on the join and
- * `seat_key_mark` on the step-off and close). Read from the IDL, so the builders follow the program the app was built
+ * Whether the deployed core takes a seat key on many-seat seats (seat keys ticket 08: `seat_signer` on the join).
+ * Read from the IDL, so the builders follow the program the app was built
  * against: when ticket 08's IDL lands, joins name the seat key and closes pass its mark with no other change.
  */
 const coreIxAccounts = (name: string): string[] => ((coreIdlJson as { instructions: { name: string; accounts: { name: string }[] }[] }).instructions.find((i) => i.name === name)?.accounts ?? []).map((a) => a.name);
 export const SEATS_TAKE_SEAT_KEYS = coreIxAccounts("join_many_seat_match").includes("seat_signer");
-export const seatKeyMarkPda = (match: PublicKey, seatKey: PublicKey) => PublicKey.findProgramAddressSync([Buffer.from("seat_key"), match.toBuffer(), seatKey.toBuffer()], TESORO_CORE)[0];
-/** The seat key's mark of a seat, for the instructions that take one (none before ticket 08). */
-const seatKeyAccounts = (name: string, match: PublicKey, seat: SeatView) =>
-  coreIxAccounts(name).includes("seat_key_mark") ? { seat_key_mark: seatKeyMarkPda(match, seat.signer ?? seat.player) } : {};
 
 /** A Backer's Offer an entry boards with (`join_many_seat_match`'s optional accounts). */
 export interface SeatBacking {
@@ -317,7 +313,7 @@ export function joinSeatIx(a: JoinSeatArgs): TransactionInstruction {
             funder_mark: seatMarkPda(a.car, b.backerAccount),
           }
         : {}),
-      ...(SEATS_TAKE_SEAT_KEYS ? { seat_signer: a.seatSigner ?? a.player, seat_key_mark: seatKeyMarkPda(a.car, a.seatSigner ?? a.player) } : {}),
+      ...(SEATS_TAKE_SEAT_KEYS ? { seat_signer: a.seatSigner ?? a.player } : {}),
     },
     { pot_nonce: a.pot.nonce, pot_lines: a.pot.lines, page: a.page },
     a.remaining ?? [],
@@ -361,7 +357,6 @@ export function stepOffIx(a: StepOffArgs): TransactionInstruction {
       sponsor: a.sponsor ? sponsorKey : null,
       // The Backer's mark carries a backed seat's lines home (ticket 04).
       funder_mark: backed ? seatMarkPda(a.car, a.seat.funder) : null,
-      ...seatKeyAccounts("step_off_many_seat_match", a.car, a.seat),
     },
     { seat: a.seat.index, max_lines: MAX_RETURN_LINES },
     a.remaining ?? [],
@@ -402,7 +397,6 @@ export function closeSeatIx(a: CloseSeatArgs): TransactionInstruction {
       sponsor: a.sponsor ? sponsorKey : null,
       funder_spill: a.seat.hold > 0 ? spillOf(a.seat.funder) : null,
       funder_mark: backed ? seatMarkPda(a.car, a.seat.funder) : null,
-      ...seatKeyAccounts("close_many_seat", a.car, a.seat),
     },
     { seat: a.seat.index },
   );

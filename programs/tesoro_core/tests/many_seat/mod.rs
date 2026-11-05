@@ -916,7 +916,8 @@ fn a_key_two_seats_name_acts_for_each_seat_it_cosigned_and_no_other() {
     let err = env.step_off(&kb, car, &dee).unwrap_err();
     assert_eq!(custom_code(&err), seat_err(ManySeatError::NotYourSeat));
     // the shared key steps off Dee's seat only; Ana's stays seated
-    env.step_off(&ka, car, &dee).expect("shared key steps Dee off");
+    env.step_off(&ka, car, &dee)
+        .expect("shared key steps Dee off");
     assert!(env.mark(car, &dee).is_none());
     assert!(env.mark(car, &riders[0]).is_some());
 }
