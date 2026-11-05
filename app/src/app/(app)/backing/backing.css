@@ -40,7 +40,7 @@ dialog.bk-drawer::backdrop { background: rgba(4, 7, 9, 0.66); backdrop-filter: b
 .bk-keep { margin-top: -10px; }
 .bk-outcomes tbody tr { border-top: 1px solid var(--line); }
 .bk-outcomes tbody th { font-size: var(--fs-15); white-space: nowrap; }
-.bk-outcomes td b { display: block; font-family: var(--f-display); font-size: 34px; font-weight: 800; line-height: 1; }
+.bk-outcomes td b { display: block; font-family: var(--f-display); font-size: 34px; font-weight: 800; line-height: 1; white-space: nowrap; }
 .bk-outcomes td small { font-size: var(--fs-13); color: var(--fg-2); }
 .bk-outcomes .won td:nth-child(2) b { color: var(--em-hi); }
 .bk-outcomes .lost td:nth-child(2) b { color: var(--danger); }
@@ -98,6 +98,7 @@ dialog.bk-drawer::backdrop { background: rgba(4, 7, 9, 0.66); backdrop-filter: b
   .bk-cancel { display: none; }
   .bk-drawer-actions .btn { justify-content: center; white-space: nowrap; padding-inline: 12px; }
   .bk-outcomes td b { font-size: 26px; }
+  .bk-outcomes tbody th { white-space: normal; }
 }
 
 /* open and close motion: shared with sheets in ui.css */

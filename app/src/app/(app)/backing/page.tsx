@@ -647,12 +647,12 @@ function RailcarOutcomes({ share, entry }: { share: number; entry: number }) {
         <tbody>
           <tr className="won">
             <th scope="row"><span className="bk-ico won"><CheckIcon /></span> They place</th>
-            <td><b className="tnum">+{fmtGemas(Number(o.place.backer))}</b><small>net · your {fmtGemas(entry)} comes back, plus {100 - share}% of the winnings</small></td>
+            <td><b className="tnum">+{fmtGemas(Number(o.place.backer))}</b><small>net · your {fmtGemas(entry)} back + {100 - share}% of the winnings</small></td>
             <td><b className="tnum">+{fmtGemas(Number(o.place.player))}</b><small>{share}% of the winnings</small></td>
           </tr>
           <tr>
             <th scope="row"><span className="bk-ico"><ClockIcon /></span> They jump early</th>
-            <td><b className="tnum">{fmtGemas(Number(o.early.leastBack))}–{fmtGemas(Number(o.early.mostBack))}</b><small>back to you: the Early-jump refund, less the later they Jump</small></td>
+            <td><b className="tnum">{fmtGemas(Number(o.early.leastBack))}–{fmtGemas(Number(o.early.mostBack))}</b><small>the Early-jump refund, back to you</small></td>
             <td><b className="tnum">0</b><small>never owe anything</small></td>
           </tr>
           <tr className="lost">
