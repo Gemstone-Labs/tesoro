@@ -68,7 +68,7 @@
 .rc-acts > .btn.block { flex: 1 1 200px; width: auto; }
 .rc-brake { flex: 0 0 112px; }
 .rc-brake .btn { min-height: 60px; flex-direction: column; gap: 0; }
-.rc-brake small { display: block; font-size: var(--fs-11); color: var(--fg-2); }
+.rc-brake small { display: block; white-space: nowrap; font-size: var(--fs-11); color: var(--fg-2); }
 .rc-brake.on .btn { box-shadow: inset 0 0 0 2px var(--em); color: var(--em); }
 .rc-brake.on small { color: var(--em); }
 .rc-caption { flex-basis: 100%; margin: 0; text-align: center; color: var(--fg-2); font-size: var(--fs-13); display: inline-flex; justify-content: center; align-items: center; gap: 4px; }

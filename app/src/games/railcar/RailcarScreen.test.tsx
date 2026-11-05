@@ -79,10 +79,10 @@ describe("my secret Brake", () => {
     const at = (o: Partial<typeof facts>) => html(riding(), brakeState({ ...facts, ...o }));
     expect(button(at({}))).toContain("Brake 1 left");
     expect(disabled(at({}))).toBe(false);
-    expect(button(at({ pending: true }))).toContain("Braking…");
-    expect(button(at({ pressMs: 69_000 }))).toContain("Braking 2s");
+    expect(button(at({ pending: true }))).toContain("Brake sending");
+    expect(button(at({ pressMs: 69_000 }))).toContain("Brake 2s");
     expect(button(at({ pressMs: 60_000 }))).toContain("Brake used");
-    expect(button(at({ allBound: false }))).toContain("Brake ready soon");
+    expect(button(at({ allBound: false }))).toContain("Brake soon");
     for (const o of [{ pending: true }, { pressMs: 69_000 }, { pressMs: 60_000 }, { allBound: false }]) expect(disabled(at(o))).toBe(true);
   });
 

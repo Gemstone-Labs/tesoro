@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { isMuted, subscribeMuted } from "@/games/fx/sfx";
 import { brakeState, type BrakeFacts, type TellCue } from "@/games/railcar/brake";
+import { Button } from "@/components/ui";
 import { RailcarScreen, type RailcarBrake } from "@/games/railcar/RailcarScreen";
 import { playTells, railcarHaptics } from "@/games/railcar/tells";
 import * as fx from "@/games/railcar/fixtures";
@@ -84,15 +85,15 @@ export const TellsSoundAndVibration: StoryObj = {
       ["sparks", "Sparks and creak"],
     ];
     return (
-      <div style={{ display: "grid", gap: 12, maxWidth: 480 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 12 }}>
         <RailcarScreen view={fx.riding()} actions={actions} />
         <p className="cut cut-chip" data-testid="tell-settings">
           Sound {muted ? "off" : "on"} · Vibration {vibration ? "on" : "off"}
         </p>
         {cues.map(([cue, label]) => (
-          <button key={cue} type="button" className="btn" onClick={() => playTells([cue])}>
+          <Button key={cue} block onClick={() => playTells([cue])}>
             {label}
-          </button>
+          </Button>
         ))}
       </div>
     );

@@ -50,26 +50,11 @@ const statusOf = (b: RailcarBrake): BrakeStatus => b.status ?? (b.activeMs > 0 ?
 /** The Brake button: one per ride, my own state only. */
 function BrakeButton({ brake }: { brake: RailcarBrake }) {
   const status = statusOf(brake);
-  const label =
-    status === "ready" ? (
-      <>
-        Brake <small>1 left</small>
-      </>
-    ) : status === "sending" ? (
-      "Braking…"
-    ) : status === "on" ? (
-      <>
-        Braking <small className="mono">{Math.ceil(brake.activeMs / 1000)}s</small>
-      </>
-    ) : status === "used" ? (
-      "Brake used"
-    ) : (
-      "Brake ready soon"
-    );
+  const state = status === "ready" ? "1 left" : status === "sending" ? "sending" : status === "on" ? `${Math.ceil(brake.activeMs / 1000)}s` : status === "used" ? "used" : "soon";
   return (
     <div className={`rc-brake ${status}`}>
       <Button size="lg" block onClick={brake.onBrake} disabled={status !== "ready"} title="Halves the car for 5 s. Only you see it.">
-        {label}
+        Brake <small className={status === "on" ? "mono" : undefined}>{state}</small>
       </Button>
     </div>
   );
