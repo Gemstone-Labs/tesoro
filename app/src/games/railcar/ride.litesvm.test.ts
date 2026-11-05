@@ -459,6 +459,7 @@ interface RideRun {
   /** The ride as the Match history stores it from the finish's own events: each rider's row delta, and the replay. */
   history: { deltas: number[]; replay: RideReplay };
   finalizeUnits: number;
+  revealUnits: number;
 }
 
 /**
@@ -526,6 +527,7 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][]): 
   const chunkSteps: number[] = [];
   const finishTxs: InnerInstruction[][] = [];
   let finalizeUnits = 0;
+  let revealUnits = 0;
   const sent = await finishRide({
     read: w.reader(),
     core,
@@ -540,10 +542,11 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][]): 
     send: async (ixs, step) => {
       const all = [cu(1_400_000), ...ixs];
       const go = () => w.send(all, w.relayer, [], [w.table(all)]);
-      if (step === "finalize") w.onBase(carAcct.table, go);
+      if (step === "finalize" || step === "reveal") w.onBase(carAcct.table, go);
       else go();
       finishTxs.push(w.lastInner);
       if (step === "finalize") finalizeUnits = w.lastUnits;
+      if (step === "reveal") revealUnits = w.lastUnits;
       if (step === "chunk") chunkSteps.push(ixs[0].data[8]);
       if (step === "room") rooms++;
     },
@@ -563,7 +566,7 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][]): 
   const rows = await Promise.all(riders.map(async (p) => (await accountHistory(rpc, p.account.toBase58(), 1)).rows));
   const history = { deltas: rows.map((r) => (r.length === 1 && r[0].game === ("railcar" as string) ? r[0].delta : NaN)), replay: replayRide(record) };
 
-  return { riders, deltas: riders.map((p, i) => w.gemas(p, id) - before[i]), studioFee: w.studioFee() - studioBefore, chunkSteps, shown, walletSigs: w.walletSigs, history, finalizeUnits };
+  return { riders, deltas: riders.map((p, i) => w.gemas(p, id) - before[i]), studioFee: w.studioFee() - studioBefore, chunkSteps, shown, walletSigs: w.walletSigs, history, finalizeUnits, revealUnits };
 }
 
 describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders and the shared planner", () => {
@@ -609,7 +612,7 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     expect(r.history.deltas).toEqual(r.deltas.map((d) => Number(d) - 500));
     expect(r.history.replay.differences).toEqual([]);
     expect(r.history.replay.seats.map((s) => s.gets)).toEqual(r.deltas);
-    console.log(`finalize, 100 seats revealed: ${r.finalizeUnits} CU`);
-    expect(r.finalizeUnits).toBeLessThan(1_400_000);
+    console.log(`reveal_ride, 100 seats: ${r.revealUnits} CU; finalize: ${r.finalizeUnits} CU`);
+    expect(r.revealUnits).toBeLessThan(140_000);
   });
 });

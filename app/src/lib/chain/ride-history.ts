@@ -48,20 +48,6 @@ export function rideRecordOf(m: { entry: number; ride?: StoredRide | null }): Ri
   };
 }
 
-/** Each seat's part in the ride: a place (last three off), an early Jump, aboard at Impact, or refunded. */
-export function rideRoles(r: StoredRide): Map<number, RideRole> {
-  const seated = r.seats.length;
-  const placeOf = new Map(r.places.map((p) => [p.seat, p.place]));
-  return new Map<number, RideRole>(
-    r.seats.map((s): [number, RideRole] => {
-      if (r.outcome === "refund") return [s.seat, { seated, kind: "refund" }];
-      const place = placeOf.get(s.seat);
-      if (place) return [s.seat, { seated, kind: "place", place, jumpMs: s.jumpMs }];
-      return [s.seat, s.order === 0 ? { seated, kind: "aboard" } : { seated, kind: "early", jumpMs: s.jumpMs }];
-    }),
-  );
-}
-
 /**
  * The ride a used Railcar Offer funded, from its Backer's history: the newest ride the Backer funded for the Offer's
  * Player that opened before the Offer's use-by (a car can open before the Offer is accepted, never after it lapses).

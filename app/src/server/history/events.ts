@@ -95,6 +95,8 @@ export interface MatchChunkRecord {
   steps: number;
   done: boolean;
   blocked: boolean;
+  /** A many-seat chunk: where each entry-back and refund line went (the history's refund rows when no ride was revealed). */
+  seatLines?: SeatLineRef[];
 }
 export interface MatchSettledRecord {
   type: "settled";
@@ -116,10 +118,7 @@ export interface MatchLinesProgressRecord {
   type: "lines-progress"; opener: string; n: bigint; version: number; chunkNo: number; cumulativeSteps: number; done: boolean;
 }
 export type MatchLineRecord = MatchLinesStartedRecord | MatchLineStepRecord | MatchLinesProgressRecord;
-/**
- * The start of a many-seat Match's run (`ManySeatRunStarted`) with its paid places, and, for a Railcar ride finalized in
- * the same transaction, the ride Railcar revealed (null otherwise: a refund core ran on its own names no seat).
- */
+/** The start of a many-seat Match's run (`ManySeatRunStarted`) with its paid places, first place first. */
 export interface ManySeatStartRecord {
   type: "seats-start";
   opener: string;
@@ -133,9 +132,22 @@ export interface ManySeatStartRecord {
   /** MatchWon's open time when the transaction has one, else the run's start. */
   openedAt: number;
   ts: number;
-  ride: StoredRide | null;
+  places: StoredRide["places"];
 }
-export type MatchRecord = (MatchRunStartedRecord | MatchWonRecord | MatchChunkRecord | MatchSettledRecord | MatchLineRecord | ManySeatStartRecord) & { coreEvent?: string };
+/** A finished Railcar ride as `reveal_ride` published it (`RideRevealed`, Railcar's own event authority). */
+export interface RideRevealedRecord {
+  type: "ride";
+  opener: string;
+  n: bigint;
+  ride: Omit<StoredRide, "places" | "fees">;
+}
+/** The seats a many-seat chunk sent Gemas home to: each line's seat, purpose (3 entry back, 5 early refund) and recipient Account. */
+export interface SeatLineRef {
+  seat: number;
+  purpose: number;
+  recipient: string;
+}
+export type MatchRecord = (MatchRunStartedRecord | MatchWonRecord | MatchChunkRecord | MatchSettledRecord | MatchLineRecord | ManySeatStartRecord | RideRevealedRecord) & { coreEvent?: string };
 
 const ZERO = PublicKey.default.toBase58();
 const opt = (k: string) => (k === ZERO ? null : k);
@@ -208,37 +220,43 @@ const RIDE_OUTCOMES = { 1: "placed", 2: "refund" } as const;
 const RIDE_REASONS = ["none", "played", "nobody-jumped", "no-draw", "outage"] as const;
 const hex = (b: ArrayLike<number>) => Buffer.from(Uint8Array.from(b)).toString("hex");
 
-/** Railcar's `RideSettled` in this transaction, when Railcar itself emitted it (its program id and event authority). */
-function rideSettledOf(inner: InnerInstruction[]): any | null {
+/**
+ * Railcar's `RideRevealed` records in this transaction: event-CPIs Railcar issued under its own event authority. One of
+ * those that does not decode fails the transaction closed (it stays pending), as Source-line events do.
+ */
+function rideRecords(inner: InnerInstruction[]): RideRevealedRecord[] {
+  const out: RideRevealedRecord[] = [];
   for (const ix of inner) {
     if (ix.programId !== RAILCAR.toBase58() || ix.accounts[0] !== RAILCAR_EVENT_AUTHORITY) continue;
     const data = Buffer.from(ix.data);
     if (data.length <= 8 || !data.subarray(0, 8).equals(EVENT_TAG)) continue;
+    let event;
     try {
-      const event = railcarCoder.decode(data.subarray(8).toString("base64"));
-      if (event?.name === "RideSettled") return event.data;
+      event = railcarCoder.decode(data.subarray(8).toString("base64"));
     } catch {
-      continue;
+      event = null;
     }
+    if (!event) throw new Error("Cannot decode a Railcar event; history cursor must wait");
+    if (event.name !== "RideRevealed") continue;
+    const d = event.data;
+    const outcome = RIDE_OUTCOMES[d.outcome as 1 | 2];
+    if (!outcome) throw new Error("A RideRevealed with no outcome; history cursor must wait");
+    const draw = Uint8Array.from(d.draw);
+    out.push({
+      type: "ride",
+      opener: key(d.opener),
+      n: BigInt(d.n.toString()),
+      ride: {
+        carNo: d.car_no.toString(),
+        outcome,
+        reason: RIDE_REASONS[d.reason] ?? "none",
+        draw: draw.some((b) => b !== 0) ? hex(draw) : null,
+        brakes: d.brakes.map((b: any) => ({ seat: b.seat, ms: b.ms })),
+        seats: d.seats.map((s: any) => ({ seat: s.seat, player: key(s.player), funder: key(s.backer ?? s.player), shareBps: s.share_bps, order: s.order, jumpMs: s.jump_ms, refund: num(s.refund) })),
+      },
+    });
   }
-  return null;
-}
-
-/** The ride a Railcar `finalize` revealed, held to core's own records of the same transaction (same Match, Railcar's, same seats). */
-function storedRide(settled: any, run: any, placed: any[]): StoredRide | null {
-  const outcome = RIDE_OUTCOMES[settled.outcome as 1 | 2];
-  if (!outcome || key(settled.tesoro_match) !== key(run.match_state) || key(run.game) !== RAILCAR.toBase58() || settled.seats.length !== run.seated) return null;
-  const draw = Uint8Array.from(settled.draw);
-  return {
-    carNo: settled.car_no.toString(),
-    outcome,
-    reason: RIDE_REASONS[settled.reason] ?? "none",
-    draw: draw.some((b) => b !== 0) ? hex(draw) : null,
-    brakes: settled.brakes.map((b: any) => ({ seat: b.seat, ms: b.ms })),
-    seats: settled.seats.map((s: any) => ({ seat: s.seat, player: key(s.player), funder: key(s.backer ?? s.player), shareBps: s.share_bps, order: s.order, jumpMs: s.jump_ms, refund: num(s.refund) })),
-    places: placed.map((p) => ({ place: p.place, seat: p.seat, player: key(p.player), funder: key(p.funder), shareBps: p.share_bps, won: num(p.won) })),
-    fees: [num(run.fees[0]), num(run.fees[1]), num(run.fees[2])],
-  };
+  return out;
 }
 
 /**
@@ -290,7 +308,11 @@ export function decodeMatchRecords(inner: InnerInstruction[]): MatchRecord[] {
     else if (event?.name === "ManySeatSettled" || event?.name === "ManySeatChunkDone") {
       const d = event.data;
       const id = { opener: key(d.opener), n: BigInt(d.n.toString()) };
-      out.push(event.name === "ManySeatSettled" ? { type: "settled", ...id, kind: d.kind, chunks: d.chunks } : { type: "chunk", ...id, chunkNo: d.chunk_no, steps: d.steps, done: d.done, blocked: d.blocked });
+      if (event.name === "ManySeatSettled") out.push({ type: "settled", ...id, kind: d.kind, chunks: d.chunks });
+      else {
+        const seatLines = (d.lines as any[]).filter((l) => l.purpose === 3 || l.purpose === 5).map((l) => ({ seat: l.pot_side, purpose: l.purpose, recipient: key(l.recipient) }));
+        out.push({ type: "chunk", ...id, chunkNo: d.chunk_no, steps: d.steps, done: d.done, blocked: d.blocked, seatLines });
+      }
     }
     if (sourceChunk && event?.name === "MatchChunkDone") {
       const d = event.data;
@@ -305,7 +327,6 @@ export function decodeMatchRecords(inner: InnerInstruction[]): MatchRecord[] {
     }
   }
   if (run) {
-    const settled = rideSettledOf(inner);
     out.splice(runAt, 0, {
       type: "seats-start",
       opener: key(run.opener),
@@ -317,10 +338,12 @@ export function decodeMatchRecords(inner: InnerInstruction[]): MatchRecord[] {
       seated: run.seated,
       openedAt: wonAt ?? num(run.ts),
       ts: num(run.ts),
-      ride: settled ? storedRide(settled, run, placed.sort((a, b) => a.place - b.place)) : null,
+      places: placed
+        .sort((a, b) => a.place - b.place)
+        .map((p) => ({ place: p.place, seat: p.seat, player: key(p.player), funder: key(p.funder), shareBps: p.share_bps, won: num(p.won) })),
     });
   }
-  return out;
+  return [...out, ...rideRecords(inner)];
 }
 
 /** Events of the given names that tesoro_core itself emitted (the same program and event-authority checks as `decodeMatchRecords`). */

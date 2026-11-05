@@ -28,7 +28,7 @@ const idls = new Map<string, Idl>([
   [RAILCAR.toBase58(), railcarIdl as Idl],
 ]);
 
-/** One event-CPI inner instruction as `program` emits it, signed by `authority` (its own event authority by default). */
+/** One event-CPI inner instruction as `program` emits it, under `authority` (its own event authority by default). */
 function cpi(program: PublicKey, name: string, body: Record<string, unknown>, authority = authorityOf(program), as = program): InnerInstruction {
   const wire = (v: unknown): unknown => (typeof v === "bigint" ? new BN(v.toString()) : Array.isArray(v) ? v.map(wire) : v && typeof v === "object" && !(v instanceof PublicKey) && !(v instanceof Uint8Array) ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, wire(x)])) : v);
   const bytes = coders.get(program.toBase58())!.types.encode(name, wire(body));
@@ -53,77 +53,97 @@ function drawFrom(minMs: number): Uint8Array {
 
 interface Rider {
   who: PublicKey;
-  funder?: PublicKey;
+  backer?: PublicKey;
   share?: number;
   order?: number;
   jumpMs?: number;
   refund?: bigint;
 }
+interface Run {
+  draw: Uint8Array;
+  kind?: number;
+  places?: { seat: number; won: bigint }[];
+  fees?: bigint[];
+  outcome?: number;
+  reason?: number;
+  brakes?: { seat: number; ms: number }[];
+}
 
-/**
- * The events of one Railcar `finalize` (core's MatchWon, ManySeatRunStarted, ManySeatPlaced, then Railcar's RideSettled),
- * then the chunks and ManySeatSettled of the payout.
- */
-function rideEvents(n: number, riders: Rider[], o: { draw: Uint8Array; kind?: number; places?: { seat: number; won: bigint }[]; fees?: bigint[]; refunded?: bigint; forfeited?: bigint; outcome?: number; reason?: number; brakes?: { seat: number; ms: number }[] }): InnerInstruction[][] {
-  const match = MATCH(n);
+const funder = (r: Rider) => r.backer ?? r.who;
+
+/** `reveal_ride`'s transaction: Railcar's RideRevealed. */
+const reveal = (n: number, riders: Rider[], o: Run): InnerInstruction[] => [
+  cpi(RAILCAR, "RideRevealed", {
+    opener: OPENER,
+    n: BigInt(n),
+    car_no: BigInt(n),
+    tesoro_match: MATCH(n),
+    outcome: o.outcome ?? 1,
+    reason: o.reason ?? 1,
+    draw: Array.from(o.draw),
+    brakes: o.brakes ?? [],
+    seats: riders.map((r, i) => ({ seat: i, order: r.order ?? 0, jump_ms: r.jumpMs ?? 0, refund: r.refund ?? 0n, player: r.who, backer: r.backer ?? null, share_bps: r.share ?? 0 })),
+  }),
+];
+
+/** `finalize`'s (or core's refund's) transaction: MatchWon (a win), ManySeatRunStarted, ManySeatPlaced. */
+function start(n: number, riders: Rider[], o: Run): InnerInstruction[] {
   const kind = o.kind ?? 0;
   const places = o.places ?? [];
   const fees = o.fees ?? [0n, 0n, 0n];
-  const funder = (r: Rider) => r.funder ?? r.who;
-  const finalize: InnerInstruction[] = [];
+  const out: InnerInstruction[] = [];
   if (kind === 0) {
     const first = riders[places[0].seat];
-    const second = riders[places[1]?.seat ?? 0];
-    finalize.push(cpi(CORE, "MatchWon", { opener: OPENER, n: BigInt(n), game: RAILCAR, entry: 500n, player: first.who, funder: funder(first), points: 5n, pool_fee: fees[2], season: 7, ts: BigInt(T0 + 400), loser: second.who, challenge: false, asset: 0, opened_at: BigInt(T0) }));
+    out.push(cpi(CORE, "MatchWon", { opener: OPENER, n: BigInt(n), game: RAILCAR, entry: 500n, player: first.who, funder: funder(first), points: 5n, pool_fee: fees[2], season: 7, ts: BigInt(T0 + 400), loser: riders[places[1]?.seat ?? 0].who, challenge: false, asset: 0, opened_at: BigInt(T0) }));
   }
-  finalize.push(
-    cpi(CORE, "ManySeatRunStarted", { match_state: match, opener: OPENER, n: BigInt(n), game: RAILCAR, kind, entry: 500n, seated: riders.length, places: places.length, fees, fees_capped: false, refunded: o.refunded ?? 0n, forfeited: o.forfeited ?? 0n, ts: BigInt(T0 + 400) }),
-    ...places.map((p, k) => cpi(CORE, "ManySeatPlaced", { match_state: match, opener: OPENER, n: BigInt(n), place: k + 1, seat: p.seat, player: riders[p.seat].who, funder: funder(riders[p.seat]), share_bps: riders[p.seat].share ?? 0, won: p.won })),
-    cpi(RAILCAR, "RideSettled", {
-      car_no: BigInt(n),
-      tesoro_match: match,
-      outcome: o.outcome ?? 1,
-      reason: o.reason ?? 1,
-      draw: Array.from(o.draw),
-      brakes: o.brakes ?? [],
-      seats: riders.map((r, i) => ({ seat: i, order: r.order ?? 0, jump_ms: r.jumpMs ?? 0, refund: r.refund ?? 0n, player: r.who, backer: r.funder ?? null, share_bps: r.share ?? 0 })),
-    }),
+  out.push(
+    cpi(CORE, "ManySeatRunStarted", { match_state: MATCH(n), opener: OPENER, n: BigInt(n), game: RAILCAR, kind, entry: 500n, seated: riders.length, places: places.length, fees, fees_capped: false, refunded: 0n, forfeited: 0n, ts: BigInt(T0 + 400) }),
+    ...places.map((p, k) => cpi(CORE, "ManySeatPlaced", { match_state: MATCH(n), opener: OPENER, n: BigInt(n), place: k + 1, seat: p.seat, player: riders[p.seat].who, funder: funder(riders[p.seat]), share_bps: riders[p.seat].share ?? 0, won: p.won })),
   );
-  const paid = [cpi(CORE, "ManySeatChunkDone", { opener: OPENER, n: BigInt(n), chunk_no: 1, first_step: 1, steps: 0, done: true, blocked: false, overflowed: 0, lines: [] }), cpi(CORE, "ManySeatSettled", { match_state: match, opener: OPENER, n: BigInt(n), kind, chunks: 1 })];
-  return [finalize, paid];
+  return out;
 }
+
+/** A chunk of the payout: each seat's entry line going home to its funder (purpose 3), then the run's end. */
+const seatLine = (seat: number, to: PublicKey, purpose = 3) => ({ pot_side: seat, pot_index_le: [0, 0, 0, 0], purpose, incoming: new Array(144).fill(0), outgoing: new Array(144).fill(0), recipient_kind: 0, recipient: Array.from(to.toBytes()), placement: 0 });
+const paid = (n: number, riders: Rider[], kind: number, homeLines = false): InnerInstruction[] => {
+  // one line per chunk here (the test's encoder holds 1,000 bytes; a line is 328)
+  const lines = homeLines ? riders.map((r, i) => [seatLine(i, funder(r))]) : [[]];
+  return [
+    ...lines.map((l, k) => cpi(CORE, "ManySeatChunkDone", { opener: OPENER, n: BigInt(n), chunk_no: k + 1, first_step: k + 1, steps: l.length, done: k === lines.length - 1, blocked: false, overflowed: 0, lines: l })),
+    cpi(CORE, "ManySeatSettled", { match_state: MATCH(n), opener: OPENER, n: BigInt(n), kind, chunks: lines.length }),
+  ];
+};
 
 const gameOf = () => null;
 async function ingest(rpc: Rpc, txs: InnerInstruction[][]) {
   for (const inner of txs) await ingestMatchRecords(rpc, decodeMatchRecords(inner), { gameOf, signature: "sig", slot: 1 });
 }
-const rowOf = async (rpc: Rpc, who: PublicKey) => (await accountHistory(rpc, who.toBase58(), 1)).rows;
+const rowsOf = async (rpc: Rpc, who: PublicKey) => (await accountHistory(rpc, who.toBase58(), 1, 50)).rows;
+const rowIn = async (rpc: Rpc, who: PublicKey, n: number) => (await rowsOf(rpc, who)).filter((r) => r.id.endsWith(`-${n}`));
 
 // The spec's worked example: Ana off at 25 s (350 back), Cy, Ben, Dee off at 95-99 s, Eve aboard. Fees 129.
-const worked = (draw: Uint8Array): [Rider[], Parameters<typeof rideEvents>[2]] => [
-  [
-    { who: ANA, order: 1, jumpMs: 25_000, refund: 350n },
-    { who: BEN, order: 3, jumpMs: 97_000 },
-    { who: CY, order: 2, jumpMs: 95_000 },
-    { who: DEE, order: 4, jumpMs: 99_000 },
-    { who: EVE },
-  ],
-  { draw, places: [{ seat: 3, won: 313n }, { seat: 1, won: 130n }, { seat: 2, won: 78n }], fees: [44n, 64n, 21n], refunded: 350n, forfeited: 650n },
+const workedRiders = (): Rider[] => [
+  { who: ANA, order: 1, jumpMs: 25_000, refund: 350n },
+  { who: BEN, order: 3, jumpMs: 97_000 },
+  { who: CY, order: 2, jumpMs: 95_000 },
+  { who: DEE, order: 4, jumpMs: 99_000 },
+  { who: EVE },
 ];
+const workedRun = (draw: Uint8Array): Run => ({ draw, places: [{ seat: 3, won: 313n }, { seat: 1, won: 130n }, { seat: 2, won: 78n }], fees: [44n, 64n, 21n] });
 
-describe("Railcar rides in the Match history", () => {
+describe("Railcar rides in the Match history, from the reveal, the run's start and its chunks", () => {
   let rpc: Rpc;
   const draw = drawFrom(104_000);
 
   beforeAll(async () => {
     ({ rpc } = await testDb());
-    const [riders, o] = worked(draw);
-    await ingest(rpc, rideEvents(1, riders, o));
+    const riders = workedRiders();
+    await ingest(rpc, [reveal(1, riders, workedRun(draw)), start(1, riders, workedRun(draw)), paid(1, riders, 0)]);
   }, 120_000);
 
   it("every Player of the worked example has the ride in their history, with what it gave or cost them", async () => {
     const row = async (who: PublicKey) => {
-      const [r] = await rowOf(rpc, who);
+      const [r] = await rowIn(rpc, who, 1);
       return [r.game, r.result, r.delta, r.ride];
     };
     expect(await row(DEE)).toEqual(["railcar", "won", 313, { seated: 5, kind: "place", place: 1, jumpMs: 99_000 }]);
@@ -135,57 +155,89 @@ describe("Railcar rides in the Match history", () => {
 
   it("the ride's page replays from the record and agrees with what the chain paid", async () => {
     const page = await matchPage(rpc, { opener: OPENER.toBase58(), n: 1n });
-    const rec = rideRecordOf(page!)!;
-    const r = replayRide(rec);
+    const r = replayRide(rideRecordOf(page!)!);
     expect(r.agrees).toBe(true);
     expect(r.crashMs).toBe(ride(draw).crashMs);
     expect(r.seats.map((s) => s.gets)).toEqual([350n, 630n, 578n, 813n, 0n]);
   });
 
-  it("the win card is the last Player off, with the ride", async () => {
+  it("the win card is the last Player off, with the ride; the Lobby's recent wins pay entry and first place", async () => {
     const card = await winCard(rpc, { opener: OPENER.toBase58(), n: 1n });
     expect(card).toMatchObject({ game: "railcar", entry: 500, winner: DEE.toBase58(), gemas: 313 });
     expect(rideRecordOf(card!)!.seats).toHaveLength(5);
-  });
-
-  it("the Lobby's recent wins pay the last Player off their entry and first place", async () => {
     const [w] = await recentWins(rpc, { game: "railcar", limit: 5 });
     expect([w.winner, w.payout]).toEqual([DEE.toBase58(), 813]);
   });
 
+  it("the pieces land in any order and any number of times: the same rows", async () => {
+    const riders = workedRiders();
+    const txs = [paid(2, riders, 0), start(2, riders, workedRun(draw)), reveal(2, riders, workedRun(draw))];
+    await ingest(rpc, txs);
+    // before the ride's reveal arrives in a third copy, nothing changes; repeats change nothing
+    await ingest(rpc, [...txs, ...txs]);
+    for (const who of [ANA, BEN, CY, DEE, EVE]) {
+      const [a] = await rowIn(rpc, who, 1);
+      const [b] = await rowIn(rpc, who, 2);
+      expect([b.result, b.delta, b.ride]).toEqual([a.result, a.delta, a.ride]);
+    }
+  });
+
+  it("a win whose ride is not revealed yet names nobody, then everyone once it is", async () => {
+    const riders = workedRiders();
+    await ingest(rpc, [start(3, riders, workedRun(draw))]);
+    expect(await rowIn(rpc, DEE, 3)).toEqual([]);
+    await ingest(rpc, [paid(3, riders, 0), reveal(3, riders, workedRun(draw))]);
+    expect((await rowIn(rpc, DEE, 3)).map((r) => r.delta)).toEqual([313]);
+  });
+
   it("a backed seat: the Backer's row takes the entry's fate, the Player keeps their Offer share of the winnings", async () => {
-    // Ben rides on Bob's Gemas at a 40% share and places second (130 won); in a second ride Bob's Player Eve is aboard.
-    const [riders, o] = worked(draw);
-    riders[1] = { ...riders[1], funder: BOB, share: 4_000 };
-    await ingest(rpc, rideEvents(2, riders, o));
-    const aboard = worked(draw)[0].map((r, i) => (i === 4 ? { ...r, funder: BOB, share: 4_000 } : r));
-    await ingest(rpc, rideEvents(3, aboard, worked(draw)[1]));
-    const bob = await rowOf(rpc, BOB);
-    expect(bob.map((r) => [r.id.endsWith("-2"), r.role, r.result, r.delta, r.backing])).toEqual([
-      [false, "backer", "lost", -500, { other: EVE.toBase58(), shareBps: 4_000 }],
-      [true, "backer", "won", 78, { other: BEN.toBase58(), shareBps: 4_000 }],
+    // Ben rides on Bob's Gemas at a 40% share and places second (130 won); in another ride Bob's Player Eve is aboard.
+    const placed = workedRiders();
+    placed[1] = { ...placed[1], backer: BOB, share: 4_000 };
+    await ingest(rpc, [reveal(4, placed, workedRun(draw)), start(4, placed, workedRun(draw)), paid(4, placed, 0)]);
+    const aboard = workedRiders();
+    aboard[4] = { ...aboard[4], backer: BOB, share: 4_000 };
+    await ingest(rpc, [start(5, aboard, workedRun(draw)), reveal(5, aboard, workedRun(draw)), paid(5, aboard, 0)]);
+    const bob = await rowsOf(rpc, BOB);
+    expect(bob.map((r) => [r.id.split("-").pop(), r.role, r.result, r.delta, r.backing])).toEqual([
+      ["5", "backer", "lost", -500, { other: EVE.toBase58(), shareBps: 4_000 }],
+      ["4", "backer", "won", 78, { other: BEN.toBase58(), shareBps: 4_000 }],
     ]);
-    const ben = (await rowOf(rpc, BEN)).find((r) => r.id.endsWith("-2"))!;
+    const [ben] = await rowIn(rpc, BEN, 4);
     expect([ben.result, ben.delta, ben.backerDelta]).toEqual(["won", 52, 78]);
-    const eve = (await rowOf(rpc, EVE)).find((r) => r.id.endsWith("-3"))!;
+    const [eve] = await rowIn(rpc, EVE, 5);
     expect([eve.result, eve.delta, eve.backerDelta]).toEqual(["lost", 0, -500]);
   });
 
-  it("nobody jumped: every entry back, refunded, no fees", async () => {
-    const riders = [ANA, BEN, CY, DEE, EVE].map((who) => ({ who }));
-    await ingest(rpc, rideEvents(4, riders, { draw, kind: 6, outcome: 2, reason: 2 }));
-    const row = (await rowOf(rpc, CY)).find((r) => r.id.endsWith("-4"))!;
-    expect([row.result, row.delta, row.ride]).toEqual(["refunded", 0, { seated: 5, kind: "refund" }]);
+  it("nobody jumped: every entry back, Refunded, for every Player and Backer", async () => {
+    const riders = [ANA, BEN, CY, DEE, EVE].map((who) => ({ who }) as Rider);
+    riders[2] = { who: CY, backer: BOB, share: 5_000 };
+    const run: Run = { draw, kind: 6, outcome: 2, reason: 2 };
+    await ingest(rpc, [reveal(6, riders, run), start(6, riders, run), paid(6, riders, 6, true)]);
+    const [cy] = await rowIn(rpc, CY, 6);
+    expect([cy.result, cy.delta, cy.ride]).toEqual(["refunded", 0, { seated: 5, kind: "refund" }]);
+    const [bob] = await rowIn(rpc, BOB, 6);
+    expect([bob.role, bob.result, bob.delta]).toEqual(["backer", "refunded", 0]);
   });
 
-  it("a RideSettled that Railcar did not emit names nobody", () => {
-    const [riders, o] = worked(draw);
-    const [finalize] = rideEvents(5, riders, o);
-    const forged = finalize.map((ix) => (ix.programId === RAILCAR.toBase58() ? { ...ix, accounts: [key(99).toBase58()] } : ix));
-    const start = decodeMatchRecords(forged).find((r) => r.type === "seats-start");
-    expect(start && start.type === "seats-start" ? start.ride : "missing").toBeNull();
-    const elsewhere = finalize.map((ix) => (ix.programId === RAILCAR.toBase58() ? { ...ix, programId: key(98).toBase58() } : ix));
-    const other = decodeMatchRecords(elsewhere).find((r) => r.type === "seats-start");
-    expect(other && other.type === "seats-start" ? other.ride : "missing").toBeNull();
+  it("core refunds a car nobody revealed (24 h after departure): whoever paid each entry sees it Refunded", async () => {
+    const riders = [ANA, BEN, CY, DEE, EVE].map((who) => ({ who }) as Rider);
+    riders[4] = { who: EVE, backer: BOB, share: 5_000 };
+    const run: Run = { draw, kind: 4 };
+    await ingest(rpc, [paid(7, riders, 4, true), start(7, riders, run)]);
+    for (const who of [ANA, BEN, CY, DEE, BOB]) {
+      const rows = await rowIn(rpc, who, 7);
+      expect(rows.map((r) => [r.game, r.result, r.delta, r.ride])).toEqual([["railcar", "refunded", 0, { seated: 5, kind: "refund" }]]);
+    }
+    // core's refund lines name who paid, not a backed seat's Player
+    expect(await rowIn(rpc, EVE, 7)).toEqual([]);
+  });
+
+  it("a RideRevealed that Railcar did not emit names nobody; one Railcar emitted that does not decode stops the cursor", () => {
+    const [ix] = reveal(8, workedRiders(), workedRun(draw));
+    expect(decodeMatchRecords([{ ...ix, accounts: [key(99).toBase58()] }])).toEqual([]);
+    expect(decodeMatchRecords([{ ...ix, programId: key(98).toBase58() }])).toEqual([]);
+    const broken = { ...ix, data: Buffer.concat([Buffer.from(ix.data).subarray(0, 16), Buffer.from([1, 2, 3])]) };
+    expect(() => decodeMatchRecords([broken])).toThrow(/cursor must wait/);
   });
 });

@@ -1633,38 +1633,6 @@
         {
           "name": "tesoro_program",
           "address": "AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh"
-        },
-        {
-          "name": "event_authority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  95,
-                  95,
-                  101,
-                  118,
-                  101,
-                  110,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "program"
         }
       ],
       "args": []
@@ -2603,6 +2571,138 @@
       "args": []
     },
     {
+      "name": "reveal_ride",
+      "discriminator": [
+        109,
+        84,
+        197,
+        181,
+        184,
+        126,
+        122,
+        130
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "car",
+          "writable": true
+        },
+        {
+          "name": "table"
+        },
+        {
+          "name": "match_state"
+        },
+        {
+          "name": "core_event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
+          "name": "tesoro_program",
+          "address": "AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "set_config",
       "docs": [
         "Base, upgrade authority only. Names the operator and the number of Tables; the number is",
@@ -3244,6 +3344,19 @@
       ]
     },
     {
+      "name": "RideRevealed",
+      "discriminator": [
+        3,
+        184,
+        78,
+        204,
+        79,
+        232,
+        171,
+        176
+      ]
+    },
+    {
       "name": "RideRunning",
       "discriminator": [
         146,
@@ -3254,19 +3367,6 @@
         140,
         153,
         213
-      ]
-    },
-    {
-      "name": "RideSettled",
-      "discriminator": [
-        147,
-        166,
-        132,
-        241,
-        229,
-        70,
-        246,
-        239
       ]
     },
     {
@@ -3515,6 +3615,10 @@
               "Who paid this account's rent; it goes back there when the car closes."
             ],
             "type": "pubkey"
+          },
+          {
+            "name": "revealed",
+            "type": "bool"
           }
         ]
       }
@@ -4432,6 +4536,67 @@
       }
     },
     {
+      "name": "RideRevealed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "opener",
+            "type": "pubkey"
+          },
+          {
+            "name": "n",
+            "type": "u64"
+          },
+          {
+            "name": "car_no",
+            "type": "u64"
+          },
+          {
+            "name": "tesoro_match",
+            "type": "pubkey"
+          },
+          {
+            "name": "outcome",
+            "type": "u8"
+          },
+          {
+            "name": "reason",
+            "type": "u8"
+          },
+          {
+            "name": "draw",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "brakes",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "RevealedBrake"
+                }
+              }
+            }
+          },
+          {
+            "name": "seats",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "RevealedSeat"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "RideRunning",
       "docs": [
         "The draw is in and the ride clock runs from `ride_slot`."
@@ -4552,68 +4717,6 @@
                 "u8",
                 4
               ]
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "RideSettled",
-      "docs": [
-        "`finalize` handed the result to core (event-CPI)."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "car_no",
-            "type": "u64"
-          },
-          {
-            "name": "tesoro_match",
-            "type": "pubkey"
-          },
-          {
-            "name": "outcome",
-            "type": "u8"
-          },
-          {
-            "name": "reason",
-            "type": "u8"
-          },
-          {
-            "name": "draw",
-            "docs": [
-              "The reveal, for the round history: the draw (zero when it never came) and every Brake."
-            ],
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
-            "name": "brakes",
-            "type": {
-              "vec": {
-                "defined": {
-                  "name": "RevealedBrake"
-                }
-              }
-            }
-          },
-          {
-            "name": "seats",
-            "docs": [
-              "Every seated Player, so the history can name each one and replay the ride."
-            ],
-            "type": {
-              "vec": {
-                "defined": {
-                  "name": "RevealedSeat"
-                }
-              }
             }
           }
         ]

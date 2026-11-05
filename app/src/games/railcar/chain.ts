@@ -96,11 +96,13 @@ export interface CarAccountView {
   tables: number;
   openedAt: number;
   payer: PublicKey;
+  /** `reveal_ride` published the ride; `finalize` waits for it. */
+  revealed: boolean;
 }
 
 export function decodeCarAccount(data: Uint8Array): CarAccountView {
   const c = accounts.decode("Car", Buffer.from(data));
-  return { carNo: BigInt(c.car_no.toString()), tesoroMatch: c.tesoro_match, table: c.table, tables: c.tables, openedAt: Number(c.opened_at.toString()), payer: c.payer };
+  return { carNo: BigInt(c.car_no.toString()), tesoroMatch: c.tesoro_match, table: c.table, tables: c.tables, openedAt: Number(c.opened_at.toString()), payer: c.payer, revealed: !!c.revealed };
 }
 
 /** One seat of a ride, public. */
@@ -227,7 +229,30 @@ export function openCarIx(a: OpenCarArgs): TransactionInstruction {
 export const checkDepartureIx = (carNo: bigint, match: PublicKey): TransactionInstruction =>
   railcarIx("check_departure", { car: carPda(carNo), match_state: match, game_record: gameRecord(), game_program: RAILCAR_PROGRAM_ID, program_data: programData(), authority: authorityPda() });
 
-/** `finalize`: anyone; reads the committed Table and sends core the result. Remaining = every seat page of the car. */
+/**
+ * `reveal_ride`: anyone, once per car, after the commit and before `finalize`; publishes the ride for the round history
+ * (`RideRevealed`). Remaining = every seat page of the car.
+ */
+export function revealRideIx(caller: PublicKey, car: { carNo: bigint; table: number; tesoroMatch: PublicKey }, pages: number): TransactionInstruction {
+  const remaining: AccountMeta[] = Array.from({ length: pages }, (_, p) => ({ pubkey: seatPagePda(car.tesoroMatch, p), isSigner: false, isWritable: false }));
+  return railcarIx(
+    "reveal_ride",
+    {
+      caller,
+      car: carPda(car.carNo),
+      table: tablePda(car.table),
+      match_state: car.tesoroMatch,
+      core_event_authority: corePda("__event_authority"),
+      tesoro_program: TESORO_CORE,
+      event_authority: pda("__event_authority"),
+      program: RAILCAR_PROGRAM_ID,
+    },
+    {},
+    remaining,
+  );
+}
+
+/** `finalize`: anyone, once the ride is revealed; reads the committed Table and sends core the result. Remaining = every seat page of the car. */
 export function finalizeIx(caller: PublicKey, car: { carNo: bigint; table: number; tesoroMatch: PublicKey; payer: PublicKey }, pages: number): TransactionInstruction {
   const remaining: AccountMeta[] = Array.from({ length: pages }, (_, p) => ({ pubkey: seatPagePda(car.tesoroMatch, p), isSigner: false, isWritable: true }));
   return railcarIx(
@@ -246,8 +271,6 @@ export function finalizeIx(caller: PublicKey, car: { carNo: bigint; table: numbe
       receipt: settledPda(car.tesoroMatch),
       system_program: SystemProgram.programId,
       core_event_authority: corePda("__event_authority"),
-      event_authority: pda("__event_authority"),
-      program: RAILCAR_PROGRAM_ID,
     },
     {},
     remaining,
