@@ -10,7 +10,8 @@ import { EntryError } from "./ledger";
 import { ChallengeError, enterQueue, createChallenge, joinChallenge, ensureReady, refundMatch } from "./match-flow";
 import { coreIx } from "./entry";
 import { basketPda, countersPda, spillPda } from "./basket";
-import { freeOf, readEntryStores, type BackingRef } from "./entry";
+import { freeOf, previewEntry, readEntryStores, readNextTicket, type BackingRef } from "./entry";
+import { acceptWithBackingTicketIxs } from "./ticket";
 import { DrawError } from "./draw";
 import { fetchMatch, matchKeyOfState } from "./read";
 import type { Entered } from "./queue";
@@ -271,6 +272,18 @@ export async function postOffer(
 /** The Player accepts an Offer made on their Request. */
 export async function acceptOffer(signer: ChainSigner, request: PublicKey, offer: PublicKey) {
   return getChain().sendBase(signer, [acceptOfferIx({ player: signer.publicKey, request, offer })]);
+}
+
+/**
+ * The Player accepts a Railcar Offer and opens its Backing Ticket in the same transaction: one wallet signature, and the
+ * Railcar page stages the Backer's Gemas and boards from the Ticket (a backed seat takes only its Ticket).
+ */
+export async function acceptRailcarOffer(signer: ChainSigner, o: Pick<ChainOffer, "address" | "request" | "backer" | "entry">) {
+  const backerAccount = new PublicKey(o.backer);
+  const preview = previewEntry(await readEntryStores(backerAccount), BigInt(o.entry), { backing: true });
+  const nonce = await readNextTicket(backerAccount);
+  const ixs = acceptWithBackingTicketIxs({ player: signer.publicKey, request: new PublicKey(o.request), offer: o.address, backerAccount, game: backedProgram("railcar"), entry: BigInt(o.entry), nonce, lines: preview.ticketLines });
+  return getChain().sendBase(signer, ixs);
 }
 
 /** The Backer withdraws an Offer that has not started a Match; the reservation is released. */

@@ -18,6 +18,7 @@ import type { GameId } from "@/lib/mock/types";
 import { FLAG_BACKING_OPEN, FLAG_TICKET_OPEN, MAX_GROW_LINES, basketPda, countersPda, decodeStore, playableTotal, sponsorPda, spillPda, ticketPda, type Line, type Store } from "./basket";
 import { coreIx as rawCoreIx, metaOf, type AccountsByName } from "./core-ix";
 import type { GetToken } from "./demo-client";
+import { acceptOfferIx } from "./backing-ix";
 import { DISC, POT_AT, TICKET_HEAD, TICKET_VERSION, decodeTicketHead } from "./pot-store";
 import { booksFor, drawRemaining, MAX_INITIAL_TICKET_LINES, readEntryStores, readNextTicket, relayerKey, sendEntryTx, STAGE_OPS, type EntryStores } from "./entry";
 import { getChain } from "./client";
@@ -230,12 +231,17 @@ export function closeTicketIx(caller: PublicKey, ticket: PublicKey, payer: Publi
 const stageLimit = (s: Pick<EntryStores, "basket" | "spill">) => playableTotal(s.basket, s.spill);
 
 /** The stage instruction for the lines still missing from `t`, with the Source books it needs. Null when nothing is left to stage. */
-export async function nextStageIx(signer: PublicKey, t: TicketView, stores: Pick<EntryStores, "basket" | "spill">): Promise<TransactionInstruction | null> {
+export async function nextStageIx(
+  signer: PublicKey,
+  t: TicketView,
+  stores: Pick<EntryStores, "basket" | "spill">,
+  conn: Pick<Connection, "getMultipleAccountsInfo"> = getChain().base,
+): Promise<TransactionInstruction | null> {
   const left = t.target - t.staged;
   if (left <= 0n) return null;
   const plan = planDraw(stores.basket, stores.spill, left, stageLimit(stores));
   const slice = { steps: plan.steps.slice(0, STAGE_OPS) };
-  return stageEntryIx(signer, t.account, t.address, STAGE_OPS, await drawRemaining(slice));
+  return stageEntryIx(signer, t.account, t.address, STAGE_OPS, await drawRemaining(slice, conn));
 }
 
 export interface PrepareArgs {
@@ -326,7 +332,57 @@ export async function prepareBackingTicket(
   }
   const t = await readTicket(address);
   if (!t) throw new Error("The Backing could not be prepared. Try again.");
-  return restage(a.signer, a.getToken, t, a.onProgress);
+  // any signer stages a Backing Ticket: the seat key does, so the wallet signs only the opening
+  return restage(a.signer, a.getToken, t, a.onProgress, a.seat);
+}
+
+/**
+ * Accepting an Offer with its Backing Ticket opened in the same transaction (one wallet signature, the wallet as its own
+ * seat key): anyone stages the Backer's Gemas into it later, and the backed entry names the Ticket instead of the
+ * Backer's books (Railcar ticket 18: a many-seat Backed join takes only the Ticket its Offer opened). `nonce` is the
+ * Backer's `next_ticket`; `lines` the Ticket's room (`previewEntry(..., { backing: true }).ticketLines`).
+ */
+export function acceptWithBackingTicketIxs(a: { player: PublicKey; request: PublicKey; offer: PublicKey; backerAccount: PublicKey; game: PublicKey; entry: bigint; nonce: bigint; lines: number }): TransactionInstruction[] {
+  return [
+    acceptOfferIx({ player: a.player, request: a.request, offer: a.offer }),
+    openTicketIx({ payer: a.player, authority: a.player, owner: a.backerAccount, nonce: a.nonce, kind: "backing", game: a.game, target: a.entry, lines: a.lines, offer: a.offer, sponsored: false }),
+  ];
+}
+
+/**
+ * The complete Backing Ticket a backed entry boards from: the one the Offer opened at its acceptance, staged the rest of
+ * the way by the seat key (no wallet signature), or, when none is open (cancelled, or it expired and someone did),
+ * a new one (`prepareBackingTicket`: one more wallet signature).
+ */
+export async function readyBackingTicket(a: PrepareArgs & { backerAccount: PublicKey; offer: PublicKey; offerNonce: bigint }): Promise<TicketView> {
+  const open = await findBackingTicket(getChain().base, a.backerAccount, a.offerNonce);
+  return open ? restage(a.signer, a.getToken, open, a.onProgress, a.seat) : prepareBackingTicket(a);
+}
+
+/** How far back from the Backer's `next_ticket` an Offer's open Backing Ticket is looked for. */
+const BACKING_TICKET_LOOKBACK = 16;
+
+/**
+ * The open Backing Ticket the Offer of nonce `offerNonce` opened on `backerAccount`, if any: one read of the Backer's last
+ * Ticket addresses (a Backer has at most one Backing Ticket open, the one its newest Ticket number names, unless the
+ * Backer entered Matches since).
+ */
+export async function findBackingTicket(conn: Pick<Connection, "getMultipleAccountsInfo">, backerAccount: PublicKey, offerNonce: bigint): Promise<TicketView | null> {
+  const next = await readNextTicket(backerAccount, conn);
+  const nonces: bigint[] = [];
+  for (let n = next - 1n; n >= 0n && nonces.length < BACKING_TICKET_LOOKBACK; n--) nonces.push(n);
+  const infos = nonces.length ? await conn.getMultipleAccountsInfo(nonces.map((n) => ticketPda(backerAccount, n)), "confirmed") : [];
+  for (let i = 0; i < nonces.length; i++) {
+    const info = infos[i];
+    if (!info) continue;
+    try {
+      const t = decodeTicket(ticketPda(backerAccount, nonces[i]), info.data);
+      if (t.kind === "backing" && t.state === "open" && t.offerNonce === offerNonce) return t;
+    } catch {
+      // not a Ticket in the current layout
+    }
+  }
+  return null;
 }
 
 /** Cancels a Ticket: returns the staged lines in batches until it is Cancelled, then closes it (rent back to whoever paid). */

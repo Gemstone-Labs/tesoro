@@ -290,7 +290,8 @@ export interface Plan {
   topUp?: { protections: PublicKey; lamports: bigint };
   /** The Invite key signs it too (the server adds that signature). */
   invite: boolean;
-  /** An admission that needs no Gemas: the Account exists but may hold none yet (the bridge `link_evm`). */
+  /** An admission that needs no Gemas: the Account exists but may hold none yet (the bridge `link_evm`; a backed seat, whose
+   *  Gemas are the Backer's, staged in its Backing Ticket). */
   noGemas: boolean;
   /** LayerZero messages in the transaction, each paid in SOL by the relayer. */
   sends?: BridgeSend[];
@@ -450,6 +451,7 @@ export function planCore(ixs: Ix[], relayer: PublicKey, inviteKey?: PublicKey, p
   const funders = new Map<string, PublicKey>();
   const named: Map<string, PublicKey>[] = [];
   let playerSigns = false;
+  let stagedBacking = false;
   const seatSigners = new Map<string, PublicKey>();
 
   for (const ix of ixs) {
@@ -515,8 +517,10 @@ export function planCore(ixs: Ix[], relayer: PublicKey, inviteKey?: PublicKey, p
       const k = byName.get(n);
       if (k) obligations.push(k);
     }
-    const funder = name === "open_ticket" ? byName.get("owner") : name === "open_match" || name === "join_match" || name === "join_many_seat_match" ? byName.get("backer_account") : undefined;
+    const funder = name === "open_ticket" ? byName.get("owner") : name === "open_match" || name === "join_match" ? byName.get("backer_account") : undefined;
     if (funder && !funder.equals(CORE_ID)) funders.set(funder.toBase58(), funder);
+    // A backed seat boards from its complete Backing Ticket: the Backer's Gemas were checked when it was staged
+    if (name === "join_many_seat_match" && !(byName.get("offer") ?? CORE_ID).equals(CORE_ID)) stagedBacking = true;
     if (name === "join_match") pair = byName.get("pair") ?? null;
     const seat = byName.get("seat_signer");
     if (seat) seatSigners.set(seat.toBase58(), seat);
@@ -552,7 +556,7 @@ export function planCore(ixs: Ix[], relayer: PublicKey, inviteKey?: PublicKey, p
     funders: [...funders.values()],
     onboarding: names.length === 1 && names[0] === "create_account",
     invite,
-    noGemas: false,
+    noGemas: stagedBacking,
   };
 }
 

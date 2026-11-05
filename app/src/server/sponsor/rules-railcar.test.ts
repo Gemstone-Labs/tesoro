@@ -32,13 +32,14 @@ describe("Railcar boarding on the relayer", () => {
     expect(p.spend.refundable).toBeGreaterThan(0n);
   });
 
-  it("boards with a Backer's Offer: the same admission, the Backer named as the entry's funder", () => {
+  it("boards with a Backer's Offer from its Backing Ticket: the same admission, no basket's Gemas to check (they are staged)", () => {
     const car = key();
     const backerAccount = key();
     const backed = joinSeatIx({ payer: relayer, player, car, game: RAILCAR_PROGRAM_ID, page: 0, pot: pot(), backing: { offer: key(), backerAccount } });
     const p = plan([backed, checkDepartureIx(7n, car)]);
-    expect(p).toMatchObject({ names: ["join_many_seat_match", "check_departure"], class: "admission" });
-    expect(p.funders.map((k) => k.toBase58())).toEqual([backerAccount.toBase58()]);
+    expect(p).toMatchObject({ names: ["join_many_seat_match", "check_departure"], class: "admission", noGemas: true });
+    // the Backer's Gemas are in the Ticket, checked when it was staged; the backed Player may hold none
+    expect(p.funders).toEqual([]);
     expect(p.signers.map((k) => k.toBase58())).toEqual([player.toBase58()]);
   });
 

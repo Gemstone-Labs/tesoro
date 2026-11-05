@@ -30,6 +30,7 @@ import { InfoTip } from "@/components/money/Tip";
 import { useAccount } from "@/lib/account";
 import {
   acceptOffer,
+  acceptRailcarOffer,
   cancelOffer,
   cancelRequest,
   expireOffer,
@@ -267,7 +268,7 @@ export default function Backing() {
                   disabled={busy !== null}
                   onClick={() =>
                     act("accept an Offer", `acc-${o.address.toBase58()}`, "Offer accepted. You can enter the Match now.", (s) =>
-                      acceptOffer(s, new PublicKey(o.request), o.address),
+                      o.game === "railcar" ? acceptRailcarOffer(s, o) : acceptOffer(s, new PublicKey(o.request), o.address),
                     )
                   }
                 >

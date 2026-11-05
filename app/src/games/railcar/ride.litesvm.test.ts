@@ -25,6 +25,7 @@ import {
   PublicKey,
   VersionedTransaction,
   type AccountInfo,
+  type AccountMeta,
   type TransactionInstruction,
 } from "@solana/web3.js";
 import { createHash } from "node:crypto";
@@ -33,16 +34,17 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CLASS_STUDIO, basketPda, countersPda, matchPda, spillPda } from "../../lib/chain/basket";
 import { coreIx } from "../../lib/chain/core-ix";
-import { drawRemaining, freshPot, nextMatchOf, readNextTicket } from "../../lib/chain/entry";
+import { drawRemaining, freshPot, nextMatchOf, previewEntry, readEntryStores, readNextTicket } from "../../lib/chain/entry";
 import coreIdl from "../../lib/chain/idl/tesoro_core.json";
 import railcarIdl from "../../lib/chain/idl/railcar.json";
-import { acceptOfferIx, backingNonce, createOfferIx, createRequestIx } from "../../lib/chain/backing-ix";
+import { backingNonce, createOfferIx, createRequestIx } from "../../lib/chain/backing-ix";
 import { joinSeatIx, seatMarkPda } from "../../lib/chain/many-seat";
 import { loadCar } from "../../lib/chain/many-seat-plan";
 import { decodeStore } from "../../lib/chain/pot-store";
 import { OVERFLOW_STORE_AT, matchOverflowPda } from "../../lib/chain/overflow";
 import { fits, type Reader } from "../../lib/chain/settle-plan";
 import { checkedV0, instructionName, messageSize, type TxSize } from "../../lib/chain/tx-size";
+import { acceptWithBackingTicketIxs, findBackingTicket, nextStageIx, type TicketView } from "../../lib/chain/ticket";
 import { sponsoredInstructions } from "../../server/sponsor/service";
 import {
   RAILCAR_PROGRAM_ID,
@@ -365,13 +367,21 @@ class World {
     const backerSeated = !!backing && !!boarding && (await backerSeatedIn(conn, boarding.car.address, backing.backerAccount));
     const choice = queueChoice({ config, boarding, now: this.now, mine: false, backerSeated });
     if (choice.kind !== "join" && choice.kind !== "open") return choice.kind;
-    const { funder, preview } = await boardingEntry(conn, p.account, backing);
-    expect(preview.needsTicket).toBe(false);
-    const pot = freshPot(funder, preview.potLines, await readNextTicket(funder, conn));
-    const remaining = await drawRemaining(preview.plan, conn);
     // Sponsored, as the page sends it: the relayer pays, the wallet signs the entry once, the seat key co-signs.
     const payer = this.relayer.publicKey;
     const seatKey = Keypair.generate();
+    // A backed seat boards from the Backing Ticket its Offer opened at acceptance, staged now by the seat key.
+    let pot: ReturnType<typeof freshPot>;
+    let remaining: AccountMeta[] = [];
+    if (backing) {
+      const t = await this.stageBacking(backing, seatKey);
+      pot = { address: t.address, nonce: t.nonce, lines: t.lineCap };
+    } else {
+      const { funder, preview } = await boardingEntry(conn, p.account);
+      expect(preview.needsTicket).toBe(false);
+      pot = freshPot(funder, preview.potLines, await readNextTicket(funder, conn));
+      remaining = await drawRemaining(preview.plan, conn);
+    }
     const ixs: TransactionInstruction[] = [];
     if (choice.kind === "join") {
       ixs.push(joinSeatIx({ payer, player: p.key, car: choice.car, game: RAILCAR_PROGRAM_ID, page: choice.page, pot, backing, remaining, seatSigner: seatKey.publicKey }), checkDepartureIx(choice.carNo, choice.car));
@@ -384,14 +394,34 @@ class World {
     return choice.kind;
   }
 
-  /** The Backing flow as the Backing page sends it: the Player's Request for Railcar at 500, the Backer's Offer, the Player accepting. */
-  backing(player: Person, backer: Person, shareBps: number): BoardingBacking {
+  /**
+   * The Backing flow as the Backing page sends it: the Player's Request for Railcar at 500, the Backer's Offer, the Player
+   * accepting it with its Backing Ticket opened in the same transaction (`acceptRailcarOffer`).
+   */
+  async backing(player: Person, backer: Person, shareBps: number): Promise<BoardingBacking> {
+    const conn = this.reader();
     const request = createRequestIx({ player: player.key, game: RAILCAR_PROGRAM_ID, entry: 500n, nonce: backingNonce() });
     this.send([request.ix], player.kp);
-    const offer = createOfferIx({ backer: backer.key, request: request.address, game: RAILCAR_PROGRAM_ID, shareBps, nonce: backingNonce() });
+    const offerNonce = backingNonce();
+    const offer = createOfferIx({ backer: backer.key, request: request.address, game: RAILCAR_PROGRAM_ID, shareBps, nonce: offerNonce });
     this.send([offer.ix], backer.kp);
-    this.send([acceptOfferIx({ player: player.key, request: request.address, offer: offer.address })], player.kp);
-    return { offer: offer.address, backerAccount: backer.account };
+    const preview = previewEntry(await readEntryStores(backer.account, conn), 500n, { backing: true });
+    const nonce = await readNextTicket(backer.account, conn);
+    this.send(acceptWithBackingTicketIxs({ player: player.key, request: request.address, offer: offer.address, backerAccount: backer.account, game: RAILCAR_PROGRAM_ID, entry: 500n, nonce, lines: preview.ticketLines }), player.kp);
+    return { offer: offer.address, offerNonce, backerAccount: backer.account };
+  }
+
+  /** Stages the Offer's open Backing Ticket to the entry, as the page does (`readyBackingTicket`): the seat key signs, the relayer pays. */
+  async stageBacking(backing: BoardingBacking, seatKey: Keypair): Promise<TicketView> {
+    const conn = this.reader();
+    for (let i = 0; i < 20; i++) {
+      const t = await findBackingTicket(conn, backing.backerAccount, backing.offerNonce);
+      if (!t) throw new Error("the Offer has no open Backing Ticket");
+      const ix = await nextStageIx(seatKey.publicKey, t, await readEntryStores(t.account, conn), conn);
+      if (!ix) return t;
+      this.send([ix], this.relayer, [seatKey]);
+    }
+    throw new Error("the Backing Ticket did not fill");
   }
 
   offerStatus(offer: PublicKey): string {
@@ -465,7 +495,7 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], b
   w.riders = Array.from({ length: n }, (_, i) => (i === backed?.seat ? w.person() : w.rider()));
   const riders = w.riders;
   const backer = backed ? w.rider() : null;
-  const backing = backed && backer ? w.backing(riders[backed.seat], backer, backed.shareBps) : undefined;
+  const backing = backed && backer ? await w.backing(riders[backed.seat], backer, backed.shareBps) : undefined;
 
   // Boarding: the first opens the car, the others join it, each in one wallet transaction.
   w.phase = "boarding";
@@ -609,7 +639,7 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     const ben = w.person();
     const bob = w.rider();
     const bobAtStart = w.gemas(bob);
-    const backing = w.backing(ben, bob, 4_000);
+    const backing = await w.backing(ben, bob, 4_000);
     expect(await w.board(ben, backing)).toBe("open");
     const config = decodeConfig(w.info(configPda())!.data);
     const match = decodeCarAccount(w.info(carPda(config.nextCar - 1n))!.data).tesoroMatch;
@@ -631,7 +661,7 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     expect(w.offerStatus(backing.offer)).toBe("consumed");
     // Ben's seat is free again: he can board the same car (here with Gemas of his own from a second Backing).
     const ann = w.rider();
-    expect(await w.board(ben, w.backing(ben, ann, 5_000))).toBe("join");
+    expect(await w.board(ben, await w.backing(ben, ann, 5_000))).toBe("join");
   });
 
   it("a Backer already in the car: the Player is told to board the next one and nothing is sent", { timeout: 120_000 }, async () => {
@@ -639,7 +669,7 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     const bob = w.rider();
     const ben = w.person();
     expect(await w.board(bob)).toBe("open");
-    const backing = w.backing(ben, bob, 4_000);
+    const backing = await w.backing(ben, bob, 4_000);
     expect(await w.board(ben, backing)).toBe("backer-seated");
     expect(w.offerStatus(backing.offer)).toBe("accepted");
   });

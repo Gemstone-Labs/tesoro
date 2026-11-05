@@ -21,7 +21,7 @@ import { joinSeatIx } from "@/lib/chain/many-seat";
 import { loadCar, type LoadedCar } from "@/lib/chain/many-seat-plan";
 import { connReader, fits, type Reader } from "@/lib/chain/settle-plan";
 import { sponsorStatus, sponsoredSend } from "@/lib/chain/sponsor-client";
-import { prepareBackingTicket, prepareEntryTicket } from "@/lib/chain/ticket";
+import { prepareEntryTicket, readyBackingTicket } from "@/lib/chain/ticket";
 import { seatKeys, type SeatKey } from "@/lib/seat/seat-key";
 import { countingFor } from "@/lib/seat/signature-counter";
 import { browserStore } from "@/lib/storage";
@@ -174,7 +174,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
     () => (offerAddress && offer !== undefined && (offer === null || meKey) ? backingProblem(offer, { account: meKey ?? "", game: "railcar", entry: ENTRY_GEMAS, now: nowSecs }) : null),
     [offerAddress, offer, meKey, nowSecs],
   );
-  const backing = useMemo<BoardingBacking | null>(() => (offer && !offerProblem ? { offer: offer.address, backerAccount: new PublicKey(offer.backer) } : null), [offer, offerProblem]);
+  const backing = useMemo<BoardingBacking | null>(() => (offer && !offerProblem ? { offer: offer.address, offerNonce: offer.nonce, backerAccount: new PublicKey(offer.backer) } : null), [offer, offerProblem]);
   const backerKey = backing?.backerAccount.toBase58() ?? null;
 
   const tee = useCallback(async () => {
@@ -334,11 +334,11 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
         const key = choice.kind === "join" ? matchKeyOf({ opener: loaded!.car.opener.toBase58(), n: loaded!.car.n }) : matchKeyOf({ opener: me.toBase58(), n });
         countingFor(key);
         const seatKey = await seatKeys().forMatch(key, wallet.publicKey);
-        // The entry draws the Player's Gemas, or under a Backing the Backer's. More lines than one transaction draws are staged
-        // in an Entry Ticket (a Backing Ticket for the Backer's) first.
+        // The entry draws the Player's Gemas (more lines than one transaction draws are staged in an Entry Ticket first), or
+        // under a Backing comes from the Backing Ticket the Offer opened when it was accepted: a backed seat takes only that.
         const { funder, preview } = await boardingEntry(chain.base, me, backing ?? undefined);
         const staging = { signer: wallet, seat: seatKey, getToken, game: RAILCAR_PROGRAM_ID, entry: BigInt(ENTRY_GEMAS), lines: preview.ticketLines };
-        const ticket = !preview.needsTicket ? null : backing ? await prepareBackingTicket({ ...staging, ...backing }) : await prepareEntryTicket(staging);
+        const ticket = backing ? await readyBackingTicket({ ...staging, ...backing }) : preview.needsTicket ? await prepareEntryTicket(staging) : null;
         const remaining = ticket ? [] : await drawRemaining(preview.plan);
         const build = async (payer: PublicKey, sponsored: boolean) => {
           const pot = ticket ? { address: ticket.address, nonce: ticket.nonce, lines: ticket.lineCap } : freshPot(funder, preview.potLines, await readNextTicket(funder));
