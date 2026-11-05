@@ -4,9 +4,8 @@ import Image from "next/image";
 import type { ReactNode } from "react";
 import type { ChainRequest } from "@/lib/chain/backing";
 import { closesIn } from "@/lib/chain/useBackingBoard";
-import { art } from "@/lib/art";
+import { backedGameName, backedHero } from "@/lib/backing/games";
 import { fmtGemas } from "@/lib/format";
-import { GAME_NAMES } from "@/lib/mock";
 import { ClockIcon, GemaMark } from "@/components/ui";
 import { AccountLink } from "@/components/account/AccountLink";
 import { PlayerAvatar, usePlayerLabel } from "@/components/account/Player";
@@ -35,10 +34,10 @@ export function RequestCard({
   const { matches, wins } = r.record;
   const left = closesIn(r.expiresAt, nowMs);
   return (
-    <article id={id} className={`cut cut-card rq${selected ? " selected" : ""}`} aria-label={`${name}, ${GAME_NAMES[r.game]}`}>
+    <article id={id} className={`cut cut-card rq${selected ? " selected" : ""}`} aria-label={`${name}, ${backedGameName(r.game)}`}>
       <div className="rq-face">
-        <Image className="rq-art" src={art.hero[r.game]} alt="" fill sizes="(min-width: 1100px) 440px, 100vw" />
-        <span className="rq-game">{GAME_NAMES[r.game]}</span>
+        <Image className="rq-art" src={backedHero(r.game)} alt="" fill sizes="(min-width: 1100px) 440px, 100vw" />
+        <span className="rq-game">{backedGameName(r.game)}</span>
         <span className="rq-time" title="This Request takes Offers until then">
           <ClockIcon width={12} height={12} aria-hidden="true" />
           {left}

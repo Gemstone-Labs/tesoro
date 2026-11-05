@@ -1,19 +1,18 @@
 import "./polyfill";
-import { BN } from "@coral-xyz/anchor";
-import { PublicKey, SystemProgram } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 import { accountOfSigner, BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
+import { backedGameOf, backedProgram, type BackedGame } from "@/lib/backing/games";
 import type { GameId } from "@/lib/mock/types";
-import { gameRecordPda } from "./game-record";
-import { protectionsPda } from "./native";
+import { acceptOfferIx, backingNonce, createOfferIx, createRequestIx } from "./backing-ix";
 import { getChain } from "./client";
 import type { GetToken } from "./demo-client";
 import { EntryError } from "./ledger";
-import { ChallengeError, GAME_IDS, enterQueue, createChallenge, joinChallenge, ensureReady, refundMatch } from "./match-flow";
+import { ChallengeError, enterQueue, createChallenge, joinChallenge, ensureReady, refundMatch } from "./match-flow";
 import { coreIx } from "./entry";
 import { basketPda, countersPda, spillPda } from "./basket";
 import { freeOf, readEntryStores, type BackingRef } from "./entry";
 import { DrawError } from "./draw";
-import { fetchMatch, gameOf, matchKeyOfState, requireGame } from "./read";
+import { fetchMatch, matchKeyOfState } from "./read";
 import type { Entered } from "./queue";
 
 /**
@@ -41,7 +40,7 @@ export interface ChainRequest {
   nonce: bigint;
   /** TesoroAccount key of the Player. */
   player: string;
-  game: GameId;
+  game: BackedGame;
   entry: number;
   expiresAt: number;
   status: "open" | "accepted" | "cancelled";
@@ -63,7 +62,7 @@ export interface ChainOffer {
   nonce: bigint;
   /** TesoroAccount key of the Backer. */
   backer: string;
-  game: GameId;
+  game: BackedGame;
   entry: number;
   shareBps: number;
   status: "open" | "accepted" | "consumed" | "cancelled" | "expired";
@@ -90,6 +89,14 @@ export interface BackingBoard {
 
 const requestStatus = (o: object) => enumKey(o) as ChainRequest["status"];
 const offerStatus = (o: object) => enumKey(o) as ChainOffer["status"];
+
+/** The Game of a Request or Offer this app shows; throws for any other, so it is never shown as another Game. */
+function requireGame(program: PublicKey): BackedGame {
+  const g = backedGameOf(program);
+  if (!g) throw new Error(`Unknown game program ${program.toBase58()}`);
+  return g;
+}
+const shownGame = (program: number[] | Uint8Array) => backedGameOf(pk(program)) !== null;
 
 interface PlayerForm {
   record: PlayerRecord;
@@ -167,7 +174,7 @@ export async function fetchBackingBoard(): Promise<BackingBoard> {
   const players = new Set<string>(reqRows.map((r) => pk(r.account.inner.player).toBase58()));
   const records = players.size ? await fetchRecords(players) : new Map<string, PlayerForm>();
   const requests = reqRows
-    .filter((r) => gameOf(pk(r.account.inner.game)) !== null)
+    .filter((r) => shownGame(r.account.inner.game))
     .map((r) => toRequest(r, records.get(pk(r.account.inner.player).toBase58()) ?? noForm()))
     .sort((a, b) => b.expiresAt - a.expiresAt);
   // A consumed Offer funded the newest Match with the same Backer, Player, Game and entry.
@@ -188,7 +195,7 @@ export async function fetchBackingBoard(): Promise<BackingBoard> {
     return { id: matchKeyOfState(rows[0].account), refundable: unjoinedExpired };
   };
   const offers = offerRows
-    .filter((o) => gameOf(pk(o.account.inner.game)) !== null)
+    .filter((o) => shownGame(o.account.inner.game))
     .map((o) => {
       const m = enumKey(o.account.inner.status) === "consumed" ? matchOf(o) : null;
       return toOffer(o, m?.id ?? null, m?.refundable ? m.id : null);
@@ -201,7 +208,7 @@ export async function fetchBackingBoard(): Promise<BackingBoard> {
 export async function fetchLiveRequests(player: string, record: PlayerRecord): Promise<ChainRequest[]> {
   const rows: any[] = await getChain().core.account.requestState.all();
   return rows
-    .filter((r) => pk(r.account.inner.player).toBase58() === player && gameOf(pk(r.account.inner.game)) !== null)
+    .filter((r) => pk(r.account.inner.player).toBase58() === player && shownGame(r.account.inner.game))
     .map((r) => toRequest(r, { record, pnl: [] }))
     .filter((r) => r.live)
     .sort((a, b) => b.expiresAt - a.expiresAt);
@@ -209,13 +216,11 @@ export async function fetchLiveRequests(player: string, record: PlayerRecord): P
 
 export async function fetchOffer(address: PublicKey): Promise<ChainOffer | null> {
   const acc = await getChain().core.account.offerState.fetchNullable(address);
-  return acc && gameOf(pk(acc.inner.game)) !== null ? toOffer({ publicKey: address, account: acc }, null) : null;
+  return acc && shownGame(acc.inner.game) ? toOffer({ publicKey: address, account: acc }, null) : null;
 }
 
 // ---- writes ---------------------------------------------------------------------------------
 
-const config = () => PublicKey.findProgramAddressSync([Buffer.from("config")], getChain().core.programId)[0];
-const nonce = () => new BN((BigInt(Date.now()) * 1000n + BigInt(Math.floor(Math.random() * 1000))).toString());
 
 /**
  * The Backer refunds a Match nobody joined, once its deadline has passed (the relayer pays). The opener's own refund or the keeper's safety
@@ -233,16 +238,10 @@ export async function refundBackedMatch(signer: ChainSigner, matchId: string, ge
 }
 
 /** A Player posts a Request for a Game and entry. Creates the Account first if needed. */
-export async function postRequest(signer: ChainSigner, game: GameId, entry: number, getToken: GetToken): Promise<{ address: PublicKey; sig: string }> {
-  const chain = getChain();
-  const snap = await ensureReady(signer, getToken);
-  const n = nonce();
-  const address = PublicKey.findProgramAddressSync([Buffer.from("request"), snap.accountKey.toBuffer(), n.toArrayLike(Buffer, "le", 8)], chain.core.programId)[0];
-  const ix = await chain.core.methods
-    .createRequest(n, GAME_IDS[game], new BN(entry))
-    .accountsPartial({ playerAuthority: signer.publicKey, config: config(), gameRecord: gameRecordPda(GAME_IDS[game]), playerAccount: snap.accountKey, protections: protectionsPda(snap.accountKey), request: address, systemProgram: SystemProgram.programId })
-    .instruction();
-  return { address, sig: await chain.sendBase(signer, [ix]) };
+export async function postRequest(signer: ChainSigner, game: BackedGame, entry: number, getToken: GetToken): Promise<{ address: PublicKey; sig: string }> {
+  await ensureReady(signer, getToken);
+  const { ix, address } = createRequestIx({ player: signer.publicKey, game: backedProgram(game), entry: BigInt(entry), nonce: backingNonce() });
+  return { address, sig: await getChain().sendBase(signer, [ix]) };
 }
 
 export const cancelRequestIx = (owner: PublicKey, request: PublicKey) =>
@@ -258,44 +257,20 @@ export async function cancelRequest(signer: ChainSigner, request: PublicKey) {
 /** A Backer answers a Request with an Offer for its game and entry, reserving the entry from their own Gemas. */
 export async function postOffer(
   signer: ChainSigner,
-  a: { game: GameId; entry: number; shareBps: number; request: PublicKey },
+  a: { game: BackedGame; entry: number; shareBps: number; request: PublicKey },
   getToken: GetToken,
 ): Promise<{ address: PublicKey; sig: string }> {
-  const chain = getChain();
   const snap = await ensureReady(signer, getToken);
   // The Offer reserves the entry in the Backer's pool: the Gemas must be free (not already reserved, not in a Ticket).
   const stores = await readEntryStores(snap.accountKey);
   if (freeOf(stores) < BigInt(a.entry)) throw new DrawError("insufficient");
-  const n = nonce();
-  const address = PublicKey.findProgramAddressSync([Buffer.from("offer"), snap.accountKey.toBuffer(), n.toArrayLike(Buffer, "le", 8)], chain.core.programId)[0];
-  const ix = coreIx(
-    "create_offer",
-    {
-      backerAuthority: signer.publicKey,
-      config: config(),
-      request: a.request,
-      gameRecord: gameRecordPda(GAME_IDS[a.game]),
-      backerAccount: snap.accountKey,
-      protections: protectionsPda(snap.accountKey),
-      basket: basketPda(snap.accountKey),
-      spill: spillPda(snap.accountKey),
-      counters: countersPda(snap.accountKey),
-      offer: address,
-      systemProgram: SystemProgram.programId,
-    },
-    { nonce: new BN(n.toString()), playerShareBps: a.shareBps },
-  );
-  return { address, sig: await chain.sendBase(signer, [ix]) };
+  const { ix, address } = createOfferIx({ backer: signer.publicKey, request: a.request, game: backedProgram(a.game), shareBps: a.shareBps, nonce: backingNonce() });
+  return { address, sig: await getChain().sendBase(signer, [ix]) };
 }
 
 /** The Player accepts an Offer made on their Request. */
 export async function acceptOffer(signer: ChainSigner, request: PublicKey, offer: PublicKey) {
-  const chain = getChain();
-  const ix = await chain.core.methods
-    .acceptOffer()
-    .accountsPartial({ playerAuthority: signer.publicKey, playerAccount: accountOfSigner(signer), protections: protectionsPda(accountOfSigner(signer)), request, offer })
-    .instruction();
-  return chain.sendBase(signer, [ix]);
+  return getChain().sendBase(signer, [acceptOfferIx({ player: signer.publicKey, request, offer })]);
 }
 
 /** The Backer withdraws an Offer that has not started a Match; the reservation is released. */
@@ -353,16 +328,23 @@ export class BackingError extends Error {
   }
 }
 
-/** The Offer must be Accepted for this Account and still inside its 24h use-by window. */
-async function requireBacking(signer: ChainSigner, address: string, game: GameId, entry: number): Promise<ChainOffer> {
+/** Why an Offer cannot fund this entry now, or null when it can: Accepted for this Account, for this Game and entry, inside its 24h use-by window. */
+export function backingProblem(offer: Pick<ChainOffer, "status" | "player" | "useBy" | "game" | "entry"> | null, a: { account: string; game: BackedGame; entry: number; now: number }): BackingError["code"] | null {
+  if (!offer) return "missing";
+  if (offer.status === "consumed") return "used";
+  if (offer.status !== "accepted") return offer.status === "expired" ? "expired" : "not-accepted";
+  if (offer.player !== a.account) return "not-yours";
+  if (a.now >= offer.useBy) return "expired";
+  if (offer.game !== a.game || offer.entry !== a.entry) return "not-accepted";
+  return null;
+}
+
+/** The Offer at `address`, checked by `backingProblem` for the signer's Account. */
+export async function requireBacking(signer: ChainSigner, address: string, game: BackedGame, entry: number): Promise<ChainOffer> {
   const offer = await fetchOffer(new PublicKey(address));
-  if (!offer) throw new BackingError("missing");
-  if (offer.status === "consumed") throw new BackingError("used");
-  if (offer.status !== "accepted") throw new BackingError(offer.status === "expired" ? "expired" : "not-accepted");
-  if (offer.player !== accountOfSigner(signer).toBase58()) throw new BackingError("not-yours");
-  if (now() >= offer.useBy) throw new BackingError("expired");
-  if (offer.game !== game || offer.entry !== entry) throw new BackingError("not-accepted");
-  return offer;
+  const problem = backingProblem(offer, { account: accountOfSigner(signer).toBase58(), game, entry, now: now() });
+  if (problem) throw new BackingError(problem);
+  return offer!;
 }
 
 const backingRefOf = (o: ChainOffer): BackingRef => ({ offer: o.address, backerAccount: new PublicKey(o.backer) });

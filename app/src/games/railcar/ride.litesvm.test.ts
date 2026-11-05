@@ -31,10 +31,11 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CLASS_STUDIO, basketPda, countersPda, matchPda, spillPda } from "../../lib/chain/basket";
 import { coreIx } from "../../lib/chain/core-ix";
-import { drawRemaining, freshPot, nextMatchOf, previewEntry, readEntryStores, readNextTicket } from "../../lib/chain/entry";
+import { drawRemaining, freshPot, nextMatchOf, readNextTicket } from "../../lib/chain/entry";
 import coreIdl from "../../lib/chain/idl/tesoro_core.json";
 import railcarIdl from "../../lib/chain/idl/railcar.json";
-import { joinSeatIx } from "../../lib/chain/many-seat";
+import { acceptOfferIx, backingNonce, createOfferIx, createRequestIx } from "../../lib/chain/backing-ix";
+import { joinSeatIx, seatMarkPda } from "../../lib/chain/many-seat";
 import { loadCar } from "../../lib/chain/many-seat-plan";
 import { decodeStore } from "../../lib/chain/pot-store";
 import { OVERFLOW_STORE_AT, matchOverflowPda } from "../../lib/chain/overflow";
@@ -59,6 +60,7 @@ import { ride } from "./engine";
 import { queueChoice } from "./flow";
 import { railcarView } from "./view";
 import { finishRide } from "./finish";
+import { backerSeatedIn, boardingEntry, stepOffFor, type BoardingBacking } from "./boarding";
 
 const ROOT = join(process.cwd(), "..");
 const SO_DIR = process.env.RAILCAR_SO_DIR ?? join(ROOT, "target/deploy");
@@ -363,7 +365,7 @@ class World {
   // ---- the app's steps -------------------------------------------------------------------------------------------------
 
   /** The Queue as the page boards: read the config and the boarding car, choose, and send the wallet's one transaction. */
-  async board(p: Person): Promise<void> {
+  async board(p: Person, backing?: BoardingBacking): Promise<string> {
     const conn = this.reader();
     const config = decodeConfig(this.info(configPda())!.data);
     let boarding = null;
@@ -373,21 +375,38 @@ class World {
       const loaded = await loadCar(conn, car.tesoroMatch);
       if (loaded) boarding = { car: loaded.car, carNo, pages: loaded.pages };
     }
-    const choice = queueChoice({ config, boarding, now: this.now, mine: false });
-    const stores = await readEntryStores(p.account, conn);
-    const preview = previewEntry(stores, 500n);
+    const backerSeated = !!backing && !!boarding && (await backerSeatedIn(conn, boarding.car.address, backing.backerAccount));
+    const choice = queueChoice({ config, boarding, now: this.now, mine: false, backerSeated });
+    if (choice.kind !== "join" && choice.kind !== "open") return choice.kind;
+    const { funder, preview } = await boardingEntry(conn, p.account, backing);
     expect(preview.needsTicket).toBe(false);
-    const pot = freshPot(p.account, preview.potLines, await readNextTicket(p.account, conn));
+    const pot = freshPot(funder, preview.potLines, await readNextTicket(funder, conn));
     const remaining = await drawRemaining(preview.plan, conn);
     const ixs: TransactionInstruction[] = [cu(1_000_000)];
     if (choice.kind === "join") {
-      ixs.push(joinSeatIx({ payer: p.key, player: p.key, car: choice.car, game: RAILCAR_PROGRAM_ID, page: choice.page, pot, remaining }), checkDepartureIx(choice.carNo, choice.car));
-    } else if (choice.kind === "open") {
+      ixs.push(joinSeatIx({ payer: p.key, player: p.key, car: choice.car, game: RAILCAR_PROGRAM_ID, page: choice.page, pot, backing, remaining }), checkDepartureIx(choice.carNo, choice.car));
+    } else {
       const n = nextMatchOf(this.info(countersPda(p.account))?.data);
       const match = matchPda(p.account, n);
-      ixs.push(openCarIx({ payer: p.key, opener: p.key, config, n }), joinSeatIx({ payer: p.key, player: p.key, car: match, game: RAILCAR_PROGRAM_ID, page: 0, pot, remaining }), checkDepartureIx(choice.carNo, match));
-    } else throw new Error(`unexpected Queue choice ${choice.kind}`);
+      ixs.push(openCarIx({ payer: p.key, opener: p.key, config, n }), joinSeatIx({ payer: p.key, player: p.key, car: match, game: RAILCAR_PROGRAM_ID, page: 0, pot, backing, remaining }), checkDepartureIx(choice.carNo, match));
+    }
     this.send(ixs, p.kp);
+    return choice.kind;
+  }
+
+  /** The Backing flow as the Backing page sends it: the Player's Request for Railcar at 500, the Backer's Offer, the Player accepting. */
+  backing(player: Person, backer: Person, shareBps: number): BoardingBacking {
+    const request = createRequestIx({ player: player.key, game: RAILCAR_PROGRAM_ID, entry: 500n, nonce: backingNonce() });
+    this.send([request.ix], player.kp);
+    const offer = createOfferIx({ backer: backer.key, request: request.address, game: RAILCAR_PROGRAM_ID, shareBps, nonce: backingNonce() });
+    this.send([offer.ix], backer.kp);
+    this.send([acceptOfferIx({ player: player.key, request: request.address, offer: offer.address })], player.kp);
+    return { offer: offer.address, backerAccount: backer.account };
+  }
+
+  offerStatus(offer: PublicKey): string {
+    const o = new BorshAccountsCoder(coreIdl as unknown as Idl).decode("OfferState", Buffer.from(this.get(offer)!.data)) as { inner: { status: object } };
+    return Object.keys(o.inner.status)[0].toLowerCase();
   }
 
   rideSlot(index: number): bigint {
@@ -433,6 +452,8 @@ function drawWhere(want: (r: ReturnType<typeof ride>) => boolean): Uint8Array {
 
 interface RideRun {
   riders: Person[];
+  /** The backed rider's Backer and the Gemas they got back (after the car closed, against after boarding). */
+  backer: { person: Person; delta: bigint; shown: { backerGets: bigint; playerGets: bigint } | null } | null;
   /** Gemas each rider got back (after the car closed, against after boarding). */
   deltas: bigint[];
   studioFee: bigint;
@@ -448,20 +469,24 @@ interface RideRun {
  * sent by the relayer or the page key, never a rider's wallet.
  */
 let rooms = 0;
-async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][]): Promise<RideRun> {
+async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], backed?: { seat: number; shareBps: number }): Promise<RideRun> {
   const w = await World.create();
-  w.riders = Array.from({ length: n }, () => w.rider());
+  // A backed rider has no Gemas of their own: their Backer's entry boards for them.
+  w.riders = Array.from({ length: n }, (_, i) => (i === backed?.seat ? w.person() : w.rider()));
   const riders = w.riders;
+  const backer = backed ? w.rider() : null;
+  const backing = backed && backer ? w.backing(riders[backed.seat], backer, backed.shareBps) : undefined;
 
   // Boarding: the first opens the car, the others join it, each in one wallet transaction.
   w.phase = "boarding";
-  for (const p of riders) await w.board(p);
+  for (const [i, p] of riders.entries()) await w.board(p, i === backed?.seat ? backing : undefined);
   const config = decodeConfig(w.info(configPda())!.data);
   const carNo = config.nextCar - 1n;
   const carAcct = decodeCarAccount(w.info(carPda(carNo))!.data);
   const match = carAcct.tesoroMatch;
   const id = (await loadCar(w.reader(), match))!.car;
   const before = riders.map((p) => w.gemas(p, id));
+  const backerBefore = backer ? w.gemas(backer, id) : 0n;
   const studioBefore = w.studioFee();
 
   // Departure: 30 s after the 5th boarded (a full car left in the 100th's own transaction).
@@ -497,9 +522,13 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][]): 
   w.rollup([signalIx(w.pageKey.publicKey, carAcct.table)], w.pageKey, carAcct.table);
   const over = decodeTable(w.get(table)!.data);
   expect(over.phase).toBe("over");
-  const shownView = railcarView({ me: null, core: null, seats: [], table: over, fees: { platformBps: 200, studioBps: 300, leaderboardBps: 100 }, nowMs: 0 });
+  const seen = (await loadCar(w.reader(), match))!;
+  const shownView = railcarView({ me: null, core: seen.car, seats: seen.seats, table: over, fees: { platformBps: 200, studioBps: 300, leaderboardBps: 100 }, nowMs: 0 });
   if (shownView.phase !== "result") throw new Error("the screen should show the result");
-  const shown = riders.map((p) => shownView.rows.find((r) => r.account === p.account.toBase58())!.gets);
+  const rowOf = (p: Person) => shownView.rows.find((r) => r.account === p.account.toBase58())!;
+  // A backed row shows what the Player gets and, beside it, what goes back to the Backer.
+  const shown = riders.map((p) => rowOf(p).backing?.playerGets ?? rowOf(p).gets);
+  const backedRow = backed ? rowOf(riders[backed.seat]).backing ?? null : null;
 
   // The finish as a paid Player's page sends it (finish.ts), the relayer as caller of every step: finalize on base (the
   // committed Table), room, every chunk the planner sizes, every close. Compiled with a lookup table, as the server does.
@@ -531,7 +560,15 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][]): 
   expect(sent.sent.filter((s) => s === "close-seat")).toHaveLength(n);
   expect(sent.sent.at(-1)).toBe("close-car");
 
-  return { riders, deltas: riders.map((p, i) => w.gemas(p, id) - before[i]), studioFee: w.studioFee() - studioBefore, chunkSteps, shown, walletSigs: w.walletSigs };
+  return {
+    riders,
+    backer: backer ? { person: backer, delta: w.gemas(backer, id) - backerBefore, shown: backedRow && { backerGets: backedRow.backerGets, playerGets: backedRow.playerGets } } : null,
+    deltas: riders.map((p, i) => w.gemas(p, id) - before[i]),
+    studioFee: w.studioFee() - studioBefore,
+    chunkSteps,
+    shown,
+    walletSigs: w.walletSigs,
+  };
 }
 
 describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders and the shared planner", () => {
@@ -551,6 +588,69 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     expect(r.chunkSteps.reduce((a, b) => a + b, 0)).toBe(11);
     // The wallets signed boarding (5) and the Jumps (4, until the seat key plays them); nothing of the finish.
     expect(r.walletSigs).toEqual({ boarding: 5, jumps: 4 });
+  });
+
+  it("Ben rides backed by Bob (40% to Ben): Bob's 500 board for him, second place splits 52 to Ben and 578 to Bob", { timeout: 120_000 }, async () => {
+    const r = await rideCar(
+      5,
+      drawWhere((x) => x.crashMs >= 101_000),
+      [
+        [ANA, 25],
+        [CY, 95],
+        [BEN, 97],
+        [DEE, 99],
+      ],
+      { seat: BEN, shareBps: 4_000 },
+    );
+    // Ben's place pays 630: Bob's 500 back first, then 130 split 40/60 (Ben floor(52), Bob 78). The others as unbacked.
+    expect(r.deltas).toEqual([350n, 52n, 578n, 813n, 0n]);
+    expect(r.backer!.delta).toBe(578n);
+    expect(r.studioFee).toBe(64n);
+    // The result screen shows the split the chain paid.
+    expect(r.shown).toEqual(r.deltas);
+    expect(r.backer!.shown).toEqual({ backerGets: 578n, playerGets: 52n });
+    // Ben signed his Request, the acceptance and his boarding; Bob nothing after his Offer.
+    expect(r.walletSigs).toEqual({ setup: 2, boarding: 5, jumps: 4 });
+  });
+
+  it("a backed step-off sends the Backer's 500 home and leaves the Player free to board again", { timeout: 120_000 }, async () => {
+    const w = await World.create();
+    const ben = w.person();
+    const bob = w.rider();
+    const bobAtStart = w.gemas(bob);
+    const backing = w.backing(ben, bob, 4_000);
+    expect(await w.board(ben, backing)).toBe("open");
+    const config = decodeConfig(w.info(configPda())!.data);
+    const match = decodeCarAccount(w.info(carPda(config.nextCar - 1n))!.data).tesoroMatch;
+    const loaded = (await loadCar(w.reader(), match))!;
+    const seat = loaded.seats.find((s) => s.seated)!;
+    expect(seat.player).toEqual(ben.account);
+    expect(seat.funder).toEqual(bob.account);
+    expect(seat.shareBps).toBe(4_000);
+    expect(w.gemas(bob)).toBe(bobAtStart - 500n);
+    expect(w.gemas(ben)).toBe(0n);
+
+    // Ben steps off with the page's builder: Bob's 500 come home, unreserved; the Offer stays used.
+    const core = new Program(coreIdl as Idl, { connection: {} } as unknown as AnchorProvider);
+    w.send([cu(1_000_000), await stepOffFor(core, w.reader(), { caller: ben.key, loaded, seat })], ben.kp);
+    expect(w.gemas(bob)).toBe(bobAtStart);
+    expect(w.gemas(ben)).toBe(0n);
+    expect(w.info(seatMarkPda(match, ben.account))).toBeNull();
+    expect(w.info(seatMarkPda(match, bob.account))).toBeNull();
+    expect(w.offerStatus(backing.offer)).toBe("consumed");
+    // Ben's seat is free again: he can board the same car (here with Gemas of his own from a second Backing).
+    const ann = w.rider();
+    expect(await w.board(ben, w.backing(ben, ann, 5_000))).toBe("join");
+  });
+
+  it("a Backer already in the car: the Player is told to board the next one and nothing is sent", { timeout: 120_000 }, async () => {
+    const w = await World.create();
+    const bob = w.rider();
+    const ben = w.person();
+    expect(await w.board(bob)).toBe("open");
+    const backing = w.backing(ben, bob, 4_000);
+    expect(await w.board(ben, backing)).toBe("backer-seated");
+    expect(w.offerStatus(backing.offer)).toBe("accepted");
   });
 
   it("100 Players: the car leaves full, 90 Jump, every page and chunk the planner sizes settles it to the Gema", { timeout: 600_000 }, async () => {

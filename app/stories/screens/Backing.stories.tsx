@@ -3,7 +3,7 @@ import { PublicKey } from "@solana/web3.js";
 import { userEvent, within } from "storybook/test";
 import Backing from "@/app/(app)/backing/page";
 import type { BackingBoard, ChainOffer, ChainRequest } from "@/lib/chain/backing";
-import type { GameId } from "@/lib/mock";
+import type { BackedGame } from "@/lib/backing/games";
 import { DEMO_ME } from "../support/data";
 import { demoKey, withScreen } from "./support/screen";
 
@@ -22,7 +22,7 @@ const pk = (n: number) => new PublicKey(demoKey(n));
 
 const at = (n: number) => demoKey(600 + n);
 
-function request(n: number, game: GameId, entry: number, o: Partial<ChainRequest> = {}): ChainRequest {
+function request(n: number, game: BackedGame, entry: number, o: Partial<ChainRequest> = {}): ChainRequest {
   return {
     address: pk(n),
     nonce: BigInt(n),
@@ -38,7 +38,7 @@ function request(n: number, game: GameId, entry: number, o: Partial<ChainRequest
   };
 }
 
-function offer(n: number, game: GameId, entry: number, o: Partial<ChainOffer> = {}): ChainOffer {
+function offer(n: number, game: BackedGame, entry: number, o: Partial<ChainOffer> = {}): ChainOffer {
   return {
     address: pk(n),
     nonce: BigInt(n),
@@ -170,4 +170,42 @@ export const RequestNoLongerOpen: Story = {
     data: { board: board([request(933, "block-puzzle", 500, { player: demoKey(733), status: "cancelled", live: false })]) },
     screen: { hash: demoKey(933) },
   },
+};
+
+// ---- Railcar (ticket 13): 500 Gemas, one seat per Backer per car ------------------------------------------------------
+
+/** Another Player's Railcar Request on the board. */
+const RAILCAR_REQUEST = request(961, "railcar", 500, { player: demoKey(704), record: { matches: 14, wins: 8 } });
+
+/** A Railcar Request among the head-to-head ones. */
+export const RailcarRequestOnTheBoard: Story = { parameters: { data: { board: board([RAILCAR_REQUEST]) } } };
+
+/** Making an Offer on a Railcar Request: a place, an early Jump and Impact, by the worked example. */
+export const OfferDrawerRailcar: Story = { parameters: { data: { board: board([RAILCAR_REQUEST]) }, screen: { hash: pk(961).toBase58() } } };
+
+export const OfferDrawerRailcarPhone: Story = { ...OfferDrawerRailcar, globals: { viewport: { value: "phone360", isRotated: false } } };
+
+/** Your accepted Railcar Backing: Board Railcar takes Bob's 500 into the car. */
+export const BackedReadyToRideRailcar: Story = {
+  parameters: {
+    data: {
+      board: board(
+        [request(962, "railcar", 500, { status: "accepted", live: false })],
+        [offer(963, "railcar", 500, { backer: demoKey(703), status: "accepted", shareBps: 4000, player: DEMO_ME, request: pk(962).toBase58(), useBy: now() + 5 * HOUR })],
+      ),
+    },
+  },
+};
+
+/** As the Backer: a Railcar Offer waiting, and one that boarded. */
+export const MyBackingsRailcar: Story = {
+  parameters: {
+    data: {
+      board: board([], [
+        offer(964, "railcar", 500, { request: at(1), shareBps: 4000 }),
+        offer(965, "railcar", 500, { status: "consumed", shareBps: 4000, player: demoKey(705), request: at(5) }),
+      ]),
+    },
+  },
+  play: tab("My Backings"),
 };
