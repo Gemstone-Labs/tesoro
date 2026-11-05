@@ -87,6 +87,8 @@ export type RailcarView =
       riders: Rider[];
       /** My seat number, null when not aboard. */
       mySeat: number | null;
+      /** The Backer funding my seat (core Account, base58); null for my own Gemas or no seat. */
+      myBacker: string | null;
       entry: bigint;
     }
   | {
@@ -100,8 +102,8 @@ export type RailcarView =
       /** Every entry in the car. */
       stake: bigint;
       entry: bigint;
-      /** Null for a spectator. */
-      me: { aboard: true } | { aboard: false; jumpMs: number; back: bigint } | null;
+      /** Null for a spectator. `backer`: a Backed seat's refund goes back to them. */
+      me: { aboard: true; backer?: string } | { aboard: false; jumpMs: number; back: bigint; backer?: string } | null;
     }
   | {
       phase: "result";
@@ -159,6 +161,7 @@ export function railcarView(f: RailcarFacts): RailcarView {
       leavesInSec: at === null ? null : Math.max(0, Math.ceil(at - f.nowMs / 1000)),
       riders,
       mySeat: riders.find((r) => r.me)?.seat ?? null,
+      myBacker: backerOfMine(f),
       entry,
     };
   }
@@ -174,9 +177,17 @@ export function railcarView(f: RailcarFacts): RailcarView {
     jumped: seated.filter((x) => x.s.order !== 0).map((x) => x.rider),
     stake: n * entry,
     entry,
-    me: !mine ? null : mine.s.order === 0 ? { aboard: true } : { aboard: false, jumpMs: mine.s.jumpMs, back: earlyBack(entry, mine.s.jumpMs) },
+    me: !mine ? null : { ...(mine.s.order === 0 ? { aboard: true as const } : { aboard: false as const, jumpMs: mine.s.jumpMs, back: earlyBack(entry, mine.s.jumpMs) }), ...withBacker(backerOfMine(f)) },
   };
 }
+
+/** The Backer of my seat, from the seat itself or the Backing this page boarded with. */
+function backerOfMine(f: RailcarFacts): string | null {
+  const s = f.me ? f.seats.find((x) => x.seated && x.player.toBase58() === f.me) : undefined;
+  if (s) return s.funder.equals(s.player) ? null : s.funder.toBase58();
+  return f.myBacking?.backer ?? null;
+}
+const withBacker = (backer: string | null) => (backer ? { backer } : {});
 
 /** Puts each Backed seat's split on its row, and the Player's own share (and the Backer's) on `mine`. */
 function withBackings(v: Extract<RailcarView, { phase: "result" }>, t: TableView, of: BackingOf): RailcarView {

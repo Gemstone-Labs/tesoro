@@ -12,23 +12,25 @@ import { AddressLookupTableAccount, ComputeBudgetProgram, Keypair, PublicKey, ty
 import { useCallback, useEffect, useRef, useState } from "react";
 import { accountOfSigner, keypairSigner, type ChainSigner } from "@/games/block-puzzle/chain";
 import { useAccount } from "@/lib/account";
-import { basketPda, countersPda, matchPda, settledPda, spillPda, sponsorPda as coreSponsorPda } from "@/lib/chain/basket";
+import { BackingError, backingProblem, fetchOffer, type ChainOffer } from "@/lib/chain/backing";
+import { countersPda, matchPda, settledPda } from "@/lib/chain/basket";
 import { getChain } from "@/lib/chain/client";
-import { drawRemaining, freshPot, nextMatchOf, previewEntry, readEntryStores, readNextTicket, sendEntryTx } from "@/lib/chain/entry";
+import { drawRemaining, freshPot, nextMatchOf, readNextTicket, sendEntryTx } from "@/lib/chain/entry";
 import { matchKeyOf } from "@/lib/chain/match-id";
-import { decodeSeatMark, joinSeatIx, seatMarkPda, stepOffIx } from "@/lib/chain/many-seat";
+import { joinSeatIx } from "@/lib/chain/many-seat";
 import { loadCar, type LoadedCar } from "@/lib/chain/many-seat-plan";
-import { decodeTicketHead } from "@/lib/chain/pot-store";
-import { connReader, fits, supplySources, type Reader } from "@/lib/chain/settle-plan";
+import { connReader, fits, type Reader } from "@/lib/chain/settle-plan";
 import { sponsorStatus, sponsoredSend } from "@/lib/chain/sponsor-client";
-import { prepareEntryTicket } from "@/lib/chain/ticket";
+import { prepareBackingTicket, prepareEntryTicket } from "@/lib/chain/ticket";
 import { seatKeys, type SeatKey } from "@/lib/seat/seat-key";
 import { countingFor } from "@/lib/seat/signature-counter";
 import { browserStore } from "@/lib/storage";
 import { ENTRY_GEMAS, RAILCAR_PROGRAM_ID, carPda, checkDepartureIx, commitTableIx, configPda, decodeCarAccount, decodeConfig, decodeTable, jumpIx, openCarIx, signalIx, startRideIx, tablePda, type RailcarConfigView, type TableView } from "./chain";
+import { backerSeatedIn, boardingEntry, stepOffFor, type BoardingBacking } from "./boarding";
 import { finishRide } from "./finish";
 import { mayFinish, nextRideStep, queueChoice, signalIntervalMs } from "./flow";
 import { boardingSigner, finishSender, joinSeatKey, jumpSigner } from "./signers";
+import type { RailcarOffer } from "./RailcarScreen";
 import { railcarView, type FeeRates, type RailcarView } from "./view";
 
 /** Railcar's fee terms (Platform 2%, Studio 3%) and core's Leaderboard Fee (1%), until the screen reads them from the Game record. */
@@ -45,6 +47,8 @@ interface MyCar {
   match: string;
   /** `<opener Account>-<n>`: the seat key's name. */
   matchKey: string;
+  /** Boarded with a Backer's Gemas: whose, and the Player's share of the winnings (the seat forgets them when it closes). */
+  backing?: { backer: string; shareBps: number };
 }
 const memoryKey = (account: string) => `railcar:car:${account}`;
 const remember = (account: string, car: MyCar | null) => {
@@ -72,9 +76,11 @@ interface Snapshot {
   base: TableView | null;
   previousFrozen: boolean;
   mine: boolean;
+  /** The Offer's Backer holds a mark in the car shown (core would refuse the backed join there). */
+  backerSeated: boolean;
 }
 
-async function readSnapshot(read: Reader, tee: () => Promise<Connection | null>, me: PublicKey | null, my: MyCar | null): Promise<Snapshot> {
+async function readSnapshot(read: Reader, tee: () => Promise<Connection | null>, me: PublicKey | null, my: MyCar | null, backer: PublicKey | null): Promise<Snapshot> {
   const [cfgInfo] = await read.many([configPda()]);
   const config = cfgInfo ? decodeConfig(cfgInfo.data) : null;
   let car: Snapshot["car"] = my ? { carNo: BigInt(my.carNo), table: my.table, match: new PublicKey(my.match) } : null;
@@ -86,9 +92,10 @@ async function readSnapshot(read: Reader, tee: () => Promise<Connection | null>,
       car = { carNo, table: c.table, match: c.tesoroMatch };
     }
   }
-  if (!car) return { config, car: null, loaded: null, rollup: null, base: null, previousFrozen: false, mine: false };
+  if (!car) return { config, car: null, loaded: null, rollup: null, base: null, previousFrozen: false, mine: false, backerSeated: false };
   const loaded = await loadCar(read, car.match);
   const mine = !!me && !!loaded?.seats.some((s) => s.seated && s.player.equals(me));
+  const backerSeated = !!backer && !mine && loaded?.car.stage === "boarding" && (await backerSeatedIn(read, car.match, backer));
   let rollup: TableView | null = null;
   let base: TableView | null = null;
   let previousFrozen = false;
@@ -100,7 +107,7 @@ async function readSnapshot(read: Reader, tee: () => Promise<Connection | null>,
     rollup = info ? decodeTable(info.data) : null;
     if (rollup && rollup.carNo !== car.carNo && rollup.phase === "over") previousFrozen = !!(await read.many([settledPda(rollup.tesoroMatch)]))[0];
   }
-  return { config, car, loaded, rollup, base, previousFrozen, mine };
+  return { config, car, loaded, rollup, base, previousFrozen, mine, backerSeated };
 }
 
 export interface RailcarPage {
@@ -108,13 +115,18 @@ export interface RailcarPage {
   busy: string | null;
   error: string | null;
   signedIn: boolean;
+  /** The accepted Offer this page boards with (`?backing=`), null without one. */
+  offer: RailcarOffer | null;
+  /** The `?backing=` Offer has been used (this page boarded with it): the page drops it from its address. */
+  offerSpent: boolean;
   board(): Promise<void>;
   stepOff(): Promise<void>;
   jump(): Promise<void>;
   playAgain(): void;
 }
 
-export function useRailcar(): RailcarPage {
+/** `offerAddress`: an accepted Offer to board with, from `/play/railcar?backing=<offer>`. */
+export function useRailcar(offerAddress: string | null = null): RailcarPage {
   const { auth } = useAccount();
   const wallet: ChainSigner | null = auth.signer ?? null;
   const getToken = auth.getAccessToken;
@@ -129,6 +141,31 @@ export function useRailcar(): RailcarPage {
   const pageKey = useRef<ChainSigner>(keypairSigner(Keypair.generate()));
   const stepping = useRef(false);
   const read = useRef<Reader | null>(null);
+  // The Offer as the chain has it (undefined until read; null when it does not exist).
+  const [offer, setOffer] = useState<ChainOffer | null | undefined>(undefined);
+  // Read again after every action: boarding or a step-off uses the Offer.
+  const [offerReads, setOfferReads] = useState(0);
+  useEffect(() => {
+    if (!offerAddress) return;
+    let live = true;
+    let key: PublicKey;
+    try {
+      key = new PublicKey(offerAddress);
+    } catch {
+      setOffer(null);
+      return;
+    }
+    void fetchOffer(key)
+      .catch(() => null)
+      .then((o) => live && setOffer(o));
+    return () => {
+      live = false;
+    };
+  }, [offerAddress, offerReads]);
+  // Judged once the Offer is read and, for one that exists, once the Player's Account is known.
+  const offerProblem = offerAddress && offer !== undefined && (offer === null || meKey) ? backingProblem(offer, { account: meKey ?? "", game: "railcar", entry: ENTRY_GEMAS, now: Math.floor(Date.now() / 1000) }) : null;
+  const backing: BoardingBacking | null = offer && !offerProblem ? { offer: offer.address, backerAccount: new PublicKey(offer.backer) } : null;
+  const backerKey = backing?.backerAccount.toBase58() ?? null;
 
   const tee = useCallback(async () => {
     try {
@@ -140,10 +177,10 @@ export function useRailcar(): RailcarPage {
 
   const refresh = useCallback(async () => {
     read.current ??= connReader(getChain().base);
-    const s = await readSnapshot(read.current, tee, me, meKey ? recall(meKey) : null);
+    const s = await readSnapshot(read.current, tee, me, meKey ? recall(meKey) : null, backerKey ? new PublicKey(backerKey) : null);
     setSnap(s);
     return s;
-  }, [me, meKey, tee]);
+  }, [me, meKey, tee, backerKey]);
 
   // The seat key this device holds for the Player's car (made at boarding).
   const myMatchKey = meKey ? (recall(meKey)?.matchKey ?? null) : null;
@@ -263,6 +300,7 @@ export function useRailcar(): RailcarPage {
         setError(e instanceof Error ? e.message.split("\n")[0] : "That did not go through. Try again.");
       } finally {
         setBusy(null);
+        setOfferReads((n) => n + 1);
       }
     },
     [refresh],
@@ -276,7 +314,8 @@ export function useRailcar(): RailcarPage {
         const s = await refresh();
         if (!s.config) throw new Error("Railcar is not open yet.");
         const loaded = s.car && !s.mine ? s.loaded : null;
-        const choice = queueChoice({ config: s.config, boarding: loaded && s.car ? { car: loaded.car, carNo: s.car.carNo, pages: loaded.pages } : null, now: Math.floor(Date.now() / 1000), mine: s.mine });
+        if (offerAddress && offerProblem) throw new BackingError(offerProblem);
+        const choice = queueChoice({ config: s.config, boarding: loaded && s.car ? { car: loaded.car, carNo: s.car.carNo, pages: loaded.pages } : null, now: Math.floor(Date.now() / 1000), mine: s.mine, backerSeated: s.backerSeated });
         if (choice.kind === "seated") return;
         if (choice.kind === "backer-seated") throw new Error("Your Backer is in this car: board the next one.");
         // The car's Match key names the seat key: the boarding car's opener and number, or the Player's own next Match.
@@ -285,14 +324,15 @@ export function useRailcar(): RailcarPage {
         const key = choice.kind === "join" ? matchKeyOf({ opener: loaded!.car.opener.toBase58(), n: loaded!.car.n }) : matchKeyOf({ opener: me.toBase58(), n });
         countingFor(key);
         const seatKey = await seatKeys().forMatch(key, wallet.publicKey);
-        // An entry of more lines than one transaction draws is staged in an Entry Ticket first.
-        const stores = await readEntryStores(me);
-        const preview = previewEntry(stores, BigInt(ENTRY_GEMAS));
-        const ticket = preview.needsTicket ? await prepareEntryTicket({ signer: wallet, seat: seatKey, getToken, game: RAILCAR_PROGRAM_ID, entry: BigInt(ENTRY_GEMAS), lines: preview.ticketLines }) : null;
+        // The entry draws the Player's Gemas, or under a Backing the Backer's. More lines than one transaction draws are staged
+        // in an Entry Ticket (a Backing Ticket for the Backer's) first.
+        const { funder, preview } = await boardingEntry(chain.base, me, backing ?? undefined);
+        const staging = { signer: wallet, seat: seatKey, getToken, game: RAILCAR_PROGRAM_ID, entry: BigInt(ENTRY_GEMAS), lines: preview.ticketLines };
+        const ticket = !preview.needsTicket ? null : backing ? await prepareBackingTicket({ ...staging, ...backing }) : await prepareEntryTicket(staging);
         const remaining = ticket ? [] : await drawRemaining(preview.plan);
         const build = async (payer: PublicKey, sponsored: boolean) => {
-          const pot = ticket ? { address: ticket.address, nonce: ticket.nonce, lines: ticket.lineCap } : freshPot(me, preview.potLines, await readNextTicket(me));
-          const join = joinSeatIx({ payer, player: wallet.publicKey, car: match, game: RAILCAR_PROGRAM_ID, page: choice.kind === "join" ? choice.page : 0, pot, remaining, seatSigner: joinSeatKey(seatKey) });
+          const pot = ticket ? { address: ticket.address, nonce: ticket.nonce, lines: ticket.lineCap } : freshPot(funder, preview.potLines, await readNextTicket(funder));
+          const join = joinSeatIx({ payer, player: wallet.publicKey, car: match, game: RAILCAR_PROGRAM_ID, page: choice.kind === "join" ? choice.page : 0, pot, backing: backing ?? undefined, remaining, seatSigner: joinSeatKey(seatKey) });
           const ixs: TransactionInstruction[] = sponsored ? [] : [ComputeBudgetProgram.setComputeUnitLimit({ units: SELF_PAID_UNITS })];
           if (choice.kind === "join") ixs.push(join, checkDepartureIx(choice.carNo, match));
           else {
@@ -304,10 +344,10 @@ export function useRailcar(): RailcarPage {
         // The one wallet signature of the ride (the seat key co-signs once core names seat keys); the relayer pays.
         await sendEntryTx(boardingSigner(wallet, seatKey), getToken, build);
         const carNo = choice.carNo;
-        remember(meKey, { carNo: carNo.toString(), table: Number(carNo % BigInt(s.config.tables)), match: match.toBase58(), matchKey: key });
+        remember(meKey, { carNo: carNo.toString(), table: Number(carNo % BigInt(s.config.tables)), match: match.toBase58(), matchKey: key, ...(backing && offer ? { backing: { backer: offer.backer, shareBps: offer.shareBps } } : {}) });
         setSeat(seatKey);
       }),
-    [act, wallet, me, meKey, getToken, refresh],
+    [act, wallet, me, meKey, getToken, refresh, backing, offer, offerAddress, offerProblem],
   );
 
   const stepOff = useCallback(
@@ -316,12 +356,8 @@ export function useRailcar(): RailcarPage {
         if (!wallet || !me || !meKey || !snap?.loaded) return;
         const s = snap.loaded.seats.find((x) => x.seated && x.player.equals(me));
         if (!s) return;
-        const r = read.current!;
-        const [mark, pot, sponsor] = await r.many([seatMarkPda(snap.loaded.car.address, me), s.pot, coreSponsorPda()]);
-        if (!mark || !pot) throw new Error("Your seat could not be read. Try again.");
-        const books = await supplySources(getChain().core, r, (snap.loaded.lines[s.index] ?? []).map((l) => ({ source: l.source, cut: false })));
-        const remaining = [basketPda(s.funder), spillPda(s.funder)].map((k) => ({ pubkey: k, isSigner: false, isWritable: true }));
-        const ix = stepOffIx({ caller: wallet.publicKey, car: snap.loaded.car.address, seat: s, markPayer: decodeSeatMark(mark.data).payer, potPayer: decodeTicketHead(pot.data).payer, sponsor: !!sponsor, remaining: [...remaining, ...books.metas] });
+        // A Backed seat's lines go home to the Backer; the Offer stays used, so the Player asks again to ride backed.
+        const ix = await stepOffFor(getChain().core, read.current!, { caller: wallet.publicKey, loaded: snap.loaded, seat: s });
         // Stepping off is the Player's own exit: the wallet signs it, the relayer pays when it can.
         await sponsoredSend(wallet, getToken, [ix]).catch(() => getChain().sendBase(wallet, [ComputeBudgetProgram.setComputeUnitLimit({ units: SELF_PAID_UNITS }), ix]));
         remember(meKey, null);
@@ -346,11 +382,14 @@ export function useRailcar(): RailcarPage {
     void refresh();
   }, [meKey, refresh]);
 
+  const my = meKey ? recall(meKey) : null;
+  const myBacking = my && snap?.car && my.match === snap.car.match.toBase58() ? (my.backing ?? null) : null;
   const view =
     snap?.loaded && snap.car
-      ? railcarView({ me: meKey, core: snap.loaded.car, seats: snap.loaded.seats, table: snap.rollup && snap.rollup.carNo === snap.car.carNo ? snap.rollup : snap.base && snap.base.carNo === snap.car.carNo ? snap.base : null, fees: FEES, nowMs: now })
+      ? railcarView({ me: meKey, core: snap.loaded.car, seats: snap.loaded.seats, table: snap.rollup && snap.rollup.carNo === snap.car.carNo ? snap.rollup : snap.base && snap.base.carNo === snap.car.carNo ? snap.base : null, fees: FEES, nowMs: now, myBacking })
       : null;
-  return { view, busy, error, signedIn: !!wallet, board, stepOff, jump, playAgain };
+  const shownOffer: RailcarOffer | null = !offerAddress || offer === undefined ? null : offer && !offerProblem ? { backer: offer.backer, sharePct: offer.shareBps / 100, ...(snap?.backerSeated ? { blocked: "Your Backer is in this car: board the next one" } : {}) } : offer ? { backer: offer.backer, sharePct: offer.shareBps / 100, blocked: new BackingError(offerProblem ?? "missing").message } : null;
+  return { view, busy, error: error ?? (offerAddress && offer === null ? new BackingError("missing").message : null), signedIn: !!wallet, offer: shownOffer, offerSpent: offer?.status === "consumed", board, stepOff, jump, playAgain };
 }
 
 /** A share of the finish (finalize, room, chunks, closes) through the relayer, sized against the server's lookup tables. */

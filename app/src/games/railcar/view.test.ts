@@ -189,3 +189,21 @@ describe("a Backed seat on the result: the Backer's entry back first, the Player
     expect(v.mine).toMatchObject({ gets: 0n, backer: { account: bob.toBase58(), gets: 350n } });
   });
 });
+
+describe("a Backed Player before the result: where the Backer's Gemas go", () => {
+  const bob = key();
+  const backed = seats.map((s) => (s.index === 1 ? { ...s, funder: bob, shareBps: 4_000 } : s));
+
+  it("boarding: Ben's seat names Bob, so a step-off says Bob's 500 go back to Bob", () => {
+    const v = railcarView({ me: ben.toBase58(), core: coreCar({ seated: 5 }), seats: backed, table: null, fees: FEES, nowMs: T0 * 1000 });
+    expect(v.phase === "boarding" && v.myBacker).toBe(bob.toBase58());
+    const own = railcarView({ me: ana.toBase58(), core: coreCar({ seated: 5 }), seats: backed, table: null, fees: FEES, nowMs: T0 * 1000 });
+    expect(own.phase === "boarding" && own.myBacker).toBeNull();
+  });
+
+  it("riding: after Ben's early Jump the refund is Bob's", () => {
+    const t = table({ aboard: 4, jumps: 1, seats: players.map((_, i) => (i === 1 ? rideSeat(1, 1, 25_000) : rideSeat(i, 0, 0))) });
+    const v = railcarView({ me: ben.toBase58(), core: coreCar({ stage: "departed" }), seats: backed, table: t, fees: FEES, nowMs: (T0 + 70) * 1000 });
+    expect(v.phase === "ride" && v.me).toEqual({ aboard: false, jumpMs: 25_000, back: 350n, backer: bob.toBase58() });
+  });
+});
