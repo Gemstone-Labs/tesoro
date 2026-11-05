@@ -3315,7 +3315,6 @@ fn a_player_on_a_break_cannot_ask_to_be_backed_or_be_backed() {
                 player_account: b.dave.account,
                 protections: protections_pda(b.dave.account),
                 request: request_pda(b.dave.account, nonce),
-                backer_protections: Some(protections_pda(b.carol.account)),
                 system_program: anchor_lang::system_program::ID,
             },
             instruction::CreateRequest {
