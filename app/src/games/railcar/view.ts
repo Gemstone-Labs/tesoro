@@ -206,7 +206,7 @@ function withBackings(v: Extract<RailcarView, { phase: "result" }>, t: TableView
 /** What an early Jump gets back: the published schedule at the Jump's position (no Brakes yet: position = ride time). */
 const earlyBack = (entry: bigint, jumpMs: number) => scheduleRefund(entry, jumpMs);
 
-function resultOf(t: TableView, me: string | null, rates: FeeRates, core: CarView | null): RailcarView {
+function resultOf(t: TableView, me: string | null, rates: FeeRates, core: CarView | null): Extract<RailcarView, { phase: "result" }> {
   const entry = t.entry;
   const rider = (i: number) => {
     const s = t.seats[i];
