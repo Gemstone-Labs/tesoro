@@ -9,7 +9,7 @@
  *   sponsor    init_sponsor (--relayer <pubkey>), set_accounts_cap, set_profiles_cap, then funds the Sponsor PDA (--fund-sol)
  *   stores     init_stores for the system Accounts that predate baskets (platform recipient, Pool, Treasury)
  *   tables     set_config / set_table_config of the four Games (TableConfig: operator = --operator, generation, max tables)
- *   retire-offers  closes every OfferState that is not the current 174-byte layout (retire_offer takes any other length)
+ *   retire-offers  closes every OfferState of an old layout: neither the current 182 bytes nor the 174 bytes `grow-offers.ts` grows (retire_offer takes any other length)
  *   status     prints what exists
  */
 import anchor from "@coral-xyz/anchor";
@@ -99,7 +99,7 @@ if (step === "economy") {
 } else if (step === "retire-offers") {
   const reader = new Connection(a.value("read-rpc") ?? "https://api.devnet.solana.com", "confirmed");
   const all = await reader.getProgramAccounts(core);
-  const offers = all.filter((x) => x.account.data.length >= 8 && x.account.data.length !== 174 && Buffer.from(x.account.data.subarray(0, 8)).equals(Buffer.from(createHash("sha256").update("account:OfferState").digest().subarray(0, 8))));
+  const offers = all.filter((x) => x.account.data.length >= 8 && x.account.data.length !== 182 && x.account.data.length !== 174 && Buffer.from(x.account.data.subarray(0, 8)).equals(Buffer.from(createHash("sha256").update("account:OfferState").digest().subarray(0, 8))));
   console.log(`${offers.length} old Offers`);
   for (const o of offers) await send(`retire_offer ${o.pubkey.toBase58()} (${o.account.data.length} B)`, [coreIx(core, "retire_offer", { admin: deployer.publicKey, config: configPda(core), offer: o.pubkey })]);
 } else if (step === "status") {

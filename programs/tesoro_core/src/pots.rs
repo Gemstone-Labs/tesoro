@@ -30,7 +30,7 @@
 //! | 136 | reserved_left u64 (Backing: reservation not yet staged) |
 //! | 144 | sponsored_lamports u64 (rent the sponsor fronted, returned to it first) |
 //! | 152 | signer [32] (the seat key that co-signed `open_ticket`; may stage and cancel an Entry Ticket) |
-//! | 184 | reserved, 8 bytes |
+//! | 184 | counted_in i64 (a Pot: start of the funder's Entry Limit period the entry counted in, 0 = none) |
 
 use crate::error::TesoroError;
 use crate::ledger::draw::{PotBacking, PotPages, Ticket, TicketKind, TicketState};
@@ -67,8 +67,19 @@ const H_SPILL_ROOM: usize = 132;
 const H_RESERVED_LEFT: usize = 136;
 const H_SPONSORED: usize = 144;
 const H_SIGNER: usize = 152;
+const H_COUNTED: usize = 184;
 /// Where the seat key sits in the Ticket head (tests and decoders).
 pub const SIGNER_AT: usize = H_SIGNER;
+
+/// The start of the Entry Limit period a Pot's entry counted in on its funder (0: nothing counted).
+/// Only `open_match` and `join_match` write it, after the entry is in; every head starts zeroed.
+pub fn counted_in(head: &[u8]) -> i64 {
+    i64::from_le_bytes(arr(&head[H_COUNTED..H_COUNTED + 8]))
+}
+
+pub fn set_counted_in(head: &mut [u8], period: i64) {
+    head[H_COUNTED..H_COUNTED + 8].copy_from_slice(&period.to_le_bytes());
+}
 
 /// Bytes of a Ticket account with `lines` lines.
 pub fn ticket_len(lines: usize) -> usize {
