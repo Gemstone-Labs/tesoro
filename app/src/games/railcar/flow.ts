@@ -116,3 +116,15 @@ export function mayFinish(t: TableView, me: PublicKey): boolean {
   if (t.outcome === "refund") return true;
   return s.refund > 0n || t.places.some((p) => p !== NO_SEAT && p === s.tableSeat);
 }
+
+/** How long after the wall a Spectator still sees the ride's Result. */
+export const RESULT_LINGER_SECS = 60;
+
+/**
+ * The ride a Spectator watches (anyone not in a car of their own): the newest car riding or waiting for its draw, or one
+ * whose wall came less than a minute ago (its Result). Null when none: the page shows the boarding car.
+ */
+export function watchedRide(tables: TableView[], now: number): TableView | null {
+  const shown = tables.filter((t) => t.phase === "riding" || t.phase === "drawing" || (t.phase === "over" && now - t.overAt < RESULT_LINGER_SECS));
+  return shown.reduce<TableView | null>((best, t) => (!best || t.carNo > best.carNo ? t : best), null);
+}

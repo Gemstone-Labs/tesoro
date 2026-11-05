@@ -26,6 +26,14 @@ export interface RailcarActions {
   onPlayAgain?: () => void;
   onShare?: () => void;
   onAddFriend?: (account: string) => void;
+  /** A signed-out Spectator's way in before boarding. */
+  onSignIn?: () => void;
+}
+
+/** Someone watching a car they are not in: whether they can board now, and how many have boarded the next car (null: none yet). */
+export interface RailcarWatch {
+  signedIn: boolean;
+  nextSeated: number | null;
 }
 
 export interface RailcarBrake {
@@ -40,8 +48,8 @@ export interface RailcarBrake {
  * The one Railcar screen. Boarding and the Ride share the stage, so when the car leaves the layout turns into the Ride in
  * place: no navigation, no loading, the car starts rolling right. The Result follows. `busy` names the step being sent.
  */
-export function RailcarScreen({ view, actions = {}, busy = null, error = null, brake = null }: { view: RailcarView; actions?: RailcarActions; busy?: string | null; error?: string | null; brake?: RailcarBrake | null }) {
-  if (view.phase === "result") return <RailcarResult view={view} actions={actions} />;
+export function RailcarScreen({ view, actions = {}, busy = null, error = null, brake = null, watch = null }: { view: RailcarView; actions?: RailcarActions; busy?: string | null; error?: string | null; brake?: RailcarBrake | null; watch?: RailcarWatch | null }) {
+  if (view.phase === "result") return <RailcarResult view={view} actions={actions} watch={watch} />;
   const riding = view.phase === "ride";
   const aboard = riding ? view.aboard : view.riders;
   const meAboard = riding ? view.me?.aboard === true : view.mySeat !== null;
@@ -50,6 +58,12 @@ export function RailcarScreen({ view, actions = {}, busy = null, error = null, b
       <Header entry={view.entry} />
       {riding ? (
         <div className="rc-top" key="ride">
+          {watch && (
+            <span className="cut cut-chip rc-live">
+              <i aria-hidden="true" />
+              Live
+            </span>
+          )}
           <p className="rc-clock mono" role="timer" aria-label={`Ride time ${clock(view.clockMs)}`}>
             {clock(view.clockMs)}
           </p>
@@ -101,7 +115,9 @@ export function RailcarScreen({ view, actions = {}, busy = null, error = null, b
       <Riders riders={aboard} label={riding ? `Aboard ${aboard.length}` : "Aboard"} note={riding ? "Names leave when they Jump" : undefined} />
       {!riding && view.mySeat !== null && <p className="cut cut-card rc-seat">Your seat {view.mySeat}</p>}
       <div className="rc-acts">
-        {riding ? (
+        {riding && watch && !view.me ? (
+          <NextRide watch={watch} actions={actions} busy={busy} />
+        ) : riding ? (
           view.me?.aboard ? (
             <>
               <Button variant="money" size="lg" block onClick={actions.onJump} disabled={!!busy}>
@@ -149,6 +165,21 @@ export function RailcarScreen({ view, actions = {}, busy = null, error = null, b
         </p>
       )}
     </section>
+  );
+}
+
+/** A Spectator's way into the next car: board it (signed in) or sign in first. */
+function NextRide({ watch, actions, busy }: { watch: RailcarWatch; actions: RailcarActions; busy?: string | null }) {
+  return (
+    <>
+      <Button variant="money" size="lg" block onClick={watch.signedIn ? actions.onBoard : actions.onSignIn} disabled={!!busy}>
+        {busy === "board" ? "Boarding…" : "Play the next ride"}
+      </Button>
+      <p className="rc-caption">
+        {watch.nextSeated === null ? "Boarding next: no car yet, you open it" : `Boarding next: ${watch.nextSeated} aboard`}
+        {!watch.signedIn && <> · Sign in to board</>}
+      </p>
+    </>
   );
 }
 
@@ -205,7 +236,7 @@ function Riders({ riders, label, note }: { riders: Rider[]; label: string; note?
 
 // ---- Result (re1 Podium) -------------------------------------------------------------------------------------------
 
-function RailcarResult({ view, actions }: { view: Extract<RailcarView, { phase: "result" }>; actions: RailcarActions }) {
+function RailcarResult({ view, actions, watch }: { view: Extract<RailcarView, { phase: "result" }>; actions: RailcarActions; watch: RailcarWatch | null }) {
   const places = view.rows.filter((r) => r.kind === "place");
   const rest = view.rows.filter((r) => r.kind !== "place");
   const mine = view.mine;
@@ -262,9 +293,15 @@ function RailcarResult({ view, actions }: { view: Extract<RailcarView, { phase: 
         )}
       </ul>
       <div className="rc-res-acts">
-        <Button variant="money" size="lg" block onClick={actions.onPlayAgain}>
-          Play again
-        </Button>
+        {watch && !mine ? (
+          <Button variant="money" size="lg" block onClick={watch.signedIn ? actions.onBoard : actions.onSignIn}>
+            Play the next ride
+          </Button>
+        ) : (
+          <Button variant="money" size="lg" block onClick={actions.onPlayAgain}>
+            {mine ? "Play again" : "Play Railcar"}
+          </Button>
+        )}
         <Button size="lg" block onClick={actions.onShare}>
           Share
         </Button>

@@ -20,6 +20,9 @@
 .rc-count-sub { color: var(--fg-2); font-size: var(--fs-13); text-align: center; }
 .rc-aboard-n { margin: 0; padding: 6px 16px; background: var(--raised); color: var(--fg-2); font-size: var(--fs-14); }
 .rc-aboard-n strong { color: var(--fg); font: 800 var(--fs-18) / 1.2 var(--f-display); letter-spacing: 0.04em; text-transform: uppercase; margin-right: 4px; }
+.rc-live { display: inline-flex; align-items: center; gap: 7px; padding: 4px 12px; background: var(--raised); font: 700 var(--fs-13) / 1.2 var(--f-body); letter-spacing: 0.06em; text-transform: uppercase; }
+.rc-live i { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); animation: rc-pulse 1.4s ease-in-out infinite; }
+@keyframes rc-pulse { 50% { opacity: 0.35; } }
 .rc-clock { margin: 0; font: 800 54px / 1 var(--f-mono); letter-spacing: 0.02em; }
 .rc-tells { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; width: 100%; margin: 0; padding: 0; list-style: none; }
 .rc-tell { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 7px 4px; background: var(--raised); color: var(--fg-3); font: 700 var(--fs-12) / 1.2 var(--f-body); letter-spacing: 0.04em; text-transform: uppercase; transition: color 0.3s, background 0.3s; }
@@ -139,6 +142,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rc-top, .rc-rider { animation: none; }
+  .rc-top, .rc-rider, .rc-live i { animation: none; }
   .rc-tell { transition: none; }
 }
