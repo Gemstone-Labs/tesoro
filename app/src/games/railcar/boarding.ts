@@ -15,8 +15,6 @@ import { ENTRY_GEMAS } from "./chain";
 /** An accepted Offer the Player boards with: the Backer's Account funds the entry, from the Backing Ticket it opened. */
 export interface BoardingBacking {
   offer: PublicKey;
-  /** The Offer's nonce: its Backing Ticket records it. */
-  offerNonce: bigint;
   backerAccount: PublicKey;
 }
 

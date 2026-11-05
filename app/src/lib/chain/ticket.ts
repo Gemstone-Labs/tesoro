@@ -10,7 +10,8 @@
  * transaction; the accepted Offer is the Backer's consent.
  */
 import { PublicKey, SystemProgram, type AccountMeta, type Connection, type TransactionInstruction } from "@solana/web3.js";
-import { BN } from "@coral-xyz/anchor";
+import { BN, BorshAccountsCoder, type Idl } from "@coral-xyz/anchor";
+import coreIdl from "./idl/tesoro_core.json";
 import { accountOfSigner, BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import { cosigned, ticketSteps } from "@/lib/seat/cosigned";
 import type { SeatKey } from "@/lib/seat/seat-key";
@@ -60,8 +61,6 @@ export interface TicketView {
   reservedLeft: bigint;
   /** The staged lines, in key order. */
   stagedLines: Line[];
-  /** A Backing Ticket: the nonce of the Offer that opened it. */
-  offerNonce: bigint;
 }
 
 /** Decodes a Ticket / Pot account's data: its head (`decodeTicketHead`, layout in pots.rs) and its line store. */
@@ -87,7 +86,6 @@ export function decodeTicket(address: PublicKey, data: Uint8Array): TicketView {
     lines: store.header.len,
     reservedLeft: dv.getBigUint64(136, true),
     stagedLines: store.lines,
-    offerNonce: f.offerNonce,
   };
 }
 
@@ -352,35 +350,28 @@ export async function prepareBackingTicket(
  * new one (`prepareBackingTicket`: the wallet signs its opening). It is opened at the entry, not at the acceptance, so
  * the Backer's one Backing Ticket is held for seconds, never while a Player waits to play.
  */
-export async function readyBackingTicket(a: PrepareArgs & { backerAccount: PublicKey; offer: PublicKey; offerNonce: bigint }): Promise<TicketView> {
-  const open = await findBackingTicket(getChain().base, a.backerAccount, a.offerNonce);
+export async function readyBackingTicket(a: PrepareArgs & { backerAccount: PublicKey; offer: PublicKey }): Promise<TicketView> {
+  const open = await backingTicketOf(getChain().base, a.offer, a.backerAccount);
   return open ? restage(a.signer, a.getToken, open, a.onProgress, a.seat) : prepareBackingTicket(a);
 }
 
-/** How far back from the Backer's `next_ticket` an Offer's open Backing Ticket is looked for. */
-const BACKING_TICKET_LOOKBACK = 16;
+const offerCoder = new BorshAccountsCoder(coreIdl as unknown as Idl);
 
-/**
- * The open Backing Ticket the Offer of nonce `offerNonce` opened on `backerAccount`, if any: one read of the Backer's last
- * Ticket addresses (a Backer has at most one Backing Ticket open, the one its newest Ticket number names, unless the
- * Backer entered Matches since).
- */
-export async function findBackingTicket(conn: Pick<Connection, "getMultipleAccountsInfo">, backerAccount: PublicKey, offerNonce: bigint): Promise<TicketView | null> {
-  const next = await readNextTicket(backerAccount, conn);
-  const nonces: bigint[] = [];
-  for (let n = next - 1n; n >= 0n && nonces.length < BACKING_TICKET_LOOKBACK; n--) nonces.push(n);
-  const infos = nonces.length ? await conn.getMultipleAccountsInfo(nonces.map((n) => ticketPda(backerAccount, n)), "confirmed") : [];
-  for (let i = 0; i < nonces.length; i++) {
-    const info = infos[i];
-    if (!info) continue;
-    try {
-      const t = decodeTicket(ticketPda(backerAccount, nonces[i]), info.data);
-      if (t.kind === "backing" && t.state === "open" && t.offerNonce === offerNonce) return t;
-    } catch {
-      // not a Ticket in the current layout
-    }
+/** The open Backing Ticket the Offer opened, if any: the Offer names it (`ticket_open`, `ticket_nonce`). */
+export async function backingTicketOf(conn: Pick<Connection, "getMultipleAccountsInfo">, offer: PublicKey, backerAccount: PublicKey): Promise<TicketView | null> {
+  const [info] = await conn.getMultipleAccountsInfo([offer], "confirmed");
+  if (!info) return null;
+  const o = offerCoder.decode("OfferState", Buffer.from(info.data)) as { inner: { ticket_open: boolean; ticket_nonce: { toString(): string } | null } };
+  if (!o.inner.ticket_open || o.inner.ticket_nonce == null) return null;
+  const address = ticketPda(backerAccount, BigInt(o.inner.ticket_nonce.toString()));
+  const [ticket] = await conn.getMultipleAccountsInfo([address], "confirmed");
+  if (!ticket) return null;
+  try {
+    const t = decodeTicket(address, ticket.data);
+    return t.kind === "backing" && t.state === "open" ? t : null;
+  } catch {
+    return null;
   }
-  return null;
 }
 
 /** Cancels a Ticket: returns the staged lines in batches until it is Cancelled, then closes it (rent back to whoever paid). */

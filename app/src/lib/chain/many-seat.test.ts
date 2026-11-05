@@ -221,6 +221,21 @@ describe("many-seat instructions name the accounts the program checks", () => {
     expect(plain.funder_spill).toBeNull();
   });
 
+  it("the Entry Limit count goes back to the funder: a backed step-off and every close name the funder's Protections", () => {
+    const protections = (a: PublicKey) => PublicKey.findProgramAddressSync([Buffer.from("protections"), a.toBuffer()], TESORO_CORE)[0];
+    const ana = key();
+    const backer = key();
+    const backed = seatOf({ player: ana, funder: backer });
+    const off = named(stepOffIx({ caller: ana, car, seat: backed, markPayer: ana, potPayer: ana, sponsor: false }), "step_off_many_seat_match");
+    expect(off.funder_protections?.equals(protections(backer))).toBe(true);
+    const own = seatOf({ player: ana, funder: ana });
+    const ownOff = named(stepOffIx({ caller: ana, car, seat: own, markPayer: ana, potPayer: ana, sponsor: false }), "step_off_many_seat_match");
+    // an unbacked seat's count is the Player's, released through `player_protections`
+    expect(ownOff.funder_protections).toBeNull();
+    const close = named(closeSeatIx({ caller: ana, car, seat: backed, markPayer: ana, potPayer: ana, sponsor: false }), "close_many_seat");
+    expect(close.funder_protections?.equals(protections(backer))).toBe(true);
+  });
+
   it("a join with an Offer names the Backer's stores and the Backer's mark in this car", () => {
     const wallet = key();
     const backerAccount = key();

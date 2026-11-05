@@ -92,8 +92,6 @@ export interface TicketFacts {
   spillRoom: number;
   /** The seat key that co-signed `open_ticket` (the default key for a Pot made by a direct draw). */
   signer: PublicKey;
-  /** A Backing Ticket: the nonce of the Offer that opened it (with `account`, the Offer's address). */
-  offerNonce: bigint;
 }
 
 /** The head of a Ticket account (offsets in programs/tesoro_core/src/pots.rs). */
@@ -114,6 +112,5 @@ export function decodeTicketHead(data: Uint8Array): TicketFacts {
     expiresAt: Number(i64(h, 120)),
     spillRoom: h.readUInt32LE(132),
     signer: new PublicKey(h.subarray(152, 184)),
-    offerNonce: u64(h, 184),
   };
 }

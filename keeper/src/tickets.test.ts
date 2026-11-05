@@ -26,12 +26,13 @@ describe("Ticket upkeep plan", () => {
 });
 
 describe("the Offer of a Backing Ticket", () => {
-  it("is the Backer's Offer for the same Game and amount with its Ticket open", async () => {
+  it("is the Backer's Offer that names the Ticket's number, not just any of the Backer's for that Game and amount", async () => {
     const [backer, game] = [k(), k()];
-    const mk = async (over: object) => ({ publicKey: k(), account: core.coder.accounts.decode("offerState", await accountBytes(core, "OfferState", { inner: { backer: backer.toBytes(), game: game.toBytes(), entry: new anchor.BN(500), ticketOpen: true, ...over } })) });
+    const mk = async (over: object) => ({ publicKey: k(), account: core.coder.accounts.decode("offerState", await accountBytes(core, "OfferState", { inner: { backer: backer.toBytes(), game: game.toBytes(), entry: new anchor.BN(500), ticketOpen: true, ticketNonce: new anchor.BN(7), ...over } })) });
     const right = await mk({});
-    const offers = [await mk({ ticketOpen: false }), await mk({ entry: new anchor.BN(900) }), right];
-    const head = decodeTicketHead(ticketBytes({ kind: 1, account: backer, game, target: 500n }));
+    // another Offer of the same Backer, Game and amount: its own Ticket, or none (Ticket number 0 is a real number)
+    const offers = [await mk({ ticketNonce: new anchor.BN(6) }), await mk({ ticketOpen: false, ticketNonce: null }), await mk({ backer: k().toBytes() }), right];
+    const head = decodeTicketHead(ticketBytes({ kind: 1, account: backer, game, target: 500n, nonce: 7n }));
     assert.equal(offerOfBackingTicket(offers, head)!.toBase58(), right.publicKey.toBase58());
     assert.equal(offerOfBackingTicket([], head), null);
   });

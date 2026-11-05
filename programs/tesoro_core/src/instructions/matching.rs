@@ -439,15 +439,21 @@ struct Backer<'a, 'info> {
     spill: AccountInfo<'info>,
 }
 
-/// A Backing Ticket (`pot` is not a fresh address) is spent only with the Offer that opened it: its
-/// head records that Offer's nonce. Another Offer of the same Backer would be spent instead and the
-/// Ticket's own left tied to a Ticket that no longer exists.
-pub(crate) fn require_tickets_offer(pot: &AccountInfo, offer_nonce: u64) -> Result<()> {
+/// An Offer and its Backing Ticket are spent together: a Backing Ticket (`pot` is not a fresh
+/// address) only with the Offer that has it open and names its Ticket number
+/// (`Offer::ticket_nonce`), and an Offer whose Backing is staged in an open Ticket only through that
+/// Ticket. Otherwise one of the pair would be left tied to the other after it is gone.
+pub(crate) fn require_tickets_offer(pot: &AccountInfo, offer: &crate::ledger::Offer) -> Result<()> {
     if pot.owner == &system_program::ID && pot.data_is_empty() {
+        require!(!offer.ticket_open, crate::error::MatchError::BadBacking);
         return Ok(());
     }
+    let nonce = offer
+        .ticket_nonce
+        .ok_or_else(|| error!(crate::error::MatchError::BadBacking))?;
+    let (ticket, _) = ticket_address(&Pubkey::new_from_array(offer.backer), nonce);
     require!(
-        offer_nonce_of(pot)? == offer_nonce,
+        offer.ticket_open && *pot.key == ticket,
         crate::error::MatchError::BadBacking
     );
     Ok(())
@@ -531,9 +537,11 @@ pub(crate) fn open_match<'info>(
     let seat_signer = ctx.accounts.seat_signer.key().to_bytes();
     // a backed Player puts none of their own Gemas at risk: nothing counts against their limit
     // (the Backer's limit counted the entry when the Offer was made)
-    if ctx.accounts.offer.is_none() {
-        count_entry(&ctx.accounts.protections.to_account_info(), entry)?;
-    }
+    let mut counted = if ctx.accounts.offer.is_none() {
+        count_entry(&ctx.accounts.protections.to_account_info(), entry)?
+    } else {
+        None
+    };
     {
         let counters = &mut ctx.accounts.counters;
         if counters.bump == 0 {
@@ -555,7 +563,7 @@ pub(crate) fn open_match<'info>(
     let own_basket = ctx.accounts.basket.to_account_info();
     let own_spill = ctx.accounts.spill.to_account_info();
 
-    let (party, pot, hold) = if backed {
+    let (party, mut pot, hold) = if backed {
         require!(listed, TesoroError::GameNotListed);
         crate::util::require_can_play(&ctx.accounts.protections.to_account_info())?;
         let offer = ctx
@@ -563,11 +571,13 @@ pub(crate) fn open_match<'info>(
             .offer
             .as_mut()
             .ok_or(error!(crate::error::MatchError::BadBacking))?;
-        require_tickets_offer(&pot_info, offer.nonce)?;
+        require_tickets_offer(&pot_info, &offer.inner)?;
         offer
             .inner
             .consume(player.to_bytes(), game.to_bytes(), entry, ts)
             .map_err(core_err)?;
+        // the Backer's count moves on to the Pot
+        counted = offer.inner.take_count().map(|(_, period)| period);
         let share = offer.inner.player_share_bps;
         let backer = backer_side(
             &ctx.accounts.offer,
@@ -626,6 +636,9 @@ pub(crate) fn open_match<'info>(
             hold,
         )
     };
+    // the funder's count rides with the Pot (0: none), whatever a Ticket's head held there: a
+    // refund gives it back (`close_match`)
+    set_counted_in(pot.bytes_mut().head_mut(), counted.unwrap_or(0));
     let (entries, terms) = {
         let config = &ctx.accounts.config;
         (
@@ -864,9 +877,11 @@ pub(crate) fn join_match<'info>(
         MatchError::SeatKeyShared
     );
     require_can_play(&ctx.accounts.opener_protections.to_account_info())?;
-    if !backed {
-        count_entry(&ctx.accounts.protections.to_account_info(), entry)?;
-    }
+    let mut counted = if backed {
+        None
+    } else {
+        count_entry(&ctx.accounts.protections.to_account_info(), entry)?
+    };
     {
         let counters = &mut ctx.accounts.counters;
         if counters.bump == 0 {
@@ -896,18 +911,20 @@ pub(crate) fn join_match<'info>(
     let pot_info = ctx.accounts.pot.to_account_info();
     let own_basket = ctx.accounts.basket.to_account_info();
     let own_spill = ctx.accounts.spill.to_account_info();
-    let (party, pot, hold) = if backed {
+    let (party, mut pot, hold) = if backed {
         require_can_play(&ctx.accounts.protections.to_account_info())?;
         let offer = ctx
             .accounts
             .offer
             .as_mut()
             .ok_or(error!(crate::error::MatchError::BadBacking))?;
-        require_tickets_offer(&pot_info, offer.nonce)?;
+        require_tickets_offer(&pot_info, &offer.inner)?;
         offer
             .inner
             .consume(player.to_bytes(), game.to_bytes(), entry, ts)
             .map_err(core_err)?;
+        // the Backer's count moves on to the Pot
+        counted = offer.inner.take_count().map(|(_, period)| period);
         let share = offer.inner.player_share_bps;
         let backer = backer_side(
             &ctx.accounts.offer,
@@ -966,6 +983,9 @@ pub(crate) fn join_match<'info>(
             hold,
         )
     };
+    // the funder's count rides with the Pot (0: none), whatever a Ticket's head held there: a
+    // refund gives it back (`close_match`)
+    set_counted_in(pot.bytes_mut().head_mut(), counted.unwrap_or(0));
     let state = &mut ctx.accounts.match_state;
     state.inner.join(party, &pot, ts).map_err(lc_err)?;
     // the joiner's freed slots stay held for the lines that may come back; the slots the other
@@ -1526,7 +1546,9 @@ mod line_batch_tests {
 /// players' counts of open Matches go down. Anyone may call it.
 ///
 /// `remaining_accounts`: the spills of the Match's Accounts (opener, opener's funder, joiner,
-/// joiner's funder) and the counters of the two Players.
+/// joiner's funder) and the counters of the two Players. A refunded Match (not a Draw or a
+/// No-show) gives each side's counted entry back to its funder's Entry Limit: that funder's
+/// Protections come too, writable, when its Pot recorded a count.
 #[derive(Accounts)]
 pub struct CloseMatch<'info> {
     pub caller: Signer<'info>,
@@ -1569,6 +1591,9 @@ pub(crate) fn close_match<'info>(
         MatchError::MatchNotClosed
     );
     let rec = state.inner.clone();
+    // entries that came back unplayed are given back to the Entry Limit they counted on
+    let releases = rec.run().is_some_and(|r| r.kind.releases_entry());
+    let mut pot_counts: [Option<i64>; 2] = [None; 2];
     // the Pots are empty and go back to their payers
     let pots: [(Option<AccountInfo<'info>>, Option<AccountInfo<'info>>); 2] = [
         (
@@ -1597,12 +1622,26 @@ pub(crate) fn close_match<'info>(
         require!(pot_total(pot)? == 0, MatchError::PotNotEmpty);
         let (_, extra) = load_pot(pot)?;
         require_keys_eq!(extra.payer, *payer.key, TesoroError::InvalidAccount);
+        if releases {
+            let period = counted_in(&pot.try_borrow_data()?[DISC..POT_AT]);
+            pot_counts[side] = (period != 0).then_some(period);
+        }
         close_pot_account(
             pot,
             payer,
             ctx.accounts.sponsor.as_mut(),
             extra.sponsored_lamports,
         )?;
+    }
+    // each side's count, from its funder's Protections (one per side: no Account funds both)
+    for (side, period) in pot_counts.iter().enumerate() {
+        let (Some(period), Some(party)) = (period, rec.party(side as u8)) else {
+            continue;
+        };
+        let funder = Pubkey::new_from_array(party.funder);
+        let protections = find_protections(ctx.remaining_accounts, &funder)
+            .ok_or_else(|| error!(MatchError::AccountMissing))?;
+        release_entry_of(protections, &funder, rec.entry, *period)?;
     }
     // the room the Match still held, and the open-Match count of each Player
     let mut players: Vec<ledger::Key> = vec![rec.a.player];

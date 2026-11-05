@@ -10,6 +10,7 @@ import { EntryError } from "./ledger";
 import { ChallengeError, enterQueue, createChallenge, joinChallenge, ensureReady, refundMatch } from "./match-flow";
 import { coreIx } from "./entry";
 import { basketPda, countersPda, spillPda } from "./basket";
+import { protectionsPda } from "./native";
 import { freeOf, readEntryStores, type BackingRef } from "./entry";
 import { DrawError } from "./draw";
 import { fetchMatch, matchKeyOfState } from "./read";
@@ -285,6 +286,8 @@ export function cancelOfferIx(owner: PublicKey, offer: PublicKey, acceptedReques
     offer,
     // An accepted Offer hands its Request back to Open, so the Request comes with the call.
     request: acceptedRequest ?? undefined,
+    // The Offer's Entry Limit count goes back to the Backer.
+    backerProtections: protectionsPda(backerAccount),
   });
 }
 
@@ -304,7 +307,8 @@ export async function expireOffer(signer: ChainSigner, offer: ChainOffer) {
     counters: countersPda(backerAccount),
     offer: offer.address,
     request: offer.status === "accepted" ? new PublicKey(offer.request) : undefined,
-    backerProtections: undefined,
+    // The Offer's Entry Limit count goes back to the Backer.
+    backerProtections: protectionsPda(backerAccount),
   });
   return chain.sendBase(signer, [ix]);
 }
@@ -344,7 +348,7 @@ export async function requireBacking(signer: ChainSigner, address: string, game:
   return offer!;
 }
 
-const backingRefOf = (o: ChainOffer): BackingRef => ({ offer: o.address, offerNonce: o.nonce, backerAccount: new PublicKey(o.backer) });
+const backingRefOf = (o: ChainOffer): BackingRef => ({ offer: o.address, backerAccount: new PublicKey(o.backer) });
 
 /** Queue under a Backing: join the oldest open Match at this entry, else open one. The Player is never debited. */
 export async function enterQueueBacked(signer: ChainSigner, backing: string, game: GameId, entry: number, getToken: GetToken, onStep?: (s: string) => void, asset: 0 | 1 | 2 = 0): Promise<Entered> {

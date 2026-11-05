@@ -44,7 +44,7 @@ import { decodeStore } from "../../lib/chain/pot-store";
 import { OVERFLOW_STORE_AT, matchOverflowPda } from "../../lib/chain/overflow";
 import { fits, type Reader } from "../../lib/chain/settle-plan";
 import { checkedV0, instructionName, messageSize, type TxSize } from "../../lib/chain/tx-size";
-import { findBackingTicket, nextStageIx, openBackingTicketIxs, type TicketView } from "../../lib/chain/ticket";
+import { backingTicketOf, nextStageIx, openBackingTicketIxs, type TicketView } from "../../lib/chain/ticket";
 import { sponsoredInstructions } from "../../server/sponsor/service";
 import {
   RAILCAR_PROGRAM_ID,
@@ -406,11 +406,10 @@ class World {
   backing(player: Person, backer: Person, shareBps: number): BoardingBacking {
     const request = createRequestIx({ player: player.key, game: RAILCAR_PROGRAM_ID, entry: 500n, nonce: backingNonce() });
     this.send([request.ix], player.kp);
-    const offerNonce = backingNonce();
-    const offer = createOfferIx({ backer: backer.key, request: request.address, game: RAILCAR_PROGRAM_ID, shareBps, nonce: offerNonce });
+    const offer = createOfferIx({ backer: backer.key, request: request.address, game: RAILCAR_PROGRAM_ID, shareBps, nonce: backingNonce() });
     this.send([offer.ix], backer.kp);
     this.send([acceptOfferIx({ player: player.key, request: request.address, offer: offer.address })], player.kp);
-    return { offer: offer.address, offerNonce, backerAccount: backer.account };
+    return { offer: offer.address, backerAccount: backer.account };
   }
 
   /**
@@ -419,13 +418,13 @@ class World {
    */
   async stageBacking(p: Person, backing: BoardingBacking, seatKey: Keypair): Promise<TicketView> {
     const conn = this.reader();
-    if (!(await findBackingTicket(conn, backing.backerAccount, backing.offerNonce))) {
+    if (!(await backingTicketOf(conn, backing.offer, backing.backerAccount))) {
       const lines = previewEntry(await readEntryStores(backing.backerAccount, conn), 500n, { backing: true }).ticketLines;
       const built = await openBackingTicketIxs({ payer: this.relayer.publicKey, requester: p.key, seat: seatKey.publicKey, backerAccount: backing.backerAccount, offer: backing.offer, game: RAILCAR_PROGRAM_ID, entry: 500n, lines, sponsored: true }, conn);
       this.send(sponsoredInstructions({ cu: 700_000, grows: [], ixs: built.ixs, assignment: null }), this.relayer, [p.kp, seatKey]);
     }
     for (let i = 0; i < 20; i++) {
-      const t = await findBackingTicket(conn, backing.backerAccount, backing.offerNonce);
+      const t = await backingTicketOf(conn, backing.offer, backing.backerAccount);
       if (!t) throw new Error("the Offer has no open Backing Ticket");
       const ix = await nextStageIx(seatKey.publicKey, t, await readEntryStores(t.account, conn), conn);
       if (!ix) return t;

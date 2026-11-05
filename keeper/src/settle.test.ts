@@ -21,9 +21,10 @@ const potB = k();
 const matchAddr = k();
 const payer = k();
 
-async function matchView(over: { stage?: object; sources?: PublicKey[]; cut?: bigint[]; room?: { account: PublicKey; left: number }[]; phases?: object[] } = {}): Promise<MatchView> {
+async function matchView(over: { stage?: object; sources?: PublicKey[]; cut?: bigint[]; room?: { account: PublicKey; left: number }[]; phases?: object[]; kind?: object } = {}): Promise<MatchView> {
   const idl = core.idl as any;
   const run = zeroOf(idl, { defined: { name: "run" } });
+  if (over.kind) run.kind = over.kind;
   run.phases = [...(over.phases ?? [{ back: [0] }]), ...Array(4).fill({ back: [0] })].slice(0, 4);
   run.nPhases = (over.phases ?? [{ back: [0] }]).length;
   run.cutLeft = [[new anchor.BN(0), new anchor.BN(0), new anchor.BN(0)], (over.cut ?? [0n, 0n, 0n]).map((v) => new anchor.BN(v.toString()))];
@@ -145,6 +146,19 @@ describe("closing", () => {
     const view = await matchView({ stage: { closed: {} }, room: [{ account: studio, left: 2 }, { account: alice, left: 1 }] });
     const keys = closeRemaining(view).map((m) => m.pubkey.toBase58());
     assert.deepEqual(keys, [spillOf(studio), spillOf(alice), countersOf(alice), countersOf(bob)].map((x) => x.toBase58()));
+  });
+
+  it("passes both funders' Protections when the Match was refunded, so their Entry Limit counts come back", async () => {
+    const protectionsOf = (a: PublicKey) => PublicKey.findProgramAddressSync([Buffer.from("protections"), a.toBuffer()], core.programId)[0];
+    const refunded = await matchView({ stage: { closed: {} }, kind: { cancelled: {} } });
+    assert.deepEqual(
+      closeRemaining(refunded).map((m) => m.pubkey.toBase58()),
+      [countersOf(alice), countersOf(bob), protectionsOf(alice), protectionsOf(bob)].map((x) => x.toBase58()),
+    );
+    assert.ok(closeRemaining(refunded).every((m) => m.isWritable));
+    // a Draw was played: nothing is given back
+    const drawn = await matchView({ stage: { closed: {} }, kind: { draw: {} } });
+    assert.equal(closeRemaining(drawn).length, 2);
   });
 });
 

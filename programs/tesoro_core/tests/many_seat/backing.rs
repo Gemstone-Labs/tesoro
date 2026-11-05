@@ -5,6 +5,7 @@
 use super::settle::{result, ANA, BEN, CY, DEE, EVE};
 use super::*;
 use tesoro_core::error::MatchError;
+use tesoro_core::ledger::many_seat::ManySeatResult;
 use tesoro_core::ledger::many_seat::SeatState;
 use tesoro_core::ledger::OfferStatus;
 
@@ -104,24 +105,16 @@ impl Env {
         Ok(self.mark(car, player).expect("mark").seat)
     }
 
-    /// The open Backing Ticket `offer` opened, if any: its nonce.
-    fn ticket_of(&self, backer: &Person, offer: APk) -> Option<u64> {
-        let want = self.load::<OfferState>(offer).nonce;
-        (0..self.next_ticket(backer.account)).find(|&n| {
-            self.svm
-                .get_account(&s(ticket_pda(backer.account, n)))
-                .filter(|acc| acc.data.len() > tesoro_core::pots::POT_AT)
-                .is_some_and(|acc| {
-                    let head = &acc.data[8..];
-                    head[2] == 1 && head[3] == 0 && head[184..192] == want.to_le_bytes()
-                })
-        })
+    /// The open Backing Ticket `offer` opened, if any: its nonce (the Offer names it).
+    fn ticket_of(&self, offer: APk) -> Option<u64> {
+        let o = self.load::<OfferState>(offer).inner;
+        o.ticket_nonce.filter(|_| o.ticket_open)
     }
 
     /// `player` opens the Backing Ticket of `offer` (as they would with the accept) and anyone
     /// stages it until it holds the entry. Returns its nonce; an open one is used as it is.
     fn stage_backing(&mut self, player: &Person, backer: &Person, offer: APk) -> u64 {
-        if let Some(n) = self.ticket_of(backer, offer) {
+        if let Some(n) = self.ticket_of(offer) {
             return n;
         }
         let nonce = self.next_ticket(backer.account);
@@ -306,7 +299,7 @@ fn a_backer_funds_one_seat_per_car_and_cannot_ride_in_it() {
     let err = env.board_backed(&cy, &bob, for_cy, car).unwrap_err();
     assert_eq!(custom_code(&err), seat_err(ManySeatError::AlreadySeated));
     assert_eq!(env.offer_status(for_cy), OfferStatus::Accepted, "unused");
-    assert!(env.ticket_of(&bob, for_cy).is_some(), "its Ticket waits");
+    assert!(env.ticket_of(for_cy).is_some(), "its Ticket waits");
     let err = env.board(&bob, car).unwrap_err();
     assert_eq!(custom_code(&err), seat_err(ManySeatError::AlreadySeated));
     // a rider of the car cannot fund another seat in it either
@@ -341,7 +334,7 @@ fn only_a_listed_games_car_can_be_backed() {
         anchor_code(tesoro_core::error::TesoroError::GameNotListed)
     );
     assert_eq!(env.offer_status(offer), OfferStatus::Accepted);
-    assert!(env.ticket_of(&bob, offer).is_some(), "its Ticket waits");
+    assert!(env.ticket_of(offer).is_some(), "its Ticket waits");
     // the same Player rides it with his own Gemas
     env.board(&ben, car).expect("unbacked");
 }
@@ -606,4 +599,171 @@ fn an_unused_backing_ticket_goes_home_to_the_backer_and_only_with_its_own_offer(
     env.board_backed(&ben, &bob, for_ben, car)
         .expect("boards after all");
     assert_eq!(env.total_gemas(&bob), 1_500);
+}
+
+// --- Ticket 17: the Entry Limit gives back a seat's entry that comes back unplayed ------------
+
+impl Env {
+    fn used_now(&self, p: &Person) -> u64 {
+        self.entry_limit(p).used(self.now())
+    }
+
+    /// Steps `player` off, the Backer's Protections left out when `with_limit` is false.
+    fn step_off_backed(
+        &mut self,
+        car: Car,
+        player: &Person,
+        with_limit: bool,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let mut i = self.step_off_ix(player.key, car, player, 8, false);
+        if !with_limit {
+            // `funder_protections` is the last named account: absent
+            i.accounts[14] = AccountMeta::new_readonly(s(tesoro_core::ID), false);
+        }
+        self.send_v0(&[i], &player.kp.insecure_clone()).map(drop)
+    }
+
+    /// Closes every seat of a paid car; the funders' Protections left out when `with_limit` is
+    /// false (the first close fails then).
+    fn close_seats(
+        &mut self,
+        car: Car,
+        with_limit: bool,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let caller = self.admin.insecure_clone();
+        for seat in 0..self.car(car).inner.max_seats {
+            let page = self.page(car, seat / SEATS_PER_PAGE as u8);
+            if page.seats[seat as usize % SEATS_PER_PAGE].state() != SeatState::Seated {
+                continue;
+            }
+            let mut i = self.close_seat_ix(a(caller.pubkey()), car, seat);
+            if !with_limit {
+                let last = i.accounts.len() - 1;
+                i.accounts[last] = AccountMeta::new_readonly(s(tesoro_core::ID), false);
+            }
+            self.send(&[i], &caller, &[])?;
+        }
+        Ok(())
+    }
+}
+
+#[test]
+fn bobs_walk_through_a_backed_step_off_gives_the_backers_limit_back() {
+    let mut env = Env::new();
+    let opener = env.rider(2_000);
+    let (ben, bob) = (env.person(), env.rider(2_000));
+    env.set_entry_limit(&bob, 1_000).expect("Bob's limit");
+    let offer = env.backing(&ben, &bob, 1, SHARE);
+    assert_eq!(env.used_now(&bob), 500);
+    let car = env.open_car(&opener, (2, 10));
+    let seat = env.board_backed(&ben, &bob, offer, car).expect("backed");
+    let st = env.page(car, 0).seats[seat as usize];
+    assert_eq!(
+        st.counted().map(|(g, _)| g),
+        Some(500),
+        "the seat carries Bob's count"
+    );
+    assert_eq!(env.load::<OfferState>(offer).inner.counted_in, 0);
+    // the step-off cannot leave Bob's count behind
+    let err = env.step_off_backed(car, &ben, false).unwrap_err();
+    assert_eq!(custom_code(&err), match_err(MatchError::AccountMissing));
+    env.step_off_backed(car, &ben, true).expect("step off");
+    assert_eq!(env.used_now(&bob), 0);
+    assert_eq!(env.total_gemas(&bob), 2_000);
+    // Bob backs 1,000 again this period
+    let (cy, dee) = (env.person(), env.person());
+    env.backing(&cy, &bob, 2, SHARE);
+    env.backing(&dee, &bob, 3, SHARE);
+    assert_eq!(env.used_now(&bob), 1_000);
+}
+
+#[test]
+fn a_backed_step_off_after_the_period_rolled_over_gives_nothing_back() {
+    let mut env = Env::new();
+    let opener = env.rider(2_000);
+    let (ben, cy, bob) = (env.person(), env.person(), env.rider(2_000));
+    env.set_entry_limit(&bob, 1_000).expect("Bob's limit");
+    let offer = env.backing(&ben, &bob, 1, SHARE);
+    let car = env.open_car(&opener, (2, 10));
+    env.board_backed(&ben, &bob, offer, car).expect("backed");
+    let now = env.now();
+    env.set_time(now + 7 * 24 * 3_600 + 1);
+    env.backing(&cy, &bob, 2, SHARE);
+    assert_eq!(
+        env.used_now(&bob),
+        500,
+        "the new period counted only the new Offer"
+    );
+    env.step_off_backed(car, &ben, true).expect("step off");
+    assert_eq!(env.used_now(&bob), 500);
+}
+
+#[test]
+fn a_refunded_car_gives_back_the_riders_and_the_backers_counts() {
+    let mut env = Env::new();
+    let (ana, ben, bob) = (env.rider(2_000), env.person(), env.rider(2_000));
+    env.set_entry_limit(&ana, 1_000).expect("Ana's limit");
+    env.set_entry_limit(&bob, 1_000).expect("Bob's limit");
+    let offer = env.backing(&ben, &bob, 1, SHARE);
+    let car = env.open_car(&ana, (2, 10));
+    env.board(&ana, car).expect("Ana");
+    env.board_backed(&ben, &bob, offer, car)
+        .expect("Ben for Bob");
+    env.depart(car).expect("depart");
+    // the ride is void: every entry back, no result
+    env.settle_car(car, ManySeatResult::Refund).expect("void");
+    env.run_car(car);
+    assert_eq!((env.used_now(&ana), env.used_now(&bob)), (500, 500));
+    let err = env.close_seats(car, false).unwrap_err();
+    assert_eq!(custom_code(&err), match_err(MatchError::AccountMissing));
+    env.close_seats(car, true).expect("close");
+    assert_eq!((env.used_now(&ana), env.used_now(&bob)), (0, 0));
+}
+
+#[test]
+fn a_ride_with_a_result_gives_no_count_back() {
+    let mut env = Env::new();
+    let (ana, ben, bob) = (env.rider(2_000), env.person(), env.rider(2_000));
+    env.set_entry_limit(&ana, 1_000).expect("Ana's limit");
+    env.set_entry_limit(&bob, 1_000).expect("Bob's limit");
+    let offer = env.backing(&ben, &bob, 1, SHARE);
+    let car = env.open_car(&ana, (2, 10));
+    env.board(&ana, car).expect("Ana");
+    env.board_backed(&ben, &bob, offer, car)
+        .expect("Ben for Bob");
+    env.depart(car).expect("depart");
+    let studio = env.studio.kp.insecure_clone();
+    let studio_account = env.studio.account;
+    env.ensure_spill(&studio, studio_account, 16);
+    env.settle_car(car, result(&[(1, 10_000)], &[]))
+        .expect("Ben wins");
+    env.run_car(car);
+    env.close_seats(car, false).expect("nothing to give back");
+    assert_eq!((env.used_now(&ana), env.used_now(&bob)), (500, 500));
+}
+
+#[test]
+fn a_backed_step_off_with_its_most_lines_and_a_count_fits_the_budget() {
+    let mut env = Env::new();
+    let opener = env.rider(2_000);
+    let ben = env.person();
+    // Bob's 500 are ten lines of ten Sources, and each line merges into one he still holds
+    let bob = env.person();
+    let sources: Vec<APk> = (0..10).map(|i| env.forge_source(70 + i as u8, 0)).collect();
+    env.give_lines(&bob, &sources, 50, |i| i as i64);
+    env.set_entry_limit(&bob, 1_000).expect("Bob's limit");
+    let offer = env.backing(&ben, &bob, 1, SHARE);
+    let car = env.open_car(&opener, (2, 10));
+    env.board_backed(&ben, &bob, offer, car).expect("backed");
+    env.give_lines(&bob, &sources, 5, |i| i as i64);
+    let i = env.step_off_ix(ben.key, car, &ben, tesoro_core::MAX_RETURN_LINES, false);
+    env.send_v0(&[cu_limit(1_400_000), i], &ben.kp.insecure_clone())
+        .expect("step off");
+    let cu = env.last_cu;
+    println!(
+        "backed step-off, {} lines and a count: {cu} CU",
+        tesoro_core::MAX_RETURN_LINES
+    );
+    assert!(cu < 140_000, "{cu} CU");
+    assert_eq!(env.used_now(&bob), 0);
 }

@@ -860,6 +860,38 @@
               }
             ]
           }
+        },
+        {
+          "name": "backer_protections",
+          "docs": [
+            "Entry Limit, which is given back."
+          ],
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "backer_account"
+              }
+            ]
+          }
         }
       ],
       "args": []
@@ -1835,6 +1867,14 @@
         },
         {
           "name": "funder_mark",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "funder_protections",
+          "docs": [
+            "Limit count (checked by `release_entry_of`)."
+          ],
           "writable": true,
           "optional": true
         }
@@ -3146,8 +3186,10 @@
         {
           "name": "backer_protections",
           "docs": [
-            "Self-Excluded, anyone may withdraw their unused Offer at once."
+            "Self-Excluded, anyone may withdraw their unused Offer at once. Required when the Offer",
+            "counted on the Backer's Entry Limit, which is given back."
           ],
+          "writable": true,
           "optional": true,
           "pda": {
             "seeds": [
@@ -4901,6 +4943,42 @@
         },
         {
           "name": "counters",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "grow_offer",
+      "docs": [
+        "Grows a 174-byte Offer to 182 bytes with `counted_in` zero (its count is not given back).",
+        "Anyone may call it and the caller pays the rent. A 182-byte one is left alone."
+      ],
+      "discriminator": [
+        77,
+        125,
+        144,
+        54,
+        229,
+        86,
+        93,
+        108
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "Pays the rent of the 8 new bytes."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "offer",
           "writable": true
         },
         {
@@ -14330,6 +14408,14 @@
           "name": "funder_mark",
           "writable": true,
           "optional": true
+        },
+        {
+          "name": "funder_protections",
+          "docs": [
+            "which is given back (checked by `release_entry_of`)."
+          ],
+          "writable": true,
+          "optional": true
         }
       ],
       "args": [
@@ -20387,6 +20473,14 @@
               "the Ticket is cancelled or consumed."
             ],
             "type": "bool"
+          },
+          {
+            "name": "counted_in",
+            "docs": [
+              "Start of the Backer's Entry Limit period that counted `entry` when the Offer was made (zero:",
+              "nothing counted, or the count moved on to a Pot or seat when the Offer was used)."
+            ],
+            "type": "i64"
           }
         ]
       }

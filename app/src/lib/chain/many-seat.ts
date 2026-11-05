@@ -356,6 +356,8 @@ export function stepOffIx(a: StepOffArgs): TransactionInstruction {
       sponsor: a.sponsor ? sponsorKey : null,
       // The Backer's mark carries a backed seat's lines home (ticket 04).
       funder_mark: backed ? seatMarkPda(a.car, a.seat.funder) : null,
+      // The Backer's Entry Limit count of a backed seat comes back with the step-off (ticket 17).
+      funder_protections: backed ? protectionsOf(a.seat.funder) : null,
     },
     { seat: a.seat.index, max_lines: MAX_RETURN_LINES },
     a.remaining ?? [],
@@ -379,7 +381,7 @@ export interface CloseSeatArgs {
   sponsor: boolean;
 }
 
-/** `close_many_seat`: one paid seat (Pot, the hold left in the funder's spill, both marks of a backed seat). */
+/** `close_many_seat`: one paid seat (Pot, the hold left in the funder's spill, both marks of a backed seat, the funder's Entry Limit count after a refund run). */
 export function closeSeatIx(a: CloseSeatArgs): TransactionInstruction {
   const backed = !a.seat.player.equals(a.seat.funder);
   return coreIx(
@@ -396,6 +398,8 @@ export function closeSeatIx(a: CloseSeatArgs): TransactionInstruction {
       sponsor: a.sponsor ? sponsorKey : null,
       funder_spill: a.seat.hold > 0 ? spillOf(a.seat.funder) : null,
       funder_mark: backed ? seatMarkPda(a.car, a.seat.funder) : null,
+      // After a refund run the seat's Entry Limit count goes back to its funder (ticket 17).
+      funder_protections: protectionsOf(a.seat.funder),
     },
     { seat: a.seat.index },
   );

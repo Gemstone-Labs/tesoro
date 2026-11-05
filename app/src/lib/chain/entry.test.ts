@@ -116,7 +116,7 @@ describe("open_match", () => {
   it("a backed open names the Backer's accounts and the Offer", () => {
     const backerAccount = k();
     const offer = k();
-    const ix = openMatchIx({ payer, player, game: "holdem", entry: 500n, n: 0n, challenge: false, asset: 0, pot: freshPot(backerAccount, 2, 12n), backing: { offer, offerNonce: 1n, backerAccount } });
+    const ix = openMatchIx({ payer, player, game: "holdem", entry: 500n, n: 0n, challenge: false, asset: 0, pot: freshPot(backerAccount, 2, 12n), backing: { offer, backerAccount } });
     const spec = idlIx("open_match");
     const at = (n: string) => ix.keys[spec.accounts.findIndex((a) => a.name === n)];
     expect(at("offer").pubkey).toEqual(offer);
@@ -258,11 +258,10 @@ describe("Tickets", () => {
     head.writeBigUInt64LE(500n, 112);
     head.writeBigInt64LE(2_000n, 120);
     head.writeUInt32LE(8, 128);
-    head.writeBigUInt64LE(9n, 184);
     const store = encodeStore([lineOf({ source: srcA, amount: 120n, dueAt: 1n }), lineOf({ source: srcB, amount: 80n, dueAt: 2n })], { capacity: 8, account });
     const data = Buffer.concat([Buffer.alloc(8), head, store.subarray(8)]);
     const t = decodeTicket(k(), data);
-    expect(t).toMatchObject({ kind: "entry", state: "open", target: 500n, staged: 200n, lines: 2, lineCap: 8, expiresAt: 2000, offerNonce: 9n });
+    expect(t).toMatchObject({ kind: "entry", state: "open", target: 500n, staged: 200n, lines: 2, lineCap: 8, expiresAt: 2000 });
     // an older head is refused rather than misread
     expect(() => decodeTicket(k(), Buffer.concat([Buffer.alloc(8), Buffer.from([1]), head.subarray(1), store.subarray(8)]))).toThrow(/version 1/);
     expect(t.account.toBase58()).toBe(account.toBase58());

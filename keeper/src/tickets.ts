@@ -39,11 +39,11 @@ export function planTickets(rows: TicketRow[], now: number): TicketAction[] {
   return out;
 }
 
-/** The Offer a Backing Ticket belongs to: the Backer's Offer for this Game and amount with its Ticket open. */
+/** The Offer a Backing Ticket belongs to: the Backer's Offer that names it (`ticket_nonce`), the only one core lets finish it. */
 export function offerOfBackingTicket(offers: { publicKey: PublicKey; account: any }[], t: TicketFacts): PublicKey | null {
   const hit = offers.find(({ account }) => {
     const o = account.inner;
-    return !!o.ticketOpen && keyOf(o.backer).equals(t.account) && keyOf(o.game).equals(t.game) && BigInt(o.entry.toString()) === t.target;
+    return o.ticketNonce != null && BigInt(o.ticketNonce.toString()) === t.nonce && keyOf(o.backer).equals(t.account);
   });
   return hit ? hit.publicKey : null;
 }

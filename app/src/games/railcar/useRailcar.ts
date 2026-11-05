@@ -174,7 +174,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
     () => (offerAddress && offer !== undefined && (offer === null || meKey) ? backingProblem(offer, { account: meKey ?? "", game: "railcar", entry: ENTRY_GEMAS, now: nowSecs }) : null),
     [offerAddress, offer, meKey, nowSecs],
   );
-  const backing = useMemo<BoardingBacking | null>(() => (offer && !offerProblem ? { offer: offer.address, offerNonce: offer.nonce, backerAccount: new PublicKey(offer.backer) } : null), [offer, offerProblem]);
+  const backing = useMemo<BoardingBacking | null>(() => (offer && !offerProblem ? { offer: offer.address, backerAccount: new PublicKey(offer.backer) } : null), [offer, offerProblem]);
   const backerKey = backing?.backerAccount.toBase58() ?? null;
 
   const tee = useCallback(async () => {

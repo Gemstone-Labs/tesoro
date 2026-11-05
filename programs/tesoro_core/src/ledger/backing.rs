@@ -89,6 +89,13 @@ pub struct Offer {
     /// A Backing Ticket is staging this Offer's lines: it cannot be cancelled or expired until
     /// the Ticket is cancelled or consumed.
     pub ticket_open: bool,
+    /// Start of the Backer's Entry Limit period that counted `entry` when the Offer was made (zero:
+    /// nothing counted, or the count moved on to a Pot or seat when the Offer was used).
+    pub counted_in: i64,
+    /// The Backer's Ticket number of the Backing Ticket this Offer has open (with `backer`, its
+    /// address): the only Ticket this Offer spends, and the only Offer that finishes cancelling it.
+    /// None when no Ticket is open (an Offer grown from the earlier layout reads None).
+    pub ticket_nonce: Option<u64>,
 }
 
 impl Offer {
@@ -121,6 +128,8 @@ impl Offer {
             use_by: expires_at,
             player: None,
             ticket_open: false,
+            counted_in: 0,
+            ticket_nonce: None,
         };
         offer.check_request(request, now)?;
         Ok(offer)
@@ -166,8 +175,9 @@ impl Offer {
         Ok(())
     }
 
-    /// The Backer withdraws the Offer before it is used; the caller releases the reservation.
-    /// Not possible once a Match has started with it (`Consumed`).
+    /// The Backer withdraws the Offer before it is used; the caller releases the reservation and
+    /// the returned count (`take_count`). Not possible once a Match has started with it
+    /// (`Consumed`).
     pub fn cancel(&mut self) -> CoreResult<()> {
         if self.ticket_open {
             return Err(CoreError::InvalidStatus);
@@ -179,8 +189,15 @@ impl Offer {
         Ok(())
     }
 
+    /// The Entry Limit count this Offer still owns, as (Gemas, period start), handed to the
+    /// caller once: the Offer keeps none afterwards.
+    pub fn take_count(&mut self) -> Option<(u64, i64)> {
+        let period = std::mem::take(&mut self.counted_in);
+        (period != 0).then_some((self.entry, period))
+    }
+
     /// Anyone expires an Offer nobody accepted, or nobody used, in time; the caller releases the
-    /// reservation.
+    /// reservation and the count (`take_count`).
     pub fn expire(&mut self, now: i64) -> CoreResult<()> {
         if self.ticket_open {
             return Err(CoreError::InvalidStatus);
@@ -218,11 +235,13 @@ impl Offer {
     }
 
     /// The accepted Player enters a Match with the Backer's reservation: the Offer is spent. The
-    /// caller draws the Backer's lines (`Pool::draw_backing_direct` or a Backing Ticket).
+    /// caller draws the Backer's lines (`Pool::draw_backing_direct` or a Backing Ticket) and moves
+    /// the count (`take_count`) onto the Pot or seat.
     pub fn consume(&mut self, player: Key, game: Key, entry: u64, now: i64) -> CoreResult<()> {
         self.check_use(player, game, entry, now)?;
         self.status = OfferStatus::Consumed;
         self.ticket_open = false;
+        self.ticket_nonce = None;
         Ok(())
     }
 }
