@@ -340,17 +340,26 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
         const staging = { signer: wallet, seat: seatKey, getToken, game: RAILCAR_PROGRAM_ID, entry: BigInt(ENTRY_GEMAS), lines: preview.ticketLines };
         const ticket = backing ? await readyBackingTicket({ ...staging, ...backing }) : preview.needsTicket ? await prepareEntryTicket(staging) : null;
         const remaining = ticket ? [] : await drawRemaining(preview.plan);
+        // A Backed Player who opens the car opens it first: the open and a Backed join do not fit one transaction.
+        const opensFirst = choice.kind === "open" && !!backing;
         const build = async (payer: PublicKey, sponsored: boolean) => {
           const pot = ticket ? { address: ticket.address, nonce: ticket.nonce, lines: ticket.lineCap } : freshPot(funder, preview.potLines, await readNextTicket(funder));
           const join = joinSeatIx({ payer, player: wallet.publicKey, car: match, game: RAILCAR_PROGRAM_ID, page: choice.kind === "join" ? choice.page : 0, pot, backing: backing ?? undefined, remaining, seatSigner: joinSeatKey(seatKey) });
           const ixs: TransactionInstruction[] = sponsored ? [] : [ComputeBudgetProgram.setComputeUnitLimit({ units: SELF_PAID_UNITS })];
-          if (choice.kind === "join") ixs.push(join, checkDepartureIx(choice.carNo, match));
+          if (choice.kind === "join" || opensFirst) ixs.push(join, checkDepartureIx(choice.carNo, match));
           else {
             if (choice.departFirst) ixs.push(checkDepartureIx(choice.departFirst.carNo, choice.departFirst.car));
             ixs.push(openCarIx({ payer, opener: wallet.publicKey, config: s.config!, n }), join, checkDepartureIx(choice.carNo, match));
           }
           return ixs;
         };
+        if (opensFirst) {
+          await sendEntryTx(wallet, getToken, async (payer, sponsored) => [
+            ...(sponsored ? [] : [ComputeBudgetProgram.setComputeUnitLimit({ units: SELF_PAID_UNITS })]),
+            ...(choice.departFirst ? [checkDepartureIx(choice.departFirst.carNo, choice.departFirst.car)] : []),
+            openCarIx({ payer, opener: wallet.publicKey, config: s.config!, n }),
+          ]);
+        }
         // The one wallet signature of the ride (the seat key co-signs once core names seat keys); the relayer pays.
         await sendEntryTx(boardingSigner(wallet, seatKey), getToken, build);
         const carNo = choice.carNo;

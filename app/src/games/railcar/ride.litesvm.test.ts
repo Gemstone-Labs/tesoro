@@ -388,7 +388,12 @@ class World {
     } else {
       const n = nextMatchOf(this.info(countersPda(p.account))?.data);
       const match = matchPda(p.account, n);
-      ixs.push(openCarIx({ payer, opener: p.key, config, n }), joinSeatIx({ payer, player: p.key, car: match, game: RAILCAR_PROGRAM_ID, page: 0, pot, backing, remaining, seatSigner: seatKey.publicKey }), checkDepartureIx(choice.carNo, match));
+      const join = joinSeatIx({ payer, player: p.key, car: match, game: RAILCAR_PROGRAM_ID, page: 0, pot, backing, remaining, seatSigner: seatKey.publicKey });
+      if (backing) {
+        // A Backed Player opens the car first, as the page does: the open and a Backed join do not fit one transaction.
+        this.send(sponsoredInstructions({ cu: 1_000_000, grows: [], ixs: [openCarIx({ payer, opener: p.key, config, n })], assignment: null }), this.relayer, [p.kp]);
+        ixs.push(join, checkDepartureIx(choice.carNo, match));
+      } else ixs.push(openCarIx({ payer, opener: p.key, config, n }), join, checkDepartureIx(choice.carNo, match));
     }
     this.send(sponsoredInstructions({ cu: 1_000_000, grows: [], ixs, assignment: null }), this.relayer, [p.kp, seatKey]);
     return choice.kind;

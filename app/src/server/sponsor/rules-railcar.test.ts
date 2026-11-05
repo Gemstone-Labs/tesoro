@@ -50,6 +50,15 @@ describe("Railcar boarding on the relayer", () => {
     expect(plan([checkDepartureIx(7n, full), open(), join(mine()), checkDepartureIx(8n, mine())]).names).toHaveLength(4);
   });
 
+  it("opens a car alone (a Backed Player opens first, then boards): an admission for the car's rent, no Gemas of the Player's", () => {
+    const p = plan([open()]);
+    expect(p).toMatchObject({ names: ["open_car"], class: "admission", noGemas: true, obligations: [] });
+    expect(p.signers.map((k) => k.toBase58())).toEqual([player.toBase58()]);
+    expect(plan([checkDepartureIx(7n, key()), open()]).names).toEqual(["check_departure", "open_car"]);
+    refused([checkDepartureIx(8n, mine()), open()], "bad-shape");
+    refused([open(4n, key())], "bad-signer");
+  });
+
   it("refuses an open for a car the Player does not join, or someone else's", () => {
     refused([open(4n), join(mine(5n)), checkDepartureIx(8n, mine(5n))], "bad-shape");
     const other = key();
@@ -59,7 +68,6 @@ describe("Railcar boarding on the relayer", () => {
 
   it("refuses a departure check for another car than the one joined, and shapes that are not boarding", () => {
     refused([join(key()), checkDepartureIx(7n, key())], "bad-shape");
-    refused([open()], "bad-shape");
     refused([join(key())], "bad-shape");
     refused([checkDepartureIx(7n, key()), checkDepartureIx(8n, key())], "bad-shape");
   });

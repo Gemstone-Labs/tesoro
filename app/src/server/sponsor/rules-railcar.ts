@@ -5,6 +5,8 @@
  *   board         join_many_seat_match + check_departure
  *   open          open_car + join_many_seat_match + check_departure
  *   101st Player  check_departure (the full car) + open_car + join_many_seat_match + check_departure (the new car)
+ *   open alone    open_car, or check_departure (the full car) + open_car: a Backed Player opens the car first, since the
+ *                 open and a Backed join do not fit one transaction (Railcar ticket 18); the join follows on its own
  *   depart        check_departure                    (anyone, at the departure time)
  *   finalize      finalize                           (the relayer as caller; the result goes to core)
  *
@@ -38,6 +40,8 @@ const SHAPES: readonly (readonly string[])[] = [
   ["join_many_seat_match", "check_departure"],
   ["open_car", "join_many_seat_match", "check_departure"],
   ["check_departure", "open_car", "join_many_seat_match", "check_departure"],
+  ["open_car"],
+  ["check_departure", "open_car"],
   ["check_departure"],
   ["finalize"],
 ];
@@ -107,6 +111,20 @@ function checkRailcar(ix: Ix, name: string, relayer: PublicKey, relayerSlot: str
 
 const base = (names: string[]): Omit<Plan, "class" | "spend" | "cu"> => ({ kind: "core", names, obligations: [], pair: null, signers: [], seatSigners: [], playerSigns: false, funders: [], onboarding: false, invite: false, noGemas: false });
 
+/** Checks an `open_car` of the Player's own next car (the relayer paying); returns the car's Match. */
+function openedCar(ix: Ix, relayer: PublicKey, player: PublicKey): PublicKey {
+  const a = checkRailcar(ix, "open_car", relayer, "payer");
+  if (!a.get("opener")!.equals(player)) throw new RuleError("bad-signer", "The Player opens the car they board.");
+  const n = BigInt((coder.decode(Buffer.from(ix.data))!.data as { n: { toString(): string } }).n.toString());
+  const account = corePda(s("account"), player.toBuffer());
+  const nBytes = Buffer.alloc(8);
+  nBytes.writeBigUInt64LE(n);
+  if (!a.get("opener_account")!.equals(account) || !a.get("counters")!.equals(corePda(s("counters"), account.toBuffer()))) throw new RuleError("bad-account", "open_car: the opener's Account is not the Player's.");
+  const match = a.get("match_state")!;
+  if (!match.equals(corePda(s("match"), account.toBuffer(), nBytes))) throw new RuleError("bad-shape", "open_car opens the Player's own next car.");
+  return match;
+}
+
 /**
  * Accepts one of Railcar's sponsored shapes or throws a RuleError. `isGame` says whether Railcar is Listed (a Game that is not
  * Listed gets no sponsored costs).
@@ -129,9 +147,18 @@ export function planRailcar(ixs: Ix[], relayer: PublicKey, player: PublicKey, is
     // A Game step like the head-to-head Games' finalize: the relayer fronts the receipt's rent (`close_receipt` returns it).
     return { ...base(names), kind: "game", class: "exit", spend: { refundable: RECEIPT_RENT, sunk: 0n }, cu: 400_000, obligations: [match] };
   }
-  if (names.length === 1) {
+  if (names.length === 1 && names[0] === "check_departure") {
     const a = checkRailcar(ixs[0], "check_departure", relayer, null);
     return { ...base(names), class: "exit", spend: { refundable: 0n, sunk: 0n }, cu: 100_000, obligations: [a.get("match_state")!] };
+  }
+
+  // Opening alone: the Player's own next car, nobody boards it yet (the Backed join that follows has its own Gemas rule:
+  // the Backer's, staged in a Backing Ticket). Railcar refuses an open while a car is boarding, so at most one waits.
+  if (!names.includes("join_many_seat_match")) {
+    const openAt = names.indexOf("open_car");
+    const match = openedCar(ixs[openAt], relayer, player);
+    if (openAt === 1 && checkRailcar(ixs[0], "check_departure", relayer, null).get("match_state")!.equals(match)) throw new RuleError("bad-shape", "The first departure check is for the car that is full.");
+    return { ...base(names), class: "admission", spend: { refundable: CAR_RENT + CAR_MATCH_RENT, sunk: 0n }, cu: 200_000 + 100_000 * openAt, signers: [player], playerSigns: true, noGemas: true };
   }
 
   // Boarding: the core join decides the Gemas rules; Railcar's instructions must be about the same car and Player.
@@ -147,14 +174,7 @@ export function planRailcar(ixs: Ix[], relayer: PublicKey, player: PublicKey, is
   let cu = join.cu + 100_000 * departs.filter(Boolean).length;
   const openAt = names.indexOf("open_car");
   if (openAt >= 0) {
-    const a = checkRailcar(ixs[openAt], "open_car", relayer, "payer");
-    if (!a.get("opener")!.equals(player)) throw new RuleError("bad-signer", "The Player opens the car they board.");
-    const n = BigInt((coder.decode(Buffer.from(ixs[openAt].data))!.data as { n: { toString(): string } }).n.toString());
-    const account = corePda(s("account"), player.toBuffer());
-    const nBytes = Buffer.alloc(8);
-    nBytes.writeBigUInt64LE(n);
-    if (!a.get("opener_account")!.equals(account) || !a.get("counters")!.equals(corePda(s("counters"), account.toBuffer()))) throw new RuleError("bad-account", "open_car: the opener's Account is not the Player's.");
-    if (!a.get("match_state")!.equals(match) || !match.equals(corePda(s("match"), account.toBuffer(), nBytes))) throw new RuleError("bad-shape", "open_car opens the car the Player joins.");
+    if (!openedCar(ixs[openAt], relayer, player).equals(match)) throw new RuleError("bad-shape", "open_car opens the car the Player joins.");
     spend = { refundable: spend.refundable + CAR_RENT + CAR_MATCH_RENT, sunk: spend.sunk };
     cu += 200_000;
     // A full car that has not left yet leaves first, in the same transaction.
