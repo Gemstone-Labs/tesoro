@@ -2204,7 +2204,10 @@ fn a_brake_changes_no_public_byte_and_only_the_players_own_brake_seat() {
     // after the false screws, before the screws: no Tell moves in this window
     env.at_ride(car.table, 20.0);
     env.signal(car.table).expect("signal");
+    // a signal in the Brake's own slot first: what any page's signal leaves there (the Tells and the outage pace mark,
+    // ticket 08) is what the Brake's tick must leave too
     env.at_ride(car.table, 30.0);
+    env.signal(car.table).expect("signal");
     let ana = env.seat_of(car.table, &riders[ANA]);
     let bytes = |e: &Env, k: APk| e.svm.get_account(&s(k)).expect("account").data;
     let public_before = bytes(&env, car.table);
@@ -2227,8 +2230,10 @@ fn a_brake_changes_no_public_byte_and_only_the_players_own_brake_seat() {
     }
     let mine = env.brake_seat(car.table, ana);
     assert_eq!((mine.used, mine.press_ms), (1, 30_000));
-    // a tick without the Brake leaves the Table as a signal would
+    // a tick without the Brake leaves the Table as a signal in its slot would
     env.at_ride(car.table, 31.0);
+    env.signal(car.table).expect("signal");
+    let public_before = bytes(&env, car.table);
     env.tick(car.table, &riders[BEN], false).expect("tick");
     assert_eq!(bytes(&env, car.table), public_before);
 }
@@ -2347,6 +2352,14 @@ fn restore(env: &mut Env, state: &[(Pk, Account)]) {
     }
 }
 
+/// Puts the public Table back as it was: the variants differ only in private state (the outage pace mark a tick
+/// moves, ticket 08, follows the timing of observations, never a Brake).
+fn restore_public(env: &mut Env, table: APk, public: &[u8]) {
+    let mut acc = env.svm.get_account(&s(table)).expect("table");
+    acc.data = public.to_vec();
+    env.svm.set_account(s(table), acc).expect("restore table");
+}
+
 #[test]
 fn compute_is_the_same_whatever_the_brakes_are() {
     let (mut env, car, riders) = braking(draw_where(|r| r.crash_ms >= 110_000));
@@ -2395,6 +2408,7 @@ fn compute_is_the_same_whatever_the_brakes_are() {
         let mut seen: Vec<(&str, [u64; 3])> = Vec::new();
         for (name, state) in &variants {
             restore(&mut env, state);
+            restore_public(&mut env, table, &public);
             assert_eq!(
                 env.svm.get_account(&s(table)).expect("table").data,
                 public,
