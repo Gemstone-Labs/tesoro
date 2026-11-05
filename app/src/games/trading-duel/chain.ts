@@ -103,6 +103,22 @@ export const tablePda = (generation: number, index: number) => pda([Buffer.from(
 /** The write-once binding of a tesoro_core Match (`["match", opener, n]`) to a table and epoch. */
 export const assignmentPda = (match: PublicKey) => pda([Buffer.from("assign"), match.toBuffer()]);
 export const bookPda = (table: PublicKey, seat: 0 | 1) => pda([Buffer.from("book"), table.toBuffer(), Buffer.from([seat])]);
+
+/**
+ * The Books are ephemeral accounts that exist only while the table's seats are open. The rollup
+ * refuses a transaction that marks an account writable when it is neither delegated nor present,
+ * so an instruction that can close the Books (`begin_match` that voids, `end_match`, `expire_start`)
+ * marks the four Book and permission accounts writable exactly when `seatsOpen`, read-only otherwise.
+ * The IDL names them read-only; every caller goes through here. Tests run in LiteSVM, which does not
+ * enforce the rollup's rule, so `chain.test.ts` checks these metas instead.
+ */
+export function booksWritable(ix: TransactionInstruction, a: TableRef, seatsOpen: boolean): TransactionInstruction {
+  const table = tablePda(a.generation, a.index);
+  const books = [bookPda(table, 0), bookPda(table, 1)];
+  const bookAccounts = [...books, ...books.map(permissionPdaFromAccount)];
+  for (const k of ix.keys) if (bookAccounts.some((b) => b.equals(k.pubkey))) k.isWritable = seatsOpen;
+  return ix;
+}
 /** The magic fee vault of the TEE validator: the commit fee goes there. */
 export const magicFeeVaultPda = () => PublicKey.findProgramAddressSync([Buffer.from("magic-fee-vault"), TEE_VALIDATOR.toBuffer()], DELEGATION_PROGRAM_ID)[0];
 
@@ -613,13 +629,13 @@ export class TradingDuelChain {
   // -- rollup: starting ----------------------------------------------------------------------
 
   /** Rollup, permissionless. Starts the Assignment's Match on its table (reserves a ring slot); the Players then check in. */
-  async beginMatch(payer: PlayerSigner, a: Assignment, table?: Pick<Table, "tesoroMatch" | "ring">): Promise<string> {
+  async beginMatch(payer: PlayerSigner, a: Assignment, table: Pick<Table, "seatsOpen"> & Partial<Pick<Table, "tesoroMatch" | "ring">>): Promise<string> {
     const ix = await this.program.methods
       .beginMatch()
       .accountsPartial({ assignment: a.address, tesoroMatch: a.tesoroMatch, ending: this.concludingAccounts(payer.publicKey, a) } as any)
-      .remainingAccounts(table ? receiptMetas(beginSettled(table)) : [])
+      .remainingAccounts(table.tesoroMatch && table.ring ? receiptMetas(beginSettled({ tesoroMatch: table.tesoroMatch, ring: table.ring })) : [])
       .instruction();
-    return this.sendTee("begin_match", [ix], payer);
+    return this.sendTee("begin_match", [booksWritable(ix, a, table.seatsOpen)], payer);
   }
 
   private seatAccounts(caller: PublicKey, a: TableRef) {
@@ -639,7 +655,7 @@ export class TradingDuelChain {
     } as any;
   }
 
-  /** What every instruction that can end a Match names: the seat accounts it closes and the Sponsor it commits through. */
+  /** What every instruction that can end a Match names (pass the result through `booksWritable`): the seat accounts it closes and the Sponsor it commits through. */
   private concludingAccounts(caller: PublicKey, a: TableRef) {
     return { ...this.seatAccounts(caller, a), sponsor: sponsorPda(), magicFeeVault: magicFeeVaultPda(), magicContext: MAGIC_CONTEXT } as any;
   }
@@ -660,9 +676,9 @@ export class TradingDuelChain {
   }
 
   /** Rollup, permissionless. Past the start deadline with a Player missing: ends the Match in the ring: the Player who checked in wins, nobody checking in is a no-show. */
-  async expireStart(caller: PlayerSigner, a: TableRef): Promise<string> {
+  async expireStart(caller: PlayerSigner, a: TableRef, table: Pick<Table, "seatsOpen">): Promise<string> {
     const ix = await this.program.methods.expireStart().accountsPartial(this.concludingAccounts(caller.publicKey, a)).instruction();
-    return this.sendTee("expire_start", [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], caller);
+    return this.sendTee("expire_start", [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), booksWritable(ix, a, table.seatsOpen)], caller);
   }
 
   // -- rollup: playing -----------------------------------------------------------------------
@@ -690,8 +706,13 @@ export class TradingDuelChain {
 
   /** Rollup, permissionless. After the window: carries the line through any column it missed, scores every column, decides the Match, writes the result into the ring, then closes the Books and commits the table to Solana in the same transaction. Reads no price. */
   async end(payer: PlayerSigner, a: TableRef): Promise<string> {
-    const ix = await this.program.methods.endMatch().accountsPartial(this.concludingAccounts(payer.publicKey, a)).instruction();
+    const ix = await this.endInstruction(payer.publicKey, a);
     return this.sendTee("end_match", [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], payer);
+  }
+
+  /** `end_match` only runs on a table with its seats open, so its Books exist and are writable. */
+  async endInstruction(caller: PublicKey, a: TableRef): Promise<TransactionInstruction> {
+    return booksWritable(await this.program.methods.endMatch().accountsPartial(this.concludingAccounts(caller, a)).instruction(), a, true);
   }
 
   // -- rollup: after the Match ---------------------------------------------------------------
