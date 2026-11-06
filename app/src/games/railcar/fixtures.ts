@@ -33,7 +33,7 @@ const coreCar = (o: Partial<CarView>): CarView =>
 const seats = (n: number, backed?: FixtureBacking): SeatView[] =>
   PLAYERS.slice(0, n).map((p, i) => ({ index: i, seated: true, shareBps: i === backed?.seat ? backed.shareBps : 0, placeBps: 0, place: 0, potLines: 1, hold: 0, refund: 0n, player: p, funder: i === backed?.seat ? backed.backer : p, pot: keyOf(600 + i), signer: null }));
 
-const rideSeat = (i: number, order = 0, jumpMs = 0, refund = 0n): RideSeatView => ({ tableSeat: i, seat: i, order, jumpMs, refund, account: PLAYERS[i] });
+const rideSeat = (i: number, order = 0, jumpMs = 0, refund = 0n): RideSeatView => ({ tableSeat: i, seat: i, order, jumpMs, refund, account: PLAYERS[i], signer: PublicKey.default });
 
 const table = (n: number, o: Partial<TableView>): TableView => ({
   index: 0,

@@ -119,6 +119,8 @@ export interface RideSeatView {
   refund: bigint;
   /** The Player's core Account. */
   account: PublicKey;
+  /** The seat key core recorded for the seat (the default key when none: only the wallet acts). */
+  signer: PublicKey;
 }
 
 /** A Table: one ride at a time (public part). */
@@ -154,7 +156,7 @@ export interface TableView {
 }
 
 const dv = (d: Uint8Array) => new DataView(d.buffer, d.byteOffset, d.byteLength);
-const RIDE_SEAT = 72;
+const RIDE_SEAT = 88;
 const SEATS_AT = 8 + 308;
 
 /** The Table, read in place (zero-copy, alignment 1). */
@@ -165,7 +167,7 @@ export function decodeTable(data: Uint8Array): TableView {
   const seats: RideSeatView[] = [];
   for (let i = 0; i < seated; i++) {
     const at = SEATS_AT + i * RIDE_SEAT;
-    seats.push({ tableSeat: i, seat: data[at], order: data[at + 1], jumpMs: v.getUint32(at + 4, true), refund: v.getBigUint64(at + 8, true), account: new PublicKey(data.subarray(at + 16, at + 48)) });
+    seats.push({ tableSeat: i, seat: data[at], order: data[at + 1], jumpMs: v.getUint32(at + 4, true), refund: v.getBigUint64(at + 8, true), account: new PublicKey(data.subarray(at + 16, at + 48)), signer: new PublicKey(data.subarray(at + 48, at + 80)) });
   }
   return {
     index: v.getUint16(b + 2, true),
@@ -321,10 +323,10 @@ export const signalIx = (caller: PublicKey, tableIndex: number): TransactionInst
   return railcarIx("signal", { caller, table, vault: vaultPda(table), ...magic() });
 };
 
-/** `jump`: the Player of Table seat `tableSeat`. `signer` is the wallet of the seat's core Account. */
-export const jumpIx = (signer: PublicKey, wallet: PublicKey, tableIndex: number, carNo: bigint, tableSeat: number): TransactionInstruction => {
+/** `jump`: the Player of Table seat `tableSeat`. `signer` is the wallet of the seat's core Account or the seat's key. */
+export const jumpIx = (signer: PublicKey, tableIndex: number, carNo: bigint, tableSeat: number): TransactionInstruction => {
   const table = tablePda(tableIndex);
-  return railcarIx("jump", { player: signer, player_account: coreAccountOf(wallet), table, vault: vaultPda(table), ...magic() }, { car_no: carNo, seat: tableSeat });
+  return railcarIx("jump", { player: signer, table, vault: vaultPda(table), ...magic() }, { car_no: carNo, seat: tableSeat });
 };
 
 /** `commit_table`: anyone; a result's commit, or a repeat of one that may have been lost. */

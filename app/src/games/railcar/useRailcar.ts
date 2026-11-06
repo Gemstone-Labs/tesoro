@@ -405,7 +405,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
         const s = snap.rollup.seats.find((x) => x.account.equals(me));
         if (!s) return;
         const signer = jumpSigner(wallet, seat);
-        await getChain().sendTee(signer, [jumpIx(signer.publicKey, wallet.publicKey, snap.car.table, snap.car.carNo, s.tableSeat)]);
+        await getChain().sendTee(signer, [jumpIx(signer.publicKey, snap.car.table, snap.car.carNo, s.tableSeat)]);
       }),
     [act, wallet, me, seat, snap],
   );

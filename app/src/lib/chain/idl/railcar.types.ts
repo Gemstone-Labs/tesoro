@@ -4306,11 +4306,19 @@ export type Railcar = {
             "type": "u8"
           },
           {
+            "name": "receiptBump",
+            "docs": [
+              "Canonical bump of the car's receipt `[\"settled\", match]`, found once at open so settling",
+              "checks the address with one hash instead of a bump search."
+            ],
+            "type": "u8"
+          },
+          {
             "name": "reserved",
             "type": {
               "array": [
                 "u8",
-                6
+                5
               ]
             }
           },
@@ -4744,8 +4752,8 @@ export type Railcar = {
           {
             "name": "signer",
             "docs": [
-              "The seat key core recorded for this seat at join (seat-keys decision D4); zero when none",
-              "is recorded, and then only the Player's wallet acts for the seat."
+              "The seat key core recorded for this seat at join (`Seat::signer`, seat-keys decision D4),",
+              "copied by `start_ride`. The Player's wallet acts for the seat too (`acts_for`)."
             ],
             "type": {
               "array": [

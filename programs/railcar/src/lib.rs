@@ -918,6 +918,7 @@ pub mod railcar {
                 let s = t.seats.get_mut(n).ok_or(RailcarError::Overflow)?;
                 s.seat = seat;
                 s.account = core.player();
+                s.signer = core.signer();
                 n += 1;
                 Ok(())
             })?;

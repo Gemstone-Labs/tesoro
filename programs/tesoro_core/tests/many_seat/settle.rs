@@ -508,6 +508,14 @@ fn seven_days_after_open_only_a_refund_starts_and_anyone_starts_it() {
 }
 
 #[test]
+fn a_car_keeps_its_receipts_canonical_bump_from_open() {
+    let (env, car, _, _) = five_riders();
+    let (_, canonical) =
+        APk::find_program_address(&[b"settled", car.key.as_ref()], &tesoro_core::ID);
+    assert_eq!(env.car(car).inner.receipt_bump(), canonical);
+}
+
+#[test]
 fn a_day_after_departure_anyone_refunds_and_the_game_can_no_longer_settle() {
     let (mut env, car, riders, _) = five_riders();
     let after = env.car(car).inner.refund_after();
