@@ -135,7 +135,6 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
 
       {view.error && !showTable && <p className="status err" role="alert">{view.error}</p>}
 
-      <p className="note hd-note">Chips only keep score inside the Match.</p>
     </div>
   );
 }
