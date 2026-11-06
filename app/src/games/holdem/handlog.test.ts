@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { NO_CARD, NO_WINNER, PHASE } from "./chain";
-import { EMPTY_LOG, stepHandLog, type HandLog, type TableRead } from "./handlog";
+import { EMPTY_LOG, rowText, stepHandLog, type HandLog, type TableRead } from "./handlog";
 
 // Board: As Kd 7h 2c 9s (cardName order: rank + 13 * suit, suits c d h s).
 const BOARD = [12 + 39, 11 + 13, 5 + 26, 0, 7 + 39];
@@ -18,7 +18,8 @@ const ended = (lastHand: Partial<TableRead["lastHand"]>): TableRead =>
   read({ handNo: 2, phase: PHASE.shuffle, dealer: 1, bets: [20n, 10n], stacks: [1000n, 1000n], lastHand: { ...noLast, handNo: 1, board: BOARD, ...lastHand } });
 
 const run = (reads: TableRead[], from: HandLog = EMPTY_LOG) => reads.reduce((log, t) => stepHandLog(log, t, 0), from);
-const view = (log: HandLog) => log.streets.map((s) => [s.name, ...s.rows.map((r) => `${r.who}: ${r.text}`)]);
+const WHO = { you: "You", opponent: "Opponent", board: "Board", both: "Both" };
+const view = (log: HandLog) => log.streets.map((s) => [s.name, ...s.rows.map((r) => `${WHO[r.who]}: ${rowText(r)}`)]);
 
 describe("hand log inference", () => {
   it("keeps the Flop and Turn of an all-in runout and logs the call that started it", () => {
@@ -34,25 +35,26 @@ describe("hand log inference", () => {
       ["River", "Board: 9s", "Both: Showdown"],
     ]);
     expect(log.done).toBe(true);
+    expect(log.end).toMatchObject({ handNo: 1, result: 1, pot: 3000n, showdown: true });
   });
 
   it("logs the closing call on the River before the showdown", () => {
     const river = (over: Partial<TableRead>) => read({ phase: PHASE.river, board: BOARD, pot: 400n, bets: [0n, 0n], stacks: [1300n, 1300n], toAct: 1, ...over });
-    const start: HandLog = { hand: 1, done: false, streets: [{ name: "River", rows: [{ who: "Board", text: "9s" }] }], prev: river({}) };
+    const start: HandLog = { hand: 1, done: false, streets: [{ name: "River", rows: [{ who: "board", act: "board", cards: [BOARD[4]] }] }], end: null, prev: river({}) };
     const log = run([river({ bets: [0n, 200n], stacks: [1300n, 1100n], pot: 600n, toAct: 0 }), ended({ result: 0, pot: 800n, showdown: true })], start);
     expect(view(log)).toEqual([["River", "Board: 9s", "Opponent: Bet 200", "You: Call 200", "Both: Showdown"]]);
   });
 
   it("logs a River checked through", () => {
     const river = read({ phase: PHASE.river, board: BOARD, pot: 400n, bets: [0n, 0n], stacks: [1300n, 1300n], toAct: 1 });
-    const start: HandLog = { hand: 1, done: false, streets: [{ name: "River", rows: [] }], prev: river };
+    const start: HandLog = { hand: 1, done: false, streets: [{ name: "River", rows: [] }], end: null, prev: river };
     expect(view(run([ended({ result: 1, pot: 400n, showdown: true })], start))).toEqual([["River", "Opponent: Check", "You: Check", "Both: Showdown"]]);
   });
 
   it("adds a street the reads skipped instead of dropping it", () => {
     const flop = read({ phase: PHASE.flop, board: [...BOARD.slice(0, 3), NO_CARD, NO_CARD], pot: 40n, bets: [0n, 0n], stacks: [1480n, 1480n], toAct: 1 });
     const river = read({ phase: PHASE.river, board: BOARD, pot: 40n, bets: [0n, 0n], stacks: [1480n, 1480n], toAct: 1 });
-    const start: HandLog = { hand: 1, done: false, streets: [{ name: "Flop", rows: [{ who: "Board", text: "As Kd 7h" }] }], prev: flop };
+    const start: HandLog = { hand: 1, done: false, streets: [{ name: "Flop", rows: [{ who: "board", act: "board", cards: BOARD.slice(0, 3) }] }], end: null, prev: flop };
     expect(view(run([river], start))).toEqual([
       ["Flop", "Board: As Kd 7h", "Opponent: Check", "You: Check"],
       ["Turn", "Board: 2c"],
@@ -70,7 +72,7 @@ describe("hand log inference", () => {
 
   it("logs a bet and a raise seen in one read in order", () => {
     const flop = read({ phase: PHASE.flop, board: [...BOARD.slice(0, 3), NO_CARD, NO_CARD], pot: 40n, bets: [0n, 0n], stacks: [1480n, 1480n], toAct: 1 });
-    const start: HandLog = { hand: 1, done: false, streets: [{ name: "Flop", rows: [] }], prev: flop };
+    const start: HandLog = { hand: 1, done: false, streets: [{ name: "Flop", rows: [] }], end: null, prev: flop };
     const log = run([read({ phase: PHASE.flop, board: flop.board, pot: 640n, bets: [400n, 200n], stacks: [1080n, 1280n], toAct: 1 })], start);
     expect(view(log)).toEqual([["Flop", "Opponent: Bet 200", "You: Raise to 400"]]);
   });

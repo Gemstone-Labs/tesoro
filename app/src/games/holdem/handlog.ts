@@ -1,8 +1,15 @@
 import { NO_WINNER, PHASE, SPLIT, cardName, type Table } from "./chain";
 
+export type LogWho = "you" | "opponent" | "board" | "both";
+export type LogAct = "small-blind" | "big-blind" | "check" | "call" | "bet" | "raise" | "fold" | "board" | "showdown";
 export interface LogRow {
-  who: string;
-  text: string;
+  who: LogWho;
+  act: LogAct;
+  /** Chips put in: the call, the blind, or the total a bet or raise goes to. */
+  amount?: bigint;
+  allIn?: boolean;
+  /** The board cards a street dealt. */
+  cards?: number[];
 }
 export interface LogStreet {
   name: string;
@@ -16,27 +23,37 @@ export interface HandLog {
   hand: number;
   done: boolean;
   streets: LogStreet[];
+  /** How the hand ended, once it has. */
+  end: TableRead["lastHand"] | null;
   /** The read this log was last stepped with. */
   prev: TableRead | null;
 }
 
-export const EMPTY_LOG: HandLog = { hand: 0, done: false, streets: [], prev: null };
+export const EMPTY_LOG: HandLog = { hand: 0, done: false, streets: [], end: null, prev: null };
 
 const STREET_LOG = ["", "Pre-flop", "Flop", "Turn", "River", ""];
 const chips = (n: bigint | number) => Number(n).toLocaleString("en-US");
+
+const ACT_TEXT: Record<LogAct, string> = { "small-blind": "Small blind", "big-blind": "Big blind", check: "Check", call: "Call", bet: "Bet", raise: "Raise to", fold: "Fold", board: "", showdown: "Showdown" };
+
+/** A row in plain words ("Raise to 1,500 · all-in", the board as "As Kd 7h"). */
+export function rowText(r: LogRow): string {
+  if (r.act === "board") return (r.cards ?? []).map(cardName).join(" ");
+  const amount = r.amount !== undefined ? ` ${chips(r.amount)}` : "";
+  return `${ACT_TEXT[r.act]}${amount}${r.allIn ? " · all-in" : ""}`;
+}
 const isLive = (phase: number) => phase >= PHASE.preflop && phase <= PHASE.river;
 const max = (a: bigint, b: bigint) => (a > b ? a : b);
 const min = (a: bigint, b: bigint) => (a < b ? a : b);
 
 /** The board cards a street deals: three on the Flop, one on the Turn and the River. */
-function dealt(phase: number, board: number[]): string {
-  const cards = phase === PHASE.flop ? board.slice(0, 3) : phase === PHASE.turn ? board.slice(3, 4) : phase === PHASE.river ? board.slice(4, 5) : [];
-  return cards.map(cardName).join(" ");
+function dealt(phase: number, board: number[]): number[] {
+  return phase === PHASE.flop ? board.slice(0, 3) : phase === PHASE.turn ? board.slice(3, 4) : phase === PHASE.river ? board.slice(4, 5) : [];
 }
 
 function openStreet(L: HandLog, phase: number, board: number[]) {
   const cards = dealt(phase, board);
-  L.streets.push({ name: STREET_LOG[phase], rows: cards ? [{ who: "Board", text: cards }] : [] });
+  L.streets.push({ name: STREET_LOG[phase], rows: cards.length ? [{ who: "board", act: "board", cards }] : [] });
 }
 
 /**
@@ -44,7 +61,7 @@ function openStreet(L: HandLog, phase: number, board: number[]) {
  * owed chips called; with nothing owed, whoever has not acted on this street checked. `added` is
  * what went into the pot after `p`, for the case where a bet and its call both happened unseen.
  */
-function closeStreet(street: LogStreet, p: TableRead, added: bigint, who: (i: number) => string) {
+function closeStreet(street: LogStreet, p: TableRead, added: bigint, who: (i: number) => LogWho) {
   const top = max(p.bets[0], p.bets[1]);
   const actor = p.toAct === 1 ? 1 : 0;
   const other = 1 - actor;
@@ -53,10 +70,10 @@ function closeStreet(street: LogStreet, p: TableRead, added: bigint, who: (i: nu
   if (owed > 0n) {
     const put = min(owed, p.stacks[actor]);
     const allIn = put === p.stacks[actor];
-    street.rows.push({ who: who(actor), text: `Call ${chips(put)}${allIn ? " · all-in" : ""}` });
+    street.rows.push({ who: who(actor), act: "call", amount: put, ...(allIn && { allIn }) });
     // Pre-flop the big blind still has the option after the small blind calls: the street closed, so they checked.
     if (p.phase === PHASE.preflop && actor === p.dealer && p.bets[other] === p.bigBlind && !allIn && p.stacks[other] > 0n) {
-      street.rows.push({ who: who(other), text: "Check" });
+      street.rows.push({ who: who(other), act: "check" });
     }
     return;
   }
@@ -64,16 +81,16 @@ function closeStreet(street: LogStreet, p: TableRead, added: bigint, who: (i: nu
     // A bet and its call, both between two reads: each side put in half.
     const each = added / 2n;
     const to = p.bets[actor] + each;
-    street.rows.push({ who: who(actor), text: top === 0n ? `Bet ${chips(to)}` : `Raise to ${chips(to)}` }, { who: who(other), text: `Call ${chips(each)}` });
+    street.rows.push({ who: who(actor), act: top === 0n ? "bet" : "raise", amount: to }, { who: who(other), act: "call", amount: each });
     return;
   }
   if (p.phase === PHASE.preflop) {
-    street.rows.push({ who: who(actor), text: "Check" });
+    street.rows.push({ who: who(actor), act: "check" });
     return;
   }
   // After the flop the big blind acts first. If `actor` is first, both checked since `p`; if second, the first checked before it.
   const order = actor === 1 - p.dealer ? [actor, other] : [other, actor];
-  for (const i of order) if (!acted(i)) street.rows.push({ who: who(i), text: "Check" });
+  for (const i of order) if (!acted(i)) street.rows.push({ who: who(i), act: "check" });
 }
 
 /**
@@ -82,9 +99,9 @@ function closeStreet(street: LogStreet, p: TableRead, added: bigint, who: (i: nu
  * actions. Pure, so a repeated read changes nothing.
  */
 export function stepHandLog(cur: HandLog, t: TableRead, seat: 0 | 1): HandLog {
-  const who = (i: number) => (i === seat ? "You" : "Opponent");
+  const who = (i: number): LogWho => (i === seat ? "you" : "opponent");
   const p = cur.prev;
-  let L: HandLog = { hand: cur.hand, done: cur.done, streets: cur.streets.map((s) => ({ ...s, rows: [...s.rows] })), prev: t };
+  let L: HandLog = { hand: cur.hand, done: cur.done, streets: cur.streets.map((s) => ({ ...s, rows: [...s.rows] })), end: cur.end, prev: t };
   const lh = t.lastHand;
 
   // The hand being logged has ended: record how.
@@ -98,28 +115,29 @@ export function stepHandLog(cur: HandLog, t: TableRead, seat: 0 | 1): HandLog {
         const winner = lh.result;
         if (added > 0n && seen.toAct === winner) {
           const to = seen.bets[winner] + added;
-          last.rows.push({ who: who(winner), text: max(seen.bets[0], seen.bets[1]) === 0n ? `Bet ${chips(to)}` : `Raise to ${chips(to)}` });
+          last.rows.push({ who: who(winner), act: max(seen.bets[0], seen.bets[1]) === 0n ? "bet" : "raise", amount: to });
         }
-        last.rows.push({ who: who(1 - winner), text: "Fold" });
+        last.rows.push({ who: who(1 - winner), act: "fold" });
       } else {
         closeStreet(last, seen, added, who);
         // An all-in before the River: the rest of the board was dealt with no more betting.
         for (let ph = seen.phase + 1; ph <= PHASE.river; ph++) openStreet(L, ph, lh.board);
-        L.streets[L.streets.length - 1].rows.push({ who: "Both", text: "Showdown" });
+        L.streets[L.streets.length - 1].rows.push({ who: "both", act: "showdown" });
       }
     } else if (last) {
-      if (lh.showdown) last.rows.push({ who: "Both", text: "Showdown" });
-      else if (lh.result !== SPLIT) last.rows.push({ who: who(1 - lh.result), text: "Fold" });
+      if (lh.showdown) last.rows.push({ who: "both", act: "showdown" });
+      else if (lh.result !== SPLIT) last.rows.push({ who: who(1 - lh.result), act: "fold" });
     }
     L.done = true;
+    L.end = lh;
   }
 
   if (!isLive(t.phase)) return L;
   if (L.hand !== t.handNo) {
-    L = { hand: t.handNo, done: false, streets: [], prev: t };
+    L = { hand: t.handNo, done: false, streets: [], end: null, prev: t };
     openStreet(L, t.phase, t.board);
     if (t.phase === PHASE.preflop) {
-      L.streets[0].rows.push({ who: who(t.dealer), text: `Small blind ${chips(t.smallBlind)}` }, { who: who(1 - t.dealer), text: `Big blind ${chips(t.bigBlind)}` });
+      L.streets[0].rows.push({ who: who(t.dealer), act: "small-blind", amount: t.smallBlind }, { who: who(1 - t.dealer), act: "big-blind", amount: t.bigBlind });
     }
     return L;
   }
@@ -141,8 +159,8 @@ export function stepHandLog(cur: HandLog, t: TableRead, seat: 0 | 1): HandLog {
     const nb = t.bets[i];
     if (nb <= before[i]) continue;
     const allIn = t.stacks[i] === 0n;
-    const text = nb <= top ? `Call ${chips(nb - before[i])}` : top === 0n ? `Bet ${chips(nb)}` : `Raise to ${chips(nb)}`;
-    L.streets[L.streets.length - 1].rows.push({ who: who(i), text: allIn ? `${text} · all-in` : text });
+    const row: LogRow = nb <= top ? { who: who(i), act: "call", amount: nb - before[i] } : { who: who(i), act: top === 0n ? "bet" : "raise", amount: nb };
+    L.streets[L.streets.length - 1].rows.push(allIn ? { ...row, allIn } : row);
     top = max(top, nb);
   }
   return L;

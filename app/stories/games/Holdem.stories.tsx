@@ -2,6 +2,9 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { NO_CARD, PHASE, STATUS, call, check, raise, type Action } from "@/games/holdem/chain";
 import { HoldemTable } from "@/games/holdem/HoldemTable";
 import { PlayingCard } from "@/games/holdem/cards";
+import { HandLogView, type LogPlayer } from "@/games/holdem/HandLogView";
+import type { HandLog, LogStreet } from "@/games/holdem/handlog";
+import { art } from "@/lib/art";
 import { HoldemPractice } from "@/games/holdem/practice/HoldemPractice";
 import { act, deal, newPractice, type Practice } from "@/games/holdem/practice/engine";
 import "@/games/holdem/holdem.css";
@@ -120,3 +123,30 @@ export const CardGallery: StoryObj = {
     </div>
   ),
 };
+
+// Board: As Kd 7h 2c 9s; you hold Ah Qc, the opponent Ks Jd.
+const LOG_BOARD = [12 + 39, 11 + 13, 5 + 26, 0, 7 + 39];
+const LOG_PLAYERS: [LogPlayer, LogPlayer] = [{ picture: art.avatars[2], label: "You" }, { picture: art.avatars[6], label: "Bot" }];
+const logOf = (done: boolean): HandLog => ({
+  hand: 7,
+  done,
+  prev: null,
+  end: done ? { handNo: 7, result: 0, pot: 1640n, showdown: true, shown: [[12 + 26, 10], [11 + 39, 9 + 13]], board: LOG_BOARD } : null,
+  streets: [
+    { name: "Pre-flop", rows: [{ who: "you", act: "small-blind", amount: 10n }, { who: "opponent", act: "big-blind", amount: 20n }, { who: "you", act: "raise", amount: 60n }, { who: "opponent", act: "call", amount: 40n }] },
+    { name: "Flop", rows: [{ who: "board", act: "board", cards: LOG_BOARD.slice(0, 3) }, { who: "opponent", act: "check" }, { who: "you", act: "bet", amount: 80n }, { who: "opponent", act: "call", amount: 80n }] },
+    { name: "Turn", rows: [{ who: "board", act: "board", cards: [LOG_BOARD[3]] }, { who: "opponent", act: "check" }, { who: "you", act: "check" }] },
+    ...(done
+      ? [{ name: "River", rows: [{ who: "board", act: "board", cards: [LOG_BOARD[4]] }, { who: "opponent", act: "bet", amount: 680n, allIn: true }, { who: "you", act: "call", amount: 680n }, { who: "both", act: "showdown" }] } satisfies LogStreet]
+      : []),
+  ],
+});
+const LogSheet = ({ log }: { log: HandLog }) => (
+  <div className="sbm" style={{ maxWidth: 520 }}>
+    <div className="hdx-log-body">
+      <HandLogView log={log} seat={0} players={LOG_PLAYERS} hole={[12 + 26, 10]} />
+    </div>
+  </div>
+);
+export const HandLogPlaying: StoryObj = { render: () => <LogSheet log={logOf(false)} /> };
+export const HandLogShowdown: StoryObj = { render: () => <LogSheet log={logOf(true)} /> };

@@ -174,12 +174,51 @@
 
 /* hand log: in the ⋯ menu, the log itself in a sheet */
 .hdx-logsheet { width: min(520px, 100%); }
-.hdx-log-body { display: grid; gap: 4px; max-height: min(60vh, 520px); overflow-y: auto; }
-.hdx-street { display: grid; gap: 4px; padding-top: 10px; border-top: 1px solid var(--line); }
-.hdx-street > b { font-size: var(--fs-16); }
-.hdx-row { display: grid; grid-template-columns: 1fr 1.3fr; gap: 8px; font-size: var(--fs-14); }
-.hdx-row span:first-child { color: var(--fg); }
-.hdx-row .mono { color: var(--fg-2); font-size: var(--fs-13); }
+.hdx-log-body { max-height: min(64vh, 560px); overflow-y: auto; padding-right: 2px; }
+
+/* hand log: one block per street (its cards on the right), one line per action, the result last */
+.hl { display: grid; gap: 10px; }
+.hl-hand-no { margin: 0; font-size: var(--fs-12); text-transform: uppercase; letter-spacing: 0.08em; }
+.hl-street { display: grid; gap: 8px; padding: 10px 12px; background: var(--raised); border: 1px solid var(--line); border-radius: 8px; }
+.hl-street-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-height: 34px; }
+.hl-street-name { font-family: var(--f-display); font-weight: 700; font-size: var(--fs-16); text-transform: uppercase; letter-spacing: 0.06em; margin-right: auto; }
+.hl-cards { display: inline-flex; gap: 4px; }
+.hl-cards .hd-card { --w: 26px; border-radius: 3px; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(0, 0, 0, 0.14); }
+.hl-yours { display: inline-flex; align-items: center; gap: 8px; }
+.hl-yours small { color: var(--fg-2); font-size: var(--fs-12); }
+.hl-acts { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.hl-act { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: var(--fs-14); }
+.hl-ava { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; background: var(--raised-2); }
+.hl-who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-2); }
+.hl-act.mine .hl-who { color: var(--fg); font-weight: 600; }
+.hl-verb {
+  --tone: var(--fg-2);
+  display: inline-flex; align-items: baseline; gap: 6px; padding: 3px 10px; border-radius: 999px;
+  font-size: var(--fs-13); font-weight: 700; color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 14%, transparent); border: 1px solid color-mix(in srgb, var(--tone) 32%, transparent);
+}
+.hl-verb b { color: var(--fg); font-weight: 600; }
+.hl-verb em { font-style: normal; font-size: var(--fs-11); text-transform: uppercase; letter-spacing: 0.06em; }
+.hl-verb.small-blind, .hl-verb.big-blind { --tone: rgba(234, 239, 236, 0.55); font-weight: 600; }
+.hl-verb.check { --tone: #a9b7c4; }
+.hl-verb.call { --tone: #5aa2ff; }
+.hl-verb.bet, .hl-verb.raise { --tone: #f2a63b; }
+.hl-verb.allin { --tone: var(--danger); }
+.hl-verb.fold { --tone: rgba(234, 239, 236, 0.5); background: transparent; border-style: dashed; }
+.hl-none { margin: 0; font-size: var(--fs-13); }
+
+.hl-end { --edge: var(--edge-1); display: grid; gap: 4px; padding: 12px 14px; background: var(--surface-2); }
+.hl-end.win { --edge: var(--edge-gold); }
+.hl-end strong { font-family: var(--f-display); font-size: var(--fs-18); letter-spacing: 0.02em; }
+.hl-end.win strong { color: #ffd66a; }
+.hl-end .meta { font-size: var(--fs-13); }
+.hl-hands { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+.hl-hand { display: grid; justify-items: start; gap: 6px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); opacity: 0.7; }
+.hl-hand.won { opacity: 1; border-color: rgba(255, 214, 106, 0.5); background: rgba(255, 214, 106, 0.06); }
+.hl-hand-who { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-13); font-weight: 600; min-width: 0; }
+.hl-hand-who .hl-ava { width: 22px; height: 22px; }
+.hl-hand .hl-cards .hd-card { --w: 32px; }
+.hl-hand-name { font-size: var(--fs-13); color: var(--fg-2); }
 
 /* action bar */
 .hdx-actions { --edge: var(--edge-2); background: var(--shell); padding: 16px; display: grid; gap: 14px; }
