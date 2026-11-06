@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { backed, match } from "./fixture";
-import { backingLine, gemasRecord, playedRows, playerSummary, runningTotal, signed } from "./player-account";
+import type { HistoryRow } from "./history";
+import { backingLine, gemasRecord, playedRows, playedRowsFromHistory, playerSummary, runningTotal, signed } from "./player-account";
 import type { ChainMatch } from "./read";
 
 const BACKER_A = "BackerA111111111111111111111111111111111111";
@@ -159,5 +160,12 @@ describe("Trading Duel in a Player's record", () => {
     const rows = playedRows([duelWin(30), duelLoss(10)]);
     expect(rows[0].at).toBeGreaterThan(rows[1].at);
     expect(rows[0].asset).toBe(1);
+  });
+});
+
+describe("playedRowsFromHistory", () => {
+  const row = (o: Partial<HistoryRow>): HistoryRow => ({ id: "o-1", game: "railcar", entry: 500, role: "player", result: "refunded", delta: 0, backing: null, scores: null, opp: null, at: 1, asset: null, ride: { seated: 5, kind: "refund" }, ...o });
+  it("leaves out a car refunded before its ride was revealed: whoever paid may have backed it, not ridden", () => {
+    expect(playedRowsFromHistory([row({ id: "o-1" }), row({ id: "o-2", role: "funder" }), row({ id: "o-3", role: "backer" })]).map((r) => r.id)).toEqual(["o-1"]);
   });
 });

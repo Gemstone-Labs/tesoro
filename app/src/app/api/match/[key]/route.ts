@@ -1,7 +1,7 @@
 import { parseMatchKey } from "@/server/history/match-key";
 import { supabaseRpc } from "@/server/history/db";
 import { matchPage } from "@/server/history/reads";
-import { isGameId } from "@/lib/games";
+import { RAILCAR_SHOWN, isGameId } from "@/lib/games";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,7 +12,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ key: st
   if (!id) return Response.json({ error: "Not a Match key." }, { status: 400 });
   try {
     const page = await matchPage(supabaseRpc, id);
-    if (!page || !isGameId(page.game)) return Response.json({ error: "Unknown Match." }, { status: 404 });
+    if (!page || !(isGameId(page.game) || (RAILCAR_SHOWN && page.game === "railcar"))) return Response.json({ error: "Unknown Match." }, { status: 404 });
     return Response.json(page, { headers: { "cache-control": page.status === "settled" || page.status === "refunded" ? "public, s-maxage=60, stale-while-revalidate=600" : "no-store" } });
   } catch (e) {
     console.error("match history", e);

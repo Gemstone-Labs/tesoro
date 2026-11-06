@@ -1,4 +1,5 @@
 import type { HistoryRow } from "./history";
+import type { StoredRide } from "./ride-record";
 import { readScores } from "./settled";
 
 export interface HistoryPageData {
@@ -35,6 +36,23 @@ export async function fetchAllHistory(account: string, fetcher: typeof fetch = (
     const res = await fetcher(`/api/history/${account}?all=1`);
     if (!res.ok) return null;
     return ((await res.json()) as HistoryPageData).rows.map(cleanRow);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A Railcar ride from the history route (`/api/match/<id>`), or a car refunded before its ride was revealed (`refunded`,
+ * no ride); null when it is unknown, not a ride, or the history is down.
+ */
+export async function fetchRidePage(id: string, fetcher: typeof fetch = (...a) => fetch(...a)): Promise<{ id: string; entry: number; ride: StoredRide | null; refunded?: true } | null> {
+  try {
+    const res = await fetcher(`/api/match/${encodeURIComponent(id)}`);
+    if (!res.ok) return null;
+    const page = (await res.json()) as { id: string; entry: number; game: string; status?: string; ride?: StoredRide };
+    if (page.game !== "railcar") return null;
+    if (page.ride) return { id: page.id, entry: page.entry, ride: page.ride };
+    return page.status === "refunded" ? { id: page.id, entry: page.entry, ride: null, refunded: true } : null;
   } catch {
     return null;
   }

@@ -9,6 +9,8 @@ pub const TABLE_SEED: &[u8] = b"table";
 pub const VAULT_SEED: &[u8] = b"vault";
 pub const SPONSOR_SEED: &[u8] = b"sponsor";
 pub const FUEL_SEED: &[u8] = b"fuel";
+/// A Table seat's Brake seat: `["brake", table, seat]`.
+pub const BRAKE_SEED: &[u8] = b"brake";
 /// The address the VRF callback of one request must name (see `Table::vrf_nonce`).
 pub const VRF_REQUEST_SEED: &[u8] = b"vrfreq";
 /// The PDA registered in tesoro_core as Railcar's settle authority.
@@ -33,6 +35,9 @@ pub const DRAW_WINDOW_SLOTS: u64 = DRAW_WINDOW_SECS * SLOTS_PER_SEC;
 /// A request is retried this long after the last one while no answer has come.
 pub const DRAW_RETRY_SLOTS: u64 = 20 * SLOTS_PER_SEC;
 pub const MAX_DRAW_REQUESTS: u8 = 3;
+/// Room in the Vault's press list: one per seat, plus one slot a Brake that does nothing writes.
+pub const PRESS_ROOM: usize = MAX_SEATS as usize + 1;
+
 /// Lamports a new Table gets for the rent of its Vault and the Vault's permission.
 pub const TABLE_BUFFER_LAMPORTS: u64 = 10_000_000;
 
@@ -101,6 +106,8 @@ pub struct Car {
     pub opened_at: i64,
     /// Who paid this account's rent; it goes back there when the car closes.
     pub payer: Pubkey,
+    /// `reveal_ride` published the ride for the round history; `finalize` waits for it.
+    pub revealed: bool,
 }
 
 /// A program-owned lamport holder, delegated once, that pays the commits as the fee payer.
@@ -118,11 +125,13 @@ pub struct Fuel {
     pub n: u8,
 }
 
-/// The private half of a ride: the VRF output and what it decides. A rollup-only account behind
-/// a private permission with no member, created once per Table; nobody reads it during a ride.
+/// The private half of a ride: the VRF output, what it decides and the Brakes pressed. A
+/// rollup-only account behind a private permission with no member, created once per Table;
+/// nobody reads it during a ride.
 #[account]
 #[derive(InitSpace, Debug)]
 pub struct Vault {
+    pub version: u8,
     pub bump: u8,
     pub table: Pubkey,
     /// The car the draw below belongs to.
@@ -135,13 +144,26 @@ pub struct Vault {
     pub spark_at_ms: u32,
     pub false_screws: [u32; 4],
     pub false_len: u8,
-    /// Room for the Brake schedule and the reveal (tickets 07, 08).
-    pub reserved: [u8; 64],
+    /// The Brake schedule: every press adds one 5 s slow piece after the earlier ones, so its end
+    /// (`slow_end_ms`) and the slow time in all (`slow_total_ms`) give the track position at any
+    /// moment from the last press on (`ride::half_position`).
+    pub slow_end_ms: u32,
+    pub slow_total_ms: u32,
+    /// Presses in the order they landed (ride ms, ascending) and their Table seats, for the
+    /// refunds and the reveal at the end.
+    pub press_count: u8,
+    pub presses: [u32; PRESS_ROOM],
+    pub press_seat: [u8; PRESS_ROOM],
+    /// Room for the outage rule (ticket 08) and later.
+    pub reserved: [u8; 128],
 }
 
 impl Vault {
+    pub const VERSION: u8 = 1;
+
     pub fn blank(bump: u8, table: Pubkey) -> Self {
         Self {
+            version: Self::VERSION,
             bump,
             table,
             car_no: 0,
@@ -153,7 +175,12 @@ impl Vault {
             spark_at_ms: 0,
             false_screws: [0; 4],
             false_len: 0,
-            reserved: [0; 64],
+            slow_end_ms: 0,
+            slow_total_ms: 0,
+            press_count: 0,
+            presses: [0; PRESS_ROOM],
+            press_seat: [0; PRESS_ROOM],
+            reserved: [0; 128],
         }
     }
 
@@ -178,20 +205,38 @@ impl Vault {
         self.ready = true;
     }
 
-    /// The Tell stages passed at track position `pos`: 1 screws, 2 bolt and panel, 3 sparks.
-    pub fn tell_at(&self, pos: u32) -> u8 {
-        [self.screw_at_ms, self.bolt_at_ms, self.spark_at_ms]
-            .iter()
-            .filter(|at| **at <= pos)
-            .count() as u8
+    /// The Brakes pressed so far, ascending.
+    pub fn pressed(&self) -> &[u32] {
+        &self.presses[..usize::from(self.press_count).min(PRESS_ROOM)]
     }
+}
 
-    /// False screws passed at track position `pos`.
-    pub fn false_screws_at(&self, pos: u32) -> u8 {
-        self.false_screws[..usize::from(self.false_len.min(4))]
-            .iter()
-            .filter(|at| **at <= pos)
-            .count() as u8
+/// One Table seat's own Brake, readable only by its Player (permission members: the Player's
+/// wallet and seat key). Rollup-only, created the first time the seat index rides on its Table,
+/// then zeroed and handed to each ride's Player by `bind_brake` (never closed while the Table
+/// runs: closing publishes its past transactions).
+#[account]
+#[derive(InitSpace, Debug)]
+pub struct BrakeSeat {
+    pub version: u8,
+    pub bump: u8,
+    pub table: Pubkey,
+    pub seat: u8,
+    /// 1 once bound to `car_no`.
+    pub bound: u8,
+    pub car_no: u64,
+    /// 1 once the Player has Braked on this ride, at ride ms `press_ms`.
+    pub used: u8,
+    pub press_ms: u32,
+    pub reserved: [u8; 16],
+}
+
+impl BrakeSeat {
+    pub const VERSION: u8 = 1;
+
+    /// Whether the seat belongs to the ride of car `car_no`.
+    pub fn bound_to(&self, car_no: u64) -> bool {
+        self.bound == 1 && self.car_no == car_no
     }
 }
 
@@ -214,8 +259,9 @@ pub struct RideSeat {
     /// The seat key core recorded for this seat at join (`Seat::signer`, seat-keys decision D4),
     /// copied by `start_ride`. The Player's wallet acts for the seat too (`acts_for`).
     pub signer: [u8; 32],
-    /// Room for the Brake (ticket 07).
-    pub reserved: [u8; 8],
+    /// After the ride: the Player's Brake, ride ms + 1 (0: no Brake). Zero during the ride.
+    brake_at: [u8; 4],
+    pub reserved: [u8; 4],
 }
 
 impl RideSeat {
@@ -236,6 +282,13 @@ impl RideSeat {
     }
     pub fn aboard(&self) -> bool {
         self.order == 0
+    }
+    /// The revealed Brake: ride ms of the press, if the Player Braked.
+    pub fn brake_ms(&self) -> Option<u32> {
+        u32::from_le_bytes(self.brake_at).checked_sub(1)
+    }
+    pub fn reveal_brake(&mut self, ms: u32) {
+        self.brake_at = ms.saturating_add(1).to_le_bytes();
     }
 }
 
@@ -288,8 +341,13 @@ pub struct Table {
     over_ms: [u8; 4],
     over_at: [u8; 8],
     commit_at: [u8; 8],
-    /// Room for the reveal (ticket 07).
-    pub reserved: [u8; 112],
+    /// After the ride: the draw (with the seats' `brake_ms`, enough for the engine to recompute
+    /// the ride), and `revealed` = 1. Zero during the ride.
+    pub reveal_draw: [u8; 32],
+    pub revealed: u8,
+    /// Seats whose Brake seat is bound to this ride; no Brake counts until all are.
+    pub brakes_bound: u8,
+    pub reserved: [u8; 78],
     /// The pace mark: slot and time of the last moment the ride was on pace (outage rule).
     pace_slot: [u8; 8],
     pace_ts: [u8; 8],
