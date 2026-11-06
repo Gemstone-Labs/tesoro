@@ -78,6 +78,12 @@ export const art = {
   /** Player avatars: animal heads cut from gemstones, never people and never green (DESIGN.md). */
   avatars: Array.from({ length: 12 }, (_, i) => f(`avatars/avatar-${i + 1}`)),
 } as const;
+
+/** The wide hero of a Game a history row names (Railcar: its tile until it has key art). */
+export const heroOf = (g: keyof typeof art.hero | "railcar"): string => (g === "railcar" ? art.railcarTile : art.hero[g]);
+/** The square thumb of a Game a history row names. */
+export const thumbOf = (g: keyof typeof art.thumb | "railcar"): string => (g === "railcar" ? art.railcarTile : art.thumb[g]);
+
 /** A stable avatar for a Player key, so the same Player always shows the same avatar. */
 export function avatarIndexFor(key: string): number {
   let h = 0;

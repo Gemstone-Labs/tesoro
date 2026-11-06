@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChainMatch } from "@/lib/chain/read";
+import { storedWorkedRide } from "@/games/railcar/fixtures";
 import { parseWinKey, winCardData, winCardFromRow, winningSeat, winShareText } from "./win-card";
 
 const A = "AaaaPlayer11111111111111111111111111111111";
@@ -31,6 +32,13 @@ describe("winCardFromRow", () => {
     const row = { id: "o-7", game: "holdem", entry: 1000, winner: A, gemas: 780 };
     expect(winCardFromRow(row, { name: "Ana", avatar: { kind: "animal", index: 2 } })).toMatchObject({ id: "o-7", game: "holdem", entry: 1000, gemas: 780, name: "Ana", avatar: 3 });
     expect(winCardFromRow(row, null)?.name).toContain("…");
+  });
+  it("a Railcar ride's card: its last Player off, when they jumped, where the wall was and how many rode", () => {
+    const ride = storedWorkedRide({ brake: true });
+    const card = winCardFromRow({ id: ride.id, game: "railcar", entry: 500, winner: ride.ride.places[0].player, gemas: 313, ride: ride.ride }, { name: "Dee", avatar: { kind: "animal", index: 2 } });
+    // Dee off at 1:39; the wall at 1:44 of track came at 1:46 on the clock after Dee's Brake.
+    expect(card).toMatchObject({ game: "railcar", gemas: 313, name: "Dee", ride: { seated: 5, lastOffMs: 99_000, wallMs: 106_500 } });
+    expect(winShareText(card!)).toBe("I was last off a Railcar ride and won 313 Gemas on @PlayTesoro. The wall was at 1:46.");
   });
   it("is null for a Game this app does not play", () => {
     expect(winCardFromRow({ id: "o-7", game: "chess", entry: 1, winner: A, gemas: 1 }, null)).toBeNull();

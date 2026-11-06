@@ -83,11 +83,38 @@ describe("rollup instructions", () => {
 
   it("begin_match names the Assignment, the table and the core Match", async () => {
     const { chain, sent, player } = capture();
-    await chain.beginMatch(player, assignment);
+    await chain.beginMatch(player, assignment, { seatsOpen: false });
     const k = keys(sent[0].ix);
     // The Assignment and the core Match, then the account list of the instructions that end a Match (a void wipes and commits).
     expect(k.slice(0, 4)).toEqual([assignment.address, ID, player.publicKey, table].map((x) => x.toBase58()));
     expect(k).toHaveLength(14);
+  });
+
+  // LiteSVM cannot see the rollup's rule that refuses a writable account that is neither delegated nor present
+  // (a real begin_match failed with InvalidWritableAccount), so these metas are the guard.
+  describe("the Books and permissions are writable exactly while the seats are open", () => {
+    const bookKeys = [bookPda(table, 0), bookPda(table, 1)].flatMap((b) => [b, permissionPdaFromAccount(b)]);
+    const writable = (ix: TransactionInstruction) => bookKeys.map((b) => ix.keys.find((k) => k.pubkey.equals(b))!.isWritable);
+    const writableOthers = (ix: TransactionInstruction) => ix.keys.filter((k) => !bookKeys.some((b) => b.equals(k.pubkey)) && k.isWritable).length;
+
+    it.each([true, false])("begin_match with seatsOpen=%s", async (seatsOpen) => {
+      const { chain, sent, player } = capture();
+      await chain.beginMatch(player, assignment, { seatsOpen });
+      expect(writable(sent[0].ix)).toEqual([seatsOpen, seatsOpen, seatsOpen, seatsOpen]);
+      expect(writableOthers(sent[0].ix)).toBeGreaterThan(0);
+    });
+
+    it.each([true, false])("expire_start with seatsOpen=%s", async (seatsOpen) => {
+      const { chain, sent, player } = capture();
+      await chain.expireStart(player, assignment, { seatsOpen });
+      expect(writable(sent[0].ix)).toEqual([seatsOpen, seatsOpen, seatsOpen, seatsOpen]);
+    });
+
+    it("end_match runs only with the seats open, so they are writable", async () => {
+      const { chain, sent, player } = capture();
+      await chain.end(player, assignment);
+      expect(writable(sent[0].ix)).toEqual([true, true, true, true]);
+    });
   });
 
   it("open_seats names both Books and their permissions", async () => {

@@ -1,6 +1,9 @@
 import { matchKeyOf } from "./match-key";
 import type { MatchRecord, MatchRunStartedRecord } from "./events";
 import type { Rpc } from "./rpc";
+import railcarIdl from "../../lib/chain/idl/railcar.json";
+
+const RAILCAR_GAME = (railcarIdl as { address: string }).address;
 
 /** What the keeper reads from the Game's own account (the Block Burst Session); core's records do not carry it. */
 export interface MatchDetail {
@@ -97,10 +100,32 @@ export function payloadOf(r: MatchRecord, ctx: IngestContext): Record<string, un
         parties: partiesOf(r),
       };
     }
+    case "seats-start":
+      return {
+        ...base,
+        type: "start",
+        event_id: `${id}:start`,
+        game: r.game === RAILCAR_GAME ? "railcar" : (ctx.gameOf(r.game) ?? r.game),
+        entry: r.entry,
+        entry_exact: String(r.entry),
+        fees_exact: r.fees.map(String),
+        kind: r.kind,
+        winner_side: null,
+        fees: r.fees,
+        challenge: false,
+        asset: 0,
+        opened_at: r.openedAt,
+        ts: r.ts,
+        // A many-seat start names no parties: ingest_match_event builds them from this, the ride and the chunks.
+        many_seat: true,
+        places: r.places,
+      };
+    case "ride":
+      return { ...base, type: "ride", event_id: `${id}:ride`, ride: r.ride };
     case "won":
       return { ...base, type: "won", event_id: `${id}:won`, game: ctx.gameOf(r.game) ?? r.game, entry: r.entry, entry_exact: r.entryExact ?? String(r.entry), winner: r.winner, loser: r.loser, points: r.points, pool_fee: r.poolFee, pool_fee_exact: r.poolFeeExact ?? String(r.poolFee), season: r.season, ts: r.ts, challenge: r.challenge, asset: r.asset, opened_at: r.openedAt };
     case "chunk":
-      return { ...base, type: "chunk", event_id: `${id}:chunk:${r.chunkNo}`, chunk_no: r.chunkNo };
+      return { ...base, type: "chunk", event_id: `${id}:chunk:${r.chunkNo}`, chunk_no: r.chunkNo, ...(r.seatLines ? { seat_lines: r.seatLines } : {}) };
     case "settled":
       return { ...base, type: "settled", event_id: `${id}:settled`, kind: r.kind, chunks: r.chunks, ts: Math.floor(Date.now() / 1000) };
     case "lines-start":

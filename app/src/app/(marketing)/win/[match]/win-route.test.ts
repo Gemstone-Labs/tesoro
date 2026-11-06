@@ -51,6 +51,12 @@ describe("/win/[match]", () => {
     await notFound(Page(params(KEY)));
     await notFound(Page(params("0")));
   });
+  it("a Railcar ride's page names its last Player off", async () => {
+    loadWin.mockResolvedValue({ ...WIN, game: "railcar", entry: 500, gemas: 313, name: "Dee", ride: { seated: 5, lastOffMs: 99_000, wallMs: 104_000 } });
+    const { default: Page, generateMetadata } = await import("./page");
+    expect((await generateMetadata(params(KEY))).title).toBe("Dee was last off a Railcar ride on Tesoro");
+    expect(await Page(params(KEY))).toBeTruthy();
+  });
   it("renders the page for a win", async () => {
     loadWin.mockResolvedValue(WIN);
     const { default: Page } = await import("./page");

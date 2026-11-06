@@ -52,7 +52,8 @@ export default function Page() {
       <H2 id="crash-point">The Crash point</H2>
       <p>
         The <b>Crash point</b> is where the wall stands. It is drawn at random when the car leaves, and nobody can know it during the ride: not Players, not {BRAND.name}, not an
-        outsider watching. It is published when the ride ends so anyone can check it.
+        outsider watching. It is published when the ride ends so anyone can check it: every finished ride&apos;s page (from your Matches) shows the crash point, each
+        Tell&apos;s lead, every Brake and the draw, and replays the ride with these rules against what was paid.
       </p>
       <p>The odds, measured at full speed, are published:</p>
       <ul>

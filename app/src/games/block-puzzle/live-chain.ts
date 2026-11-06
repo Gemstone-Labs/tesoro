@@ -375,6 +375,9 @@ export interface OwnBoard {
   offsets: Uint8Array;
 }
 
+/** A Board belongs to the key that reads it when that key is its Player (a wallet-signed entry) or its seat key (`signer`). */
+export const boardIsViewers = (b: Pick<OwnBoard, "player" | "signer">, viewer: PublicKey): boolean => b.player.equals(viewer) || b.signer.equals(viewer);
+
 export function decodeBoard(b: any): OwnBoard {
   return {
     seat: b.seat,
@@ -665,7 +668,7 @@ export class BlockBurstChain {
     const info = await conn.getAccountInfo(address).catch(() => null);
     if (!info || !info.owner.equals(BLOCK_BURST_PROGRAM_ID)) return null;
     const board = decodeBoard(this.program.coder.accounts.decode("board", info.data));
-    return board.player.equals(player.publicKey) ? board : null;
+    return boardIsViewers(board, player.publicKey) ? board : null;
   }
 
   /** Seat of `wallet` at this table, or -1. */

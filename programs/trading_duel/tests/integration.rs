@@ -728,7 +728,7 @@ impl Env {
     }
 
     fn begin_ix(&self) -> Instruction {
-        ix(
+        let ixn = ix(
             trading_duel::ID,
             trading_duel::accounts::BeginMatch {
                 assignment: assign_addr(self.tmatch),
@@ -737,7 +737,22 @@ impl Env {
             },
             trading_duel::instruction::BeginMatch {},
             vec![],
-        )
+        );
+        self.books_writable(ixn, self.table().seats_open)
+    }
+
+    /// The Books and their permissions are writable in the transaction exactly when they exist
+    /// (`seats_open`). LiteSVM cannot see the rollup's rule that refuses a writable account that
+    /// is neither delegated nor present (the real failure: `InvalidWritableAccount` on a
+    /// `begin_match`), so these metas are the guard: a test that builds them the other way round
+    /// must fail here.
+    fn books_writable(&self, mut ixn: Instruction, writable: bool) -> Instruction {
+        let c = self.concluding(a(self.oracle.pubkey()));
+        let keys = [c.book_0, c.book_1, c.book_0_permission, c.book_1_permission].map(s);
+        for m in ixn.accounts.iter_mut().filter(|m| keys.contains(&m.pubkey)) {
+            m.is_writable = writable;
+        }
+        ixn
     }
 
     fn begin(&mut self) -> Result<(), Failed> {
@@ -899,12 +914,13 @@ impl Env {
     }
 
     fn expire_ix(&self) -> Instruction {
-        ix(
+        let ixn = ix(
             trading_duel::ID,
             self.concluding(a(self.oracle.pubkey())),
             trading_duel::instruction::ExpireStart {},
             vec![],
-        )
+        );
+        self.books_writable(ixn, self.table().seats_open)
     }
 
     fn release_accounts(&self, m: APk) -> trading_duel::accounts::Release {
@@ -1082,6 +1098,7 @@ impl Env {
             trading_duel::instruction::EndMatch {},
             vec![],
         );
+        let ixn = self.books_writable(ixn, self.table().seats_open);
         self.send(&[ixn], &kp, &[])
     }
 
@@ -3119,4 +3136,73 @@ fn begin_voids_a_table_stuck_on_a_match_core_already_froze() {
     env.begin().expect("reset, then begin");
     assert_eq!(env.table().epoch, 1);
     assert_eq!(env.table().phase, trading_duel::PHASE_WAITING);
+}
+
+// --- the Books are writable in the transaction only while they exist -------------------------------
+
+fn book_metas(ixn: &Instruction, env: &Env) -> Vec<bool> {
+    let c = env.concluding(a(env.oracle.pubkey()));
+    [c.book_0, c.book_1, c.book_0_permission, c.book_1_permission]
+        .map(|k| {
+            ixn.accounts
+                .iter()
+                .find(|m| m.pubkey == s(k))
+                .expect("named")
+                .is_writable
+        })
+        .to_vec()
+}
+
+#[test]
+fn begin_on_a_fresh_table_names_the_absent_books_read_only() {
+    let mut env = Env::new();
+    env.next_match_on(0);
+    env.open_and_join(1_000);
+    env.assign(0, 0, 0).expect("assign");
+    assert!(!env.table().seats_open);
+    let ixn = env.begin_ix();
+    assert_eq!(
+        book_metas(&ixn, &env),
+        vec![false; 4],
+        "absent accounts are never writable"
+    );
+    env.rollup(ixn).expect("begin");
+    assert_eq!(env.table().phase, trading_duel::PHASE_WAITING);
+}
+
+#[test]
+fn the_void_and_the_end_name_the_present_books_writable_and_close_them() {
+    let mut env = live();
+    assert!(env.table().seats_open);
+    assert_eq!(book_metas(&env.expire_ix(), &env), vec![true; 4]);
+    assert_eq!(book_metas(&env.begin_ix(), &env), vec![true; 4]);
+    let stuck = env.tmatch;
+    env.set_time(T0 + trading_duel::TABLE_WINDOW_SECS + 1);
+    core_refund(&mut env).expect("core refund");
+    env.set_time(env.now + trading_duel::RELEASE_DELAY_SECS);
+    env.begin_with(&[stuck]).expect("voids");
+    assert!(!env.table().seats_open, "the void closed the Books");
+}
+
+#[test]
+fn a_void_with_the_present_books_read_only_fails_and_changes_nothing() {
+    let mut env = live();
+    let stuck = env.tmatch;
+    env.set_time(T0 + trading_duel::TABLE_WINDOW_SECS + 1);
+    core_refund(&mut env).expect("core refund");
+    env.set_time(env.now + trading_duel::RELEASE_DELAY_SECS);
+    let mut ixn = env.begin_ix();
+    ixn.accounts.push(AccountMeta {
+        pubkey: s(tpda(&[b"settled", stuck.as_ref()])),
+        is_signer: false,
+        is_writable: false,
+    });
+    let ixn = env.books_writable(ixn, false);
+    let before = env.table();
+    assert!(
+        env.rollup(ixn).is_err(),
+        "closing a read-only Book is refused"
+    );
+    let after = env.table();
+    assert!(after.seats_open && after.phase == before.phase);
 }

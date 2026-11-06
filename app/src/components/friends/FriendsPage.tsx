@@ -9,9 +9,9 @@ import { InfoTip } from "@/components/money/Tip";
 import { ChallengeSheet } from "@/components/match/ChallengeSheet";
 import { Bust, Button, Card, Sheet } from "@/components/ui";
 import { useAccount } from "@/lib/account";
-import { art } from "@/lib/art";
+import { art, thumbOf } from "@/lib/art";
 import { ago } from "@/lib/catalogue";
-import { accountHistory, unplayed } from "@/lib/chain/history";
+import { accountHistory, historyGameName, unplayed } from "@/lib/chain/history";
 import { playedRows } from "@/lib/chain/player-account";
 import { usePlayerAccount } from "@/lib/chain/usePlayerAccount";
 import { fmtGemas } from "@/lib/format";
@@ -311,9 +311,9 @@ function FriendRow({ account, record, isNew, now }: { account: string; record: F
               const Icon = RESULT_ICON[r.result as keyof typeof RESULT_ICON] ?? Minus;
               return (
                 <li key={r.id} className="cut cut-chip fr-chip">
-                  <Image src={art.thumb[r.game]} alt="" width={40} height={40} />
+                  <Image src={thumbOf(r.game)} alt="" width={40} height={40} />
                   <span>
-                    <b>{GAME_SHORT[r.game] ?? GAME_NAMES[r.game]}</b>
+                    <b>{(r.game !== "railcar" && GAME_SHORT[r.game]) || historyGameName(r.game)}</b>
                     <small className={`fr-res ${r.result}`}>
                       <Icon aria-hidden="true" />
                       <span className="sr-only">{RESULT_WORD[r.result as keyof typeof RESULT_WORD]}, </span>

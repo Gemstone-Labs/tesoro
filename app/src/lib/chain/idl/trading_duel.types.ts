@@ -449,16 +449,13 @@ export type TradingDuel = {
               }
             },
             {
-              "name": "book0",
-              "writable": true
+              "name": "book0"
             },
             {
-              "name": "book1",
-              "writable": true
+              "name": "book1"
             },
             {
               "name": "book0Permission",
-              "writable": true,
               "pda": {
                 "seeds": [
                   {
@@ -523,7 +520,6 @@ export type TradingDuel = {
             },
             {
               "name": "book1Permission",
-              "writable": true,
               "pda": {
                 "seeds": [
                   {
@@ -1933,16 +1929,13 @@ export type TradingDuel = {
           }
         },
         {
-          "name": "book0",
-          "writable": true
+          "name": "book0"
         },
         {
-          "name": "book1",
-          "writable": true
+          "name": "book1"
         },
         {
           "name": "book0Permission",
-          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -2007,7 +2000,6 @@ export type TradingDuel = {
         },
         {
           "name": "book1Permission",
-          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -2166,16 +2158,13 @@ export type TradingDuel = {
           }
         },
         {
-          "name": "book0",
-          "writable": true
+          "name": "book0"
         },
         {
-          "name": "book1",
-          "writable": true
+          "name": "book1"
         },
         {
           "name": "book0Permission",
-          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -2240,7 +2229,6 @@ export type TradingDuel = {
         },
         {
           "name": "book1Permission",
-          "writable": true,
           "pda": {
             "seeds": [
               {

@@ -35,6 +35,7 @@ import { completionEffects, completionInput, holdSeeds, recoverCompletions, type
 import { releaseClosedHolds, type ClosureReads } from "./closure";
 import { assetOfIndex } from "@/games/trading-duel/chain";
 import { countersPda } from "@/lib/chain/basket";
+import { decodeTicketHead } from "@/lib/chain/pot-store";
 import { GROW_COUNTERS_CU, GROW_COUNTERS_RENT, growIxsFor } from "@/lib/chain/grow-counters";
 import { canAssign } from "./assign-ix";
 import { joinOf, PlayerBusy, type Assigner, type Assignment, type LeaseRef } from "./assign";
@@ -418,7 +419,26 @@ export class Sponsor {
   /** A transaction with several signers (a Backing Ticket): every one of them is an Account, not a throwaway key. */
   private async requireOtherSigners(plan: Plan, player: PublicKey) {
     const seats = plan.seatSigners ?? [];
-    for (const sg of plan.signers) if (!sg.equals(player) && !seats.some((k) => k.equals(sg))) await this.requireAccount(sg);
+    for (const sg of plan.signers) {
+      if (sg.equals(player) || seats.some((k) => k.equals(sg)) || (await this.ticketNamesSeatKey(plan, player, sg))) continue;
+      await this.requireAccount(sg);
+    }
+  }
+
+  /** A Ticket step signed by the seat key this Player's Entry Ticket recorded at `open_ticket` (core checks the same). */
+  private async ticketNamesSeatKey(plan: Plan, player: PublicKey, signer: PublicKey): Promise<boolean> {
+    for (const t of plan.ticketSigners ?? []) {
+      if (!t.signer.equals(signer)) continue;
+      const a = await this.d.chain.account(t.ticket);
+      if (!a || !a.owner.equals(CORE_ID)) continue;
+      try {
+        const head = decodeTicketHead(a.data);
+        if (head.kind === "entry" && head.account.equals(accountPda(player)) && head.signer.equals(signer)) return true;
+      } catch {
+        // not a Ticket: the signer needs an Account of its own
+      }
+    }
+    return false;
   }
 
   /** Refuses what the way the request was vouched for does not allow (see `BuildAuth`). */

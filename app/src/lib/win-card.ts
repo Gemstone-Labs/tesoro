@@ -1,10 +1,13 @@
 import { avatarIndexFor } from "@/lib/art";
 import type { ChainMatch } from "@/lib/chain/read";
 import { matchDelta } from "@/lib/chain/ledger";
-import { shortKey } from "@/lib/chain/history";
+import { historyGameName, shortKey, type HistoryGame } from "@/lib/chain/history";
+import { rideRecordOf } from "@/lib/chain/ride-history";
+import type { StoredRide } from "@/lib/chain/ride-record";
+import { replayRide } from "@/games/railcar/replay";
+import { clock } from "@/games/railcar/words";
 import type { ProfileData } from "@/lib/identity/display";
 import type { GameId } from "@/lib/mock";
-import { GAME_NAMES } from "@/lib/mock";
 import { GEMS } from "@/lib/waitlist-spot";
 import { BRAND } from "./brand";
 import { parseMatchKey } from "./chain/match-id";
@@ -12,7 +15,7 @@ import { parseMatchKey } from "./chain/match-id";
 /** What the win card shows: one won, settled Match. */
 export interface WinCardData {
   id: string;
-  game: GameId;
+  game: HistoryGame;
   entry: number;
   /** Gemas the winner gained, net of Fees; 0 when a Backing share leaves the Player nothing. */
   gemas: number;
@@ -21,6 +24,8 @@ export interface WinCardData {
   /** 1-based, like the files in assets/share. */
   avatar: number;
   hex: string;
+  /** A Railcar ride: how many rode, when the winner (last off) jumped and when the wall came, ride-clock ms. */
+  ride?: { seated: number; lastOffMs: number; wallMs: number };
 }
 
 /** A Match key (`<opener>-<n>`) from a URL segment, or null when it is not one. */
@@ -48,21 +53,32 @@ export function winCardData(m: ChainMatch, profile: ProfileData | null): WinCard
   return { id: m.id, game: m.game, entry: m.entry, gemas, name: profile?.name ?? shortKey(side.player), avatar: index + 1, hex: GEMS[index].hex };
 }
 
-/** The card of a settled Match with a winner, as the Match history keeps it (`win_card`): the winning Player and what they gained. */
-export function winCardFromRow(card: { id: string; game: string; entry: number; winner: string; gemas: number }, profile: ProfileData | null): WinCardData | null {
-  if (!GAMES.includes(card.game as GameId)) return null;
+/**
+ * The card of a settled Match with a winner, as the Match history keeps it (`win_card`): the winning Player and what they
+ * gained. A Railcar ride's winner is its last Player off; the ride is replayed for when they jumped and when the wall came.
+ */
+export function winCardFromRow(card: { id: string; game: string; entry: number; winner: string; gemas: number; ride?: StoredRide | null }, profile: ProfileData | null): WinCardData | null {
+  const railcar = card.game === "railcar";
+  if (!GAMES.includes(card.game as GameId) && !railcar) return null;
+  const rec = railcar ? rideRecordOf({ entry: card.entry, ride: card.ride }) : null;
+  if (railcar && !rec) return null;
   const pick = profile?.avatar;
   const index = pick?.kind === "animal" && pick.index < GEMS.length ? pick.index : avatarIndexFor(card.winner);
-  return { id: card.id, game: card.game as GameId, entry: card.entry, gemas: card.gemas, name: profile?.name ?? shortKey(card.winner), avatar: index + 1, hex: GEMS[index].hex };
+  const base = { id: card.id, game: card.game as HistoryGame, entry: card.entry, gemas: card.gemas, name: profile?.name ?? shortKey(card.winner), avatar: index + 1, hex: GEMS[index].hex };
+  if (!rec) return base;
+  const r = replayRide(rec);
+  const first = r.seats.find((s) => s.place === 1);
+  return { ...base, ride: { seated: rec.seats.length, lastOffMs: first?.jumpMs ?? 0, wallMs: r.impactMs ?? 0 } };
 }
 
 const GAMES: readonly GameId[] = ["block-puzzle", "holdem", "trading-duel", "vanguard"];
 
 export const winPath = (id: string) => `/win/${id}`;
 
-export function winShareText(w: Pick<WinCardData, "game" | "gemas" | "entry">): string {
+export function winShareText(w: Pick<WinCardData, "game" | "gemas" | "entry" | "ride">): string {
   const won = w.gemas > 0 ? `won ${w.gemas.toLocaleString("en-US")} Gemas` : "won";
-  return `I just ${won} in a ${GAME_NAMES[w.game]} Match on ${BRAND.handle}.`;
+  if (w.ride) return `I was last off a Railcar ride and ${won} on ${BRAND.handle}. The wall was at ${clock(w.ride.wallMs)}.`;
+  return `I just ${won} in a ${historyGameName(w.game)} Match on ${BRAND.handle}.`;
 }
 
 export const postUrl = (text: string, url: string) => `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;

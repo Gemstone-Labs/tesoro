@@ -1,5 +1,6 @@
 /**
- * Finishing a ride after Impact, from any page of a Player the result pays: Railcar's `finalize` (core freezes the result),
+ * Finishing a ride after Impact, from any page of a Player the result pays: Railcar's `reveal_ride` (the ride for the round
+ * history, once per car) and `finalize` (core freezes the result),
  * room for winners whose stores are short, every settle chunk the shared planner sizes, every seat close and the car's
  * close. Every step is permissionless: `caller` is the relayer (the page's seat key vouches for the request), so a
  * Player's wallet signs none of it. Idempotent: two pages finishing the same car only race to the same state.
@@ -7,7 +8,7 @@
 import type { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { closeIxs, loadCar, planSeatChunk, roomIxs } from "../../lib/chain/many-seat-plan";
 import type { Core, Reader } from "../../lib/chain/settle-plan";
-import { carPda, decodeCarAccount, finalizeIx } from "./chain";
+import { carPda, decodeCarAccount, finalizeIx, revealRideIx } from "./chain";
 
 export interface RideFinishDeps {
   read: Reader;
@@ -26,7 +27,7 @@ export interface RideFinishDeps {
   maxSends?: number;
 }
 
-export type FinishStep = "finalize" | "room" | "chunk" | "close-seat" | "close-car";
+export type FinishStep = "reveal" | "finalize" | "room" | "chunk" | "close-seat" | "close-car";
 
 export interface FinishResult {
   done: boolean;
@@ -55,7 +56,8 @@ export async function finishRide(d: RideFinishDeps): Promise<FinishResult> {
         const [info] = await d.read.many([carPda(d.carNo)]);
         if (!info) return { done: false, sent, waiting: "no-car" };
         const car = decodeCarAccount(info.data);
-        await send([finalizeIx(d.caller, { ...car, carNo: d.carNo }, l.car.pages)], "finalize");
+        if (!car.revealed) await send([revealRideIx(d.caller, { ...car, carNo: d.carNo }, l.car.pages)], "reveal");
+        else await send([finalizeIx(d.caller, { ...car, carNo: d.carNo }, l.car.pages)], "finalize");
         break;
       }
       case "settling":
