@@ -8,7 +8,7 @@ import { resetEntryTokenState, setIdentityTokenGetter, sponsoredSendBuilt } from
 import { SeatKeyManager, memorySeatKeyStore } from "@/lib/seat/seat-key";
 import { counted, countingFor, resetWalletSignatures, walletSignatures } from "@/lib/seat/signature-counter";
 import { RAILCAR_PROGRAM_ID, checkDepartureIx, finalizeIx, tickIx } from "./chain";
-import { boardingSigner, brakeSigner, finishSender, joinSeatKey, jumpSigner } from "./signers";
+import { boardingSigner, brakeRoute, finishSender, joinSeatKey, jumpSigner } from "./signers";
 
 const relayer = Keypair.generate().publicKey;
 const walletKp = Keypair.generate();
@@ -106,18 +106,26 @@ describe("a Railcar ride's wallet signatures (Privy bills each one)", () => {
     expect(finishSender(null, async () => null, true)).toBeNull();
   });
 
-  it("a Brake rides the seat key's tick and never asks the wallet", async () => {
+  it("a Brake rides the seat key's tick: no wallet prompt", async () => {
+    const w = wallet();
     const seatKey = await new SeatKeyManager({ store: memorySeatKeyStore() }).forMatch(matchKey, walletKp.publicKey);
-    // the seat names this page's seat key: the Brake is a flag on the tick that key signs
-    const signer = brakeSigner(seatKey, seatKey.publicKey);
-    expect(signer).toBe(seatKey);
-    const tick = tickIx(signer!.publicKey, 0, 4n, 2, true);
+    // the seat names this page's seat key: the Brake is a flag on the next tick that key signs
+    const route = brakeRoute(w, seatKey, seatKey.publicKey);
+    expect(route).toEqual({ kind: "next-tick", signer: seatKey });
+    const tick = tickIx(route!.signer.publicKey, 0, 4n, 2, true);
     expect(tick.keys.filter((k) => k.isSigner).map((k) => k.pubkey.toBase58())).toEqual([seatKey.publicKey.toBase58()]);
-    // the seat names another key (boarded on another device) or none, or this page has no seat key: no Brake from here,
-    // because a wallet-signed tick would be a prompt and a transaction anyone can tell apart from the page's ticks
-    expect(brakeSigner(seatKey, key())).toBeNull();
-    expect(brakeSigner(seatKey, PublicKey.default)).toBeNull();
-    expect(brakeSigner(null, seatKey.publicKey)).toBeNull();
     expect(walletSignatures()[matchKey]?.total ?? 0).toBe(0);
+  });
+
+  it("a seat with no seat key of this page's (boarded without one, or on another device): the wallet Brakes, never a dead button", async () => {
+    const w = wallet();
+    const seatKey = await new SeatKeyManager({ store: memorySeatKeyStore() }).forMatch(matchKey, walletKp.publicKey);
+    // core lets the wallet be its own seat_signer ("the wallet itself when it wants none")
+    expect(brakeRoute(w, null, walletKp.publicKey)).toEqual({ kind: "wallet", signer: w });
+    expect(brakeRoute(w, seatKey, walletKp.publicKey)).toEqual({ kind: "wallet", signer: w });
+    // the seat names another device's key: Railcar's tick still takes the wallet (acts_for: the wallet's own Account)
+    expect(brakeRoute(w, seatKey, key())).toEqual({ kind: "wallet", signer: w });
+    // signed out: nothing can sign
+    expect(brakeRoute(null, null, walletKp.publicKey)).toBeNull();
   });
 });

@@ -36,7 +36,7 @@ import { backerSeatedIn, boardingEntry, stepOffFor, type BoardingBacking } from 
 import { finishRide } from "./finish";
 import { mayFinish, nextRideStep, queueChoice, signalIntervalMs, watchedRide } from "./flow";
 import type { RailcarWatch } from "./RailcarScreen";
-import { boardingSigner, brakeSigner, finishSender, joinSeatKey, jumpSigner } from "./signers";
+import { boardingSigner, brakeRoute, finishSender, joinSeatKey, jumpSigner } from "./signers";
 import type { RailcarBrake, RailcarOffer } from "./RailcarScreen";
 import { playTells } from "./tells";
 import { railcarView, type FeeRates, type RailcarView } from "./view";
@@ -339,8 +339,10 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   const riding = !!snap?.car && snap.mine && !!ride && (ride.phase === "riding" || ride.phase === "drawing");
   const signalTable = snap?.car?.table ?? null;
   const mySeat = me && ride ? (ride.seats.find((x) => x.account.equals(me)) ?? null) : null;
-  // The seat key signs ticks (and so the Brake) only when the seat names it (core records it at boarding).
-  const tickKey = mySeat ? brakeSigner(seat, mySeat.signer) : null;
+  // The seat key signs ticks (and carries the Brake) when the seat names it (core records it at boarding); else the wallet
+  // signs a Brake of its own.
+  const brakeVia = mySeat ? brakeRoute(wallet, seat, mySeat.signer) : null;
+  const tickKey = brakeVia?.kind === "next-tick" ? brakeVia.signer : null;
   const aboard = !!mySeat && mySeat.order === 0;
   const allBound = !!ride && ride.brakesBound >= ride.seated && ride.seated > 0;
   const myBound = allBound || (!!mine && !!ride && mine.bound && mine.carNo === ride.carNo);
@@ -502,11 +504,22 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   );
 
   const pressBrake = useCallback(() => {
-    if (!tickKey) return;
-    // the next tick carries it: no transaction of its own, no wallet prompt
-    pendingBrake.current = true;
-    setPending(true);
-  }, [tickKey]);
+    if (!brakeVia || !meKey || !snap?.car || !ride || tableSeat === null) return;
+    if (brakeVia.kind === "next-tick") {
+      // the next tick carries it: no transaction of its own, no wallet prompt
+      pendingBrake.current = true;
+      setPending(true);
+      return;
+    }
+    // No seat key of this page's on the seat: one tick of its own, signed by the wallet.
+    const signer = brakeVia.signer;
+    const table = snap.car.table;
+    const at = Math.max(0, Date.now() - ride.rideTs * 1000);
+    void act("brake", async () => {
+      await getChain().sendTee(signer, [tickIx(signer.publicKey, table, ride.carNo, tableSeat, true)]);
+      rememberBrake(meKey, ride.carNo, at);
+    });
+  }, [act, brakeVia, meKey, snap, ride, tableSeat]);
 
   // The press the page knows: my Brake seat when it can read it, else this page's memory of the send.
   const knownPress = mine && ride && mine.used && mine.carNo === ride.carNo ? mine.pressMs : meKey && ride ? recallBrake(meKey, ride.carNo) : null;
@@ -518,7 +531,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
     }
   }, [pending, now, ride, meKey]);
   const rideMs = ride && ride.phase === "riding" ? Math.max(0, now - ride.rideTs * 1000) : 0;
-  const state = ride?.phase === "riding" ? brakeState({ aboard, allBound, myBound, canSign: !!tickKey, pressMs: knownPress, pending, rideMs }) : null;
+  const state = ride?.phase === "riding" ? brakeState({ aboard, allBound, myBound, canSign: !!brakeVia, pressMs: knownPress, pending: pending || busy === "brake", rideMs }) : null;
   const brake: RailcarBrake | null = state ? { ...state, onBrake: pressBrake } : null;
 
   const playAgain = useCallback(() => {

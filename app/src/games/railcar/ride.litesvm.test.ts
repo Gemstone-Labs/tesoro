@@ -61,6 +61,7 @@ import {
   carPda,
 } from "./chain";
 import { BIND_PER_SEND } from "./brake";
+import { brakeRoute } from "./signers";
 import { impactMs, ride } from "./engine";
 import { replayRide, type RideReplay } from "./replay";
 import { rideRecordOf } from "../../lib/chain/ride-history";
@@ -528,13 +529,16 @@ async function rideCar(
   n: number,
   draw: Uint8Array,
   jumps: [number, number][],
-  o: { brakes?: [number, number][]; watch?: (w: World, at: { secs: number; table: PublicKey; riders: Person[] }) => void; backed?: { seat: number; shareBps: number } } = {},
+  o: { brakes?: [number, number][]; watch?: (w: World, at: { secs: number; table: PublicKey; riders: Person[] }) => void; backed?: { seat: number; shareBps: number }; noSeatKey?: number[] } = {},
 ): Promise<RideRun & { over: ReturnType<typeof decodeTable> }> {
   const backed = o.backed;
   const w = await World.create();
   // A backed rider has no Gemas of their own: their Backer's entry boards for them.
   w.riders = Array.from({ length: n }, (_, i) => (i === backed?.seat ? w.person() : w.rider()));
   const riders = w.riders;
+  // A Player who boards without a seat key names the wallet as the seat's signer (core: "the wallet itself when it wants none").
+  const keyless = new Set(o.noSeatKey ?? []);
+  for (const i of keyless) riders[i].seat = riders[i].kp;
   const backer = backed ? w.rider() : null;
   const backing = backed && backer ? w.backing(riders[backed.seat], backer, backed.shareBps) : undefined;
 
@@ -583,11 +587,15 @@ async function rideCar(
     const t = decodeTable(w.get(table)!.data);
     const seat = t.seats.find((s) => s.account.equals(riders[who].account))!;
     o.watch?.(w, { secs, table, riders });
-    // The seat key the wallet named at boarding plays the Jump and the Brake's tick: the wallet is not asked.
+    // The seat key the wallet named at boarding plays the Jump and the Brake's tick: the wallet is not asked. A Player
+    // with no seat key on this page Jumps and Brakes with the wallet, as the page routes it.
     expect(seat.signer.equals(riders[who].seat.publicKey)).toBe(true);
     w.phase = brake ? "brakes" : "jumps";
-    const seatKey = riders[who].seat;
-    w.rollup([brake ? tickIx(seatKey.publicKey, carAcct.table, carNo, seat.tableSeat, true) : jumpIx(seatKey.publicKey, carAcct.table, carNo, seat.tableSeat)], seatKey, carAcct.table);
+    const pageSeatKey = keyless.has(who) ? null : riders[who].seat;
+    const route = brakeRoute(riders[who].kp, pageSeatKey, seat.signer)!;
+    expect(route.kind).toBe(keyless.has(who) ? "wallet" : "next-tick");
+    const signer = route.signer;
+    w.rollup([brake ? tickIx(signer.publicKey, carAcct.table, carNo, seat.tableSeat, true) : jumpIx(signer.publicKey, carAcct.table, carNo, seat.tableSeat)], signer, carAcct.table);
   }
   w.phase = "finish";
   const vault = new BorshAccountsCoder(railcarIdl as unknown as Idl).decode("Vault", Buffer.from(w.get(vaultPda(table))!.data)) as { crash_ms: number; press_count: number; presses: number[] };
@@ -730,6 +738,18 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     expect(impactMs([48_000], ride(r.over.revealDraw).crashMs)).toBe(r.over.overMs);
     // The wallets signed boarding only: the seat keys played the Brake and the Jumps.
     expect(r.walletSigs).toEqual({ boarding: 5 });
+  });
+
+  it("Ana boarded without a seat key: her wallet signs the Brake (one prompt) and it counts as any Brake does", { timeout: 120_000 }, async () => {
+    const r = await rideCar(5, drawWithCrash(52_000), [
+      [BEN, 50],
+      [ANA, 53],
+    ], { brakes: [[ANA, 48]], noSeatKey: [ANA] });
+    expect(r.over.overMs).toBe(54_500);
+    expect(r.deltas).toEqual([1_445n, 905n, 0n, 0n, 0n]);
+    expect(r.over.seats.map((x) => x.brakeMs)).toEqual([48_000, null, null, null, null]);
+    // her wallet signed boarding, the Brake and her Jump; everyone else's seat key played for them
+    expect(r.walletSigs).toEqual({ boarding: 5, brakes: 1, jumps: 1 });
   });
 
   it("Ben rides backed by Bob (40% to Ben): Bob's 500 board for him, second place splits 52 to Ben and 578 to Bob", { timeout: 120_000 }, async () => {
