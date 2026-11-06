@@ -1,0 +1,138 @@
+"use client";
+
+import { useEffect, useState, useSyncExternalStore, type KeyboardEvent, type PointerEvent } from "react";
+import { ChevronLeft, ChevronRight, Play } from "lucide-react";
+import { Button, Sheet } from "@/components/ui";
+import { useReducedMotion } from "@/games/fx/reduced-motion";
+import { GUIDE_STEPS, clipPaths, type ClipSet } from "@/lib/how-to-play";
+import { GAME_NAMES } from "@/lib/mock";
+import type { GameId } from "@/lib/mock";
+import { lastStepButtons, stepAfterKey } from "./guide-nav";
+import "./how-to-play.css";
+
+/**
+ * Where the guide was opened from, which decides the last step's buttons:
+ * game-page: Practice free + Done · first-practice: Start practice · practice-menu: Done (back to the pause card).
+ */
+export type GuideEnd = "game-page" | "first-practice" | "practice-menu";
+
+const DESKTOP = "(min-width: 1024px)";
+const subscribeDesktop = (cb: () => void) => {
+  const mq = window.matchMedia(DESKTOP);
+  mq.addEventListener("change", cb);
+  return () => mq.removeEventListener("change", cb);
+};
+const isDesktop = () => window.matchMedia(DESKTOP).matches;
+
+function useClipSet(): ClipSet {
+  return useSyncExternalStore(subscribeDesktop, () => (isDesktop() ? "desktop" : "phone"), () => "phone");
+}
+
+const SWIPE_PX = 48;
+
+export interface HowToPlayProps {
+  game: GameId;
+  open: boolean;
+  /** Close, by Done, Start practice, the close button, Esc or the backdrop. */
+  onClose: () => void;
+  end: GuideEnd;
+  /** The Practice link of the "game-page" end. */
+  practiceHref?: string;
+}
+
+/** Step-by-step guide with a looping clip per step: a bottom sheet on phones, a centred modal on wide screens. */
+export function HowToPlay({ game, open, onClose, end, practiceHref }: HowToPlayProps) {
+  return (
+    <Sheet open={open} onClose={onClose} title={`How to play ${GAME_NAMES[game]}`} className="htp-sheet">
+      <Guide game={game} end={end} practiceHref={practiceHref} onClose={onClose} />
+    </Sheet>
+  );
+}
+
+function Guide({ game, end, practiceHref, onClose }: Omit<HowToPlayProps, "open">) {
+  const steps = GUIDE_STEPS[game];
+  const set = useClipSet();
+  const [i, setI] = useState(0);
+  const last = i === steps.length - 1;
+  const step = steps[i];
+  const go = (next: number) => setI(Math.min(steps.length - 1, Math.max(0, next)));
+
+  // The next step's poster is fetched ahead; its video only loads once it is shown.
+  useEffect(() => {
+    if (i + 1 >= steps.length) return;
+    const img = new Image();
+    img.src = clipPaths(game, i + 2, set).poster;
+  }, [game, i, set, steps.length]);
+
+  const [downX, setDownX] = useState<number | null>(null);
+  const onPointerDown = (e: PointerEvent) => { if (e.pointerType === "touch") setDownX(e.clientX); };
+  const onPointerUp = (e: PointerEvent) => {
+    if (downX === null) return;
+    const dx = e.clientX - downX;
+    setDownX(null);
+    if (Math.abs(dx) >= SWIPE_PX) go(i + (dx < 0 ? 1 : -1));
+  };
+  const onKeyDown = (e: KeyboardEvent) => {
+    const next = stepAfterKey(e.key, i, steps.length);
+    if (e.key === "ArrowRight" || e.key === "ArrowLeft") { e.preventDefault(); setI(next); }
+  };
+
+  return (
+    <div className="htp" onKeyDown={onKeyDown}>
+      <div className="htp-stage" onPointerDown={onPointerDown} onPointerUp={onPointerUp} onPointerCancel={() => setDownX(null)} data-set={set}>
+        <Clip key={`${game}:${i}:${set}`} game={game} n={i + 1} set={set} />
+      </div>
+      <div className="htp-text" aria-live="polite">
+        <span className="htp-count">Step {i + 1} of {steps.length}</span>
+        <h3 className="htp-title">{step.title}</h3>
+        <p className="htp-line">{step.line}</p>
+      </div>
+      <div className="htp-dots" role="group" aria-label="Steps">
+        {steps.map((s, n) => (
+          <button key={s.title} type="button" className="htp-dot" aria-label={`Step ${n + 1}: ${s.title}`} aria-current={n === i ? "step" : undefined} onClick={() => go(n)} />
+        ))}
+      </div>
+      <div className="htp-nav">
+        <Button onClick={() => go(i - 1)} disabled={i === 0} icon={<ChevronLeft aria-hidden="true" />}>Back</Button>
+        {!last ? (
+          <Button variant="light" onClick={() => go(i + 1)}>Next <ChevronRight aria-hidden="true" /></Button>
+        ) : (
+          <>
+            {end === "game-page" && practiceHref && <Button href={practiceHref}>Practice free</Button>}
+            <Button variant="light" onClick={onClose}>{lastStepButtons(end).at(-1)}</Button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One step's clip: a looping muted video over its poster. Reduced motion shows the poster until tapped. A clip that fails
+ * to load leaves the poster, and a missing poster leaves a plain frame, never a broken box.
+ */
+function Clip({ game, n, set }: { game: GameId; n: number; set: ClipSet }) {
+  const reduced = useReducedMotion();
+  const [tapped, setTapped] = useState(false);
+  const [videoFailed, setVideoFailed] = useState(false);
+  const [posterFailed, setPosterFailed] = useState(false);
+  const { webm, mp4, poster } = clipPaths(game, n, set);
+  const playing = (!reduced || tapped) && !videoFailed;
+  return (
+    <div className="htp-clip">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      {!posterFailed && <img className="htp-poster" src={poster} alt="" onError={() => setPosterFailed(true)} />}
+      {playing && (
+        <video className="htp-video" autoPlay loop muted playsInline preload="auto" poster={posterFailed ? undefined : poster} aria-hidden="true">
+          <source src={webm} type="video/webm" />
+          <source src={mp4} type="video/mp4" onError={() => setVideoFailed(true)} />
+        </video>
+      )}
+      {reduced && !tapped && !videoFailed && (
+        <button type="button" className="cut cut-chip htp-play" onClick={() => setTapped(true)} aria-label="Play clip">
+          <Play aria-hidden="true" />
+        </button>
+      )}
+    </div>
+  );
+}
