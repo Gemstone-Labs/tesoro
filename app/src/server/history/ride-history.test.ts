@@ -5,6 +5,7 @@ import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import railcarIdl from "@/lib/chain/idl/railcar.json";
 import { ride } from "@/games/railcar/engine";
 import { replayRide } from "@/games/railcar/replay";
+import { amountText, bannerLine, shortKey } from "@/lib/chain/history";
 import { rideRecordOf } from "@/lib/chain/ride-history";
 import { decodeMatchRecords, type InnerInstruction } from "./events";
 import { ingestMatchRecords } from "./ingest";
@@ -220,6 +221,16 @@ describe("Railcar rides in the Match history, from the reveal, the run's start a
     expect([bob.role, bob.result, bob.delta]).toEqual(["backer", "refunded", 0]);
   });
 
+  it("a revealed refund words each row for who it is: a Player, a backed Player, their Backer", async () => {
+    const words = async (who: PublicKey) => {
+      const [r] = await rowIn(rpc, who, 6);
+      return [r.role, bannerLine(r), amountText(r)];
+    };
+    expect(await words(ANA)).toEqual(["player", "Entry 500", "Entry refunded"]);
+    expect(await words(CY)).toEqual(["player", `Entry 500 · Backed by ${shortKey(BOB.toBase58())}`, "Entry refunded"]);
+    expect(await words(BOB)).toEqual(["backer", `Entry 500 · You backed ${shortKey(CY.toBase58())}`, "Entry refunded"]);
+  });
+
   it("core refunds a car nobody revealed (24 h after departure): whoever paid each entry sees it Refunded", async () => {
     const riders = [ANA, BEN, CY, DEE, EVE].map((who) => ({ who }) as Rider);
     riders[4] = { who: EVE, backer: BOB, share: 5_000 };
@@ -227,10 +238,20 @@ describe("Railcar rides in the Match history, from the reveal, the run's start a
     await ingest(rpc, [paid(7, riders, 4, true), start(7, riders, run)]);
     for (const who of [ANA, BEN, CY, DEE, BOB]) {
       const rows = await rowIn(rpc, who, 7);
-      expect(rows.map((r) => [r.game, r.result, r.delta, r.ride])).toEqual([["railcar", "refunded", 0, { seated: 5, kind: "refund" }]]);
+      expect(rows.map((r) => [r.game, r.role, r.result, r.delta, r.backing, r.ride])).toEqual([["railcar", "funder", "refunded", 0, null, { seated: 5, kind: "refund" }]]);
     }
     // core's refund lines name who paid, not a backed seat's Player
     expect(await rowIn(rpc, EVE, 7)).toEqual([]);
+  });
+
+  it("a refund nobody revealed never words a Backer as a rider: Ana who rode and Bob who backed read the same", async () => {
+    const words = async (who: PublicKey) => {
+      const [r] = await rowIn(rpc, who, 7);
+      return [bannerLine(r), amountText(r)];
+    };
+    const both = ["Car refunded · 500 back to you", "Entry refunded"];
+    expect(await words(ANA)).toEqual(both);
+    expect(await words(BOB)).toEqual(both);
   });
 
   it("a RideRevealed that Railcar did not emit names nobody; one Railcar emitted that does not decode stops the cursor", () => {

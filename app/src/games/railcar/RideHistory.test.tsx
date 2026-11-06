@@ -37,4 +37,11 @@ describe("a finished ride's page", () => {
     expect(t).toContain("The replay differs from what was paid");
     expect(t).toContain("Seat 1 was refunded 400, the replay gives 350.");
   });
+
+  it("a car refunded before its ride was revealed says so, with no ride to check", () => {
+    const t = text(renderToStaticMarkup(<RideHistory page={{ id: "Opener1-7", entry: 500, ride: null, refunded: true }} me={ANA.toBase58()} />));
+    expect(t).toContain("This car was refunded before its ride was revealed, so there is no ride to check. Every entry went back to whoever paid it.");
+    expect(t).not.toContain("not a Railcar ride");
+    expect(t).not.toContain("Crash point");
+  });
 });

@@ -1,6 +1,6 @@
 /**
- * A Railcar ride as the Match history keeps it (`match_history.ride`), written from the `finalize` transaction's events:
- * Railcar's `RideSettled` (the draw, every Brake, every seat) and core's places. Amounts are whole Gemas as numbers.
+ * A Railcar ride as the Match history keeps it (`match_history.ride`): Railcar's `RideRevealed` from `reveal_ride` (the
+ * draw, every Brake, every seat) and core's places from the run. Amounts are whole Gemas as numbers.
  */
 import type { RideReason } from "../../games/railcar/chain";
 import { hexToBytes } from "../../games/railcar/engine";

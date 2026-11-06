@@ -7,9 +7,8 @@ import { SkelText } from "@/components/ui/skel-text";
 import { CheckIcon, MinusIcon, XIcon } from "@/components/ui";
 import { heroOf } from "@/lib/art";
 import { ago } from "@/lib/catalogue";
-import { amountText, backingText, historyGameName, matchHref, type HistoryRow } from "@/lib/chain/history";
+import { amountText, bannerLine, historyGameName, matchHref, type HistoryRow } from "@/lib/chain/history";
 import { fmtGemas } from "@/lib/format";
-import { rideLine } from "@/games/railcar/words";
 import "./match-banner.css";
 
 const RESULT = { won: { text: "Won", Icon: CheckIcon }, lost: { text: "Lost", Icon: XIcon }, draw: { text: "Draw", Icon: MinusIcon }, "no-show": { text: "No-show", Icon: MinusIcon }, refunded: { text: "Refunded", Icon: MinusIcon } } as const;
@@ -23,16 +22,17 @@ const RESULT = { won: { text: "Won", Icon: CheckIcon }, lost: { text: "Lost", Ic
  * Player it backed. `backing` replaces the default Backing line under the entry. `me` is the
  * signed-in Account: its seat, when it played, carries a "You" tag.
  * A Railcar ride has no one opponent: the Player's seat faces the count of Players who rode, and the line under the
- * entry says how their ride went ("Last off at 1:39"). It opens the ride's own page.
+ * entry says how their ride went ("Last off at 1:39"). It opens the ride's own page. A `funder` row (a car refunded
+ * before its ride was revealed) shows the car alone: this Account may have backed the seat rather than ridden it.
  */
 export function MatchBanner({ r, account, now, backing, me }: { r: HistoryRow; account: string; now: number; backing?: string | null; me?: string | null }) {
   const res = RESULT[r.result];
-  const note = backing === undefined ? backingText(r) : backing;
   const player = r.role === "backer" && r.backing ? r.backing.other : account;
   const tone = r.delta > 0 ? "won" : r.delta < 0 ? "lost" : "even";
   const figure = r.delta === 0 && r.result !== "lost" ? amountText(r) : `${r.delta > 0 ? "+" : r.delta < 0 ? "−" : ""}${fmtGemas(Math.abs(r.delta))} Gemas`;
   const game = historyGameName(r.game);
-  const ride = r.ride ? rideLine(r.ride) : null;
+  const line = bannerLine(r, backing);
+  const own = r.role !== "funder";
   return (
     <article className={`cut cut-card mb ${r.result}`}>
       <span className="mb-art">
@@ -44,21 +44,17 @@ export function MatchBanner({ r, account, now, backing, me }: { r: HistoryRow; a
           {game} · {ago(r.at, now)}
         </span>
         <b>{res.text}</b>
-        <small>
-          Entry {fmtGemas(r.entry)}
-          {ride && <> · {ride}</>}
-          {note && <> · {note}</>}
-        </small>
+        <small>{line}</small>
       </div>
       <div className="mb-face">
-        {player === account ? (
+        {!own ? null : player === account ? (
           <Seat account={player} score={r.scores?.[0]} lit={r.result === "won"} dim={r.result === "lost"} you={player === me} />
         ) : (
           <AccountLink account={player} className="mb-seat-link">
             <Seat account={player} score={r.scores?.[0]} lit={r.result === "won"} dim={r.result === "lost"} you={player === me} />
           </AccountLink>
         )}
-        <span className="mb-vs" aria-hidden="true">{r.ride ? "of" : "vs"}</span>
+        {own && <span className="mb-vs" aria-hidden="true">{r.ride ? "of" : "vs"}</span>}
         {r.ride ? (
           <span className="mb-seat mb-crowd">
             <span className="mb-av-wrap">

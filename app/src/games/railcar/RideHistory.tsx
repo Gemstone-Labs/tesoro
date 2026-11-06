@@ -13,6 +13,8 @@ export interface RidePage {
   id: string;
   entry: number;
   ride?: StoredRide | null;
+  /** Core refunded the car before anyone revealed its ride: there is nothing to replay. */
+  refunded?: true;
 }
 
 const secs = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
@@ -24,6 +26,16 @@ const secs = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
  */
 export function RideHistory({ page, me, actions = {} }: { page: RidePage; me: string | null; actions?: RailcarActions }) {
   const rec = rideRecordOf(page);
+  if (!rec && page.refunded)
+    return (
+      <section className="rc rc-check" aria-label="Refunded car">
+        <h2 className="rc-check-h">Car refunded</h2>
+        <p className="cut cut-card rc-check-note">This car was refunded before its ride was revealed, so there is no ride to check. Every entry went back to whoever paid it.</p>
+        <p className="rc-check-note">
+          <Link href="/play/railcar">Play Railcar</Link>
+        </p>
+      </section>
+    );
   if (!rec) return <p className="status">This Match is not a Railcar ride.</p>;
   const r = replayRide(rec);
   const view = replayView(rec, r, me);

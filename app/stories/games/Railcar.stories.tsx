@@ -104,5 +104,9 @@ export const RideFromHistory1440: StoryObj = { ...RideFromHistory, ...desk };
 /** Dee Braked at 1:30: the wall stays at 1:44 of track and comes at 1:46 on the clock. Seen by someone who did not ride. */
 export const RideFromHistoryWithBrake = history(fx.storedWorkedRide({ brake: true }), null);
 export const RideFromHistoryWithBrake390: StoryObj = { ...RideFromHistoryWithBrake, ...phone };
+/** A car core refunded before anyone revealed its ride: nothing to replay, and the page says so. */
+export const RideRefundedUnrevealed: StoryObj = { render: () => <RideHistory page={{ id: "Opener1-7", entry: 500, ride: null, refunded: true }} me={null} actions={actions} /> };
+export const RideRefundedUnrevealed390: StoryObj = { ...RideRefundedUnrevealed, ...phone };
+export const RideRefundedUnrevealed1440: StoryObj = { ...RideRefundedUnrevealed, ...desk };
 /** A record the replay does not give (Ana shown 400 back where the schedule gives 350): the page lists the difference. */
 export const RideFromHistoryDiffers = history(fx.storedWorkedRide({ tamper: true }), fx.ANA.toBase58());

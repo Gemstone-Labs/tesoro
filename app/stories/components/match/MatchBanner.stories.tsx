@@ -49,6 +49,8 @@ export const RailcarAboard: Story = { args: { r: ride({ result: "lost", delta: -
 export const RailcarRefunded: Story = { args: { r: ride({ result: "refunded", delta: 0, ride: { seated: 5, kind: "refund" } }) } };
 /** A ride this Account backed: Ben placed second at a 40% share; the Backer's entry came home plus 60% of the winnings. */
 export const RailcarAsBacker: Story = { args: { r: ride({ role: "backer", delta: 78, backing: { other: PLAYER, shareBps: 4_000 }, ride: { seated: 5, kind: "place", place: 2, jumpMs: 97_000 } }), account: BACKER, me: BACKER } };
+/** A car refunded before its ride was revealed: the history knows only who paid each entry, so the row shows the car alone. */
+export const RailcarRefundedUnrevealed: Story = { args: { r: ride({ role: "funder", result: "refunded", delta: 0, ride: { seated: 5, kind: "refund" } }), account: BACKER, me: BACKER } };
 
 /** The Matches list with rides among head-to-head Matches, as the history page lists them. */
 const mixed = [
@@ -56,6 +58,7 @@ const mixed = [
   row(match("block-puzzle", 1000, true, 4, [171, 55])),
   ride({ id: `${PLAYER}-8`, result: "lost", delta: -150, at: NOW - 3 * 3_600_000, ride: { seated: 37, kind: "early", jumpMs: 25_000 } }),
   row(match("holdem", 1000, false, 90, [0, 0])),
+  ride({ id: `${PLAYER}-6`, role: "funder", result: "refunded", delta: 0, at: NOW - 20 * 3_600_000, ride: { seated: 12, kind: "refund" } }),
   ride({ id: `${PLAYER}-7`, result: "lost", delta: -500, at: NOW - 26 * 3_600_000, ride: { seated: 100, kind: "aboard" } }),
 ];
 export const HistoryWithRides: Story = {

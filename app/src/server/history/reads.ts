@@ -33,7 +33,7 @@ export interface MatchPage {
   chunks: number;
   scores: [number, number] | null;
   /** `side` is the core seat on a ride. */
-  parties: { account: string; role: "player" | "backer"; side: number; result: string; delta: number; backingOther: string | null; shareBps: number | null }[];
+  parties: { account: string; role: "player" | "backer" | "funder"; side: number; result: string; delta: number; backingOther: string | null; shareBps: number | null }[];
   /** A Railcar ride: everything it revealed, to replay it. */
   ride?: StoredRide;
 }

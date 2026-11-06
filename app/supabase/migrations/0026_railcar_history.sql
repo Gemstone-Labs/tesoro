@@ -9,11 +9,15 @@
 -- Each piece is folded into match_history; mh_rebuild_seats then rebuilds the parties from whatever is there, under the
 -- match row's lock, so the last piece to land always sees the others. One party row per seat (Player, and the Backer
 -- of a backed seat); `side` is the core seat index (0-99). Head-to-head Matches are unchanged.
+-- A third role, `funder`: the Account that paid a seat's entry when nothing says whether it rode or backed the seat (a
+-- car core refunded before anyone revealed its ride). Its row claims no ride, so nothing counts it as a Match played.
 
 alter table public.match_history add column many_seat boolean not null default false;
 alter table public.match_history add column ride jsonb;
 alter table public.match_history add column places jsonb;
 alter table public.match_parties add column ride jsonb;
+alter table public.match_parties drop constraint match_parties_role_check;
+alter table public.match_parties add constraint match_parties_role_check check (role in ('player', 'backer', 'funder'));
 alter table public.match_parties drop constraint match_parties_side_check;
 alter table public.match_parties add constraint match_parties_side_check check (side between 0 and 99);
 alter table public.match_events drop constraint match_events_type_check;
@@ -21,8 +25,8 @@ alter table public.match_events add constraint match_events_type_check check (ty
 
 -- The parties of a many-seat Match from its pieces:
 --   refund run (kind 4, 5, 6): every seat Refunded, delta 0. With the ride, each Player and each Backer; without it,
---     whoever core's refund lines paid each seat's entry back to (the Player, or the Backer of a backed seat, shown as
---     the one who rode: core's lines do not say).
+--     whoever core's refund lines paid each seat's entry back to, as its `funder` (the Player, or the Backer of a backed
+--     seat: core's lines do not say which, and no event names a backed seat's Player, who then has no row).
 --   win (kind 0), once the ride is in: a place gets its entry back and its winnings (a backed place: the Player keeps
 --     floor(won x share), the Backer the rest); an early Jump gets its refund back (backed: the Player 0, the Backer
 --     refund - entry); aboard at Impact loses the entry (backed: the Player 0, the Backer -entry).
@@ -63,7 +67,7 @@ begin
       end loop;
     else
       insert into public.match_parties (opener, n, account, role, side, result, delta, backing_other, share_bps, ride)
-      select distinct on (seat) o, k, recipient, 'player', seat, 'refunded', 0, null, null, '{"kind":"refund"}'::jsonb
+      select distinct on (seat) o, k, recipient, 'funder', seat, 'refunded', 0, null, null, '{"kind":"refund"}'::jsonb
       from (
         select (l->>'seat')::smallint as seat, l->>'recipient' as recipient
         from public.match_events e, jsonb_array_elements(coalesce(e.payload->'seat_lines', '[]'::jsonb)) l

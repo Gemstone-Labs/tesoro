@@ -34,4 +34,16 @@ describe("a Railcar ride in the Matches history", () => {
     expect(text(html)).toContain("You backed 6Nw6…p4Cn");
     expect(text(html)).toContain("+78 Gemas");
   });
+
+  it("a car refunded before its ride was revealed: what paid came back, with no seat, Jump or Player shown as theirs", () => {
+    const r = ride({ role: "funder", result: "refunded", delta: 0, ride: { seated: 5, kind: "refund" } });
+    const html = renderToStaticMarkup(<MatchBanner r={r} account={BACKER} me={BACKER} now={NOW} />);
+    expect(text(html)).toContain("Refunded");
+    expect(text(html)).toContain("Car refunded · 500 back to you");
+    expect(text(html)).toContain("5 Players");
+    expect(text(html)).not.toContain("You ");
+    expect(html).not.toContain("mb-you");
+    expect(html).not.toContain(" of ");
+    expect(html).not.toContain("mb-av-wrap\"><img");
+  });
 });
