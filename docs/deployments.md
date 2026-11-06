@@ -51,6 +51,28 @@ in one paused-keeper run. Founder's word required.
 
 `retire_position` and the keeper's retire plan close only Positions shorter than 235 bytes.
 
+## Seat keys on devnet (2026-11-04, fixes 2026-11-05 and 2026-11-06)
+
+The wallet signs a Match entry once; a key made on the device for that Match (the seat key) plays it. Source: commit `34705495` (programs = `a05bb7c4` ELFs, `SHA256SUMS` checked), from the deployer `7zr1j185…qh7M` through `https://rpc.magicblock.app/devnet`, keeper stopped for the window. Each program was extended, upgraded and its live dump compared with the ELF. Rollback dumps: `~/.cache/tesoro-tmp/sk-rollback/`; receipts: `~/.cache/tesoro-tmp/sk-deploy/receipts.md`.
+
+| Program | Upgrade slot | Signature | sha256 |
+|---|---|---|---|
+| `tesoro_core` (extend +162,000 → 3,336,120 B) | 518610479 | `45omnHKe…7F5wH2Y` | `b04247b8…` |
+| `block_puzzle` (extend +10,240) | 518610621 | `4bqrtWGg…pQfonDsc` | `a14e6c04…` |
+| `holdem` (extend +10,400) | 518610706 | `4f4zWBpx…4cpuaNwZX` | `0776b7eb…` |
+| `trading_duel` (extend +10,240) | 518610781 | `3TFMp4TP…eRZU33W8E` | `7a996ec5…` |
+| `vanguard` (extend +10,240) | 518610882 | `5Y4gNFRg…VrVJS1rQmqg2` | `5f655e2d…` |
+
+Layouts changed: the Match record +64 B, the Ticket head 160 → 192 B (`TICKET_VERSION` 2), every Game's Assignment, Table and Seat (`player` + `signer`). The four Games were re-listed for 365 days and their tables moved to generation 2 (Block Burst 12, Hold'em, Trading Duel and Vanguard 4 each, operator `CHbSyR6H…`). App and keeper went to `main` the same day (`b4c7a1c7`, production `tesoro-fc6vu8ixc`).
+
+Fixes after the upgrade:
+
+- 2026-11-05: Block Burst's page read its own Board only when the Board's `player` was the viewing key (`main` `295aeb59`).
+- 2026-11-05: Trading Duel's `begin_match` named the Books writable before they existed, and the rollup refused it. `trading_duel` upgraded at slot 518769296 (`4iq8H8UU…`, ELF `f6788e57` = live dump), re-listed, `main` + keeper `b9c0b9a7`. Rollback dump: `~/.cache/tesoro-tmp/duel-deploy/rollback-trading_duel.so`.
+- 2026-11-06: entries of more than 16 lines (an Entry Ticket) failed. The app read only the version 1 Ticket head, and the sponsor refused the stage step the seat key signs. App-only fix; checked with a 20-line 500 Block Burst Challenge (Match opened `4dCsPSQQ…`, then cancelled and refunded in full).
+
+After the fixes, one Match per Game settled with one wallet signature per Player (Hold'em, Vanguard, Trading Duel, Block Burst).
+
 ## Bundled devnet upgrade (2026-10-26)
 
 Source: `feat/economy-finish-25-10-2026` at `37e0bb57` (programs, crates and bridge identical to the build that produced these hashes). Built on the VPS with `anchor build --no-idl -- --tools-version v1.54` and `cargo build-sbf --tools-version v1.54` for the bridge; every dump of the live program equals its ELF. The deployer wrote and upgraded one program at a time. Rollback dumps: `~/.cache/tesoro-tmp/rollback-2026-10-26/` (`SHA256SUMS`).
