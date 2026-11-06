@@ -166,7 +166,9 @@ export const ROWS: Readonly<Record<string, Row>> = {
   // The Player steps off before departure (the Player signs as caller); the mark's and Pot's rent go back to whoever paid them.
   step_off_many_seat_match: { class: "exit", relayer: ["mark_payer", "pot_payer"], cu: 400_000, extra: 60, playerSigns: true },
   // The finish of a car, permissionless: anyone's chunks, room for a winner, the closes, a refund past the car's refund time.
-  many_seat_chunk: { class: "exit", relayer: ["caller"], cu: 1_000_000, extra: 60 },
+  // The page sizes a chunk to about 125k by simulation; 300k still lands one it could not simulate (7 steps of staking-token
+  // fee cuts use 247k), and the priority fee is paid on this limit, not on what the chunk uses.
+  many_seat_chunk: { class: "exit", relayer: ["caller"], cu: 300_000, extra: 60 },
   reserve_many_seat_room: { class: "exit", relayer: ["payer"], cu: 200_000, spend: (a) => ({ refundable: TICKET_HEAD_RENT + lines(a.lines) * LINE_RENT, sunk: 0n }) },
   close_many_seat: { class: "exit", relayer: ["caller", "mark_payer", "pot_payer"], cu: 300_000 },
   // Remaining: every page and who paid it (the relayer, when it did), ten pages at most.

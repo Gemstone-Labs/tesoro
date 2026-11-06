@@ -23,7 +23,7 @@ import { settledPda } from "../../app/src/lib/chain/basket.ts";
 import { gameRecordPda, programDataPda } from "../../app/src/lib/chain/game-record.ts";
 import { MAX_SEAT_CHUNK_STEPS, decodeCar, type CarView } from "../../app/src/lib/chain/many-seat.ts";
 import { aheadOf, loadCar, sourcesOf } from "../../app/src/lib/chain/many-seat-plan.ts";
-import { connReader, missingCutPages } from "../../app/src/lib/chain/settle-plan.ts";
+import { connReader, missingCutPages, simulatedUnits } from "../../app/src/lib/chain/settle-plan.ts";
 import { act, type Ctx } from "./act.ts";
 import { initCkptPageIx } from "./core-ix.ts";
 import { bookOf } from "./kit.ts";
@@ -218,6 +218,7 @@ export async function finishCarOf(ctx: Ctx, match: PublicKey): Promise<void> {
     match,
     committed: async () => false,
     fits: (ix) => fits(caller, [ix], opts),
+    simulate: (ix) => simulatedUnits(ctx.conn, caller, [ix], opts),
     send: (ixs, what) => step(ctx, match, what, () => sendIxs(ctx.conn, ctx.payer, ixs, opts)),
     maxSends: 200,
   });

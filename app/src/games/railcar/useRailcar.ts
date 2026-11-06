@@ -19,7 +19,7 @@ import { drawRemaining, freshPot, nextMatchOf, readNextTicket, sendEntryTx } fro
 import { matchKeyOf } from "@/lib/chain/match-id";
 import { joinSeatIx } from "@/lib/chain/many-seat";
 import { loadCar, type LoadedCar } from "@/lib/chain/many-seat-plan";
-import { connReader, fits, type Reader } from "@/lib/chain/settle-plan";
+import { connReader, fits, simulatedUnits, type Reader } from "@/lib/chain/settle-plan";
 import { sponsorStatus, sponsoredSend } from "@/lib/chain/sponsor-client";
 import { prepareBackingTicket, prepareEntryTicket } from "@/lib/chain/ticket";
 import { seatKeys, type SeatKey } from "@/lib/seat/seat-key";
@@ -442,6 +442,7 @@ async function finishFromPage(send: (ixs: TransactionInstruction[]) => Promise<s
     match: car.match,
     committed: async () => !!base && base.carNo === car.carNo && base.phase === "over",
     fits: (ix) => fits(relayer, [ix], { units: 1_000_000, tables }),
+    simulate: (ix) => simulatedUnits(conn, relayer, [ix], { units: 1_000_000, tables }),
     send: (ixs) => send(ixs),
     maxSends: FINISH_PER_POLL,
   });

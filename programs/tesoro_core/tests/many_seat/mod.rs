@@ -819,7 +819,7 @@ const RETURN_CU_BUDGET: u64 = 140_000;
 /// CU of a step-off that returns `k` lines from `k` Sources, each merging into a line Ana still
 /// holds of the same Source (the book of every Source is read and written: the worst return).
 fn step_off_cu(k: u8) -> u64 {
-    step_off_cu_of(k, SourceKind::Reported)
+    step_off_cu_of(k, SourceKind::NotOpen)
 }
 
 /// `step_off_cu` with Sources of `kind`.

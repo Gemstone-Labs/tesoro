@@ -39,7 +39,7 @@ import { joinSeatIx, seatMarkPda } from "../../lib/chain/many-seat";
 import { loadCar } from "../../lib/chain/many-seat-plan";
 import { decodeStore } from "../../lib/chain/pot-store";
 import { OVERFLOW_STORE_AT, matchOverflowPda } from "../../lib/chain/overflow";
-import { MAX_ACCOUNTS, MAX_TX_BYTES, type Reader } from "../../lib/chain/settle-plan";
+import { CHUNK_CU_TARGET, MAX_ACCOUNTS, MAX_TX_BYTES, type Reader } from "../../lib/chain/settle-plan";
 import {
   RAILCAR_PROGRAM_ID,
   checkDepartureIx,
@@ -119,6 +119,7 @@ interface Inner {
   setClock(c: unknown): void;
   getAccount(k: Uint8Array): { lamports(): bigint; data(): Uint8Array; owner(): Uint8Array; executable(): boolean } | null;
   setAccount(k: Uint8Array, a: unknown): void;
+  simulateVersionedTransaction(bytes: Uint8Array): { meta(): { computeUnitsConsumed(): bigint }; err?(): unknown };
   sendVersionedTransaction(bytes: Uint8Array): { logs?(): string[]; meta?(): { logs(): string[] }; err?(): unknown; innerInstructions?(): { instruction(): { programIdIndex(): number; accounts(): Uint8Array; data(): Uint8Array } }[][]; computeUnitsConsumed?(): bigint };
 }
 
@@ -160,6 +161,11 @@ class Svm {
   }
   set(k: PublicKey, a: Acct) {
     this.inner.setAccount(k.toBytes(), new this.lib.Account(BigInt(a.lamports), a.data, a.owner.toBytes(), a.executable, 0n));
+  }
+  /** Compute units of a dry run, or null when it fails (as the app's `unitsOf` reads a simulation). */
+  simulate(tx: VersionedTransaction): number | null {
+    const r = this.inner.simulateVersionedTransaction(tx.serialize());
+    return r.err ? null : Number(r.meta().computeUnitsConsumed());
   }
   /** `keys` resolves the message's account indexes (lookup tables included) for the inner instructions. */
   send(tx: VersionedTransaction, keys: (i: number) => PublicKey): { logs: string[]; err: unknown; inner: InnerInstruction[]; units: number } {
@@ -226,6 +232,13 @@ class World {
     this.lastInner = res.inner;
     this.lastUnits = res.units;
     if (res.err) throw new Error(`transaction failed: ${String(res.err)}\n${this.lastLogs.join("\n")}`);
+  }
+
+  /** The compute `ixs` would use, simulated with `payer` as fee payer and no signature (as the page simulates a chunk). */
+  simulate(ixs: TransactionInstruction[], payer: PublicKey, tables: AddressLookupTableAccount[] = []): number | null {
+    this.svm.expireBlockhash();
+    const msg = new TransactionMessage({ payerKey: payer, recentBlockhash: this.svm.latestBlockhash(), instructions: ixs }).compileToV0Message(tables);
+    return this.svm.simulate(new VersionedTransaction(msg));
   }
 
   /** A lookup table holding every non-signer account of `ixs`, written in place (the server compiles with its own). */
@@ -478,6 +491,8 @@ interface RideRun {
   deltas: bigint[];
   studioFee: bigint;
   chunkSteps: number[];
+  /** Compute units each chunk used, as sent. */
+  chunkUnits: number[];
   /** What the result screen shows each rider getting, read from the committed Table. */
   shown: bigint[];
   walletSigs: Record<string, number>;
@@ -559,6 +574,7 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], b
   // committed Table), room, every chunk the planner sizes, every close. Compiled with a lookup table, as the server does.
   const core = new Program(coreIdl as Idl, { connection: {} } as unknown as AnchorProvider);
   const chunkSteps: number[] = [];
+  const chunkUnits: number[] = [];
   const finishTxs: InnerInstruction[][] = [];
   let finalizeUnits = 0;
   let revealUnits = 0;
@@ -573,6 +589,7 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], b
       return t.carNo === carNo && t.phase === "over";
     },
     fits: (ix) => w.fits(w.relayer.publicKey, [cu(1_400_000), ix]),
+    simulate: async (ix) => w.simulate([cu(1_400_000), ix], w.relayer.publicKey, [w.table([cu(1_400_000), ix])]),
     send: async (ixs, step) => {
       const all = [cu(1_400_000), ...ixs];
       const go = () => w.send(all, w.relayer, [], [w.table(all)]);
@@ -581,7 +598,10 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], b
       finishTxs.push(w.lastInner);
       if (step === "finalize") finalizeUnits = w.lastUnits;
       if (step === "reveal") revealUnits = w.lastUnits;
-      if (step === "chunk") chunkSteps.push(ixs[0].data[8]);
+      if (step === "chunk") {
+        chunkSteps.push(ixs[0].data[8]);
+        chunkUnits.push(w.lastUnits);
+      }
       if (step === "room") rooms++;
     },
   });
@@ -606,6 +626,7 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], b
     deltas: riders.map((p, i) => w.gemas(p, id) - before[i]),
     studioFee: w.studioFee() - studioBefore,
     chunkSteps,
+    chunkUnits,
     shown,
     walletSigs: w.walletSigs,
     history,
@@ -716,6 +737,9 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     // First place's stores could not hold every credit: the page reserved its overflow record before the forfeits moved.
     expect(rooms).toBeGreaterThan(0);
     expect(r.chunkSteps.every((s) => s >= 1 && s <= 7)).toBe(true);
+    // The planner simulates each chunk and takes fewer steps until it is under the compute target (ticket 19).
+    console.log(`chunks: ${r.chunkUnits.length}, worst ${Math.max(...r.chunkUnits)} CU, steps ${[...new Set(r.chunkSteps)].sort().join("/")}`);
+    expect(r.chunkUnits.filter((u, i) => u > CHUNK_CU_TARGET && r.chunkSteps[i] > 1)).toEqual([]);
     // The history names all 100 and the replay agrees with the chain to the Gema; finalize still fits one transaction.
     expect(r.history.deltas).toEqual(r.deltas.map((d) => Number(d) - 500));
     expect(r.history.replay.differences).toEqual([]);
