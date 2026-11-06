@@ -309,7 +309,8 @@ impl Env {
             .collect::<std::collections::BTreeSet<_>>()
             .into_iter()
             .collect();
-        let alt_key = Pk::new_unique();
+        // random, not `Pk::new_unique`: that counter runs apart from `APk::new_unique`'s
+        let alt_key = Keypair::new().pubkey();
         let mut data = vec![0u8; 56];
         data[0..4].copy_from_slice(&1u32.to_le_bytes());
         data[4..12].copy_from_slice(&u64::MAX.to_le_bytes());

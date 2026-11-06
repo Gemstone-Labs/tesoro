@@ -1016,8 +1016,10 @@ impl Env {
             .collect::<std::collections::BTreeSet<_>>()
             .into_iter()
             .collect();
+        // A random key: `Pk::new_unique` counts apart from anchor's `APk::new_unique` (two crate
+        // versions), so a counted table key can land on an account a test made with the other.
+        let alt_key = Keypair::new().pubkey();
         // the account the runtime reads: 56 bytes of meta, then the addresses
-        let alt_key = Pk::new_unique();
         let mut data = vec![0u8; 56];
         data[0..4].copy_from_slice(&1u32.to_le_bytes());
         data[4..12].copy_from_slice(&u64::MAX.to_le_bytes());
