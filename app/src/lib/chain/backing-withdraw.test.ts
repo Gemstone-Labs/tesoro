@@ -5,6 +5,7 @@
  */
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ChainSigner } from "@/games/block-puzzle/chain";
 import type { ChainOffer } from "./backing";
 
 const order: string[] = [];
@@ -14,19 +15,20 @@ const sendBase = vi.fn(async (_s: unknown, ixs: unknown[]) => {
 });
 const ticket = { address: Keypair.generate().publicKey };
 const backingTicketOf = vi.fn(async () => ticket as unknown);
-const cancelTicket = vi.fn(async (_s: unknown, _g: unknown, _t: unknown, _o: unknown) => {
+const cancelTicket = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {
   order.push("cancelTicket");
 });
 vi.mock("./client", () => ({ getChain: () => ({ base: {}, sendBase }) }));
-vi.mock("./ticket", () => ({ backingTicketOf: (...a: unknown[]) => backingTicketOf(...(a as [])), cancelTicket: (...a: unknown[]) => cancelTicket(...(a as [unknown, unknown, unknown, unknown])) }));
+vi.mock("./ticket", () => ({ backingTicketOf: (...a: unknown[]) => backingTicketOf(...(a as [])), cancelTicket: (...a: unknown[]) => cancelTicket(...a) }));
 
 const bob = Keypair.generate();
-const signer = { publicKey: bob.publicKey, signTransaction: async <T,>(t: T) => t, signAllTransactions: async <T,>(t: T[]) => t };
+const signer: ChainSigner = { publicKey: bob.publicKey, signTransaction: async (t) => t, signMessage: async (m) => m };
 const getToken = async () => null;
 
 function offer(ticketOpen: boolean): ChainOffer {
   return {
     address: Keypair.generate().publicKey,
+    nonce: 1n,
     backer: Keypair.generate().publicKey.toBase58(),
     game: "holdem",
     entry: 500,
