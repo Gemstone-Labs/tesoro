@@ -395,10 +395,12 @@ export class Sponsor {
   }
 
   /** A transaction with several signers (a Backing Ticket): every one of them is an Account, not a throwaway key. */
-  private async requireOtherSigners(plan: Plan, player: PublicKey) {
+  private async requireOtherSigners(plan: Plan, player: PublicKey, auth: BuildAuth) {
     const seats = plan.seatSigners ?? [];
+    // a seat request's key was checked by checkAuth: the Match names it for this Player
+    const checked = auth.kind === "seat" ? auth.signer : null;
     for (const sg of plan.signers) {
-      if (sg.equals(player) || seats.some((k) => k.equals(sg)) || (await this.ticketNamesSeatKey(plan, player, sg))) continue;
+      if (sg.equals(player) || checked?.equals(sg) || seats.some((k) => k.equals(sg)) || (await this.ticketNamesSeatKey(plan, player, sg))) continue;
       await this.requireAccount(sg);
     }
   }
@@ -527,7 +529,7 @@ export class Sponsor {
         if (!basket || !basket.owner.equals(CORE_ID) || basketGemas(basket.data) === 0n) throw new DemoHttpError(403, "no-gemas", "Free transactions are for Accounts that hold Gemas.");
       }
       if (plan.funders.length || plan.noGemas) await this.requireAccount(player);
-      await this.requireOtherSigners(plan, player);
+      await this.requireOtherSigners(plan, player, auth);
       await this.requireObligations(plan);
       reserve = plan.names.some((n) => n === "open_match" || n === "join_match" || n === "open_ticket") ? this.d.limits.completionReserve : 0n;
       if (!admissionFits(this.d.limits, balance, plan.spend.refundable + plan.spend.sunk + fee, reserve)) {
@@ -543,7 +545,7 @@ export class Sponsor {
     } else {
       if (await exitsBlocked(this.d.store, this.d.limits, who, now)) throw new DemoHttpError(429, "too-many-failures", "Too many failed transactions today. Pay the network fee from your own SOL to finish this.");
       await this.requireAccount(player);
-      await this.requireOtherSigners(plan, player);
+      await this.requireOtherSigners(plan, player, auth);
       await this.requireObligations(plan);
       if (plan.pages?.length || plan.sends?.length) {
         const undoPages = plan.pages?.length ? await admitPages({ plan, player, now, store: this.d.store, limits: this.d.limits }) : null;
