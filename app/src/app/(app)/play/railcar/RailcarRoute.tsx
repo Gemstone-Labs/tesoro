@@ -30,6 +30,7 @@ export function RailcarRoute() {
       view={r.view ?? EMPTY}
       busy={r.busy}
       error={r.error}
+      brake={r.brake}
       offer={r.offer}
       watch={r.watch}
       actions={{ onBoard: r.signedIn ? () => void r.board() : undefined, onSignIn: () => auth.openSignIn(), onStepOff: () => void r.stepOff(), onJump: () => void r.jump(), onPlayAgain: r.playAgain, onShare: share }}

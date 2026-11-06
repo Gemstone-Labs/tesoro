@@ -1,11 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronLeft, CircleMinus, Hexagon, Info, UserPlus, Zap, type LucideIcon } from "lucide-react";
+import { useSyncExternalStore } from "react";
+import { BookOpen, ChevronLeft, CircleMinus, Hexagon, UserPlus, Vibrate, VibrateOff, Zap, type LucideIcon } from "lucide-react";
 import { PlayerAvatar, PlayerName } from "@/components/account/Player";
 import { Button, GemaAmount, GemaMark } from "@/components/ui";
 import { fmtGemas } from "@/lib/format";
+import { GameMenu, type GameMenuItem } from "../fx";
+import type { BrakeStatus } from "./brake";
 import { RailcarStage } from "./RailcarStage";
+import { railcarHaptics } from "./tells";
 import type { RailcarView, ResultRow, Rider } from "./view";
 import { clock } from "./words";
 import "./railcar.css";
@@ -37,11 +41,28 @@ export interface RailcarWatch {
 }
 
 export interface RailcarBrake {
+  /** Where my Brake is (`brakeState`); without it, ready while one is left. */
+  status?: BrakeStatus;
   /** Brakes left this ride (1 or 0). */
   left: number;
   /** Ms left of the Player's own slow period (0 when none runs). */
   activeMs: number;
   onBrake?: () => void;
+}
+
+const statusOf = (b: RailcarBrake): BrakeStatus => b.status ?? (b.activeMs > 0 ? "on" : b.left === 0 ? "used" : "ready");
+
+/** The Brake button: one per ride, my own state only. */
+function BrakeButton({ brake }: { brake: RailcarBrake }) {
+  const status = statusOf(brake);
+  const state = status === "ready" ? "1 left" : status === "sending" ? "sending" : status === "on" ? `${Math.ceil(brake.activeMs / 1000)}s` : status === "used" ? "used" : "soon";
+  return (
+    <div className={`rc-brake ${status}`}>
+      <Button size="lg" block onClick={brake.onBrake} disabled={status !== "ready"} title="Halves the car for 5 s. Only you see it.">
+        Brake <small className={status === "on" ? "mono" : undefined}>{state}</small>
+      </Button>
+    </div>
+  );
 }
 
 /** An accepted Offer this page boards with (`/play/railcar?backing=<offer>`). */
@@ -125,7 +146,7 @@ export function RailcarScreen({
         </div>
       )}
       <div className="rc-stage-wrap">
-        <RailcarStage aboard={aboard} moving={riding} slow={!!brake && brake.activeMs > 0} />
+        <RailcarStage aboard={aboard} moving={riding} slow={riding && meAboard && !!brake && brake.activeMs > 0} />
         {riding && brake && meAboard && brake.activeMs > 0 && (
           <p className="cut cut-chip rc-brake-tag">
             Your Brake <b className="mono">{Math.ceil(brake.activeMs / 1000)}s</b> · only you see this
@@ -149,17 +170,11 @@ export function RailcarScreen({
               <Button variant="money" size="lg" block onClick={actions.onJump} disabled={!!busy}>
                 {busy === "jump" ? "Jumping…" : "Jump"}
               </Button>
-              {brake && (
-                <div className="rc-brake">
-                  <Button size="lg" block onClick={brake.onBrake} disabled={brake.left === 0 || brake.activeMs > 0}>
-                    Brake <small>{brake.left} left</small>
-                  </Button>
-                </div>
-              )}
+              {brake && <BrakeButton brake={brake} />}
             </>
           ) : view.me ? (
             <p className="cut cut-card rc-jumped">
-              You jumped at <span className="mono">{clock(view.me.jumpMs)}</span>
+              You jumped at <span className="mono">{clock(view.me.jumpMs)}</span> · at least
               <GemaAmount value={g(view.me.back)} size="md" /> back{view.me.backer && <> to <PlayerName account={view.me.backer} /></>}
             </p>
           ) : null
@@ -247,11 +262,33 @@ function Header({ entry }: { entry: bigint }) {
           <GemaMark size={12} /> {fmtGemas(g(entry))}
         </span>
       </div>
-      <Link href="/docs/railcar" className="cut cut-btn rc-ibtn" aria-label="How Railcar works">
-        <Info aria-hidden="true" />
-      </Link>
+      <RailcarMenu />
     </header>
   );
+}
+
+/** The game menu: how Railcar works, vibration for the Tells (where the phone can), sound, full screen. */
+function RailcarMenu() {
+  const vibration = useSyncExternalStore(railcarHaptics.subscribe, railcarHaptics.enabled, () => true);
+  const canVibrate = useSyncExternalStore(railcarHaptics.subscribe, railcarHaptics.supported, () => false);
+  const items: GameMenuItem[] = [
+    { label: "How Railcar works", icon: <BookOpen aria-hidden="true" />, href: "/docs/railcar" },
+    ...(canVibrate
+      ? [
+          {
+            label: vibration ? "Vibration on" : "Vibration off",
+            icon: vibration ? <Vibrate aria-hidden="true" /> : <VibrateOff aria-hidden="true" />,
+            checked: vibration,
+            keepOpen: true,
+            onSelect: () => {
+              railcarHaptics.setEnabled(!vibration);
+              if (!vibration) railcarHaptics.pulse([18]);
+            },
+          },
+        ]
+      : []),
+  ];
+  return <GameMenu className="rc-menu" items={items} leaveHref="/play" />;
 }
 
 const SHOWN = 6;

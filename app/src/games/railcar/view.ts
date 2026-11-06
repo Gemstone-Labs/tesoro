@@ -4,7 +4,7 @@
  */
 import type { CarView, SeatView } from "../../lib/chain/many-seat";
 import { NO_SEAT, type TableView } from "./chain";
-import { placeSharesBps, refund as scheduleRefund } from "./engine";
+import { placeSharesBps, positionMs, refund as scheduleRefund } from "./engine";
 import { departsAt } from "./flow";
 import { PLACE_WORDS } from "./words";
 
@@ -103,7 +103,11 @@ export type RailcarView =
       /** Every entry in the car. */
       stake: bigint;
       entry: bigint;
-      /** Null for a spectator. `backer`: a Backed seat's refund goes back to them. */
+      /**
+       * Null for a spectator. After my Jump, `back` is at least what I get: the schedule at my position counting only my own
+       * Brake (another Player's Brake would add to it, and only shows at the end). `backer`: a Backed seat's refund goes
+       * back to them.
+       */
       me: { aboard: true; backer?: string } | { aboard: false; jumpMs: number; back: bigint; backer?: string } | null;
     }
   | {
@@ -130,6 +134,8 @@ export interface RailcarFacts {
   table: TableView | null;
   fees: FeeRates;
   nowMs: number;
+  /** Ride ms of my own Brake, when I pressed it (only my page knows). */
+  myBrakeMs?: number | null;
   /** The Backing this page boarded with: its seat may be closed (and its funder cleared) before the Result is read again. */
   myBacking?: { backer: string; shareBps: number } | null;
 }
@@ -176,7 +182,7 @@ export function railcarView(f: RailcarFacts): RailcarView {
     jumped: seated.filter((x) => x.s.order !== 0).map((x) => x.rider),
     stake: n * entry,
     entry,
-    me: !mine ? null : { ...(mine.s.order === 0 ? { aboard: true as const } : { aboard: false as const, jumpMs: mine.s.jumpMs, back: earlyBack(entry, mine.s.jumpMs) }), ...withBacker(backerOfMine(f)) },
+    me: !mine ? null : { ...(mine.s.order === 0 ? { aboard: true as const } : { aboard: false as const, jumpMs: mine.s.jumpMs, back: earlyBack(entry, mine.s.jumpMs, f.myBrakeMs ?? null) }), ...withBacker(backerOfMine(f)) },
   };
 }
 
@@ -202,8 +208,8 @@ function withBackings(v: Extract<RailcarView, { phase: "result" }>, t: TableView
   return { ...v, rows, mine };
 }
 
-/** What an early Jump gets back: the published schedule at the Jump's position (no Brakes yet: position = ride time). */
-const earlyBack = (entry: bigint, jumpMs: number) => scheduleRefund(entry, jumpMs);
+/** The least an early Jump gets back: the published schedule at the Jump's position counting my own Brake only. */
+const earlyBack = (entry: bigint, jumpMs: number, myBrakeMs: number | null) => scheduleRefund(entry, positionMs(myBrakeMs === null || myBrakeMs > jumpMs ? [] : [myBrakeMs], jumpMs));
 
 function resultOf(t: TableView, me: string | null, rates: FeeRates, core: CarView | null): Extract<RailcarView, { phase: "result" }> {
   const entry = t.entry;

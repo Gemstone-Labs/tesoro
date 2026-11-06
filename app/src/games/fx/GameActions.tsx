@@ -9,7 +9,9 @@ import { isFullScreen, setFullScreen, subscribeFullScreen } from "./full-screen"
 export interface GameMenuItem {
   label: string;
   icon: ReactNode;
-  onSelect: () => void;
+  onSelect?: () => void;
+  /** A page to open instead of an action (a link, as Leave is). */
+  href?: string;
   checked?: boolean;
   keepOpen?: boolean;
 }
@@ -46,11 +48,17 @@ export function GameActions({ items = [], leaveHref, menu = false, onSelect }: G
   return <>
     {actions.map((action) => {
       const checked = "checked" in action ? action.checked : undefined;
+      if ("href" in action && action.href)
+        return (
+          <Link key={action.label} href={action.href} role={menu ? "menuitem" : undefined} onClick={onSelect}>
+            {action.icon} {action.label}
+          </Link>
+        );
       return <button key={action.label} type="button" role={menu ? checked === undefined ? "menuitem" : "menuitemcheckbox" : undefined}
         aria-checked={menu ? checked : undefined} aria-pressed={menu ? undefined : checked}
         onClick={() => {
           if (!("keepOpen" in action && action.keepOpen)) onSelect?.();
-          action.onSelect();
+          action.onSelect?.();
         }}>
         {action.icon} {action.label}
       </button>;

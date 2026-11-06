@@ -2,9 +2,14 @@
 
 /**
  * The live Railcar page: reads the boarding car or the Player's car, turns it into the one screen (`railcarView`), sends the
- * Player's actions (board, step off, Jump), signals while the ride runs and finishes the ride from the pages of the Players
- * the result pays. The rules of what to do next are pure (flow.ts, finish.ts); who signs what is signers.ts: the wallet
- * signs the boarding, nothing after it but the Jump until Railcar takes the seat key.
+ * Player's actions (board, step off, Jump, Brake), signals while the ride runs and finishes the ride from the pages of the
+ * Players the result pays. The rules of what to do next are pure (flow.ts, finish.ts, brake.ts); who signs what is
+ * signers.ts: the wallet signs the boarding, nothing after it once core records the seat key on the seat.
+ *
+ * The Brake (brake.ts): while the draw is asked for the page binds its seat's Brake seat and the next ones; once every
+ * seat is bound an aboard Player's page ticks instead of signalling, and a Brake rides on the next tick. Only this page
+ * shows it. Until core records seat keys on seats, ticks cannot be signed without the wallet: the page signals, and a
+ * Brake is one wallet-signed tick of its own.
  *
  * Not run against a deployment yet: Railcar has no devnet program (ticket 15).
  */
@@ -25,13 +30,15 @@ import { prepareBackingTicket, prepareEntryTicket } from "@/lib/chain/ticket";
 import { seatKeys, type SeatKey } from "@/lib/seat/seat-key";
 import { countingFor } from "@/lib/seat/signature-counter";
 import { browserStore } from "@/lib/storage";
-import { ENTRY_GEMAS, RAILCAR_PROGRAM_ID, carPda, checkDepartureIx, commitTableIx, configPda, decodeCarAccount, decodeConfig, decodeTable, jumpIx, openCarIx, signalIx, startRideIx, tablePda, type RailcarConfigView, type TableView } from "./chain";
+import { bindTargets, brakeState, pageSend, tellCues } from "./brake";
+import { ENTRY_GEMAS, RAILCAR_PROGRAM_ID, bindBrakeIx, brakeSeatPda, carPda, checkDepartureIx, commitTableIx, configPda, decodeBrakeSeat, decodeCarAccount, decodeConfig, decodeTable, jumpIx, openCarIx, signalIx, startRideIx, tablePda, tickIx, type BrakeSeatView, type RailcarConfigView, type TableView } from "./chain";
 import { backerSeatedIn, boardingEntry, stepOffFor, type BoardingBacking } from "./boarding";
 import { finishRide } from "./finish";
 import { mayFinish, nextRideStep, queueChoice, signalIntervalMs, watchedRide } from "./flow";
 import type { RailcarWatch } from "./RailcarScreen";
-import { boardingSigner, finishSender, joinSeatKey, jumpSigner } from "./signers";
-import type { RailcarOffer } from "./RailcarScreen";
+import { boardingSigner, brakeRoute, finishSender, joinSeatKey, jumpSigner } from "./signers";
+import type { RailcarBrake, RailcarOffer } from "./RailcarScreen";
+import { playTells } from "./tells";
 import { railcarView, type FeeRates, type RailcarView } from "./view";
 
 /** Railcar's fee terms (Platform 2%, Studio 3%) and core's Leaderboard Fee (1%), until the screen reads them from the Game record. */
@@ -40,6 +47,8 @@ const FEES: FeeRates = { platformBps: 200, studioBps: 300, leaderboardBps: 100 }
 const SELF_PAID_UNITS = 400_000;
 /** Finish steps one poll of one page sends; the next poll (or another page) carries on. */
 const FINISH_PER_POLL = 8;
+/** How often a page sends its share of the bindings while some seat is still unbound. */
+const BIND_EVERY_MS = 3_000;
 
 /** The car this device boarded, kept across reloads (a convenience: the chain is the record). */
 interface MyCar {
@@ -154,8 +163,28 @@ export interface RailcarPage {
   board(): Promise<void>;
   stepOff(): Promise<void>;
   jump(): Promise<void>;
+  /** My Brake: null off the car or outside the ride. */
+  brake: RailcarBrake | null;
   playAgain(): void;
 }
+
+/** My Brake on this car, as this page last knew it (ride ms of the press), kept across reloads. */
+const brakeKey = (account: string, carNo: bigint) => `railcar:brake:${account}:${carNo}`;
+const recallBrake = (account: string, carNo: bigint): number | null => {
+  try {
+    const v = browserStore()?.getItem(brakeKey(account, carNo));
+    return v ? Number(v) : null;
+  } catch {
+    return null;
+  }
+};
+const rememberBrake = (account: string, carNo: bigint, ms: number) => {
+  try {
+    browserStore()?.setItem(brakeKey(account, carNo), String(ms));
+  } catch {
+    // site data blocked: the Brake seat (read with the seat key) still says
+  }
+};
 
 /** `offerAddress`: an accepted Offer to board with, from `/play/railcar?backing=<offer>`. */
 export function useRailcar(offerAddress: string | null = null): RailcarPage {
@@ -173,6 +202,11 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   const pageKey = useRef<ChainSigner>(keypairSigner(Keypair.generate()));
   const stepping = useRef(false);
   const read = useRef<Reader | null>(null);
+  // The Brake pressed on this page, waiting for the next tick to carry it.
+  const pendingBrake = useRef(false);
+  const [pending, setPending] = useState(false);
+  const [mine, setMine] = useState<BrakeSeatView | null>(null);
+  const lastBind = useRef(0);
   // The Offer as the chain has it, read for one address (an address that is not a key reads as no Offer).
   const offerKey = useMemo(() => keyOf(offerAddress), [offerAddress]);
   const [offerRead, setOfferRead] = useState<{ address: string; offer: ChainOffer | null } | null>(null);
@@ -298,28 +332,87 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
     }
   }, [snap, now, me, meKey, seat, getToken]);
 
-  // Signals while the ride runs: open pages together send about 5 a second.
+  // Signals while the ride runs: open pages together send about 5 a second. An aboard Player's page ticks instead once
+  // its seat is bound and the seat key can sign; the Brake rides on the next tick.
   const aboardN = snap?.rollup?.aboard ?? 0;
-  const riding = !!snap?.car && snap.mine && snap.rollup?.carNo === snap.car.carNo && (snap.rollup.phase === "riding" || snap.rollup.phase === "drawing");
+  const ride = snap?.car && snap.rollup && snap.rollup.carNo === snap.car.carNo ? snap.rollup : null;
+  const riding = !!snap?.car && snap.mine && !!ride && (ride.phase === "riding" || ride.phase === "drawing");
   const signalTable = snap?.car?.table ?? null;
+  const mySeat = me && ride ? (ride.seats.find((x) => x.account.equals(me)) ?? null) : null;
+  // The seat key signs ticks (and carries the Brake) when the seat names it (core records it at boarding); else the wallet
+  // signs a Brake of its own.
+  const brakeVia = mySeat ? brakeRoute(wallet, seat, mySeat.signer) : null;
+  const tickKey = brakeVia?.kind === "next-tick" ? brakeVia.signer : null;
+  const aboard = !!mySeat && mySeat.order === 0;
+  const allBound = !!ride && ride.brakesBound >= ride.seated && ride.seated > 0;
+  const myBound = allBound || (!!mine && !!ride && mine.bound && mine.carNo === ride.carNo);
+  const sends = pageSend({ aboard: aboard && ride?.phase === "riding", myBound, canSign: !!tickKey });
+  const carNo = ride?.carNo ?? null;
+  const tableSeat = mySeat?.tableSeat ?? null;
   useEffect(() => {
     if (!riding || signalTable === null) return;
     let stop = false;
     let timer: ReturnType<typeof setTimeout>;
     const page = pageKey.current;
-    const tick = async () => {
-      await getChain()
-        .sendTee(page, [signalIx(page.publicKey, signalTable)])
-        .catch(() => undefined);
-      if (!stop) timer = setTimeout(tick, signalIntervalMs(aboardN));
+    const beat = async () => {
+      const chain = getChain();
+      if (sends === "tick" && tickKey && carNo !== null && tableSeat !== null) {
+        const brake = pendingBrake.current;
+        await chain
+          .sendTee(tickKey, [tickIx(tickKey.publicKey, signalTable, carNo, tableSeat, brake)])
+          .then(() => {
+            if (brake) pendingBrake.current = false;
+          })
+          .catch(() => undefined);
+      } else {
+        await chain.sendTee(page, [signalIx(page.publicKey, signalTable)]).catch(() => undefined);
+      }
+      if (!stop) timer = setTimeout(beat, signalIntervalMs(aboardN));
     };
     // A random first wait spreads the pages' signals over the interval.
-    timer = setTimeout(tick, Math.random() * signalIntervalMs(aboardN));
+    timer = setTimeout(beat, Math.random() * signalIntervalMs(aboardN));
     return () => {
       stop = true;
       clearTimeout(timer);
     };
-  }, [riding, signalTable, aboardN]);
+  }, [riding, signalTable, aboardN, sends, tickKey, carNo, tableSeat]);
+
+  // While the draw is asked for (and until every seat is bound) the page binds its own Brake seat and the next ones.
+  useEffect(() => {
+    if (!snap?.mine || !ride || !snap.car || tableSeat === null) return;
+    const targets = bindTargets(ride, tableSeat);
+    if (!targets.length || Date.now() - lastBind.current < BIND_EVERY_MS) return;
+    lastBind.current = Date.now();
+    const page = pageKey.current;
+    const table = snap.car.table;
+    void getChain()
+      .sendTee(page, targets.map((i) => bindBrakeIx(page.publicKey, table, ride.carNo, i, ride.seats[i].account)))
+      .catch(() => undefined);
+  }, [snap, ride, tableSeat]);
+
+  // My own Brake seat, readable only with my seat key (its permission names my wallet and that key).
+  useEffect(() => {
+    if (!tickKey || !ride || signalTable === null || tableSeat === null) return;
+    let live = true;
+    void getChain()
+      .tee(tickKey)
+      .then((conn) => conn.getAccountInfo(brakeSeatPda(tablePda(signalTable), tableSeat), "confirmed"))
+      .then((info) => live && setMine(info ? decodeBrakeSeat(info.data) : null))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [tickKey, ride, signalTable, tableSeat]);
+
+  // The Tells as sound and vibration, from what the public Table shows.
+  const tells = useRef<{ car: bigint; tell: number; falseScrews: number } | null>(null);
+  useEffect(() => {
+    if (!ride || ride.phase !== "riding" || !snap?.mine) return;
+    const prev = tells.current && tells.current.car === ride.carNo ? tells.current : null;
+    tells.current = { car: ride.carNo, tell: ride.tell, falseScrews: ride.falseScrews };
+    const cues = tellCues(prev, ride);
+    if (cues.length) playTells(cues);
+  }, [ride, snap?.mine]);
 
   const act = useCallback(
     async (name: string, fn: () => Promise<void>) => {
@@ -410,6 +503,37 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
     [act, wallet, me, seat, snap],
   );
 
+  const pressBrake = useCallback(() => {
+    if (!brakeVia || !meKey || !snap?.car || !ride || tableSeat === null) return;
+    if (brakeVia.kind === "next-tick") {
+      // the next tick carries it: no transaction of its own, no wallet prompt
+      pendingBrake.current = true;
+      setPending(true);
+      return;
+    }
+    // No seat key of this page's on the seat: one tick of its own, signed by the wallet.
+    const signer = brakeVia.signer;
+    const table = snap.car.table;
+    const at = Math.max(0, Date.now() - ride.rideTs * 1000);
+    void act("brake", async () => {
+      await getChain().sendTee(signer, [tickIx(signer.publicKey, table, ride.carNo, tableSeat, true)]);
+      rememberBrake(meKey, ride.carNo, at);
+    });
+  }, [act, brakeVia, meKey, snap, ride, tableSeat]);
+
+  // The press the page knows: my Brake seat when it can read it, else this page's memory of the send.
+  const knownPress = mine && ride && mine.used && mine.carNo === ride.carNo ? mine.pressMs : meKey && ride ? recallBrake(meKey, ride.carNo) : null;
+  useEffect(() => {
+    if (pending && !pendingBrake.current && ride && meKey) {
+      // the tick that carried it went through: until my Brake seat is read again, the page remembers when
+      rememberBrake(meKey, ride.carNo, Math.max(0, now - ride.rideTs * 1000));
+      setPending(false);
+    }
+  }, [pending, now, ride, meKey]);
+  const rideMs = ride && ride.phase === "riding" ? Math.max(0, now - ride.rideTs * 1000) : 0;
+  const state = ride?.phase === "riding" ? brakeState({ aboard, allBound, myBound, canSign: !!brakeVia, pressMs: knownPress, pending: pending || busy === "brake", rideMs }) : null;
+  const brake: RailcarBrake | null = state ? { ...state, onBrake: pressBrake } : null;
+
   const playAgain = useCallback(() => {
     if (meKey) remember(meKey, null);
     void refresh();
@@ -419,13 +543,13 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   const myBacking = my && snap?.car && my.match === snap.car.match.toBase58() ? (my.backing ?? null) : null;
   const view =
     snap?.loaded && snap.car
-      ? railcarView({ me: meKey, core: snap.loaded.car, seats: snap.loaded.seats, table: snap.rollup && snap.rollup.carNo === snap.car.carNo ? snap.rollup : snap.base && snap.base.carNo === snap.car.carNo ? snap.base : null, fees: FEES, nowMs: now, myBacking })
+      ? railcarView({ me: meKey, core: snap.loaded.car, seats: snap.loaded.seats, table: snap.rollup && snap.rollup.carNo === snap.car.carNo ? snap.rollup : snap.base && snap.base.carNo === snap.car.carNo ? snap.base : null, fees: FEES, nowMs: now, myBacking, myBrakeMs: knownPress })
       : null;
   const watch: RailcarWatch | null = snap?.watching && !snap.mine ? { signedIn: !!wallet, nextSeated: snap.boarding ? snap.boarding.loaded.car.seated : null } : null;
   const blocked = offerProblem ? new BackingError(offerProblem).message : snap?.backerSeated ? "Your Backer is in this car: board the next one" : null;
   const shownOffer: RailcarOffer | null = offer ? { backer: offer.backer, sharePct: offer.shareBps / 100, ...(blocked ? { blocked } : {}) } : null;
   const missing = offerAddress && offer === null ? new BackingError("missing").message : null;
-  return { view, busy, error: error ?? missing, signedIn: !!wallet, watch, offer: shownOffer, offerSpent: offer?.status === "consumed", board, stepOff, jump, playAgain };
+  return { view, busy, error: error ?? missing, signedIn: !!wallet, watch, offer: shownOffer, offerSpent: offer?.status === "consumed", board, stepOff, jump, brake, playAgain };
 }
 
 /** A share of the finish (finalize, room, chunks, closes) through the relayer, sized against the server's lookup tables. */

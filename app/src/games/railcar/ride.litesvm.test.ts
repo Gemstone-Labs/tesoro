@@ -42,7 +42,11 @@ import { OVERFLOW_STORE_AT, matchOverflowPda } from "../../lib/chain/overflow";
 import { MAX_ACCOUNTS, MAX_TX_BYTES, type Reader } from "../../lib/chain/settle-plan";
 import {
   RAILCAR_PROGRAM_ID,
+  bindBrakeIx,
+  brakeSeatPda,
   checkDepartureIx,
+  decodeBrakeSeat,
+  tickIx,
   configPda,
   decodeCarAccount,
   decodeConfig,
@@ -56,7 +60,9 @@ import {
   vaultPda,
   carPda,
 } from "./chain";
-import { ride } from "./engine";
+import { BIND_PER_SEND } from "./brake";
+import { brakeRoute } from "./signers";
+import { impactMs, ride } from "./engine";
 import { replayRide, type RideReplay } from "./replay";
 import { rideRecordOf } from "../../lib/chain/ride-history";
 import { decodeMatchRecords, type InnerInstruction } from "../../server/history/events";
@@ -429,6 +435,15 @@ class World {
     return Object.keys(o.inner.status)[0].toLowerCase();
   }
 
+  /** Stands in for a seat index's first `bind_brake` (the ephemeral-account CPI needs MagicBlock): the Brake seat exists, unbound. */
+  async brakeSeatStandIn(index: number, seat: number) {
+    const key = brakeSeatPda(tablePda(index), seat);
+    if (this.get(key)) return;
+    const bump = PublicKey.findProgramAddressSync([Buffer.from("brake"), tablePda(index).toBuffer(), Uint8Array.of(seat)], RAILCAR_PROGRAM_ID)[1];
+    const data = await new BorshAccountsCoder(railcarIdl as unknown as Idl).encode("BrakeSeat", { version: 1, bump, table: tablePda(index), seat, bound: 0, car_no: new BN(0), used: 0, press_ms: 0, reserved: new Array(16).fill(0) });
+    this.svm.set(key, { lamports: Number(SOL), data, owner: RAILCAR_PROGRAM_ID, executable: false });
+  }
+
   rideSlot(index: number): bigint {
     return decodeTable(this.get(tablePda(index))!.data).rideSlot;
   }
@@ -470,6 +485,23 @@ function drawWhere(want: (r: ReturnType<typeof ride>) => boolean): Uint8Array {
   throw new Error("no draw found");
 }
 
+/** A VRF output whose crash point is exactly `crashMs` (the crash falls as the first word grows; the rest is fixed). */
+function drawWithCrash(crashMs: number): Uint8Array {
+  const at = (w0: bigint) => {
+    const d = new Uint8Array(32).fill(0x5a);
+    d.set(u64(w0), 0);
+    return d;
+  };
+  let [lo, hi] = [0n, (1n << 64n) - 1n];
+  while (lo < hi) {
+    const mid = lo + (hi - lo) / 2n;
+    if (ride(at(mid)).crashMs > crashMs) lo = mid + 1n;
+    else hi = mid;
+  }
+  expect(ride(at(lo)).crashMs).toBe(crashMs);
+  return at(lo);
+}
+
 interface RideRun {
   riders: Person[];
   /** The backed rider's Backer and the Gemas they got back (after the car closed, against after boarding). */
@@ -493,11 +525,20 @@ interface RideRun {
  * sent by the relayer or the page key, never a rider's wallet.
  */
 let rooms = 0;
-async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], backed?: { seat: number; shareBps: number }): Promise<RideRun> {
+async function rideCar(
+  n: number,
+  draw: Uint8Array,
+  jumps: [number, number][],
+  o: { brakes?: [number, number][]; watch?: (w: World, at: { secs: number; table: PublicKey; riders: Person[] }) => void; backed?: { seat: number; shareBps: number }; noSeatKey?: number[] } = {},
+): Promise<RideRun & { over: ReturnType<typeof decodeTable> }> {
+  const backed = o.backed;
   const w = await World.create();
   // A backed rider has no Gemas of their own: their Backer's entry boards for them.
   w.riders = Array.from({ length: n }, (_, i) => (i === backed?.seat ? w.person() : w.rider()));
   const riders = w.riders;
+  // A Player who boards without a seat key names the wallet as the seat's signer (core: "the wallet itself when it wants none").
+  const keyless = new Set(o.noSeatKey ?? []);
+  for (const i of keyless) riders[i].seat = riders[i].kp;
   const backer = backed ? w.rider() : null;
   const backing = backed && backer ? w.backing(riders[backed.seat], backer, backed.shareBps) : undefined;
 
@@ -531,19 +572,36 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], b
   w.send([railcarIx("draw_callback", { vrf_program_identity: identity, table, vault: vaultPda(table), request }, { randomness: Array.from(draw) })], w.oracle);
   expect(decodeTable(w.get(table)!.data).phase).toBe("riding");
 
-  w.phase = "jumps";
+  // Pages bind every seat's Brake seat, a page's own and the next ones per transaction, signed by page keys.
+  for (let first = 0; decodeTable(w.get(table)!.data).brakesBound < n; first += BIND_PER_SEND) {
+    const t = decodeTable(w.get(table)!.data);
+    const seats = Array.from({ length: Math.min(BIND_PER_SEND, n - first) }, (_, k) => first + k);
+    for (const i of seats) await w.brakeSeatStandIn(carAcct.table, i);
+    w.send(seats.map((i) => bindBrakeIx(w.pageKey.publicKey, carAcct.table, carNo, i, t.seats[i].account)), w.pageKey);
+  }
+
   const rideSlot = w.rideSlot(carAcct.table);
-  for (const [who, secs] of jumps) {
+  const events = [...jumps.map(([who, secs]) => ({ who, secs, brake: false })), ...(o.brakes ?? []).map(([who, secs]) => ({ who, secs, brake: true }))].sort((a, b) => a.secs - b.secs || Number(a.brake) - Number(b.brake));
+  for (const { who, secs, brake } of events) {
     w.setSlot(rideSlot + BigInt(Math.round(secs * 100)));
     const t = decodeTable(w.get(table)!.data);
     const seat = t.seats.find((s) => s.account.equals(riders[who].account))!;
-    // The seat key the wallet named at boarding plays the Jump: the wallet is not asked.
+    o.watch?.(w, { secs, table, riders });
+    // The seat key the wallet named at boarding plays the Jump and the Brake's tick: the wallet is not asked. A Player
+    // with no seat key on this page Jumps and Brakes with the wallet, as the page routes it.
     expect(seat.signer.equals(riders[who].seat.publicKey)).toBe(true);
-    w.rollup([jumpIx(riders[who].seat.publicKey, carAcct.table, carNo, seat.tableSeat)], riders[who].seat, carAcct.table);
+    w.phase = brake ? "brakes" : "jumps";
+    const pageSeatKey = keyless.has(who) ? null : riders[who].seat;
+    const route = brakeRoute(riders[who].kp, pageSeatKey, seat.signer)!;
+    expect(route.kind).toBe(keyless.has(who) ? "wallet" : "next-tick");
+    const signer = route.signer;
+    w.rollup([brake ? tickIx(signer.publicKey, carAcct.table, carNo, seat.tableSeat, true) : jumpIx(signer.publicKey, carAcct.table, carNo, seat.tableSeat)], signer, carAcct.table);
   }
   w.phase = "finish";
-  const vault = new BorshAccountsCoder(railcarIdl as unknown as Idl).decode("Vault", Buffer.from(w.get(vaultPda(table))!.data)) as { crash_ms: number };
-  w.setSlot(rideSlot + BigInt(Math.ceil(vault.crash_ms / 10)));
+  const vault = new BorshAccountsCoder(railcarIdl as unknown as Idl).decode("Vault", Buffer.from(w.get(vaultPda(table))!.data)) as { crash_ms: number; press_count: number; presses: number[] };
+  const impact = impactMs(vault.presses.slice(0, vault.press_count), vault.crash_ms);
+  o.watch?.(w, { secs: impact / 1000 - 0.01, table, riders });
+  w.setSlot(rideSlot + BigInt(Math.ceil(impact / 10)));
   w.rollup([signalIx(w.pageKey.publicKey, carAcct.table)], w.pageKey, carAcct.table);
   const over = decodeTable(w.get(table)!.data);
   expect(over.phase).toBe("over");
@@ -608,6 +666,7 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], b
     chunkSteps,
     shown,
     walletSigs: w.walletSigs,
+    over,
     history,
     finalizeUnits,
     revealUnits,
@@ -637,6 +696,62 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     expect(r.history.replay.seats.map((s) => s.gets)).toEqual(r.deltas);
   });
 
+  it("a secret Brake (the spec's example): the wall moves from 52 s to 54.5 s; the Table and Ben's screen never change; Ana's Brake seat holds it", { timeout: 120_000 }, async () => {
+    const coder = new BorshAccountsCoder(railcarIdl as unknown as Idl);
+    let before: { table: Uint8Array; ben: unknown; ana: unknown } | null = null;
+    const screen = (t: ReturnType<typeof decodeTable>, who: Person, myBrakeMs: number | null) => railcarView({ me: who.account.toBase58(), core: null, seats: [], table: t, fees: { platformBps: 200, studioBps: 300, leaderboardBps: 100 }, nowMs: 0, myBrakeMs });
+    const r = await rideCar(5, drawWithCrash(52_000), [
+      [BEN, 50],
+      [ANA, 53],
+    ], {
+      brakes: [[ANA, 48]],
+      watch: (w, { secs, table, riders }) => {
+        if (secs !== 48 && before === null) return;
+        if (secs === 48) {
+          // a signal in the same slot first, so the Brake's tick is compared with what any page's signal leaves
+          w.rollup([signalIx(w.pageKey.publicKey, 0)], w.pageKey, 0);
+          const t = decodeTable(w.get(table)!.data);
+          before = { table: w.get(table)!.data, ben: screen(t, riders[BEN], null), ana: screen(t, riders[ANA], null) };
+          return;
+        }
+        if (secs === 50 && before) {
+          // after Ana's Brake (48 s): the public Table is byte for byte what it was, so every other screen is too
+          const now = w.get(table)!.data;
+          expect(Buffer.from(now).equals(Buffer.from(before.table))).toBe(true);
+          expect(screen(decodeTable(now), riders[BEN], null)).toEqual(before.ben);
+          // only Ana's own Brake seat says it, and only her page reads it (its permission names her keys)
+          const anaSeat = decodeBrakeSeat(w.get(brakeSeatPda(table, 0))!.data);
+          expect([anaSeat.bound, anaSeat.used, anaSeat.pressMs]).toEqual([true, true, 48_000]);
+          expect(decodeBrakeSeat(w.get(brakeSeatPda(table, 1))!.data).used).toBe(false);
+          expect(coder.decode("Vault", Buffer.from(w.get(vaultPda(table))!.data)).press_count).toBe(1);
+          before = null;
+        }
+      },
+    });
+    // Ana's Jump at 53 s counted (without her Brake the wall stood at 52 s): two off, Ana last
+    expect(r.over.overMs).toBe(54_500);
+    expect(r.deltas).toEqual([1_445n, 905n, 0n, 0n, 0n]);
+    expect(r.shown).toEqual(r.deltas);
+    // the end made every Brake public: the engine recomputes the wall from the draw and the Brakes
+    expect(r.over.revealed).toBe(true);
+    expect(r.over.seats.map((x) => x.brakeMs)).toEqual([48_000, null, null, null, null]);
+    expect(impactMs([48_000], ride(r.over.revealDraw).crashMs)).toBe(r.over.overMs);
+    // The wallets signed boarding only: the seat keys played the Brake and the Jumps.
+    expect(r.walletSigs).toEqual({ boarding: 5 });
+  });
+
+  it("Ana boarded without a seat key: her wallet signs the Brake (one prompt) and it counts as any Brake does", { timeout: 120_000 }, async () => {
+    const r = await rideCar(5, drawWithCrash(52_000), [
+      [BEN, 50],
+      [ANA, 53],
+    ], { brakes: [[ANA, 48]], noSeatKey: [ANA] });
+    expect(r.over.overMs).toBe(54_500);
+    expect(r.deltas).toEqual([1_445n, 905n, 0n, 0n, 0n]);
+    expect(r.over.seats.map((x) => x.brakeMs)).toEqual([48_000, null, null, null, null]);
+    // her wallet signed boarding, the Brake and her Jump; everyone else's seat key played for them
+    expect(r.walletSigs).toEqual({ boarding: 5, brakes: 1, jumps: 1 });
+  });
+
   it("Ben rides backed by Bob (40% to Ben): Bob's 500 board for him, second place splits 52 to Ben and 578 to Bob", { timeout: 120_000 }, async () => {
     const r = await rideCar(
       5,
@@ -647,7 +762,7 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
         [BEN, 97],
         [DEE, 99],
       ],
-      { seat: BEN, shareBps: 4_000 },
+      { backed: { seat: BEN, shareBps: 4_000 } },
     );
     // Ben's place pays 630: Bob's 500 back first, then 130 split 40/60 (Ben floor(52), Bob 78). The others as unbacked.
     expect(r.deltas).toEqual([350n, 52n, 578n, 813n, 0n]);
