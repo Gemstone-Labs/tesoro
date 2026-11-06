@@ -32,6 +32,13 @@ const LISTED_FOR_EVER: i64 = 4_000_000_000;
 const ENTRY: u64 = 1_000;
 const MATCH_NEEDS_TICKET: u32 = 6405;
 const SOL: u64 = 1_000_000_000;
+/// jitoSOL, the mainnet staking token, and its stake pool.
+const JITO_MINT: APk =
+    anchor_lang::prelude::pubkey!("J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn");
+const JITO_POOL: APk = anchor_lang::prelude::pubkey!("Jito4APyf642JPZPx3hGc6WWJ8zPKtRbRs4P815Awbb");
+/// A Staking Rate (lamports per token at 1e12) just under the live pool's, for an open stake
+/// Position whose sync lands yield.
+const JITO_RATE_OPEN: u64 = 1_000_000_000_000;
 
 fn a(p: Pk) -> APk {
     APk::new_from_array(p.to_bytes())
@@ -185,6 +192,9 @@ struct Env {
     /// The native custody and its rate Pool, when `install_native_rates` set them up: a chunk then
     /// passes them and open-Advance Sources are native Positions.
     native_rates: Option<(APk, APk)>,
+    /// The jitoSOL stake custody and its stake pool, when `install_stake_rates` set them up: a
+    /// chunk then passes them and open-Advance Sources are stake Positions.
+    stake_rates: Option<(APk, APk)>,
     /// Serialized size in bytes of the last transaction as a legacy transaction.
     last_size: usize,
     last_logs: Vec<String>,
@@ -250,6 +260,7 @@ impl Env {
             last_cu: 0,
             last_size: 0,
             native_rates: None,
+            stake_rates: None,
             last_logs: Vec::new(),
             last_events: Vec::new(),
             start_events: Vec::new(),
@@ -708,14 +719,22 @@ impl Env {
     fn forge_source_as(&mut self, tag: u8, index: u32, open: bool) -> APk {
         let position = pda(&[POSITION_SEED, &[7], &[tag; 32]]);
         let owner = [tag; 32];
+        let stake = open && self.native_rates.is_none() && self.stake_rates.is_some();
         let asset = if open && self.native_rates.is_some() {
             SIM_SOL_MINT.to_bytes()
+        } else if stake {
+            JITO_MINT.to_bytes()
         } else {
             [tag; 32]
         };
         let mut pos =
             tesoro_core::ledger::Position::new(owner, SourceChain::Solana, asset, 9, SOL, 1_000)
                 .expect("position");
+        if stake {
+            // opened a little below the pool's rate now, so a sync lands yield
+            pos.stake_rate_open = JITO_RATE_OPEN;
+            pos.stake_rate_high = JITO_RATE_OPEN;
+        }
         pos.advances = index + 1;
         if open {
             pos.open_advance = Some(index);
@@ -818,6 +837,53 @@ impl Env {
         };
         self.put_account(custody_key, &custody, NativeCustody::SPACE);
         self.native_rates = Some((custody_key, pool_key));
+    }
+
+    /// The jitoSOL stake custody (at its real address: its bump is 252, so deriving it takes four
+    /// tries) and the live jitoSOL pool (`tests/fixtures`), owned by the SPL stake pool program.
+    fn install_stake_rates(&mut self) {
+        let pool_key = APk::new_from_array(JITO_POOL.to_bytes());
+        self.svm
+            .set_account(
+                s(pool_key),
+                solana_sdk::account::Account {
+                    lamports: 1_000_000_000,
+                    data: include_bytes!("fixtures/jito_pool.bin").to_vec(),
+                    owner: s(tesoro_core::stake::STAKE_POOL_PROGRAMS[0]),
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )
+            .expect("pool account");
+        let (custody_key, bump) =
+            APk::find_program_address(&[STAKE_CUSTODY_SEED, JITO_MINT.as_ref()], &tesoro_core::ID);
+        let custody = StakeCustody {
+            bump,
+            vault_bump: 255,
+            mint: JITO_MINT,
+            pool: pool_key,
+            vault: APk::default(),
+            principal: 0,
+            retired_fee_totals: [0; 3],
+            open_positions: 0,
+            refilled_shares: 0,
+            instant_shares: 0,
+            withdrawn_shares: 0,
+            route: Default::default(),
+        };
+        self.put_account(custody_key, &custody, StakeCustody::SPACE);
+        self.stake_rates = Some((custody_key, pool_key));
+    }
+
+    /// The custody and rate account of every kind installed: a fee cut on an open-Advance Source
+    /// reads them.
+    fn kind_metas(&self) -> Vec<AccountMeta> {
+        let mut out = vec![];
+        for (custody, pool) in [self.native_rates, self.stake_rates].into_iter().flatten() {
+            out.push(AccountMeta::new_readonly(s(custody), false));
+            out.push(AccountMeta::new_readonly(s(pool), false));
+        }
+        out
     }
 
     fn put_account<T: anchor_lang::AccountSerialize>(&mut self, k: APk, v: &T, len: usize) {
@@ -1748,10 +1814,7 @@ impl Env {
             let position = APk::new_from_array(self.load::<SourceState>(src).inner.position);
             out.push(rem(position));
         }
-        if let Some((custody, pool)) = self.native_rates {
-            out.push(AccountMeta::new_readonly(s(custody), false));
-            out.push(AccountMeta::new_readonly(s(pool), false));
-        }
+        out.extend(self.kind_metas());
         out
     }
 
@@ -4748,6 +4811,126 @@ fn a_chunk_of_twelve_steps_fits_one_transaction_with_a_lookup_table() {
         chunk_budgets.iter().all(|cu| *cu < 140_000),
         "every 12-step Source case stays under 140,000 CU: {chunk_budgets:?}"
     );
+}
+
+/// What backs the Sources a CU test draws from. `Reported` is a forged Source no Advance reaches
+/// (a fee cut loads its Source and Position, nothing more); the open kinds are the Position's open
+/// Advance with Debt, as every live Source is, so a fee cut syncs its yield with the kind's rate.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum SourceKind {
+    Reported,
+    OpenReported,
+    Native,
+    Stake,
+}
+
+impl SourceKind {
+    const ALL: [SourceKind; 4] = [
+        SourceKind::Reported,
+        SourceKind::OpenReported,
+        SourceKind::Native,
+        SourceKind::Stake,
+    ];
+
+    fn open(self) -> bool {
+        self != SourceKind::Reported
+    }
+}
+
+impl Env {
+    /// A fresh Env whose open-Advance Sources are of `kind`.
+    fn with_kind(kind: SourceKind) -> Self {
+        let mut env = Env::new();
+        match kind {
+            SourceKind::Native => env.install_native_rates(),
+            SourceKind::Stake => env.install_stake_rates(),
+            SourceKind::Reported | SourceKind::OpenReported => {}
+        }
+        env
+    }
+
+    fn forge_kind(&mut self, tag: u8, kind: SourceKind) -> APk {
+        self.forge_source_as(tag, 0, kind.open())
+    }
+}
+
+/// The 140,000 CU budget of `a_chunk_of_twelve_steps_fits_one_transaction_with_a_lookup_table`,
+/// with Sources of `kind`: the worst 12-step chunk (fewer steps when the accounts pass 60) of a
+/// head-to-head Match whose loser has two lines of each of `k` Sources.
+fn twelve_step_worst(k: usize, kind: SourceKind) -> (u64, u8) {
+    let mut env = Env::with_kind(kind);
+    let alice = env.person();
+    let bob = env.person();
+    for p in [&alice, &bob] {
+        env.grow_basket_to(p, 2 * k + 8);
+    }
+    let sources: Vec<APk> = (0..k)
+        .map(|i| env.forge_kind(100 + i as u8, kind))
+        .collect();
+    env.give_lines(&alice, &sources, 1_000 / k as u64, |i| i as i64);
+    env.give_lines(&bob, &sources, 1_000 / k as u64, |i| i as i64);
+    env.give_lines(&bob, &sources, 4, |i| i as i64 + 1_000);
+    env.give_lines(&alice, &sources, 4, |i| i as i64 + 1_000);
+    let m = env
+        .open_match_ix(
+            &alice,
+            1_000,
+            0,
+            env.next_ticket(alice.account),
+            false,
+            0,
+            k as u32 + 1,
+            ticket_pda(alice.account, env.next_ticket(alice.account)),
+            env.books_of(alice.account),
+            None,
+        )
+        .expect("open");
+    env.join_match_ix(
+        &bob,
+        m,
+        env.next_ticket(bob.account),
+        k as u32 + 1,
+        ticket_pda(bob.account, env.next_ticket(bob.account)),
+        env.books_of(bob.account),
+        None,
+    )
+    .expect("join");
+    let game = env.game_auth.insecure_clone();
+    env.settle_start(&game, m, MatchResult::Opener)
+        .expect("start");
+    let mut worst = (0, 0);
+    while env.stage_of(m) != Stage::Closed {
+        env.chunk(m, 12).expect("chunk");
+        let done: Vec<MatchChunkDone> = env
+            .last_events
+            .iter()
+            .filter_map(|e| decode_event(e))
+            .collect();
+        if env.last_cu > worst.0 {
+            worst = (env.last_cu, done[0].steps);
+        }
+    }
+    assert_eq!(
+        env.total_gemas(&alice),
+        1_900 + 4 * k as u64,
+        "Alice keeps her 4 Gemas a Source and wins the 2,000 Pot less 100 in fees"
+    );
+    worst
+}
+
+#[test]
+fn a_twelve_step_chunk_fits_the_budget_whatever_kind_of_source_takes_the_fee_cut() {
+    let mut over = vec![];
+    for kind in SourceKind::ALL {
+        for k in [4usize, 5, 8, 10] {
+            let (cu, steps) = twelve_step_worst(k, kind);
+            println!("ROW head-to-head {kind:?}, {k} Sources: worst chunk {cu} CU ({steps} steps)");
+            if cu >= 140_000 {
+                over.push((kind, k, cu));
+            }
+        }
+    }
+    assert!(over.is_empty(), "12-step chunks over 140,000 CU: {over:?}");
 }
 
 /// The compute the keeper holds a chunk under (keeper/src/settle.ts CHUNK_CU_TARGET).

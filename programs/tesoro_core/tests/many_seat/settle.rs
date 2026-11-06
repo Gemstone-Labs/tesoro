@@ -171,6 +171,9 @@ impl Env {
                 self.load::<SourceState>(src).inner.position,
             )));
         }
+        if !plan.cut_sources.is_empty() {
+            out.extend(self.kind_metas());
+        }
         ix(
             accounts::ManySeatChunk {
                 caller,
@@ -688,10 +691,15 @@ fn a_chunk_cannot_be_fed_another_cars_page_or_pot() {
 /// Railcar's shape: the last three off 60/25/15, 60 early jumpers refunded 5-80%, 37 aboard. The
 /// client sends chunks of `steps`; returns the worst chunk and the number of chunks.
 fn hundred_seats(steps: u8) -> (Sent, usize, u64) {
-    let mut env = Env::new();
+    hundred_seats_of(steps, SourceKind::Reported)
+}
+
+/// `hundred_seats` with Sources of `kind`.
+fn hundred_seats_of(steps: u8, kind: SourceKind) -> (Sent, usize, u64) {
+    let mut env = Env::with_kind(kind);
     env.enable_leaderboard(100);
     let sources: Vec<APk> = (0..10)
-        .map(|i| env.forge_source(200 + i as u8, 0))
+        .map(|i| env.forge_kind(200 + i as u8, kind))
         .collect();
     let riders: Vec<Person> = (0..100)
         .map(|_| {
@@ -768,4 +776,21 @@ fn a_hundred_seats_with_entry_tickets_settle_inside_the_chunk_budget() {
     }
     let worst = at_cap.expect("cap measured");
     assert!(worst.cu < CHUNK_CU_BUDGET, "worst chunk {worst:?}");
+}
+
+#[test]
+fn a_hundred_seat_chunk_fits_the_budget_whatever_kind_of_source_takes_the_fee_cut() {
+    let max = tesoro_core::MAX_SEAT_CHUNK_STEPS;
+    let mut over = vec![];
+    for kind in SourceKind::ALL {
+        let (worst, chunks, start_cu) = hundred_seats_of(max, kind);
+        println!(
+            "ROW 100 seats {kind:?}, chunks of {max}: settle start {start_cu} CU; {chunks} chunks; worst chunk {} CU ({} steps, {} accounts)",
+            worst.cu, worst.steps, worst.accounts
+        );
+        if worst.cu >= CHUNK_CU_BUDGET {
+            over.push((kind, worst));
+        }
+    }
+    assert!(over.is_empty(), "100-seat chunks over 140,000 CU: {over:?}");
 }

@@ -819,11 +819,18 @@ const RETURN_CU_BUDGET: u64 = 140_000;
 /// CU of a step-off that returns `k` lines from `k` Sources, each merging into a line Ana still
 /// holds of the same Source (the book of every Source is read and written: the worst return).
 fn step_off_cu(k: u8) -> u64 {
-    let mut env = Env::new();
+    step_off_cu_of(k, SourceKind::Reported)
+}
+
+/// `step_off_cu` with Sources of `kind`.
+fn step_off_cu_of(k: u8, kind: SourceKind) -> u64 {
+    let mut env = Env::with_kind(kind);
     let opener = env.rider(2_000);
     let ana = env.person();
     env.grow_basket_to(&ana, 60);
-    let sources: Vec<APk> = (0..20).map(|i| env.forge_source(90 + i as u8, 0)).collect();
+    let sources: Vec<APk> = (0..20)
+        .map(|i| env.forge_kind(90 + i as u8, kind))
+        .collect();
     env.give_lines(&ana, &sources, 25, |i| i as i64);
     env.open_ticket(&ana, 5, CAR_ENTRY, 21).expect("ticket");
     let kp = ana.kp.insecure_clone();
@@ -856,6 +863,20 @@ fn a_step_off_returning_its_most_lines_fits_the_chunk_budget() {
     println!("step-off CU by lines returned (cap {max}): {sweep:?}");
     let at_cap = sweep.iter().find(|(k, _)| *k == max).expect("cap").1;
     assert!(at_cap < RETURN_CU_BUDGET, "{max} lines used {at_cap} CU");
+}
+
+#[test]
+fn a_step_off_returning_its_most_lines_fits_the_budget_whatever_kind_of_source_it_returns() {
+    let max = tesoro_core::MAX_RETURN_LINES;
+    let rows: Vec<(SourceKind, u64)> = SourceKind::ALL
+        .into_iter()
+        .map(|kind| (kind, step_off_cu_of(max, kind)))
+        .collect();
+    println!("ROW step-off CU at {max} lines by Source kind: {rows:?}");
+    assert!(
+        rows.iter().all(|(_, cu)| *cu < RETURN_CU_BUDGET),
+        "step-offs over 140,000 CU: {rows:?}"
+    );
 }
 mod backing;
 mod settle;
