@@ -86,7 +86,7 @@ export function RailcarStage({ aboard, moving, slow = false }: { aboard: Rider[]
   }, [moving, slow]);
 
   return (
-    <div ref={root} className={`rc-stage${moving ? " moving" : ""}`} aria-hidden="true">
+    <div ref={root} className={`rc-stage${moving ? " moving" : ""}${moving && slow ? " slow" : ""}`} aria-hidden="true">
       <div className="rc-lay rc-far" style={{ backgroundImage: `url(${ART}/far.webp)` }} />
       <div className="rc-lay rc-mid" style={{ backgroundImage: `url(${ART}/mid.webp)` }} />
       <div className="rc-lay rc-trk" style={{ backgroundImage: `url(${ART}/track.webp)` }} />

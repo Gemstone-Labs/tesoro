@@ -7,12 +7,13 @@ export function hapticPattern(lines: number, gems: number): number[] {
   return gems > 0 ? [20, 30, 35] : lines > 1 ? [30, 35, 18] : lines === 1 ? [24] : [18];
 }
 
-export function createHaptics(storage: () => StorageLike | null, device: () => Vibrate | undefined) {
+/** Vibration for one game, remembered under its own `key` (Block Burst's by default) apart from sound. */
+export function createHaptics(storage: () => StorageLike | null, device: () => Vibrate | undefined, key = KEY) {
   let preference: boolean | undefined;
   const listeners = new Set<() => void>();
   const enabled = () => {
     if (preference === undefined) {
-      try { preference = storage()?.getItem(KEY) !== "off"; }
+      try { preference = storage()?.getItem(key) !== "off"; }
       catch { preference = true; }
     }
     return preference;
@@ -30,11 +31,13 @@ export function createHaptics(storage: () => StorageLike | null, device: () => V
     subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
     setEnabled: (next: boolean) => {
       preference = next;
-      try { storage()?.setItem(KEY, next ? "on" : "off"); } catch { /* Keep the preference for this session if storage is unavailable. */ }
+      try { storage()?.setItem(key, next ? "on" : "off"); } catch { /* Keep the preference for this session if storage is unavailable. */ }
       if (!next) invoke(0);
       listeners.forEach((listener) => listener());
     },
     play: (lines: number, gems: number): HapticResult => enabled() ? invoke(hapticPattern(lines, gems)) : "off",
+    /** Any pattern, when vibration is on. */
+    pulse: (pattern: number[]): HapticResult => enabled() ? invoke(pattern) : "off",
   };
 }
 

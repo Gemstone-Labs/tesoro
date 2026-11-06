@@ -2,8 +2,8 @@
 
 import { readMuted, writeMuted } from "./sfx-pref";
 
-export type Cue = "deal" | "flip" | "chip" | "check" | "fold" | "clear" | "combo" | "gem" | "tick" | "fill" | "win" | "lose" | "go" | "knock" | "clash" | "blast" | "wind";
-export const CUES: Cue[] = ["deal", "flip", "chip", "check", "fold", "clear", "combo", "gem", "tick", "fill", "win", "lose", "go", "knock", "clash", "blast", "wind"];
+export type Cue = "deal" | "flip" | "chip" | "check" | "fold" | "clear" | "combo" | "gem" | "tick" | "fill" | "win" | "lose" | "go" | "knock" | "clash" | "blast" | "wind" | "screws" | "rattle" | "sparks";
+export const CUES: Cue[] = ["deal", "flip", "chip", "check", "fold", "clear", "combo", "gem", "tick", "fill", "win", "lose", "go", "knock", "clash", "blast", "wind", "screws", "rattle", "sparks"];
 
 let muted: boolean | null = null;
 const listeners = new Set<() => void>();
@@ -112,6 +112,19 @@ function noise(at: number, dur: number, o: { from: number; to: number; gain?: nu
 const N = { c5: 523.25, d5: 587.33, e5: 659.25, g5: 783.99, a5: 880, c6: 1046.5, e6: 1318.5, g6: 1568 };
 
 const PLAY: Record<Cue, () => void> = {
+  // Railcar Tells: a screw working loose, the bolt giving and the panel rattling, sparks off the rail and the frame creaking
+  screws: () => {
+    tone(2600, 0, 0.09, { type: "sawtooth", gain: 0.08, to: 3400 });
+    noise(0.02, 0.08, { from: 5200, to: 3800, gain: 0.12, q: 6 });
+  },
+  rattle: () => {
+    tone(160, 0, 0.12, { type: "square", gain: 0.18, to: 110 });
+    [0.03, 0.09, 0.15, 0.21].forEach((at, i) => noise(at, 0.05, { from: 1400 - i * 150, to: 700, gain: 0.3 - i * 0.05, q: 2.5 }));
+  },
+  sparks: () => {
+    [0, 0.05, 0.11, 0.18].forEach((at) => noise(at, 0.06, { from: 7200, to: 4200, gain: 0.22, q: 4 }));
+    tone(95, 0.04, 0.9, { type: "sawtooth", gain: 0.12, to: 70, attack: 0.25 });
+  },
   // Vanguard: a wooden marker set down, two markers meeting, a landmine, the dust storm
   knock: () => {
     tone(190, 0, 0.07, { type: "triangle", gain: 0.45, to: 120 });

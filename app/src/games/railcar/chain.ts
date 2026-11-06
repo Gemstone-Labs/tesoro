@@ -3,13 +3,13 @@
  *
  * Base layer: `open_car` (the first Player of a car opens core's many-seat Match), core's `join_many_seat_match` with
  * `check_departure` in the same transaction, then `finalize` (core settle by CPI) and core's chunks and closes.
- * Rollup (the Table, delegated to the TEE): `start_ride` -> VRF -> `signal` from open pages / `jump` -> the Table commits
- * itself at Impact. Time is rollup slots (`SLOTS_PER_SEC`); the ride clock starts at `Table.rideSlot`.
+ * Rollup (the Table, delegated to the TEE): `start_ride` -> VRF -> `bind_brake` for every seat -> `tick` from aboard Players'
+ * pages (the Brake rides on it as a flag), `signal` from the others / `jump` -> the Table commits itself at Impact. Time is rollup slots (`SLOTS_PER_SEC`); the ride clock starts at `Table.rideSlot`.
  */
 import "../../lib/chain/polyfill";
 import { BorshAccountsCoder, type Idl } from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram, type AccountMeta, type TransactionInstruction } from "@solana/web3.js";
-import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
+import { DELEGATION_PROGRAM_ID, EPHEMERAL_VAULT_ID, PERMISSION_PROGRAM_ID, permissionPdaFromAccount } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { TESORO_CORE, matchPda, settledPda } from "../../lib/chain/basket";
 import { idlIxBuilder } from "../../lib/chain/core-ix";
 import { seatPagePda } from "../../lib/chain/many-seat";
@@ -57,6 +57,8 @@ export const configPda = () => pda("config");
 export const carPda = (carNo: bigint | number) => pda("car", le(carNo, 8));
 export const tablePda = (index: number) => pda("table", le(index, 2));
 export const vaultPda = (table: PublicKey) => pda("vault", table.toBuffer());
+/** Table seat `seat`'s Brake seat: private, readable only by that ride's Player (wallet and seat key). */
+export const brakeSeatPda = (table: PublicKey, seat: number) => pda("brake", table.toBuffer(), Uint8Array.of(seat));
 export const sponsorPda = () => pda("sponsor");
 export const authorityPda = () => pda("authority");
 export const identityPda = () => pda("identity");
@@ -100,6 +102,21 @@ export interface CarAccountView {
   revealed: boolean;
 }
 
+/** A Player's own Brake on a ride, as only that Player can read it. */
+export interface BrakeSeatView {
+  seat: number;
+  carNo: bigint;
+  bound: boolean;
+  used: boolean;
+  /** Ride ms of the press (meaningful when `used`). */
+  pressMs: number;
+}
+
+export function decodeBrakeSeat(data: Uint8Array): BrakeSeatView {
+  const b = accounts.decode("BrakeSeat", Buffer.from(data));
+  return { seat: b.seat, carNo: BigInt(b.car_no.toString()), bound: b.bound === 1, used: b.used === 1, pressMs: b.press_ms };
+}
+
 export function decodeCarAccount(data: Uint8Array): CarAccountView {
   const c = accounts.decode("Car", Buffer.from(data));
   return { carNo: BigInt(c.car_no.toString()), tesoroMatch: c.tesoro_match, table: c.table, tables: c.tables, openedAt: Number(c.opened_at.toString()), payer: c.payer, revealed: !!c.revealed };
@@ -121,6 +138,8 @@ export interface RideSeatView {
   account: PublicKey;
   /** The seat key core recorded for the seat (the default key when none: only the wallet acts). */
   signer: PublicKey;
+  /** After the ride: ride ms of this Player's Brake, null when none (always null during the ride). */
+  brakeMs: number | null;
 }
 
 /** A Table: one ride at a time (public part). */
@@ -152,6 +171,11 @@ export interface TableView {
   dirty: boolean;
   /** Unix time of the last commit sent. */
   commitAt: number;
+  /** Seats whose Brake seat is bound to this ride: no Brake counts until all are. */
+  brakesBound: number;
+  /** After the ride: the draw and every seat's `brakeMs` are public, enough for the engine to recompute the ride. */
+  revealed: boolean;
+  revealDraw: Uint8Array;
   seats: RideSeatView[];
 }
 
@@ -167,7 +191,17 @@ export function decodeTable(data: Uint8Array): TableView {
   const seats: RideSeatView[] = [];
   for (let i = 0; i < seated; i++) {
     const at = SEATS_AT + i * RIDE_SEAT;
-    seats.push({ tableSeat: i, seat: data[at], order: data[at + 1], jumpMs: v.getUint32(at + 4, true), refund: v.getBigUint64(at + 8, true), account: new PublicKey(data.subarray(at + 16, at + 48)), signer: new PublicKey(data.subarray(at + 48, at + 80)) });
+    const brakeAt = v.getUint32(at + 80, true);
+    seats.push({
+      tableSeat: i,
+      seat: data[at],
+      order: data[at + 1],
+      jumpMs: v.getUint32(at + 4, true),
+      refund: v.getBigUint64(at + 8, true),
+      account: new PublicKey(data.subarray(at + 16, at + 48)),
+      signer: new PublicKey(data.subarray(at + 48, at + 80)),
+      brakeMs: brakeAt === 0 ? null : brakeAt - 1,
+    });
   }
   return {
     index: v.getUint16(b + 2, true),
@@ -192,6 +226,9 @@ export function decodeTable(data: Uint8Array): TableView {
     overAt: Number(v.getBigInt64(b + 164, true)),
     dirty: data[b + 16] === 1,
     commitAt: Number(v.getBigInt64(b + 172, true)),
+    revealDraw: Uint8Array.from(data.subarray(b + 180, b + 212)),
+    revealed: data[b + 212] === 1,
+    brakesBound: data[b + 213],
     seats,
   };
 }
@@ -327,6 +364,29 @@ export const signalIx = (caller: PublicKey, tableIndex: number): TransactionInst
 export const jumpIx = (signer: PublicKey, tableIndex: number, carNo: bigint, tableSeat: number): TransactionInstruction => {
   const table = tablePda(tableIndex);
   return railcarIx("jump", { player: signer, table, vault: vaultPda(table), ...magic() }, { car_no: carNo, seat: tableSeat });
+};
+
+/**
+ * `bind_brake`: anyone, once per seat per ride (a repeat does nothing). Hands Table seat `tableSeat`'s Brake seat to the
+ * ride's Player; `playerAccount` is that seat's core Account. Pages bind every seat while the draw is asked for.
+ */
+export const bindBrakeIx = (caller: PublicKey, tableIndex: number, carNo: bigint, tableSeat: number, playerAccount: PublicKey): TransactionInstruction => {
+  const table = tablePda(tableIndex);
+  const brakeSeat = brakeSeatPda(table, tableSeat);
+  return railcarIx(
+    "bind_brake",
+    { caller, table, player_account: playerAccount, brake_seat: brakeSeat, brake_permission: permissionPdaFromAccount(brakeSeat), permission_program: PERMISSION_PROGRAM_ID, ephemeral_vault: EPHEMERAL_VAULT_ID, magic_program: MAGIC_PROGRAM },
+    { car_no: carNo, seat: tableSeat },
+  );
+};
+
+/**
+ * `tick`: an aboard Player's page signal, signed by the seat's wallet or seat key, with the Brake as a flag. Same accounts,
+ * signer and size whether or not it Brakes, so a Brake is never a transaction of its own.
+ */
+export const tickIx = (signer: PublicKey, tableIndex: number, carNo: bigint, tableSeat: number, brake: boolean): TransactionInstruction => {
+  const table = tablePda(tableIndex);
+  return railcarIx("tick", { player: signer, table, vault: vaultPda(table), brake_seat: brakeSeatPda(table, tableSeat), ...magic() }, { car_no: carNo, seat: tableSeat, brake: brake ? 1 : 0 });
 };
 
 /** `commit_table`: anyone; a result's commit, or a repeat of one that may have been lost. */
