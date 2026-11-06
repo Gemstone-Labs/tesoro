@@ -4,7 +4,9 @@ const lb = vi.hoisted(() => ({ value: { data: null, forMe: false, error: false }
 vi.mock("@/lib/chain/useLeaderboard", () => ({ useLeaderboard: () => ({ ...lb.value, retry: () => undefined }) }));
 const acct = vi.hoisted(() => ({ snapshot: null as { matches: unknown[]; accountKey: { toBase58(): string } } | null, rows: [] as unknown[] }));
 vi.mock("@/lib/account", async (orig) => ({ ...(await orig<typeof import("@/lib/account")>()), useAccount: () => ({ auth: { status: "signed-in", addresses: { solana: "6qPLGMP5pY9KXQ8PVr8V8cjiWNdy3tzfKnf85e5wQmoZ" } }, snapshot: acct.snapshot }) }));
-vi.mock("@/lib/chain/history", async (orig) => ({ ...(await orig<typeof import("@/lib/chain/history")>()), accountHistory: () => acct.rows }));
+vi.mock("@/lib/friends/useRecordRows", () => ({ useRecordRows: () => (acct.snapshot ? acct.rows : null) }));
+const fr = vi.hoisted(() => ({ status: "ready" as string, relation: "none" as string }));
+vi.mock("@/lib/friends/FriendsProvider", async (orig) => ({ ...(await orig<typeof import("@/lib/friends/FriendsProvider")>()), useFriends: () => ({ status: fr.status, relation: () => fr.relation, act: async () => ({}) }) }));
 import { MatchResult, type MatchResultProps } from "./MatchResult";
 
 const SNAP = { matches: [], accountKey: { toBase58: () => "me" } };
@@ -91,6 +93,18 @@ describe("the result screen", () => {
     expect(h).not.toContain("mr-tiles");
     expect(h).not.toContain("Season");
     expect(h).not.toContain("Challenge");
+  });
+  it("gives Play again the whole row once the opponent is a Friend, and while the Friends list loads", () => {
+    for (const [status, relation] of [["ready", "friend"], ["loading", "none"]]) {
+      fr.status = status;
+      fr.relation = relation;
+      const h = html();
+      expect(h).toContain("Play again");
+      expect(h).not.toContain("Add friend");
+      expect(h).not.toMatch(/>Friends</);
+    }
+    fr.status = "ready";
+    fr.relation = "none";
   });
   it("has exactly Play again and Add friend as actions", () => {
     const h = html();

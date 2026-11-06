@@ -6,9 +6,9 @@ import { Share2 } from "lucide-react";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { Button, CheckIcon, GemaMark, GemaUsd, MinusIcon, XIcon, type BustName } from "@/components/ui";
 import { usePlayerLabel } from "@/components/account/Player";
-import { accountHistory } from "@/lib/chain/history";
 import { gameQuery } from "@/lib/game-params";
 import { recordIncluding } from "@/lib/friends/record";
+import { useRecordRows } from "@/lib/friends/useRecordRows";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
 import { accountKeyOf } from "@/lib/chain/account-key";
@@ -17,6 +17,7 @@ import { useLeaderboard } from "@/lib/chain/useLeaderboard";
 import { fmtGemas } from "@/lib/format";
 import { setFullScreen } from "@/games/fx";
 import { AddFriendButton } from "@/components/friends/AddFriendButton";
+import { useFriends } from "@/lib/friends/FriendsProvider";
 import type { GameId } from "@/lib/mock";
 import { GAME_NAMES } from "@/lib/mock";
 import { postUrl, winPath, winShareText } from "@/lib/win-card";
@@ -101,9 +102,9 @@ function SeasonTile({ points, delay }: { points: number | null; delay: string })
 
 /** My record against this opponent, all games, counting this Match; blank while the history loads. Links to a Challenge for the same Game and entry. */
 function RecordTile({ opponent, game, asset, entry, matchId, outcome, delay }: { opponent: string; game: GameId; asset?: number | null; entry: number; matchId: string; outcome: "won" | "lost" | "draw"; delay: string }) {
-  const { snapshot } = useAccount();
+  const rows = useRecordRows();
   const name = usePlayerLabel(opponent);
-  const rec = snapshot ? recordIncluding(accountHistory(snapshot.matches), opponent, { id: matchId, result: outcome }) : null;
+  const rec = rows ? recordIncluding(rows, opponent, { id: matchId, result: outcome }) : null;
   const body = (
     <>
       <span>vs {name}</span>
@@ -123,6 +124,9 @@ function RecordTile({ opponent, game, asset, entry, matchId, outcome, delay }: {
  */
 export function MatchResult(p: MatchResultProps) {
   const { outcome, role, backed, delta } = p;
+  const friends = useFriends();
+  // Play again takes the whole row once you are Friends (or while the list loads, so the button never appears and then vanishes).
+  const offerFriend = !!p.opponent && friends.status !== "loading" && friends.relation(p.opponent) !== "friend";
   const won = outcome === "won";
   const lost = outcome === "lost";
   const neutral = !won && !lost;
@@ -217,7 +221,7 @@ export function MatchResult(p: MatchResultProps) {
           ) : (
             <div className="mr-pair">
               <Button variant="money" size="lg" href={p.playAgainHref}>Play again</Button>
-              {p.opponent && <AddFriendButton account={p.opponent} size="lg" />}
+              {p.opponent && offerFriend && <AddFriendButton account={p.opponent} size="lg" />}
             </div>
           )}
         </div>
