@@ -5,10 +5,11 @@ import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui";
 import { art } from "@/lib/art";
 import { ASSETS, type Asset } from "../chain";
-import { PriceStore, perSecond, usePriceFeed } from "../feed";
+import { PriceStore, perSecond, usdToMid, usePriceFeed } from "../feed";
 import { COLUMNS, MATCH_SECS, lockAt, revealed, bandOf, type GridAsset } from "../grid";
 import { GridScreen } from "../GridScreen";
 import { seededRng } from "./bot";
+import { FALLBACK_START_USD, simulatedMid } from "./simPrice";
 import { elapsed, newGridSession, setPick, stepGridSession, type GridSession } from "./gridSession";
 import { usePracticePause } from "../../fx/PracticePause";
 import "../trading.css";
@@ -18,13 +19,16 @@ import { Arena, FullScreenToggle, MuteToggle } from "../../fx";
 const YOU = { name: "You", avatar: art.avatars[0] };
 const BOT = { name: "Bot", avatar: art.avatars[4] };
 
+/** How long Practice waits for the live price before it starts on a fixed one (ms). */
+const FEED_WAIT_MS = 4000;
+
 /** Practice always plays SOL. */
 const PRACTICE_ASSET: Asset = ASSETS[0];
 
 /**
- * Trading Duel practice: the real grid screen on the live SOL price against a local bot. Nothing is
- * staked, there is no wallet and no chain. It starts as soon as the first live price lands; `?seed=7`
- * gives a fixed bot.
+ * Trading Duel practice: the real grid screen against a local bot, on a seeded simulated SOL price that
+ * starts at the live price (read once; a fixed price when the feed does not answer). Nothing is staked,
+ * there is no wallet and no chain. `?seed=7` fixes both the bot and the price path.
  */
 export function TradingDuelPractice() {
   const { paused, toggle: togglePause, now: practiceNow } = usePracticePause();
@@ -39,9 +43,10 @@ export function TradingDuelPractice() {
     sessionRef.current = next;
     setSession(next);
   };
-  const feed = usePriceFeed(asset, true, !session);
-  const seed = sp.get("seed");
+  const feed = usePriceFeed(asset, !session, !session);
+  const seedParam = sp.get("seed");
   const rng = useRef<() => number>(() => Math.random());
+  const simSeed = useRef(1);
   const prices = useRef<number[]>([]);
   const store = feed.store;
 
@@ -51,57 +56,59 @@ export function TradingDuelPractice() {
     return () => clearTimeout(i);
   }, [error]);
 
-  // Every reading the feed makes goes into the track (about 20 a second), so a hit matches the line you see.
-  // The screen hears about the game when something it shows changes, and once a second.
+  // The live price is read once, for the start. After that the price is simulated from the Practice clock
+  // (`simulatedMid`), so a pause freezes the line and a resume continues it. The simulated price goes into the
+  // track about 20 times a second, so a hit matches the line you see. The screen hears about the game when
+  // something it shows changes, and once a second.
   const startsAt = session?.startsAt;
   useEffect(() => {
     if (!startsAt || paused) return;
-    const off = store.onUpdate((tick) => {
-      const s = sessionRef.current;
-      if (s && !s.final) {
-        const now = practiceNow();
-        practiceStore.ingest(tick.mid, tick.publishedAt, now);
-        sessionRef.current = stepGridSession(s, tick.mid, now, rng.current, prices.current);
-      }
-    });
     let shown = "";
     let shownAt = 0;
     const i = setInterval(() => {
       const now = practiceNow();
-      const s = sessionRef.current;
-      prices.current = perSecond(store.points);
-      if (!s || !store.tick) return;
-      const next = stepGridSession(s, store.tick.mid, now, rng.current, prices.current);
-      sessionRef.current = next;
+      let s = sessionRef.current;
+      if (!s) return;
+      if (!s.final) {
+        const mid = simulatedMid(simSeed.current, s.anchor, asset.symbol as GridAsset, Math.max(0, elapsed(s, now)));
+        practiceStore.ingest(mid, Math.floor(now / 1000), now);
+        prices.current = perSecond(practiceStore.points);
+        s = stepGridSession(s, mid, now, rng.current, prices.current);
+        sessionRef.current = s;
+      }
       // The screen re-renders when what it shows changes (a box lit, a pick revealed, the end) and at least once a second.
-      const sig = lineSignature(next, elapsed(next, now));
+      const sig = lineSignature(s, elapsed(s, now));
       if (sig !== shown || now - shownAt >= 1000) {
         shown = sig;
         shownAt = now;
         setClock(now);
-        setSession(next);
+        setSession(s);
       }
-    }, 250);
-    return () => {
-      off();
-      clearInterval(i);
-    };
-  }, [startsAt, store, paused, practiceNow, practiceStore]);
+    }, 50);
+    return () => clearInterval(i);
+  }, [startsAt, paused, practiceNow, practiceStore, asset]);
 
-  // Start (and Play again) on the next live price: no picker, no button.
+  // Start (and Play again) on the first live price, or on a fixed price when the feed has not answered in a few seconds.
   const waiting = !session;
   useEffect(() => {
     if (!waiting) return;
-    const off = store.onUpdate((tick) => {
+    const begin = (mid: bigint) => {
       if (sessionRef.current) return;
-      rng.current = seed ? seededRng(Number(seed) || 1) : () => Math.random();
+      rng.current = seedParam ? seededRng(Number(seedParam) || 1) : () => Math.random();
+      simSeed.current = seedParam ? Number(seedParam) || 1 : Math.floor(Math.random() * 2 ** 31);
       const now = practiceNow();
       practiceStore.clear();
-      practiceStore.ingest(tick.mid, tick.publishedAt, now);
-      commit(newGridSession(now, tick.mid, asset.symbol as GridAsset, rng.current));
-    });
-    return off;
-  }, [waiting, store, seed, asset, practiceNow, practiceStore]);
+      practiceStore.ingest(mid, Math.floor(now / 1000), now);
+      commit(newGridSession(now, mid, asset.symbol as GridAsset, rng.current));
+    };
+    const off = store.onUpdate((tick) => begin(tick.mid));
+    const fallback = setTimeout(() => begin(usdToMid(FALLBACK_START_USD[asset.symbol as GridAsset])), FEED_WAIT_MS);
+    if (store.tick) begin(store.tick.mid);
+    return () => {
+      off();
+      clearTimeout(fallback);
+    };
+  }, [waiting, store, seedParam, asset, practiceNow, practiceStore]);
 
   if (!session) return <Connecting asset={asset} stale={feed.status === "stale"} />;
 
@@ -115,7 +122,7 @@ export function TradingDuelPractice() {
       startsAt={session.startsAt}
       track={session.track}
       series={practiceStore}
-      stale={feed.status === "stale"}
+      stale={false}
       mine={session.picks[0]}
       theirs={revealed(session.picks[1], Math.min(t, MATCH_SECS))}
       me={YOU}
