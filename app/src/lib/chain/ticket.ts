@@ -36,8 +36,6 @@ export type TicketState = "open" | "cancelling" | "closed" | "cancelled";
 export const TICKET_WINDOW_SECS = 60 * 60;
 
 const HEAD_AT = 8;
-const KINDS: TicketKind[] = ["entry", "backing"];
-const STATES: TicketState[] = ["open", "cancelling", "closed", "cancelled"];
 
 export interface TicketView {
   address: PublicKey;
