@@ -13,6 +13,7 @@ import {
   canFinalizeTable,
   canPlayPublic,
   decodeAssignment,
+  boardIsViewers,
   decodeBoard,
   decodeTable,
   offsetsOf,
@@ -88,6 +89,14 @@ describe("accounts written by block_puzzle", () => {
     const b = decodeBoard(coder.decode("board", fixtures.board));
     expect([b.seat, b.epoch, b.began, b.seed, b.score, b.moves, b.used, b.over]).toEqual([1, 7, true, 0x1122334455667788n, 77, 4, 1, false]);
     expect(b.player.toBase58()).toBe(keyOf(4).toBase58());
+  });
+
+  it("a Board is read by its Player's key and by its seat key, never by a stranger", () => {
+    const b = decodeBoard(coder.decode("board", fixtures.board));
+    const seatKey = keyOf(9);
+    expect(boardIsViewers(b, b.player)).toBe(true);
+    expect(boardIsViewers({ ...b, signer: seatKey }, seatKey)).toBe(true);
+    expect(boardIsViewers({ ...b, signer: seatKey }, keyOf(10))).toBe(false);
   });
 
   it("the Vault has no player and holds the Seed", () => {

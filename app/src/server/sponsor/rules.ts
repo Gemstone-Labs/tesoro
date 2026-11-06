@@ -281,6 +281,8 @@ export interface Plan {
   signers: PublicKey[];
   /** The seat keys an entry names (`seat_signer` of open_match, join_match, open_ticket): throwaway device keys, not Accounts' wallets. */
   seatSigners?: PublicKey[];
+  /** The signer of each Ticket step (`stage_entry`, `cancel_ticket`) with its Ticket: a seat key when the Ticket recorded it at `open_ticket`. */
+  ticketSigners?: { ticket: PublicKey; signer: PublicKey }[];
   /** An instruction in the plan is the Player's own: the Player who asks must be one of its signers. */
   playerSigns: boolean;
   /** Accounts whose Gemas fund the admission when they are not the Player's own (the Backer of a Backing Ticket). */
@@ -454,6 +456,7 @@ export function planCore(ixs: Ix[], relayer: PublicKey, inviteKey?: PublicKey, p
   let playerSigns = false;
   let stagedBacking = false;
   const seatSigners = new Map<string, PublicKey>();
+  const ticketSigners: { ticket: PublicKey; signer: PublicKey }[] = [];
 
   for (const ix of ixs) {
     const decoded = coder.decode(Buffer.from(ix.data));
@@ -525,6 +528,11 @@ export function planCore(ixs: Ix[], relayer: PublicKey, inviteKey?: PublicKey, p
     if (name === "join_match") pair = byName.get("pair") ?? null;
     const seat = byName.get("seat_signer");
     if (seat) seatSigners.set(seat.toBase58(), seat);
+    if (name === "stage_entry" || name === "cancel_ticket") {
+      const ticket = byName.get("ticket");
+      const signer = byName.get("signer");
+      if (ticket && signer) ticketSigners.push({ ticket, signer });
+    }
 
     names.push(name);
     const s = row.spend?.(args) ?? NONE;
@@ -553,6 +561,7 @@ export function planCore(ixs: Ix[], relayer: PublicKey, inviteKey?: PublicKey, p
     pair,
     signers: [...signers.values()],
     seatSigners: [...seatSigners.values()],
+    ticketSigners,
     playerSigns,
     funders: [...funders.values()],
     onboarding: names.length === 1 && names[0] === "create_account",

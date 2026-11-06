@@ -63,6 +63,12 @@ import {
   carPda,
 } from "./chain";
 import { ride } from "./engine";
+import { replayRide, type RideReplay } from "./replay";
+import { rideRecordOf } from "../../lib/chain/ride-history";
+import { decodeMatchRecords, type InnerInstruction } from "../../server/history/events";
+import { ingestMatchRecords } from "../../server/history/ingest";
+import { accountHistory, matchPage } from "../../server/history/reads";
+import { testDb } from "../../server/history/test-db";
 import { queueChoice } from "./flow";
 import { railcarView } from "./view";
 import { finishRide } from "./finish";
@@ -118,7 +124,7 @@ interface Inner {
   setClock(c: unknown): void;
   getAccount(k: Uint8Array): { lamports(): bigint; data(): Uint8Array; owner(): Uint8Array; executable(): boolean } | null;
   setAccount(k: Uint8Array, a: unknown): void;
-  sendVersionedTransaction(bytes: Uint8Array): { logs?(): string[]; meta?(): { logs(): string[] }; err?(): unknown };
+  sendVersionedTransaction(bytes: Uint8Array): { logs?(): string[]; meta?(): { logs(): string[] }; err?(): unknown; innerInstructions?(): { instruction(): { programIdIndex(): number; accounts(): Uint8Array; data(): Uint8Array } }[][]; computeUnitsConsumed?(): bigint };
 }
 
 /**
@@ -160,10 +166,15 @@ class Svm {
   set(k: PublicKey, a: Acct) {
     this.inner.setAccount(k.toBytes(), new this.lib.Account(BigInt(a.lamports), a.data, a.owner.toBytes(), a.executable, 0n));
   }
-  send(tx: VersionedTransaction): { logs: string[]; err: unknown } {
+  /** `keys` resolves the message's account indexes (lookup tables included) for the inner instructions. */
+  send(tx: VersionedTransaction, keys: (i: number) => PublicKey): { logs: string[]; err: unknown; inner: InnerInstruction[]; units: number } {
     const r = this.inner.sendVersionedTransaction(tx.serialize());
     const logs = r.meta ? r.meta().logs() : r.logs!();
-    return { logs, err: r.err ? r.err() : null };
+    const inner = (r.innerInstructions?.() ?? []).flat().map((x) => {
+      const c = x.instruction();
+      return { programId: keys(c.programIdIndex()).toBase58(), accounts: Array.from(c.accounts(), (a) => keys(a).toBase58()), data: Uint8Array.from(c.data()) };
+    });
+    return { logs, err: r.err ? r.err() : null, inner, units: Number(r.computeUnitsConsumed?.() ?? 0n) };
   }
 }
 
@@ -189,6 +200,8 @@ class World {
   phase = "setup";
   riders: Person[] = [];
   lastLogs: string[] = [];
+  lastInner: InnerInstruction[] = [];
+  lastUnits = 0;
 
   static async create(): Promise<World> {
     const w = new World();
@@ -218,8 +231,11 @@ class World {
     const all = [payer, ...signers];
     tx.sign(all.filter((k, i) => all.findIndex((x) => x.publicKey.equals(k.publicKey)) === i && msg.staticAccountKeys.slice(0, msg.header.numRequiredSignatures).some((s) => s.equals(k.publicKey))));
     for (const r of this.riders) if (msg.staticAccountKeys.slice(0, msg.header.numRequiredSignatures).some((s) => s.equals(r.key))) this.walletSigs[this.phase] = (this.walletSigs[this.phase] ?? 0) + 1;
-    const res = this.svm.send(tx);
+    const keys = msg.getAccountKeys({ addressLookupTableAccounts: tables });
+    const res = this.svm.send(tx, (i) => keys.get(i)!);
     this.lastLogs = res.logs;
+    this.lastInner = res.inner;
+    this.lastUnits = res.units;
     if (res.err) throw new Error(`transaction failed: ${String(res.err)}\n${this.lastLogs.join("\n")}`);
   }
 
@@ -292,7 +308,7 @@ class World {
       this.send([railcarIx("create_table", { operator: this.operator.publicKey, config: configPda(), table }, { index })], this.operator);
       // `init_vault` stand-in: the Vault exists, blank, and the Table says so.
       const [vault, vbump] = PublicKey.findProgramAddressSync([Buffer.from("vault"), table.toBuffer()], RAILCAR_PROGRAM_ID);
-      const blank = await vaultCoder.encode("Vault", { bump: vbump, table, car_no: new BN(0), ready: false, draw: new Array(32).fill(0), crash_ms: 0, screw_at_ms: 0, bolt_at_ms: 0, spark_at_ms: 0, false_screws: [0, 0, 0, 0], false_len: 0, reserved: new Array(64).fill(0) });
+      const blank = await vaultCoder.encode("Vault", { version: 1, bump: vbump, table, car_no: new BN(0), ready: false, draw: new Array(32).fill(0), crash_ms: 0, screw_at_ms: 0, bolt_at_ms: 0, spark_at_ms: 0, false_screws: [0, 0, 0, 0], false_len: 0, slow_end_ms: 0, slow_total_ms: 0, press_count: 0, presses: new Array(101).fill(0), press_seat: new Array(101).fill(0), reserved: new Array(128).fill(0) });
       this.svm.set(vault, { lamports: Number(SOL), data: blank, owner: RAILCAR_PROGRAM_ID, executable: false });
       const t = this.get(table)!;
       const td = Buffer.from(t.data);
@@ -494,6 +510,10 @@ interface RideRun {
   /** What the result screen shows each rider getting, read from the committed Table. */
   shown: bigint[];
   walletSigs: Record<string, number>;
+  /** The ride as the Match history stores it from the finish's own events: each rider's row delta, and the replay. */
+  history: { deltas: number[]; replay: RideReplay };
+  finalizeUnits: number;
+  revealUnits: number;
 }
 
 /**
@@ -568,6 +588,9 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], b
   // committed Table), room, every chunk the planner sizes, every close. Sized and sent with no lookup table.
   const core = new Program(coreIdl as Idl, { connection: {} } as unknown as AnchorProvider);
   const chunkSteps: number[] = [];
+  const finishTxs: InnerInstruction[][] = [];
+  let finalizeUnits = 0;
+  let revealUnits = 0;
   const sent = await finishRide({
     read: w.reader(),
     core,
@@ -582,8 +605,11 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], b
     send: async (ixs, step) => {
       const all = [cu(1_400_000), ...ixs];
       const go = () => w.send(all, w.relayer);
-      if (step === "finalize") w.onBase(carAcct.table, go);
+      if (step === "finalize" || step === "reveal") w.onBase(carAcct.table, go);
       else go();
+      finishTxs.push(w.lastInner);
+      if (step === "finalize") finalizeUnits = w.lastUnits;
+      if (step === "reveal") revealUnits = w.lastUnits;
       if (step === "chunk") chunkSteps.push(ixs[0].data[8]);
       if (step === "room") rooms++;
     },
@@ -594,6 +620,15 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], b
   expect(sent.sent.filter((s) => s === "close-seat")).toHaveLength(n);
   expect(sent.sent.at(-1)).toBe("close-car");
 
+  // The Match history, written from the finish's transactions as the webhook writes it.
+  const { rpc } = await testDb();
+  for (const inner of finishTxs) await ingestMatchRecords(rpc, decodeMatchRecords(inner), { gameOf: () => null, finalized: true });
+  const page = await matchPage(rpc, { opener: id.opener.toBase58(), n: id.n });
+  const record = page && rideRecordOf(page);
+  if (!record) throw new Error("the history has no ride for this car");
+  const rows = await Promise.all(riders.map(async (p) => (await accountHistory(rpc, p.account.toBase58(), 1)).rows));
+  const history = { deltas: rows.map((r) => (r.length === 1 && r[0].game === ("railcar" as string) ? r[0].delta : NaN)), replay: replayRide(record) };
+
   console.log(`Railcar transactions, ${n} riders, no lookup table (largest of each kind):\n${[...w.sizes].map(([k, s]) => `  ${s.bytes} B, ${s.accounts} accounts: ${k}`).join("\n")}`);
   return {
     riders,
@@ -603,6 +638,9 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], b
     chunkSteps,
     shown,
     walletSigs: w.walletSigs,
+    history,
+    finalizeUnits,
+    revealUnits,
   };
 }
 
@@ -623,6 +661,10 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     expect(r.chunkSteps.reduce((a, b) => a + b, 0)).toBe(11);
     // The wallets signed boarding (5) and nothing else: the seat keys played the Jumps, the relayer and page key the finish.
     expect(r.walletSigs).toEqual({ boarding: 5 });
+    // The Match history, from the finish's own events: every rider's row, and a replay that agrees with the chain.
+    expect(r.history.deltas).toEqual([-150, 130, 78, 313, -500]);
+    expect(r.history.replay.differences).toEqual([]);
+    expect(r.history.replay.seats.map((s) => s.gets)).toEqual(r.deltas);
   });
 
   it("Ben rides backed by Bob (40% to Ben): Bob's 500 board for him, second place splits 52 to Ben and 578 to Bob", { timeout: 120_000 }, async () => {
@@ -706,5 +748,11 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     // First place's stores could not hold every credit: the page reserved its overflow record before the forfeits moved.
     expect(rooms).toBeGreaterThan(0);
     expect(r.chunkSteps.every((s) => s >= 1 && s <= 7)).toBe(true);
+    // The history names all 100 and the replay agrees with the chain to the Gema; finalize still fits one transaction.
+    expect(r.history.deltas).toEqual(r.deltas.map((d) => Number(d) - 500));
+    expect(r.history.replay.differences).toEqual([]);
+    expect(r.history.replay.seats.map((s) => s.gets)).toEqual(r.deltas);
+    console.log(`reveal_ride, 100 seats: ${r.revealUnits} CU; finalize: ${r.finalizeUnits} CU`);
+    expect(r.revealUnits).toBeLessThan(140_000);
   });
 });

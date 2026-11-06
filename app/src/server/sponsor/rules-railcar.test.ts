@@ -2,7 +2,7 @@ import { Keypair, PublicKey, type TransactionInstruction } from "@solana/web3.js
 import { describe, expect, it } from "vitest";
 import { matchPda } from "@/lib/chain/basket";
 import { closeCarIx, joinSeatIx, reserveRoomIx, seatChunkIx, stepOffIx } from "@/lib/chain/many-seat";
-import { RAILCAR_PROGRAM_ID, checkDepartureIx, finalizeIx, openCarIx } from "@/games/railcar/chain";
+import { RAILCAR_PROGRAM_ID, checkDepartureIx, finalizeIx, openCarIx, revealRideIx } from "@/games/railcar/chain";
 import { MAX_ROOM_LINES, RECEIPT_RENT, planTransaction, type Ix } from "./rules";
 import { RAILCAR_ID } from "./rules-railcar";
 
@@ -109,6 +109,20 @@ describe("Railcar's finish on the relayer", () => {
     const eleven = finalizeIx(relayer, car, 10);
     eleven.keys.push({ pubkey: key(), isSigner: false, isWritable: true });
     refused([eleven], "bad-accounts");
+  });
+
+  it("reveal_ride with the relayer as caller: an exit that only pays the fee, with every seat page of a 100-seat car", () => {
+    const car = { carNo: 7n, table: 1, tesoroMatch: key() };
+    const p = plan([revealRideIx(relayer, car, 10)]);
+    expect(p).toMatchObject({ kind: "game", names: ["reveal_ride"], class: "exit", spend: { refundable: 0n, sunk: 0n } });
+    expect(p.obligations[0].equals(car.tesoroMatch)).toBe(true);
+    refused([revealRideIx(key(), car, 1)], "bad-account");
+    const eleven = revealRideIx(relayer, car, 10);
+    eleven.keys.push({ pubkey: key(), isSigner: false, isWritable: false });
+    refused([eleven], "bad-accounts");
+    const wrongCore = revealRideIx(relayer, car, 1);
+    wrongCore.keys[4] = { ...wrongCore.keys[4], pubkey: key() };
+    refused([wrongCore], "bad-account");
   });
 
   it("core's many-seat chunks, room, closes: the relayer calls and gets the rent back", () => {

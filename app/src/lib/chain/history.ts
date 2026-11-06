@@ -1,14 +1,29 @@
+import { rideLine } from "../../games/railcar/words";
 import { fmtGemas } from "../format";
+import { GAME_NAMES } from "../mock";
 import type { GameId, MatchResult } from "../mock/types";
 import { backerDelta, matchDelta, seatResult } from "./ledger";
 import type { ChainMatch } from "./read";
+import type { RideRole } from "./ride-record";
 
-/** One finished Match in an Account's history, as a Player or as the Backer who funded it. */
+/** A Game a history row can name: the head-to-head Games, and Railcar (a ride of 5 to 100 Players). */
+export type HistoryGame = GameId | "railcar";
+
+export const historyGameName = (g: HistoryGame): string => (g === "railcar" ? "Railcar" : GAME_NAMES[g]);
+
+/** Where a finished Match opens: a ride on Railcar's own ride page, any other Match on the Match page. */
+export const matchHref = (r: { id: string; game: HistoryGame }): string => (r.game === "railcar" ? `/play/railcar/ride/${r.id}` : `/play/match/${r.id}`);
+
+/**
+ * One finished Match in an Account's history, as a Player or as the Backer who funded it. `funder`: a Railcar car core
+ * refunded before its ride was revealed, where the history knows only that this Account paid one seat's entry, not
+ * whether it rode or backed that seat; such a row claims no seat, Jump or Player.
+ */
 export interface HistoryRow {
   id: string;
-  game: GameId;
+  game: HistoryGame;
   entry: number;
-  role: "player" | "backer";
+  role: "player" | "backer" | "funder";
   /** From the result, never from `delta`: a backed Player's loss moves 0 Gemas and is still a loss. */
   result: MatchResult;
   /** Gemas this Account gained (+) or lost (−) at settlement, after Fees. A backed Player never goes below 0. */
@@ -25,6 +40,8 @@ export interface HistoryRow {
   asset: number | null;
   /** What the Backer of this Player's side gained (+) or lost (−); present on rows read from the Match history, null for an unbacked Match. */
   backerDelta?: number | null;
+  /** A Railcar ride: this seat's part in it. */
+  ride?: RideRole;
 }
 
 /** The history row of a finished Match, or null while it is unfinished or its result is not read yet. */
@@ -116,6 +133,16 @@ export function amountText(r: HistoryRow): string {
   if (r.result === "no-show") return r.delta === 0 ? "No-show" : `No-show, Platform Fee ${fmtGemas(Math.abs(r.delta))} Gemas`;
   const sign = r.delta > 0 ? "+" : r.delta < 0 ? "−" : "";
   return `${sign}${fmtGemas(Math.abs(r.delta))} Gemas`;
+}
+
+/**
+ * The line under a banner's result: the entry, how a ride went, then who else was in the Backing (`backing`, by default
+ * `backingText`). A `funder` row says only what holds for a rider and a Backer alike.
+ */
+export function bannerLine(r: HistoryRow, backing: string | null = backingText(r)): string {
+  if (r.role === "funder") return `Car refunded · ${fmtGemas(r.entry)} back to you`;
+  const ride = r.ride ? rideLine(r.ride) : null;
+  return [`Entry ${fmtGemas(r.entry)}`, ride, backing].filter(Boolean).join(" · ");
 }
 
 /** Who else was in the Backing, worded as the Result screen's split does. Null for an unbacked Match. */

@@ -1,6 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import { atAssignedEpoch } from "../../app/src/lib/chain/table-epoch.ts";
-import { PHASE, bookPda, canFinalizeTable, decodeDuel, type Assignment, type Table } from "../../app/src/games/trading-duel/chain.ts";
+import { PHASE, canFinalizeTable, decodeDuel, type Assignment, type Table } from "../../app/src/games/trading-duel/chain.ts";
 import { act, finalizeOrRaced, log, type Ctx } from "./act.ts";
 import { refund } from "./blockpuzzle.ts";
 import { simulate, when } from "./tee.ts";
@@ -111,17 +111,13 @@ export async function tradingDuel(ctx: Ctx, match: PublicKey, m: any, st: string
   if (step.do === "refund") return actions + +(await refund(ctx, m, subject, step.why)).ok;
   if (!a) return actions;
   if (step.do === "finalize") return actions + +(await act(ctx, "match", subject, `finalize (${step.why})`, () => finalizeOrRaced(ctx.duel, ctx.hsigner, a))).ok;
-  if (step.do === "begin_match") return actions + +(await act(ctx, "match", subject, `begin_match (${step.why})`, () => ctx.duel.beginMatch(ctx.hsigner, a))).ok;
+  if (step.do === "begin_match") return actions + +(await act(ctx, "match", subject, `begin_match (${step.why})`, () => ctx.duel.beginMatch(ctx.hsigner, a, { seatsOpen: live?.seatsOpen ?? false }))).ok;
   if (step.do === "open_seats") return actions + +(await act(ctx, "match", subject, `open_seats (${step.why})`, () => ctx.duel.openSeats(ctx.hsigner, a))).ok;
-  if (step.do === "expire_start") return actions + +(await act(ctx, "match", subject, `expire_start (${step.why})`, () => ctx.duel.expireStart(ctx.hsigner, a))).ok;
+  if (step.do === "expire_start") return actions + +(await act(ctx, "match", subject, `expire_start (${step.why})`, () => ctx.duel.expireStart(ctx.hsigner, a, { seatsOpen: live?.seatsOpen ?? false }))).ok;
   if (step.do === "tick") return actions + +(await act(ctx, "match", subject, `tick (${step.why})`, () => ctx.duel.tick(ctx.hsigner, a, live!.asset))).ok;
   if (step.do === "end_match") {
     const tee = await ctx.duel.teeConnection(ctx.hsigner);
-    const table = live!.address;
-    const endIx = await ctx.duel.program.methods
-      .endMatch()
-      .accountsPartial({ caller: ctx.payer.publicKey, table, book0: bookPda(table, 0), book1: bookPda(table, 1) } as any)
-      .instruction();
+    const endIx = await ctx.duel.endInstruction(ctx.payer.publicKey, a);
     const why = await simulate(tee, ctx.payer, [endIx]);
     if (why) {
       log("match", subject, `${tag} wait: end_match not yet possible (${why.slice(0, 120)}), retrying next pass`);

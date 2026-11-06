@@ -1,5 +1,6 @@
 import { CARD, Fill, Lockup, OG_FONTS, Rays, Tagline, Texture, Window, fitSize, rgba, type CardFonts } from "@/components/waitlist/SpotCard";
-import { GAME_NAMES } from "@/lib/mock";
+import { clock } from "@/games/railcar/words";
+import { historyGameName } from "@/lib/chain/history";
 import type { WinCardData } from "@/lib/win-card";
 
 const BG = "#0C0E10";
@@ -10,7 +11,7 @@ const fmt = (n: number) => n.toLocaleString("en-US");
 
 /**
  * The card for a won Match, 1200x630: the winner's Profile picture in its window, the Gemas won, the Game and the
- * entry. Same frame as the waitlist spot card, and written for `next/og` the same way (flex only, one text node per element).
+ * entry. A Railcar ride's card is its last Player off, when they jumped and where the wall was. Same frame as the waitlist spot card, and written for `next/og` the same way (flex only, one text node per element).
  */
 export function WinCard({ win, src, fonts = OG_FONTS }: { win: WinCardData; src: string; fonts?: CardFonts }) {
   const big = win.gemas > 0 ? `+${fmt(win.gemas)}` : "WON";
@@ -26,14 +27,16 @@ export function WinCard({ win, src, fonts = OG_FONTS }: { win: WinCardData; src:
             <Lockup height={52} />
             <div style={{ display: "flex", flexDirection: "column" }}>
               <div style={{ fontFamily: fonts.sans, fontWeight: 700, fontSize: 24, color: FG2, letterSpacing: 4, textTransform: "uppercase" }}>
-                {`${win.name} won`}
+                {win.ride ? `${win.name} was last off` : `${win.name} won`}
               </div>
               <div style={{ display: "flex", fontFamily: fonts.display, fontWeight: 800, fontSize: fitSize(big, 200, 568), lineHeight: 0.92, color: FG }}>{big}</div>
               <div style={{ display: "flex", fontFamily: fonts.display, fontWeight: 800, fontSize: 56, lineHeight: 1, color: win.hex, textTransform: "uppercase", marginTop: 10 }}>
                 {win.gemas > 0 ? "Gemas" : "a Match"}
               </div>
               <div style={{ display: "flex", fontFamily: fonts.sans, fontWeight: 400, fontSize: 28, color: FG2, marginTop: 18 }}>
-                {`${GAME_NAMES[win.game]} · entry ${fmt(win.entry)} Gemas`}
+                {win.ride
+                  ? `Railcar · off at ${clock(win.ride.lastOffMs)} · wall at ${clock(win.ride.wallMs)} · ${win.ride.seated} Players`
+                  : `${historyGameName(win.game)} · entry ${fmt(win.entry)} Gemas`}
               </div>
             </div>
             <Tagline F={fonts} size={44} />

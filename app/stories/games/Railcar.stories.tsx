@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useEffect, useState } from "react";
-import { RailcarScreen, type RailcarBrake, type RailcarOffer } from "@/games/railcar/RailcarScreen";
+import { RailcarScreen, type RailcarBrake, type RailcarOffer, type RailcarWatch } from "@/games/railcar/RailcarScreen";
+import { RideHistory } from "@/games/railcar/RideHistory";
 import * as fx from "@/games/railcar/fixtures";
 import type { RailcarView } from "@/games/railcar/view";
 
@@ -11,10 +12,12 @@ const meta = {
 export default meta;
 
 const noop = () => undefined;
-const actions = { onBoard: noop, onStepOff: noop, onJump: noop, onPlayAgain: noop, onShare: noop, onAddFriend: noop };
-const screen = (view: RailcarView, o: { busy?: string; error?: string; brake?: RailcarBrake; offer?: RailcarOffer } = {}): StoryObj => ({
-  render: () => <RailcarScreen view={view} actions={actions} busy={o.busy ?? null} error={o.error ?? null} brake={o.brake ?? null} offer={o.offer ?? null} />,
+const actions = { onBoard: noop, onStepOff: noop, onJump: noop, onPlayAgain: noop, onShare: noop, onAddFriend: noop, onSignIn: noop };
+const screen = (view: RailcarView, o: { busy?: string; error?: string; brake?: RailcarBrake; offer?: RailcarOffer; watch?: RailcarWatch } = {}): StoryObj => ({
+  render: () => <RailcarScreen view={view} actions={actions} busy={o.busy ?? null} error={o.error ?? null} brake={o.brake ?? null} offer={o.offer ?? null} watch={o.watch ?? null} />,
 });
+const phone = { globals: { viewport: { value: "phone390", isRotated: false } } };
+const desk = { globals: { viewport: { value: "desktop1440", isRotated: false } } };
 
 /** Boarding below 5 Players: no countdown yet, the car waits with no time limit. */
 export const BoardingWaiting = screen(fx.boardingWaiting());
@@ -78,3 +81,32 @@ export const LeavesInPlace: StoryObj = {
     return <RailcarScreen view={fx.liveAt(t)} actions={actions} />;
   },
 };
+
+// ---- Spectators (sp1) ----------------------------------------------------------------------------------------------
+
+/** Someone signed out watching the live ride from a shared link: the same view as a Player who has not Braked, Live, and the next ride (sign in first). */
+export const Spectating = screen(fx.riding(null), { watch: { signedIn: false, nextSeated: 12 } });
+export const Spectating390: StoryObj = { ...Spectating, ...phone };
+export const Spectating1440: StoryObj = { ...Spectating, ...desk };
+/** Signed in, not in this car: Play the next ride boards the car that is boarding. */
+export const SpectatingSignedIn = screen(fx.riding(null), { watch: { signedIn: true, nextSeated: 12 } });
+/** The ride they watched ended: its Result, and the next ride. */
+export const SpectatorResult = screen(fx.workedResult(null), { watch: { signedIn: true, nextSeated: 3 } });
+export const SpectatorResult390: StoryObj = { ...SpectatorResult, ...phone };
+
+// ---- Round history: a finished ride's page --------------------------------------------------------------------------
+
+const history = (page: ReturnType<typeof fx.storedWorkedRide>, me: string | null): StoryObj => ({ render: () => <RideHistory page={page} me={me} actions={actions} /> });
+/** The worked example from the history, as Dee (last off): the Result, then the wall, the Tells, the draw and the replay's check. */
+export const RideFromHistory = history(fx.storedWorkedRide(), fx.DEE.toBase58());
+export const RideFromHistory390: StoryObj = { ...RideFromHistory, ...phone };
+export const RideFromHistory1440: StoryObj = { ...RideFromHistory, ...desk };
+/** Dee Braked at 1:30: the wall stays at 1:44 of track and comes at 1:46 on the clock. Seen by someone who did not ride. */
+export const RideFromHistoryWithBrake = history(fx.storedWorkedRide({ brake: true }), null);
+export const RideFromHistoryWithBrake390: StoryObj = { ...RideFromHistoryWithBrake, ...phone };
+/** A car core refunded before anyone revealed its ride: nothing to replay, and the page says so. */
+export const RideRefundedUnrevealed: StoryObj = { render: () => <RideHistory page={{ id: "Opener1-7", entry: 500, ride: null, refunded: true }} me={null} actions={actions} /> };
+export const RideRefundedUnrevealed390: StoryObj = { ...RideRefundedUnrevealed, ...phone };
+export const RideRefundedUnrevealed1440: StoryObj = { ...RideRefundedUnrevealed, ...desk };
+/** A record the replay does not give (Ana shown 400 back where the schedule gives 350): the page lists the difference. */
+export const RideFromHistoryDiffers = history(fx.storedWorkedRide({ tamper: true }), fx.ANA.toBase58());

@@ -10,7 +10,7 @@ export interface Rematch {
 }
 
 /** A Rematch is a Challenge: the Match result offers it only to a Player, after a settled Match, against a known opponent. */
-export function canRematch(r: { role: "player" | "backer"; outcome: "won" | "lost" | "draw" | "no-show" | "refunded"; opponent?: string | null }): boolean {
+export function canRematch(r: { role: "player" | "backer" | "funder"; outcome: "won" | "lost" | "draw" | "no-show" | "refunded"; opponent?: string | null }): boolean {
   return r.role === "player" && r.outcome !== "refunded" && r.outcome !== "no-show" && !!r.opponent && BASE58_KEY.test(r.opponent);
 }
 

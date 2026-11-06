@@ -6,9 +6,12 @@ import type { ChainOffer, ChainRequest } from "@/lib/chain/backing";
 import { timeLeft } from "@/lib/chain/useBackingBoard";
 import { fmtGemas } from "@/lib/format";
 import { backedGameName } from "@/lib/backing/games";
+import { matchHref, type HistoryRow } from "@/lib/chain/history";
+import { backerRideLine } from "@/lib/chain/ride-history";
 
 export function MyOffer({
   offer,
+  ride = null,
   requests,
   nowMs,
   busy,
@@ -17,6 +20,8 @@ export function MyOffer({
   onRefund,
 }: {
   offer: ChainOffer;
+  /** A used Railcar Offer's ride from the Backer's Match history (`rideOfOffer`); null until it is there. */
+  ride?: HistoryRow | null;
   requests: Map<string, ChainRequest>;
   nowMs: number;
   busy: string | null;
@@ -34,7 +39,9 @@ export function MyOffer({
       ? offer.refundableMatchId !== null
         ? "Nobody joined this Match and its time is up: refund it to get your Gemas back"
         : offer.game === "railcar"
-          ? "Boarded: your Gemas ride in the Player's seat. A step-off or an early Jump sends them back to you"
+          ? ride
+            ? backerRideLine(ride)
+            : "Boarded: your Gemas ride in the Player's seat. A step-off or an early Jump sends them back to you"
           : "Match started: your Gemas are in the Pot"
       : lapsed
         ? "Expired: release your reserved Gemas"
@@ -55,6 +62,9 @@ export function MyOffer({
         <div className="hstack wrap">
           {offer.status === "consumed" && offer.matchId !== null && (
             <Button size="sm" href={`/play/match/${offer.matchId.toString()}`}>See the Match</Button>
+          )}
+          {offer.status === "consumed" && ride && (
+            <Button size="sm" href={matchHref(ride)}>See the ride</Button>
           )}
           {offer.refundableMatchId !== null && (
             <Button size="sm" disabled={busy !== null} onClick={onRefund}>
