@@ -20495,6 +20495,17 @@
               "nothing counted, or the count moved on to a Pot or seat when the Offer was used)."
             ],
             "type": "i64"
+          },
+          {
+            "name": "ticket_nonce",
+            "docs": [
+              "The Backer's Ticket number of the Backing Ticket this Offer has open (with `backer`, its",
+              "address): the only Ticket this Offer spends, and the only Offer that finishes cancelling it.",
+              "None when no Ticket is open (an Offer grown from the earlier layout reads None)."
+            ],
+            "type": {
+              "option": "u64"
+            }
           }
         ]
       }
