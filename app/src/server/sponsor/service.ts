@@ -37,7 +37,8 @@ import { completionEffects, completionInput, holdSeeds, recoverCompletions, type
 import { releaseClosedHolds, type ClosureReads } from "./closure";
 import { assetOfIndex } from "@/games/trading-duel/chain";
 import { countersPda } from "@/lib/chain/basket";
-import { decodeTicketHead } from "@/lib/chain/pot-store";
+import { decodeTicketHead, type TicketFacts } from "@/lib/chain/pot-store";
+import { offerPda } from "@/lib/chain/backing-ix";
 import { GROW_COUNTERS_CU, GROW_COUNTERS_RENT, growIxsFor } from "@/lib/chain/grow-counters";
 import { canAssign } from "./assign-ix";
 import { joinOf, PlayerBusy, type Assigner, type Assignment, type LeaseRef } from "./assign";
@@ -195,6 +196,21 @@ export interface WireIx {
   keys: { pubkey: string; signer: boolean; writable: boolean }[];
   /** base64 */
   data: string;
+}
+
+/** What the client sends beside the instructions (`SponsorHint` in sponsor-client.ts): the Offer of a Backing Ticket it stages. */
+export interface Hint {
+  offer?: PublicKey;
+}
+
+export function parseHint(raw: unknown): Hint {
+  const offer = (raw as { offer?: unknown } | null)?.offer;
+  if (offer === undefined) return {};
+  try {
+    return { offer: new PublicKey(String(offer)) };
+  } catch {
+    throw new DemoHttpError(400, "bad-request", "Malformed request.");
+  }
 }
 
 export function parseIntent(raw: unknown): Ix[] {
@@ -439,30 +455,63 @@ export class Sponsor {
   }
 
   /** A transaction with several signers (a Backing Ticket): every one of them is an Account, not a throwaway key. */
-  private async requireOtherSigners(plan: Plan, player: PublicKey, auth: BuildAuth) {
+  private async requireOtherSigners(plan: Plan, player: PublicKey, auth: BuildAuth, hint: Hint) {
     const seats = plan.seatSigners ?? [];
     // a seat request's key was checked by checkAuth: the Match names it for this Player
     const checked = auth.kind === "seat" ? auth.signer : null;
     for (const sg of plan.signers) {
-      if (sg.equals(player) || checked?.equals(sg) || seats.some((k) => k.equals(sg)) || (await this.ticketNamesSeatKey(plan, player, sg))) continue;
+      if (sg.equals(player) || checked?.equals(sg) || seats.some((k) => k.equals(sg)) || (await this.ticketNamesSeatKey(plan, player, sg, hint))) continue;
       await this.requireAccount(sg);
     }
   }
 
-  /** A Ticket step signed by the seat key this Player's Entry Ticket recorded at `open_ticket` (core checks the same). */
-  private async ticketNamesSeatKey(plan: Plan, player: PublicKey, signer: PublicKey): Promise<boolean> {
+  /**
+   * A Ticket step signed by the seat key the Ticket recorded at `open_ticket` (core checks the same), for this Player: their
+   * own Entry Ticket, or a Backing Ticket they opened as the Requester of the Offer the request names (`hint.offer`).
+   */
+  private async ticketNamesSeatKey(plan: Plan, player: PublicKey, signer: PublicKey, hint: Hint): Promise<boolean> {
     for (const t of plan.ticketSigners ?? []) {
       if (!t.signer.equals(signer)) continue;
       const a = await this.d.chain.account(t.ticket);
       if (!a || !a.owner.equals(CORE_ID)) continue;
+      let head: TicketFacts;
       try {
-        const head = decodeTicketHead(a.data);
-        if (head.kind === "entry" && head.account.equals(accountPda(player)) && head.signer.equals(signer)) return true;
+        head = decodeTicketHead(a.data);
       } catch {
         // not a Ticket: the signer needs an Account of its own
+        continue;
       }
+      if (!head.signer.equals(signer)) continue;
+      if (head.kind === "entry" ? head.account.equals(accountPda(player)) : await this.requestersOffer(hint.offer, head, player)) return true;
     }
     return false;
+  }
+
+  /**
+   * A Backing Ticket names the Backer and the Requester's seat key, not the Requester: the Offer the request names must be
+   * core's, at its own address, name this open Ticket (the Backer's, by its number), and have this Player as its player.
+   * So a free stage step always counts against the Player who asked for it.
+   */
+  private async requestersOffer(offer: PublicKey | undefined, head: TicketFacts, player: PublicKey): Promise<boolean> {
+    if (!offer || head.state !== "open") return false;
+    const a = await this.d.chain.account(offer);
+    if (!a || !a.owner.equals(CORE_ID)) return false;
+    let o: { nonce: BN; inner: { backer: number[]; player: number[] | null; ticket_open: boolean; ticket_nonce: BN | null } };
+    try {
+      o = matchCoder.decode("OfferState", Buffer.from(a.data));
+    } catch {
+      return false;
+    }
+    const backer = new PublicKey(o.inner.backer);
+    return (
+      offerPda(backer, BigInt(o.nonce.toString())).equals(offer) &&
+      backer.equals(head.account) &&
+      o.inner.ticket_open &&
+      o.inner.ticket_nonce !== null &&
+      BigInt(o.inner.ticket_nonce.toString()) === head.nonce &&
+      o.inner.player !== null &&
+      new PublicKey(o.inner.player).equals(accountPda(player))
+    );
   }
 
   /** Refuses what the way the request was vouched for does not allow (see `BuildAuth`). */
@@ -522,6 +571,7 @@ export class Sponsor {
     const now = this.d.now();
     const who = player.toBase58();
     const ixs = parseIntent(raw);
+    const hint = parseHint(raw);
     const plan = await this.plan(ixs, player);
     await this.checkAuth(auth, plan, ixs, player);
     if (plan.kind === "game" && plan.spend.refundable > 0n) plan.spend.refundable = await this.receiptRent();
@@ -580,7 +630,7 @@ export class Sponsor {
         if (!basket || !basket.owner.equals(CORE_ID) || basketGemas(basket.data) === 0n) throw new DemoHttpError(403, "no-gemas", "Free transactions are for Accounts that hold Gemas.");
       }
       if (plan.funders.length || plan.noGemas) await this.requireAccount(player);
-      await this.requireOtherSigners(plan, player, auth);
+      await this.requireOtherSigners(plan, player, auth, hint);
       await this.requireObligations(plan);
       reserve = plan.names.some((n) => n === "open_match" || n === "join_match" || n === "open_ticket" || n === "join_many_seat_match") ? this.d.limits.completionReserve : 0n;
       if (!admissionFits(this.d.limits, balance, plan.spend.refundable + plan.spend.sunk + fee, reserve)) {
@@ -596,7 +646,7 @@ export class Sponsor {
     } else {
       if (await exitsBlocked(this.d.store, this.d.limits, who, now)) throw new DemoHttpError(429, "too-many-failures", "Too many failed transactions today. Pay the network fee from your own SOL to finish this.");
       await this.requireAccount(player);
-      await this.requireOtherSigners(plan, player, auth);
+      await this.requireOtherSigners(plan, player, auth, hint);
       await this.requireObligations(plan);
       if (plan.pages?.length || plan.sends?.length) {
         const undoPages = plan.pages?.length ? await admitPages({ plan, player, now, store: this.d.store, limits: this.d.limits }) : null;
