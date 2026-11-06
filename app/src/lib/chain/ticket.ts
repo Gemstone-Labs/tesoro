@@ -18,6 +18,7 @@ import type { GameId } from "@/lib/mock/types";
 import { FLAG_BACKING_OPEN, FLAG_TICKET_OPEN, MAX_GROW_LINES, basketPda, countersPda, decodeStore, playableTotal, sponsorPda, spillPda, ticketPda, type Line, type Store } from "./basket";
 import { coreIx as rawCoreIx, metaOf, type AccountsByName } from "./core-ix";
 import type { GetToken } from "./demo-client";
+import { DISC, POT_AT, TICKET_HEAD, TICKET_VERSION, decodeTicketHead } from "./pot-store";
 import { booksFor, drawRemaining, MAX_INITIAL_TICKET_LINES, readEntryStores, readNextTicket, relayerKey, sendEntryTx, STAGE_OPS, type EntryStores } from "./entry";
 import { getChain } from "./client";
 import { planDraw } from "./draw";
@@ -27,7 +28,6 @@ import { sponsoredSend } from "./sponsor-client";
 const snake = (k: string) => k.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
 const coreIx = (name: string, accounts: AccountsByName, args: Record<string, unknown> = {}, remaining: AccountMeta[] = []) =>
   rawCoreIx(name, Object.fromEntries(Object.entries(accounts).map(([k, v]) => [snake(k), v])), Object.fromEntries(Object.entries(args).map(([k, v]) => [snake(k), v])), remaining);
-const pk = (bytes: Uint8Array) => new PublicKey(bytes);
 
 export type TicketKind = "entry" | "backing";
 export type TicketState = "open" | "cancelling" | "closed" | "cancelled";
@@ -36,8 +36,6 @@ export type TicketState = "open" | "cancelling" | "closed" | "cancelled";
 export const TICKET_WINDOW_SECS = 60 * 60;
 
 const HEAD_AT = 8;
-const KINDS: TicketKind[] = ["entry", "backing"];
-const STATES: TicketState[] = ["open", "cancelling", "closed", "cancelled"];
 
 export interface TicketView {
   address: PublicKey;
@@ -62,30 +60,34 @@ export interface TicketView {
   reservedLeft: bigint;
   /** The staged lines, in key order. */
   stagedLines: Line[];
+  /** A Backing Ticket: the nonce of the Offer that opened it. */
+  offerNonce: bigint;
 }
 
-/** Decodes a Ticket / Pot account's data (disc 8, head 160, then a line store). */
+/** Decodes a Ticket / Pot account's data: its head (`decodeTicketHead`, layout in pots.rs) and its line store. */
 export function decodeTicket(address: PublicKey, data: Uint8Array): TicketView {
-  if (data.length < HEAD_AT + 160 + 128) throw new Error("ticket account too short");
-  const h = data.subarray(HEAD_AT, HEAD_AT + 160);
-  const dv = new DataView(h.buffer, h.byteOffset, h.byteLength);
-  if (h[0] !== 1) throw new Error(`unknown ticket version ${h[0]}`);
-  const store: Store = decodeStore(data.subarray(160));
+  if (data.length < POT_AT + 128) throw new Error("ticket account too short");
+  if (data[DISC] !== TICKET_VERSION) throw new Error(`unknown ticket version ${data[DISC]}`);
+  const f = decodeTicketHead(data);
+  const dv = new DataView(data.buffer, data.byteOffset + DISC, TICKET_HEAD);
+  // the line store sits after the head (`decodeStore` skips its own 8-byte discriminator slot)
+  const store: Store = decodeStore(data.subarray(TICKET_HEAD));
   return {
     address,
-    kind: KINDS[h[2]] ?? "entry",
-    state: STATES[h[3]] ?? "open",
-    account: pk(h.slice(8, 40)),
-    game: pk(h.slice(40, 72)),
-    payer: pk(h.slice(72, 104)),
-    nonce: dv.getBigUint64(104, true),
-    target: dv.getBigUint64(112, true),
-    expiresAt: Number(dv.getBigInt64(120, true)),
+    kind: f.kind,
+    state: f.state,
+    account: f.account,
+    game: f.game,
+    payer: f.payer,
+    nonce: f.nonce,
+    target: f.target,
+    expiresAt: f.expiresAt,
     lineCap: dv.getUint32(128, true),
     staged: store.header.ownTotal + store.header.wonTotal,
     lines: store.header.len,
     reservedLeft: dv.getBigUint64(136, true),
     stagedLines: store.lines,
+    offerNonce: f.offerNonce,
   };
 }
 

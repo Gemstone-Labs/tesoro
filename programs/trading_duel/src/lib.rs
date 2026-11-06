@@ -1570,6 +1570,13 @@ pub struct SetPick<'info> {
 
 /// `end_match` and `expire_start`: each commits the result and closes the Books in its own
 /// transaction, so it names everything those two steps need. `caller` is any payer.
+///
+/// The Books and their permissions are not `mut` here on purpose: they exist only while
+/// `table.seats_open` (Duel creates them per Match in `open_seats`), and the rollup refuses a
+/// transaction that marks an account writable that is neither delegated nor present. The caller
+/// marks the four writable in the transaction exactly when `seats_open` is true and read-only
+/// otherwise; the close CPI runs only when `seats_open`, and a wrong choice fails the transaction
+/// without changing state.
 #[commit]
 #[derive(Accounts)]
 pub struct Concluding<'info> {
@@ -1581,16 +1588,16 @@ pub struct Concluding<'info> {
     )]
     pub table: Box<Account<'info, Table>>,
     /// CHECK: ephemeral Book of seat 0, read by `read_book`, closed with the Match
-    #[account(mut, seeds = [BOOK_SEED, table.key().as_ref(), &[0]], bump)]
+    #[account(seeds = [BOOK_SEED, table.key().as_ref(), &[0]], bump)]
     pub book_0: UncheckedAccount<'info>,
     /// CHECK: ephemeral Book of seat 1, read by `read_book`, closed with the Match
-    #[account(mut, seeds = [BOOK_SEED, table.key().as_ref(), &[1]], bump)]
+    #[account(seeds = [BOOK_SEED, table.key().as_ref(), &[1]], bump)]
     pub book_1: UncheckedAccount<'info>,
     /// CHECK: permission PDA of Book 0
-    #[account(mut, seeds = [PERMISSION_SEED, book_0.key().as_ref()], bump, seeds::program = PERMISSION_PROGRAM_ID)]
+    #[account(seeds = [PERMISSION_SEED, book_0.key().as_ref()], bump, seeds::program = PERMISSION_PROGRAM_ID)]
     pub book_0_permission: UncheckedAccount<'info>,
     /// CHECK: permission PDA of Book 1
-    #[account(mut, seeds = [PERMISSION_SEED, book_1.key().as_ref()], bump, seeds::program = PERMISSION_PROGRAM_ID)]
+    #[account(seeds = [PERMISSION_SEED, book_1.key().as_ref()], bump, seeds::program = PERMISSION_PROGRAM_ID)]
     pub book_1_permission: UncheckedAccount<'info>,
     /// CHECK: Permission Program
     #[account(address = PERMISSION_PROGRAM_ID)]

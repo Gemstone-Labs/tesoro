@@ -14,6 +14,8 @@ export const STORE_HEADER = 128;
 export const LINE_LEN = 144;
 /** A Ticket or Pot account: 8 B discriminator, a 192 B head, then a line store. */
 export const TICKET_HEAD = 192;
+/** `pots::TICKET_VERSION`: the head layout below. */
+export const TICKET_VERSION = 2;
 export const POT_AT = DISC + TICKET_HEAD;
 
 /** One store line, the parts of its 144 bytes the keeper needs (the key, and the whole Gemas). */
@@ -90,6 +92,8 @@ export interface TicketFacts {
   spillRoom: number;
   /** The seat key that co-signed `open_ticket` (the default key for a Pot made by a direct draw). */
   signer: PublicKey;
+  /** A Backing Ticket: the nonce of the Offer that opened it (with `account`, the Offer's address). */
+  offerNonce: bigint;
 }
 
 /** The head of a Ticket account (offsets in programs/tesoro_core/src/pots.rs). */
@@ -110,5 +114,6 @@ export function decodeTicketHead(data: Uint8Array): TicketFacts {
     expiresAt: Number(i64(h, 120)),
     spillRoom: h.readUInt32LE(132),
     signer: new PublicKey(h.subarray(152, 184)),
+    offerNonce: u64(h, 184),
   };
 }
