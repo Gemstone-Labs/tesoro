@@ -312,6 +312,14 @@ describe("sendEntryTx", () => {
     expect(sponsoredSend).not.toHaveBeenCalled();
   });
 
+  it("hands the sponsor the hint beside the instructions", async () => {
+    const { sendEntryTx } = await import("./entry");
+    sponsoredSend.mockResolvedValue("sig1");
+    const offer = k();
+    await sendEntryTx(signer, async () => null, async () => [], { hint: { offer } });
+    expect(sponsoredSend.mock.calls[0][3]).toEqual({ entry: true, hint: { offer } });
+  });
+
   it("does not pay itself past a refusal that is not about the relayer", async () => {
     const { sendEntryTx } = await import("./entry");
     sponsoredSend.mockRejectedValue(new SponsorError("no gemas", "no-gemas", 403));

@@ -44,7 +44,7 @@ import { MIN_SOL_LAMPORTS } from "./config";
 import { protectionsPda } from "./native";
 import { matchOverflowPda } from "./overflow";
 import { COUNTERS_V1_LEN, LEGACY_TICKET_BASE, growIxsFor, type RawAccount } from "./grow-counters";
-import { SponsorError, assignedSend, sponsorStatus, sponsoredSendBuilt } from "./sponsor-client";
+import { SponsorError, assignedSend, sponsorStatus, sponsoredSendBuilt, type SponsorHint } from "./sponsor-client";
 
 export { DrawError };
 
@@ -250,12 +250,12 @@ export async function sendEntryTx(
   signer: ChainSigner,
   getToken: GetToken,
   build: (payer: PublicKey, sponsored: boolean) => Promise<TransactionInstruction[]>,
-  opts: { sponsorable?: boolean; assign?: boolean; /** Not an entry step (a Ticket cancel): the wallet vouches, not the login alone. */ entry?: boolean; /** Who signs and pays when the relayer cannot: the wallet (with the seat key). Defaults to `signer`. */ selfPay?: ChainSigner } = {},
+  opts: { sponsorable?: boolean; assign?: boolean; /** Not an entry step (a Ticket cancel): the wallet vouches, not the login alone. */ entry?: boolean; /** Who signs and pays when the relayer cannot: the wallet (with the seat key). Defaults to `signer`. */ selfPay?: ChainSigner; /** What the sponsor needs beside the instructions. */ hint?: SponsorHint } = {},
 ): Promise<{ sig: string; sponsored: boolean; /** The join travelled without its table: ask for it once it confirms. */ table: boolean }> {
   const relayer = opts.sponsorable === false ? null : await relayerKey();
   if (relayer && signer.signSerialized) {
     try {
-      const sent = await sponsoredSendBuilt(signer, getToken, await build(relayer, true), { entry: opts.entry !== false });
+      const sent = await sponsoredSendBuilt(signer, getToken, await build(relayer, true), { entry: opts.entry !== false, hint: opts.hint });
       return { sig: sent.sig, sponsored: true, table: sent.table };
     } catch (e) {
       if (!mayPayYourself(e)) throw e;

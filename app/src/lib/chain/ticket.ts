@@ -252,7 +252,11 @@ export interface PrepareArgs {
   onProgress?: (s: StagedEntry) => void;
 }
 
-async function restage(signer: ChainSigner, getToken: GetToken, t: TicketView, onProgress?: (s: StagedEntry) => void, seat?: SeatKey): Promise<TicketView> {
+/**
+ * Stages `t` until its draw is complete. `offer`: a Backing Ticket's Offer, sent to the sponsor beside each step so it
+ * can check the asking Player is the Offer's Requester (the Ticket names only the Backer and the Requester's seat key).
+ */
+async function restage(signer: ChainSigner, getToken: GetToken, t: TicketView, onProgress?: (s: StagedEntry) => void, seat?: SeatKey, offer?: PublicKey): Promise<TicketView> {
   let view = t;
   // an Entry Ticket is staged by the seat key it names (no wallet signature); the wallet pays when the relayer cannot
   const stager = seat ? ticketSteps(signer, seat) : signer;
@@ -264,7 +268,7 @@ async function restage(signer: ChainSigner, getToken: GetToken, t: TicketView, o
     const stores = await readEntryStores(view.account);
     const ix = await nextStageIx(stager.publicKey, view, stores);
     if (!ix) return view;
-    await sendEntryTx(stager, getToken, async () => [ix], { selfPay });
+    await sendEntryTx(stager, getToken, async () => [ix], { selfPay, hint: { offer } });
     const fresh = await readTicket(view.address);
     if (!fresh) throw new Error("The prepared entry disappeared.");
     view = fresh;
@@ -341,7 +345,7 @@ export async function prepareBackingTicket(
   const t = await readTicket(address);
   if (!t) throw new Error("The Backing could not be prepared. Try again.");
   // any signer stages a Backing Ticket: the seat key does, so the wallet signs only the opening
-  return restage(a.signer, a.getToken, t, a.onProgress, a.seat);
+  return restage(a.signer, a.getToken, t, a.onProgress, a.seat, a.offer);
 }
 
 /**
@@ -352,7 +356,7 @@ export async function prepareBackingTicket(
  */
 export async function readyBackingTicket(a: PrepareArgs & { backerAccount: PublicKey; offer: PublicKey }): Promise<TicketView> {
   const open = await backingTicketOf(getChain().base, a.offer, a.backerAccount);
-  return open ? restage(a.signer, a.getToken, open, a.onProgress, a.seat) : prepareBackingTicket(a);
+  return open ? restage(a.signer, a.getToken, open, a.onProgress, a.seat, a.offer) : prepareBackingTicket(a);
 }
 
 const offerCoder = new BorshAccountsCoder(coreIdl as unknown as Idl);

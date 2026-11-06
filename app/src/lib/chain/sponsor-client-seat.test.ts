@@ -121,6 +121,21 @@ describe("the entry request", () => {
     expect(calls.map((c) => c.body.step)).toEqual(["build"]);
   });
 
+  it("carries a Backing Ticket's Offer beside the instructions, inside the signed intent when the wallet signs", async () => {
+    setIdentityTokenGetter(async () => "id-token");
+    const offer = Keypair.generate().publicKey;
+    reply = (body) => (body.step === "entry" ? { status: 403, json: { error: "no", code: "wallet-not-yours" } } : { status: 200, json: { message: "m", meta: "x", mac: "y" } });
+    await sponsorBuildEntry(wallet(), async () => "jwt", ixs(), Date.now(), { offer });
+    expect(calls.map((c) => JSON.parse(c.body.intent as string).offer)).toEqual([offer.toBase58(), offer.toBase58()]);
+    const b = calls[1].body as Record<string, string | number>;
+    const message = signedMessage("tesoro-sponsor", "build", b.address as string, b.ts as number, b.nonce as string, { intent: b.intent as string });
+    expect(nacl.sign.detached.verify(new TextEncoder().encode(message), Buffer.from(b.signature as string, "base64"), walletKp.publicKey.toBytes())).toBe(true);
+    // with no hint the intent is the instructions alone
+    calls.length = 0;
+    await sponsorBuild(wallet(), async () => "jwt", ixs());
+    expect(Object.keys(JSON.parse(calls[0].body.intent as string))).toEqual(["ixs"]);
+  });
+
   it("does not hide other failures behind the fallback", async () => {
     setIdentityTokenGetter(async () => "id-token");
     reply = () => ({ status: 429, json: { error: "slow", code: "account-limit" } });
