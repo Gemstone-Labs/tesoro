@@ -38,6 +38,8 @@
 .hdx-level small { font-size: var(--fs-11); color: var(--fg-3); }
 .hdx-claim { margin-left: auto; }
 .hdx-menu { margin-left: auto; }
+.hdx-head .practice-pause { margin-left: auto; }
+.hdx-head .practice-pause + .hdx-menu { margin-left: 0; }
 .hdx-claim + .hdx-menu { margin-left: 0; }
 .hdx-error { margin: -12px 4px 0; }
 .hdx-stage { position: relative; display: grid; gap: 12px; min-width: 0; }

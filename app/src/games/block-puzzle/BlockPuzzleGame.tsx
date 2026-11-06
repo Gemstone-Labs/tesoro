@@ -12,6 +12,7 @@ import { Arena, Countdown, GameMenu, burst, prefersReducedMotion, sfx } from "..
 import type { CalloutTone } from "../fx";
 import { clearCallout, comboHeat } from "./feel";
 import { readBest, writeBest } from "./best";
+import { usePracticeHowTo } from "@/components/how-to-play";
 import { PracticePauseButton, PracticePauseOverlay, usePracticePause } from "../fx/PracticePause";
 import { blockHaptics } from "./haptics";
 import { usePieceDrag } from "./use-piece-drag";
@@ -129,6 +130,7 @@ const RING_C = 2 * Math.PI * RING_R;
  */
 export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPanel?: ReactNode }) {
   const { paused, toggle: togglePause, now: practiceNow } = usePracticePause(() => performance.now());
+  const howTo = usePracticeHowTo("block-puzzle");
   const me = useAccount().snapshot?.accountKey.toBase58();
   const [phase, setPhase] = useState<Phase>("idle");
   const [combo, setCombo] = useState(0);
@@ -580,7 +582,8 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
           ))}
           </div>
         </div>
-        {paused && <PracticePauseOverlay onResume={togglePause} items={gameItems} leaveHref="/play" />}
+        {paused && <PracticePauseOverlay onResume={togglePause} items={[howTo.item, ...gameItems]} leaveHref="/play" />}
+        {!run && howTo.dialog}
         {(phase === "count" || goOn) && (
           <Countdown
             from={3}

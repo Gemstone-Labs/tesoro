@@ -10,6 +10,7 @@ import { COLUMNS, MATCH_SECS, lockAt, revealed, bandOf, type GridAsset } from ".
 import { GridScreen } from "../GridScreen";
 import { seededRng } from "./bot";
 import { elapsed, newGridSession, setPick, stepGridSession, type GridSession } from "./gridSession";
+import { usePracticeHowTo } from "@/components/how-to-play";
 import { usePracticePause } from "../../fx/PracticePause";
 import "../trading.css";
 import { Arena, FullScreenToggle, MuteToggle } from "../../fx";
@@ -28,6 +29,7 @@ const PRACTICE_ASSET: Asset = ASSETS[0];
  */
 export function TradingDuelPractice() {
   const { paused, toggle: togglePause, now: practiceNow } = usePracticePause();
+  const howTo = usePracticeHowTo("trading-duel");
   const [practiceStore] = useState(() => new PriceStore());
   const sp = useSearchParams();
   const asset = PRACTICE_ASSET;
@@ -108,6 +110,8 @@ export function TradingDuelPractice() {
   const t = elapsed(session, clock || session.startsAt);
   const final = session.final;
   return (
+    <>
+    {howTo.dialog}
     <GridScreen
       asset={asset.symbol as GridAsset}
       anchor={session.anchor}
@@ -124,6 +128,7 @@ export function TradingDuelPractice() {
       practice
       paused={paused}
       onTogglePause={togglePause}
+      pauseItems={[howTo.item]}
       practiceNow={practiceNow}
       title="Trading Duel practice"
       error={error}
@@ -140,6 +145,7 @@ export function TradingDuelPractice() {
       }}
       exitHref="/play"
     />
+    </>
   );
 }
 

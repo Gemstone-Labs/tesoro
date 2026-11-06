@@ -1,4 +1,5 @@
 import { Arena } from "@/games/fx";
+import { FirstPracticeGuide } from "@/components/how-to-play";
 import { Suspense } from "react";
 import { BlockPuzzleGame } from "@/games/block-puzzle/BlockPuzzleGame";
 import { HoldemPractice } from "@/games/holdem/practice/HoldemPractice";
@@ -9,7 +10,7 @@ import { VanguardPractice } from "@/games/vanguard/practice/VanguardPractice";
 /** Practice, nothing staked: Block Burst with a random Seed, or `?game=holdem` / `?game=trading-duel` / `?game=vanguard` against a local bot. */
 export default async function Practice({ searchParams }: PageProps<"/play/practice">) {
   const game = gameFromParam((await searchParams).game);
-  return <Arena key={game} game={game} autoFull><PracticeGame game={game} /></Arena>;
+  return <Arena key={game} game={game} autoFull><FirstPracticeGuide game={game}><PracticeGame game={game} /></FirstPracticeGuide></Arena>;
 }
 
 function PracticeGame({ game }: { game: ReturnType<typeof gameFromParam> }) {

@@ -1,7 +1,7 @@
 /* ——— Game detail page (take-1: game-block-puzzle) ——— */
 .gp { display: grid; gap: var(--section-gap); }
-/* G2: the game's art on top (its top corners cut like the Gema), the name and an ⓘ on it; the entry and the buttons in a
-   panel that overlaps the art's foot. How to play opens from the ⓘ. */
+/* G2: the game's art on top (its top corners cut like the Gema), the name and a How to play button beside it; the entry and the buttons in a
+   panel that overlaps the art's foot. How to play opens from that button. */
 .gp-hero { position: relative; display: grid; }
 .gp-art {
   --c: var(--cut-frame); position: relative; overflow: hidden; aspect-ratio: 1; background: #060a10;
@@ -9,9 +9,9 @@
 }
 .gp-hero-art { object-fit: cover; object-position: center; }
 .gp-art::after { content: ""; position: absolute; inset: 0; z-index: 1; background: linear-gradient(180deg, transparent 40%, rgba(6, 10, 16, 0.7) 78%, rgba(6, 10, 16, 0.95)); }
-.gp-art-title { position: absolute; z-index: 2; left: 16px; right: 8px; bottom: 44px; display: flex; align-items: flex-end; gap: 8px; }
-.gp-info { flex: none; display: grid; place-items: center; width: 44px; height: 44px; background: transparent; border: 0; color: var(--fg); }
-.gp-info svg { width: 22px; height: 22px; }
+.gp-art-title { position: absolute; z-index: 2; left: 16px; right: 8px; bottom: 44px; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.gp-how-btn { flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; background: transparent; border: 1.5px solid var(--fg-2); border-radius: 999px; color: var(--fg); font-size: var(--fs-15); font-weight: 700; }
+.gp-how-btn svg { width: 20px; height: 20px; }
 .gp-hero-body { position: relative; z-index: 3; margin-top: -32px; display: grid; gap: 14px; padding: 16px; background: var(--surface); --edge: var(--edge-2); }
 .gp-tag { --edge: var(--edge-2); background: rgba(9, 13, 15, 0.8); display: inline-flex; align-items: center; gap: 10px; padding: 9px 16px; font-size: var(--fs-15); color: var(--fg-2); }
 .gp-tag svg { width: 20px; height: 20px; color: var(--fg); }
@@ -46,14 +46,8 @@
 .gp-topname { font-size: var(--fs-17); font-weight: 700; }
 .gp-score { font-size: var(--fs-22); font-weight: 800; }
 
-.gp-how { display: grid; gap: 10px; }
-.gp-how-sub { color: var(--fg-2); font-size: var(--fs-14); }
-.gp-how b { font-size: var(--fs-17); }
-.gp-how ol { margin: 4px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; counter-reset: s; }
-.gp-how li { counter-increment: s; display: grid; grid-template-columns: 30px 1fr; align-items: center; gap: 10px; font-size: var(--fs-15); color: var(--fg); }
-.gp-how li::before { content: counter(s); display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid var(--fg-2); font-size: var(--fs-13); font-weight: 700; }
 
-.gp-body-title { display: none; align-items: flex-end; gap: 10px; }
+.gp-body-title { display: none; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
 /* the hero's own cut and edge show on desktop only; phones cut the art's top and the panel instead */
 .gp-hero.cut { clip-path: none; }
 .gp-hero.cut::after { display: none; }

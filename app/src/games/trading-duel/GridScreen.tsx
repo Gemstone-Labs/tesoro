@@ -4,7 +4,7 @@ import Image from "next/image";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { Button, CheckIcon, GemaMark, LockIcon, Sheet, XIcon } from "@/components/ui";
 import { Info, Play } from "lucide-react";
-import { Arena, Callout, Countdown, GameMenu, burst, burstAt, sfx, useReducedMotion, type CalloutTone } from "../fx";
+import { Arena, Callout, Countdown, GameMenu, burst, burstAt, sfx, useReducedMotion, type CalloutTone, type GameMenuItem } from "../fx";
 import {
   COLUMNS,
   COLUMN_SECS,
@@ -101,6 +101,8 @@ export interface GridScreenProps {
   practice?: boolean;
   paused?: boolean;
   onTogglePause?: () => void;
+  /** Extra actions on the Practice pause card, after the menu's own. */
+  pauseItems?: GameMenuItem[];
   /** Logical practice time, excluding pauses. Matches use the wall clock. */
   practiceNow?: () => number;
   /** Gema entry and Pot of a real Match. */
@@ -926,7 +928,7 @@ export function GridScreen(p: GridScreenProps) {
         {p.error && <p className="tg-error" role="alert">{p.error}</p>}
 
         <div ref={stageRef} className="cut cut-frame tg-stage" role="group" onKeyDown={onStageKey} aria-label={`Price grid, ${asset}. Pick a box in a column that is still open. Arrow keys move between boxes, Enter or Space picks.`}>
-          {p.practice && p.paused && p.onTogglePause && <PracticePauseOverlay onResume={p.onTogglePause} items={menuItems} leaveHref={p.exitHref} />}
+          {p.practice && p.paused && p.onTogglePause && <PracticePauseOverlay onResume={p.onTogglePause} items={[...menuItems, ...(p.pauseItems ?? [])]} leaveHref={p.exitHref} />}
           <div className="tg-gutter" style={{ height: viewH }} aria-hidden="true">
             <div className="tg-gbody" style={{ top: HEADER_PX, height: layout.bodyH }}>
               <div className="tg-gvl" ref={gvlRef}>

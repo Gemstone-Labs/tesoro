@@ -4,10 +4,11 @@ import { getImageProps } from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { ArrowRight, Dumbbell, Info, UserPlus, Users } from "lucide-react";
+import { ArrowRight, BookOpen, Dumbbell, UserPlus, Users } from "lucide-react";
 import { AccountLink } from "@/components/account/AccountLink";
+import { HowToPlay } from "@/components/how-to-play";
 import { MatchBanner, MatchBannerSkeleton } from "@/components/match/MatchBanner";
-import { AssetPicker, Button, EntryPicker, GemaMark, Sheet } from "@/components/ui";
+import { AssetPicker, Button, EntryPicker, GemaMark } from "@/components/ui";
 import { gameQuery, practiceHref } from "@/lib/game-params";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
@@ -25,35 +26,11 @@ import type { EntrySize, GameId } from "@/lib/mock";
 import "./game.css";
 import { PlayerAvatar } from "@/components/account/Player";
 
-const COPY: Record<GameId, { tag: string; sub: string[]; how: string; steps: string[]; hero: string }> = {
-  "block-puzzle": {
-    tag: "Head-to-head · Live",
-    sub: ["Same pieces, same time · 90 s · higher score wins", "Pieces stay hidden until the countdown ends"],
-    how: "Same pieces. Same chance.",
-    steps: ["Same pieces as your opponent, at the same time", "90 seconds · higher score wins", "Pieces stay hidden until the countdown ends"],
-    hero: art.blockPuzzleHero,
-  },
-  holdem: {
-    tag: "Cards · Head-to-head",
-    sub: ["Real-time · 2 players · Turbo blinds", "Chips are scorekeeping inside the Match, not Gemas"],
-    how: "Heads-up, no limit.",
-    steps: ["1,500 Chips each, blinds rise every hand", "30 seconds per action", "Last stack standing takes the Pot minus Fees"],
-    hero: art.holdemHero,
-  },
-  "trading-duel": {
-    tag: "Head-to-head · Real-time",
-    sub: ["Real-time · 2.5 minutes · live prices · more points wins", "Your picks stay hidden from your opponent until each column locks"],
-    how: "Same market. One pick per column.",
-    steps: ["12 columns of ten seconds on a live price, with a 30 second head start", "Pick one box per column; the line passing through it scores 100 points", "More points takes the Pot minus Fees; a tie refunds both"],
-    hero: art.tradingDuelHero,
-  },
-  vanguard: {
-    tag: "Head-to-head · Real-time",
-    sub: ["Real-time · 10 seconds a move · capture the enemy Supply Truck", "Your pieces' ranks stay hidden from your opponent until they fight"],
-    how: "Blitz Stratego on a desert board.",
-    steps: ["20 pieces each on a 10×10 board, ranks hidden", "10 seconds a move; capture the Supply Truck to win", "The winner takes the Pot minus Fees; a draw refunds both"],
-    hero: art.vanguardHero,
-  },
+const HERO: Record<GameId, string> = {
+  "block-puzzle": art.blockPuzzleHero,
+  holdem: art.holdemHero,
+  "trading-duel": art.tradingDuelHero,
+  vanguard: art.vanguardHero,
 };
 
 export function GamePage({ game }: { game: GameId }) {
@@ -66,9 +43,8 @@ export function GamePage({ game }: { game: GameId }) {
   const top = useTopScoresToday(game === "block-puzzle");
   const queue = useQueue();
   const [now] = useState(() => Date.now());
-  const copy = COPY[game];
   const name = GAME_NAMES[game];
-  const { props: desktopArt } = getImageProps({ src: copy.hero, alt: "", fill: true, sizes: "900px" });
+  const { props: desktopArt } = getImageProps({ src: HERO[game], alt: "", fill: true, sizes: "900px" });
   const { props: tileArt } = getImageProps({
     src: CATALOGUE.find((entry) => entry.game === game)!.tile,
     alt: "", fill: true, sizes: "100vw", loading: "eager", fetchPriority: "high",
@@ -101,8 +77,8 @@ export function GamePage({ game }: { game: GameId }) {
           </span>
           <div className="gp-art-title">
             <h1 className="gp-title">{name}</h1>
-            <button type="button" className="gp-info" aria-label={`How to play ${name}`} onClick={() => setHow(true)}>
-              <Info aria-hidden="true" />
+            <button type="button" className="gp-how-btn" onClick={() => setHow(true)}>
+              <BookOpen aria-hidden="true" /> How to play<span className="sr-only"> {name}</span>
             </button>
           </div>
         </div>
@@ -110,8 +86,8 @@ export function GamePage({ game }: { game: GameId }) {
           {/* desktop: the name sits over the art's dark side with the panel under it (phones show it on the art above) */}
           <div className="gp-body-title">
             <h1 className="gp-title">{name}</h1>
-            <button type="button" className="gp-info" aria-label={`How to play ${name}`} onClick={() => setHow(true)}>
-              <Info aria-hidden="true" />
+            <button type="button" className="gp-how-btn" onClick={() => setHow(true)}>
+              <BookOpen aria-hidden="true" /> How to play<span className="sr-only"> {name}</span>
             </button>
           </div>
           {game === "trading-duel" && <AssetPicker value={asset} onChange={setAsset} name="gp-asset" />}
@@ -148,17 +124,7 @@ export function GamePage({ game }: { game: GameId }) {
         </div>
       </section>
 
-      <Sheet open={how} onClose={() => setHow(false)} title={`How to play ${name}`} className="gp-how-sheet">
-        <div className="gp-how">
-          <p className="gp-how-sub">{copy.sub.join(" · ")}</p>
-          <b>{copy.how}</b>
-          <ol>
-            {copy.steps.map((s) => (
-              <li key={s}>{s}</li>
-            ))}
-          </ol>
-        </div>
-      </Sheet>
+      <HowToPlay game={game} open={how} onClose={() => setHow(false)} end="game-page" practiceHref={practiceHref(game, asset)} />
 
       <div className="gp-grid">
         <section className="cut cut-frame gp-panel" aria-labelledby="gp-recent">

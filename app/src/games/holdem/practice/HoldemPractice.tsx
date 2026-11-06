@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { usePracticeHowTo } from "@/components/how-to-play";
 import { Button, Label } from "@/components/ui";
+import { usePracticePause } from "../../fx/PracticePause";
 import { PHASE, STATUS, type Action } from "../chain";
 import { HoldemTable } from "../HoldemTable";
 import { botAction } from "./bot";
@@ -20,6 +22,8 @@ const nowSecs = () => Math.floor(Date.now() / 1000);
 export function HoldemPractice() {
   // Shuffling on the server would mismatch hydration: the Match starts on mount.
   const [game, setGame] = useState<Practice | null>(null);
+  const { paused, toggle: togglePause } = usePracticePause();
+  const howTo = usePracticeHowTo("holdem");
   useEffect(() => {
     const t = setTimeout(() => setGame(newPractice(nowSecs())), 0);
     return () => clearTimeout(t);
@@ -32,7 +36,7 @@ export function HoldemPractice() {
   // Between hands: leave the last hand on the table for a moment (longer after a showdown), then deal.
   // The bot thinks for a beat before acting so its moves can be followed.
   useEffect(() => {
-    if (!game || !t || t.status !== STATUS.live) return;
+    if (!game || !t || t.status !== STATUS.live || paused) return;
     const fresh = t.phase !== seen.current.phase || t.handNo !== seen.current.handNo;
     seen.current = { phase: t.phase, handNo: t.handNo };
     if (t.phase === PHASE.shuffle) {
@@ -46,7 +50,7 @@ export function HoldemPractice() {
       const id = setTimeout(() => setGame((g) => (g ? act(g, BOT, botAction(g.table, BOT, holes(g)[BOT]), nowSecs()) : g)), landing + paced(700 + Math.random() * 500));
       return () => clearTimeout(id);
     }
-  }, [game, t]);
+  }, [game, t, paused]);
 
   if (!game || !t) return <p className="meta" role="status">Shuffling…</p>;
 
@@ -54,11 +58,13 @@ export function HoldemPractice() {
   const hole = game.lastHoles ? { handNo: dealt ? t.handNo : t.lastHand.handNo, cards: game.lastHoles[YOU] } : null;
 
   const onAct = (a: Action) => {
+    if (paused) return;
     setGame((g) => (g && g.table.toAct === YOU && g.table.status === STATUS.live ? act(g, YOU, a, nowSecs()) : g));
   };
 
   return (
     <div className="stack-lg">
+      {howTo.dialog}
       <HoldemTable
         table={t}
         seat={YOU}
@@ -68,6 +74,7 @@ export function HoldemPractice() {
         onAct={onAct}
         onClaim={() => {}}
         practice
+        pause={{ paused, onToggle: togglePause, items: [howTo.item] }}
         endPanel={
           over && (
             <div className="cut cut-frame hd-practice-end">
