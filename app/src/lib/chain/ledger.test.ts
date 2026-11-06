@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import fixtures from "./yield-math.fixtures.json";
-import { backedSplit, gemasInAsset, backerDelta, covered, debtGemas, feeGemas, instantSplit, matchDelta, redeemable, redeemableFor, returnableGemas, seatResult, sourceNow, sourceView, unitsToRepay, unitsToRepayTotal, type SourceMath } from "./ledger";
+import { backedSplit, gemasInAsset, backerDelta, covered, debtGemas, feeGemas, instantSplit, matchDelta, redeemable, redeemableFor, returnableGemas, seatResult, settledOutcome, sourceNow, sourceView, unitsToRepay, unitsToRepayTotal, type SourceMath } from "./ledger";
 
 // The demo Advance: 7,500 Gemas at $150 (unit = 1e13 / 150e6 lamports per Gema).
 const src = (over: Partial<SourceMath> = {}): SourceMath => ({
@@ -163,3 +163,19 @@ describe("Source at the clock (ADR 0010)", () => {
   });
 });
 
+
+describe("settledOutcome: the result screen never guesses", () => {
+  const hd = (winner: "opener" | "joiner" | null, seat: 0 | 1 | null) => ({ session: null, winner, seat });
+  it("is null while the winner is not known (a page that found the account already closed)", () => {
+    expect(settledOutcome(hd(null, 0), false)).toBeNull();
+  });
+  it("names the seat's own result once the winner is known", () => {
+    expect(settledOutcome(hd("opener", 0), false)).toBe("won");
+    expect(settledOutcome(hd("opener", 1), false)).toBe("lost");
+    expect(settledOutcome(hd("joiner", 1), false)).toBe("won");
+  });
+  it("is refunded for a refund and null for a spectator", () => {
+    expect(settledOutcome(hd(null, 0), true)).toBe("refunded");
+    expect(settledOutcome(hd("opener", null), false)).toBeNull();
+  });
+});

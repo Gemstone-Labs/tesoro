@@ -214,7 +214,7 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
     if (!fresh && m && assignRef.current) {
       const a = assignRef.current;
       const base = await td.readTableOnBase(a).catch(() => null);
-      m = closedWhileSeen(m, base ? { canFinalize: canFinalizeTable(base, a, Date.now() / 1000), hasResult: !!slotOf(base, a.tesoroMatch, a.epoch) } : null) ?? m;
+      m = closedWhileSeen(m, base ? { canFinalize: canFinalizeTable(base, a, Date.now() / 1000), outcome: slotOf(base, a.tesoroMatch, a.epoch)?.outcome ?? null } : null) ?? m;
     }
     setView((v) => ({ ...v, match: m, asset: (m && assetOfIndex(m.asset)) || v.asset, refundable: !!m && m.status === "active" && Date.now() / 1000 > m.deadline }));
     if (!m) return setStage("notfound");

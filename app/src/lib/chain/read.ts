@@ -341,7 +341,7 @@ export function withHistoryPoints(m: ChainMatch, closed: ChainMatch | null): Cha
 }
 
 /** A closed Match from the history route (its account no longer exists): the result, sides and Fees it settled with. */
-async function fetchClosedMatch(id: string, me: PublicKey | null): Promise<ChainMatch | null> {
+export async function fetchClosedMatch(id: string, me: PublicKey | null): Promise<ChainMatch | null> {
   try {
     const res = await fetch(`/api/match/${encodeURIComponent(id)}`);
     if (!res.ok) return null;
