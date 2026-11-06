@@ -1893,6 +1893,9 @@ fn a_car_short_of_five_at_its_end_time_leaves_the_moment_a_fifth_boards() {
     );
 }
 
+/// What `finalize` may use at its worst (Railcar ticket 19): a 100-seat car, whatever its Jumps.
+const FINALIZE_CU_BUDGET: u64 = 140_000;
+
 #[test]
 fn a_hundred_players_ride_one_car_and_the_hundred_and_first_boards_the_next() {
     let mut env = Env::new(2);
@@ -1942,6 +1945,12 @@ fn a_hundred_players_ride_one_car_and_the_hundred_and_first_boards_the_next() {
         "finalize, 100 seats: {} CU (receipt bump {receipt_bump}: {} tries in core's search)",
         env.last_cu,
         256 - u32::from(receipt_bump)
+    );
+    // ticket 19 case A: 13 Jumps (10 early refunds, 3 places), no Brake
+    assert!(
+        env.last_cu < FINALIZE_CU_BUDGET,
+        "finalize, 100 seats, 13 Jumps: {} CU",
+        env.last_cu
     );
     // a placed seat takes a line from each forfeited Source and the outside studio a fee line:
     // the client grows their stores first (core reserves no room for winnings)
@@ -2731,6 +2740,12 @@ fn a_hundred_brakes_and_ninety_nine_jumps_end_inside_one_default_transaction() {
     })
     .expect("finalize");
     println!("finalize after 100 Brakes revealed: {} CU", env.last_cu);
+    // ticket 19 case B, the worst: 99 Jumps (96 early refunds, 3 places) after 100 Brakes
+    assert!(
+        env.last_cu < FINALIZE_CU_BUDGET,
+        "finalize, 100 seats, 99 Jumps, 100 Brakes: {} CU",
+        env.last_cu
+    );
 }
 
 #[test]

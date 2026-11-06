@@ -1,7 +1,7 @@
 /**
  * Finishing a ride after Impact, from any page of a Player the result pays: Railcar's `reveal_ride` (the ride for the round
  * history, once per car) and `finalize` (core freezes the result),
- * room for winners whose stores are short, every settle chunk the shared planner sizes, every seat close and the car's
+ * room for winners whose stores are short, every settle chunk the shared planner sizes (to the compute target when `simulate` is given), every seat close and the car's
  * close. Every step is permissionless: `caller` is the relayer (the page's seat key vouches for the request), so a
  * Player's wallet signs none of it. Idempotent: two pages finishing the same car only race to the same state.
  */
@@ -23,6 +23,8 @@ export interface RideFinishDeps {
   /** Whether one step fits a transaction as the sender compiles it. */
   fits(ix: TransactionInstruction): boolean;
   send(ixs: TransactionInstruction[], step: FinishStep): Promise<unknown>;
+  /** Compute units a dry run of a chunk uses (null when unknown): chunks then take fewer steps until under the target. */
+  simulate?(ix: TransactionInstruction): Promise<number | null>;
   /** Stops after this many sends (a page does a share and leaves the rest to the next poll). */
   maxSends?: number;
 }
@@ -67,7 +69,7 @@ export async function finishRide(d: RideFinishDeps): Promise<FinishResult> {
           for (const ix of await roomIxs(d.read, d.caller, l)) await send([ix], "room");
           break;
         }
-        const plan = await planSeatChunk(d.core, d.read, d.caller, l, d.fits);
+        const plan = await planSeatChunk(d.core, d.read, d.caller, l, d.fits, { simulate: d.simulate && ((ix) => d.simulate!(ix)) });
         if (!plan) return { done: false, sent, waiting: "no-car" };
         if (plan.missing.length) return { done: false, sent, waiting: "missing-book" };
         await send([plan.ix], "chunk");

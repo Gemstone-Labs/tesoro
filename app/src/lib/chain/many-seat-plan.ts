@@ -19,7 +19,7 @@ import {
 } from "./many-seat";
 import { matchOverflowPda } from "./overflow";
 import { POT_AT, decodeStore, decodeTicketHead, slack } from "./pot-store";
-import { dedupe, meta, supplySources, type Ahead, type Core, type Reader } from "./settle-plan";
+import { dedupe, meta, sizeByCompute, supplySources, type Ahead, type Core, type Reader } from "./settle-plan";
 
 /**
  * The one planner of a Settling or Refunding many-seat car (Railcar), shared by the Player's page and the keeper's sweep.
@@ -281,11 +281,25 @@ export interface SeatChunkPlan {
   missing: PublicKey[];
 }
 
+export interface SeatChunkSizing {
+  /** Compute units a dry run of the chunk uses (null when it cannot be measured): the chunk then takes fewer steps until
+   * it is under CHUNK_CU_TARGET, as head-to-head chunks do. A fee cut that syncs an open Advance costs about 8.6k, and 15k
+   * on a staking token's Position, so 7 steps can use 250k (Railcar ticket 19). */
+  simulate?(ix: TransactionInstruction): Promise<number | null>;
+  log?(message: string): void;
+}
+
 /**
- * The next chunk of a Settling or Refunding car with as many steps as fit one transaction (7 at most, down to 1).
- * `fitsOne` says whether an instruction fits as the sender will compile it (with or without a lookup table).
+ * The next chunk of a Settling or Refunding car with as many steps as fit one transaction (7 at most, down to 1) and,
+ * with `sizing.simulate`, the compute target. `fitsOne` says whether an instruction fits as the sender will compile it
+ * (with or without a lookup table).
  */
-export async function planSeatChunk(core: Core, read: Reader, caller: PublicKey, l: LoadedCar, fitsOne: (ix: TransactionInstruction) => boolean, steps = MAX_SEAT_CHUNK_STEPS): Promise<SeatChunkPlan | null> {
+export function planSeatChunk(core: Core, read: Reader, caller: PublicKey, l: LoadedCar, fitsOne: (ix: TransactionInstruction) => boolean, sizing: SeatChunkSizing = {}): Promise<SeatChunkPlan | null> {
+  return sizeByCompute(MAX_SEAT_CHUNK_STEPS, (steps) => fittedSeatChunk(core, read, caller, l, fitsOne, steps), sizing.simulate && ((ix) => sizing.simulate!(ix)), sizing.log && ((m) => sizing.log!(m)));
+}
+
+/** The chunk of up to `steps` steps, halved until it fits one transaction (bytes and accounts). */
+async function fittedSeatChunk(core: Core, read: Reader, caller: PublicKey, l: LoadedCar, fitsOne: (ix: TransactionInstruction) => boolean, steps: number): Promise<SeatChunkPlan | null> {
   for (let n = Math.max(1, Math.min(steps, MAX_SEAT_CHUNK_STEPS)); ; n = Math.max(1, Math.floor(n / 2))) {
     const ahead = aheadOf(l.car, l.seats, l.lines, n);
     if (ahead.steps === 0) return null;

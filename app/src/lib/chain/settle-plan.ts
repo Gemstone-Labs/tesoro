@@ -540,18 +540,46 @@ export interface SizeEnv {
  * uses more than CHUNK_CU_TARGET, plans again with the steps the measured cost allows (at least one fewer). A chunk
  * whose steps are cut short is harmless: the Match record keeps the progress and the next chunk resumes.
  */
-export async function planSizedChunk(env: SizeEnv, l: Loaded): Promise<ChunkPlan | null> {
-  let steps = CHUNK_STEPS;
+export function planSizedChunk(env: SizeEnv, l: Loaded): Promise<ChunkPlan | null> {
+  return sizeByCompute(CHUNK_STEPS, (steps) => planChunk(env.core, env.read, env.caller, l, steps, env.fitsOne), env.simulate, env.log);
+}
+
+/**
+ * The sizing loop both chunk planners share (head-to-head `match_chunk`, many-seat `many_seat_chunk`): plans `start` steps,
+ * simulates, and while the chunk uses more than CHUNK_CU_TARGET plans again with the steps the measured cost allows (at
+ * least one fewer). Without `simulate`, or when it cannot measure (null), the chunk goes as planned; one step goes even
+ * when over the target, since nothing smaller exists.
+ */
+export async function sizeByCompute<P extends { ix: TransactionInstruction; steps: number }>(
+  start: number,
+  plan: (steps: number) => Promise<P | null>,
+  simulate?: (ix: TransactionInstruction) => Promise<number | null>,
+  log?: (message: string) => void,
+): Promise<P | null> {
+  let steps = start;
   for (;;) {
-    const plan = await planChunk(env.core, env.read, env.caller, l, steps, env.fitsOne);
-    if (!plan || !env.simulate) return plan;
-    const used = await env.simulate(plan.ix);
-    if (used === null || used <= CHUNK_CU_TARGET) return plan;
-    if (plan.steps <= 1) {
-      env.log?.(`WARN a one-step chunk simulates at ${used} CU, over the ${CHUNK_CU_TARGET} target`);
-      return plan;
+    const p = await plan(steps);
+    if (!p || !simulate) return p;
+    const used = await simulate(p.ix);
+    if (used === null || used <= CHUNK_CU_TARGET) return p;
+    if (p.steps <= 1) {
+      log?.(`WARN a one-step chunk simulates at ${used} CU, over the ${CHUNK_CU_TARGET} target`);
+      return p;
     }
-    steps = Math.max(1, Math.min(plan.steps - 1, Math.floor((plan.steps * CHUNK_CU_TARGET) / used)));
-    env.log?.(`chunk of ${plan.steps} steps simulates at ${used} CU: trying ${steps}`);
+    steps = Math.max(1, Math.min(p.steps - 1, Math.floor((p.steps * CHUNK_CU_TARGET) / used)));
+    log?.(`chunk of ${p.steps} steps simulates at ${used} CU: trying ${steps}`);
+  }
+}
+
+/** Compute units of a simulation, or null when it failed: a chunk that fails early uses little and must not look small. */
+export const unitsOf = (res: { err: unknown; unitsConsumed?: number }): number | null => (res.err ? null : (res.unitsConsumed ?? null));
+
+/** Compute units `ixs` use when simulated with `payer` as fee payer (no signature checked), or null when unknown. */
+export async function simulatedUnits(conn: Pick<Connection, "getLatestBlockhash" | "simulateTransaction">, payer: PublicKey, ixs: TransactionInstruction[], opts: FitOpts = {}): Promise<number | null> {
+  try {
+    const { blockhash } = await conn.getLatestBlockhash();
+    return unitsOf((await conn.simulateTransaction(compileTx(payer, blockhash, ixs, opts), { sigVerify: false })).value);
+  } catch {
+    return null;
   }
 }

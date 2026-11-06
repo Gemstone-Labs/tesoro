@@ -127,7 +127,7 @@ describe("Railcar's finish on the relayer", () => {
 
   it("core's many-seat chunks, room, closes: the relayer calls and gets the rent back", () => {
     const car = key();
-    expect(plan([seatChunkIx(relayer, car, 7, Array.from({ length: 40 }, () => ({ pubkey: key(), isSigner: false, isWritable: true })))])).toMatchObject({ names: ["many_seat_chunk"], class: "exit" });
+    expect(plan([seatChunkIx(relayer, car, 7, Array.from({ length: 40 }, () => ({ pubkey: key(), isSigner: false, isWritable: true })))])).toMatchObject({ names: ["many_seat_chunk"], class: "exit", cu: 300_000 });
     const opener = key();
     expect(plan([reserveRoomIx(relayer, { address: car, opener, n: 1n }, key(), 100)]).spend.refundable).toBeGreaterThan(0n);
     refused([reserveRoomIx(relayer, { address: car, opener, n: 1n }, key(), MAX_ROOM_LINES + 1)], "bad-args");

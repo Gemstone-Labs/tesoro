@@ -171,6 +171,9 @@ impl Env {
                 self.load::<SourceState>(src).inner.position,
             )));
         }
+        if !plan.cut_sources.is_empty() {
+            out.extend(self.kind_metas());
+        }
         ix(
             accounts::ManySeatChunk {
                 caller,
@@ -203,6 +206,24 @@ impl Env {
             accounts,
             steps,
         })
+    }
+
+    /// One chunk as the page and the keeper send it (`planSeatChunk` with a simulator): dry-run
+    /// `steps`, and while it uses more than the target, take the steps the measured cost allows.
+    fn sized_car_chunk(&mut self, car: Car, steps: u8) -> Sent {
+        let mut n = steps;
+        loop {
+            let saved = self.svm.clone();
+            let sent = self.car_chunk(car, n).expect("chunk");
+            if sent.cu <= KEEPER_CHUNK_CU_TARGET || sent.steps == 1 {
+                return sent;
+            }
+            self.svm = saved;
+            n = sent
+                .steps
+                .min(((sent.steps as u64 * KEEPER_CHUNK_CU_TARGET) / sent.cu).max(1) as u8)
+                .min(sent.steps - 1);
+        }
     }
 
     /// Chunks until the run is paid; every chunk sent.
@@ -688,10 +709,16 @@ fn a_chunk_cannot_be_fed_another_cars_page_or_pot() {
 /// Railcar's shape: the last three off 60/25/15, 60 early jumpers refunded 5-80%, 37 aboard. The
 /// client sends chunks of `steps`; returns the worst chunk and the number of chunks.
 fn hundred_seats(steps: u8) -> (Sent, usize, u64) {
-    let mut env = Env::new();
+    hundred_seats_of(steps, SourceKind::NotOpen, false)
+}
+
+/// `hundred_seats` with Sources of `kind`; with `sized`, each chunk is dry-run first and takes
+/// fewer steps until it fits the planner's target (`planSeatChunk` with a simulator).
+fn hundred_seats_of(steps: u8, kind: SourceKind, sized: bool) -> (Sent, usize, u64) {
+    let mut env = Env::with_kind(kind);
     env.enable_leaderboard(100);
     let sources: Vec<APk> = (0..10)
-        .map(|i| env.forge_source(200 + i as u8, 0))
+        .map(|i| env.forge_kind(200 + i as u8, kind))
         .collect();
     let riders: Vec<Person> = (0..100)
         .map(|_| {
@@ -733,7 +760,11 @@ fn hundred_seats(steps: u8) -> (Sent, usize, u64) {
     let start_cu = env.last_cu;
     let mut sent = vec![];
     while env.car(car).inner.stage() != ManyStage::Paid {
-        sent.push(env.car_chunk(car, steps).expect("chunk"));
+        sent.push(if sized {
+            env.sized_car_chunk(car, steps)
+        } else {
+            env.car_chunk(car, steps).expect("chunk")
+        });
         assert!(sent.len() < 5_000);
     }
     let worst = sent.iter().max_by_key(|s| s.cu).copied().expect("chunks");
@@ -768,4 +799,35 @@ fn a_hundred_seats_with_entry_tickets_settle_inside_the_chunk_budget() {
     }
     let worst = at_cap.expect("cap measured");
     assert!(worst.cu < CHUNK_CU_BUDGET, "worst chunk {worst:?}");
+}
+
+/// The worst 7-step chunk of `hundred_seats` measured per kind on 2026-11-06 (ticket 19), plus
+/// about 1,000 for build noise: the program allows these, and they must not grow.
+const AT_CAP_HUNDRED_SEATS: [(SourceKind, u64); 4] = [
+    (SourceKind::NotOpen, CHUNK_CU_BUDGET),
+    (SourceKind::OpenReported, 199_000),
+    (SourceKind::Native, 209_500),
+    (SourceKind::Stake, 248_500),
+];
+
+#[test]
+fn a_hundred_seat_chunk_fits_the_budget_whatever_kind_of_source_takes_the_fee_cut() {
+    let max = tesoro_core::MAX_SEAT_CHUNK_STEPS;
+    let mut over = vec![];
+    for (kind, ceiling) in AT_CAP_HUNDRED_SEATS {
+        let (at_cap, chunks, start_cu) = hundred_seats_of(max, kind, false);
+        let (sized, sized_chunks, _) = hundred_seats_of(max, kind, true);
+        println!(
+            "ROW 100 seats {kind:?}: settle start {start_cu} CU; chunks of {max}: {chunks} chunks, worst {} CU ({} steps, {} accounts); sized to {KEEPER_CHUNK_CU_TARGET}: {sized_chunks} chunks, worst {} CU ({} steps)",
+            at_cap.cu, at_cap.steps, at_cap.accounts, sized.cu, sized.steps
+        );
+        if at_cap.cu >= ceiling {
+            over.push((kind, "at the cap", at_cap));
+        }
+        // a sized chunk is under the target unless one step alone is over it
+        if sized.cu > KEEPER_CHUNK_CU_TARGET {
+            over.push((kind, "sized", sized));
+        }
+    }
+    assert!(over.is_empty(), "100-seat chunks over budget: {over:?}");
 }
