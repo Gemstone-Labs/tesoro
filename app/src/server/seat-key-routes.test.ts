@@ -10,7 +10,6 @@ import { handleAge } from "./age/routes";
 import { handleDepositAck } from "./deposit-ack/routes";
 import { handleRedeem } from "./invite/redeem";
 import { handleListingAdmin } from "./listing/service";
-import { handleSettings } from "./notify/routes";
 import { DemoHttpError, type AuthEnv } from "./request-auth";
 
 const dev: AuthEnv = { production: false, devWallet: true, verifyToken: async () => null };
@@ -37,13 +36,12 @@ const refused = async (p: Promise<unknown>) => {
 const none = { admins: [wallet.publicKey.toBase58()] } as never;
 
 describe("a seat key on a wallet-only route (ticket 10)", () => {
-  it("is refused by admin review and orders, listing, age, deposit acknowledgment, notification settings and invite", async () => {
+  it("is refused by admin review and orders, listing, age, deposit acknowledgment and invite", async () => {
     expect(await refused(handleReview(none, seatRequest("tesoro-admin", "review"), null, dev))).toBe("wallet-only");
     expect(await refused(handleOrders(none, seatRequest("tesoro-admin", "orders"), null, dev))).toBe("wallet-only");
     expect(await refused(handleListingAdmin(none, seatRequest("tesoro-admin", "studios"), null, dev))).toBe("wallet-only");
     expect(await refused(handleAge(none, seatRequest("tesoro-age", "confirm"), null, dev))).toBe("wallet-only");
     expect(await refused(handleDepositAck(none, seatRequest("tesoro-deposit-ack", "confirm", { version: 1 }), null, dev))).toBe("wallet-only");
-    expect(await refused(handleSettings(none, seatRequest("tesoro-notify", "set-enabled", { enabled: 1 }), null, dev))).toBe("wallet-only");
     expect(await refused(handleRedeem(none, seatRequest("tesoro-invite", "redeem", { code: "x" }), null, dev))).toBe("wallet-only");
   });
 });

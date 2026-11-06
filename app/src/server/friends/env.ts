@@ -5,9 +5,7 @@ import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { gameOf } from "@/lib/chain/read";
 import { matchAddressOf } from "@/lib/chain/match-id";
 import { baseRpc } from "@/lib/chain/rpc-config";
-import { notifyDeps } from "../notify/env";
-import { handleEvent } from "../notify/service";
-import type { FriendNotice, FriendsDeps, OpenChallenge } from "./routes";
+import type { FriendsDeps, OpenChallenge } from "./routes";
 import { MemoryFriendsStore, type FriendsStore } from "./store";
 import { supabaseFriendsStore } from "./supabase-store";
 
@@ -49,25 +47,6 @@ export async function openChallenges(matchIds: string[]): Promise<(OpenChallenge
   return matchIds.map((id) => cache.get(id)?.open ?? null);
 }
 
-/** The wallet that controls an Account (TesoroAccount: 8-byte discriminator, bump, then the authority). */
-async function authorityOf(account: string): Promise<string | null> {
-  const info = await connection().getAccountInfo(new PublicKey(account), "confirmed");
-  return info && info.data.length >= 41 ? new PublicKey(info.data.subarray(9, 41)).toBase58() : null;
-}
-
-/** Emails a Friend notice through the notification settings of the Account it is for. Quiet when email isn't set up. */
-async function notify(n: FriendNotice): Promise<void> {
-  let deps;
-  try {
-    deps = notifyDeps();
-  } catch {
-    return;
-  }
-  const authority = await authorityOf(n.to);
-  if (!authority) return;
-  await handleEvent(deps, n.kind === "friend-request" ? { kind: n.kind, id: n.id, authority } : { kind: n.kind, id: n.id, authority, matchId: n.matchId, game: n.game, entry: n.entry });
-}
-
 const shared = globalThis as { tesoroFriendsMemory?: MemoryFriendsStore };
 
 /** Supabase when it is configured; in local dev without it, one in-memory store per server process (on globalThis, so every route shares it). */
@@ -77,4 +56,4 @@ export function friendsStore(): FriendsStore {
   return (shared.tesoroFriendsMemory ??= new MemoryFriendsStore());
 }
 
-export const friendsDeps = (): FriendsDeps => ({ store: friendsStore(), openChallenge, openChallenges, notify });
+export const friendsDeps = (): FriendsDeps => ({ store: friendsStore(), openChallenge, openChallenges });

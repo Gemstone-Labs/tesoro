@@ -14,7 +14,7 @@ The keeper ran 22 jobs in one 20-second loop plus a 1-second fast lane. Most pas
    - safety sweep (every 5 minutes): finishes a Match a Player left after 10 minutes, refunds a Backer-funded Match nobody joined;
    - janitor (daily): closes spent tickets, receipts, pair records and Assignments, refreshes Listings;
    - table-pool repair (every 15 minutes): republishes each Table's live epoch to `table_pool`;
-   - the delayed-notification cron (every 5 minutes) calls the app's `/api/cron/notify`.
+   - the open-Match cron (every 5 minutes, unit `tesoro-notify-cron`) calls the app's `/api/cron/notify`; it keeps the `open_match` table the safety sweep reads and mails no one.
    Admin work (Table, Sponsor and Fuel creation, fee cash-in, Instant Redeem fills, Sponsor refills, fee batches) is `admin-cli`, run by hand.
 3. **Devnet extras.** The one process left that loops is the devnet price writer (`src/index.ts`): Advances need a price, and test mode has no Pyth feed. It exits at once on mainnet.
 4. **The Table operator is not the keeper key.** `KEEPER_OPERATOR_KEYPAIR` signs the Games' operator-only instructions (Tables, Sponsor, Fuel, assignment). The app's sponsor server holds the same operator key to assign a Table in the join transaction, so the keeper key never goes to Vercel.

@@ -83,6 +83,3 @@ export function matchRunStarted(m: { opener: string; n: number; game: string; ki
     ]),
   );
 }
-
-/** A YieldApplied event. */
-export const yieldApplied = (position: string, seq: number, debtGemas: number) => coreEvent("YieldApplied", Buffer.concat([pk(position), u64(seq), u64(0), u64(debtGemas)]));

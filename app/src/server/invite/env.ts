@@ -2,7 +2,6 @@ import "server-only";
 import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import { TESORO_CORE_PROGRAM_ID } from "@/games/block-puzzle/chain";
 import { DemoHttpError } from "../request-auth";
-import { supabaseNotifyStore } from "../notify/supabase-store";
 import { chain } from "../demo-advance";
 import { inviteKeypair } from "./key";
 import type { RedeemDeps } from "./redeem";
@@ -22,7 +21,6 @@ export function redeemDeps(): RedeemDeps {
   };
   return {
     invites: supabaseInviteStore,
-    notify: supabaseNotifyStore,
     accountExists: async (authority) => (await chain().conn.getAccountInfo(seed(Buffer.from("account"), new PublicKey(authority).toBuffer()))) !== null,
     buildCoSigned: async (authority) => {
       const invite = key();

@@ -5,7 +5,7 @@
  */
 export const SIGNED_FIELDS = ["evm", "vault", "id", "months", "position", "sourceIndex", "email", "enabled", "code", "intent", "version", "match"] as const;
 export type SignedFields = Partial<Record<(typeof SIGNED_FIELDS)[number], string | number>>;
-export type SignedScope = "tesoro-demo" | "tesoro-eth" | "tesoro-notify" | "tesoro-admin" | "tesoro-invite" | "tesoro-age" | "tesoro-sponsor" | "tesoro-friends" | "tesoro-deposit-ack" | "tesoro-presence";
+export type SignedScope = "tesoro-demo" | "tesoro-eth" | "tesoro-admin" | "tesoro-invite" | "tesoro-age" | "tesoro-sponsor" | "tesoro-friends" | "tesoro-deposit-ack" | "tesoro-presence";
 
 /**
  * `seatKey` is set when a Seat key signs for the wallet `address`: the message then names the key, so a wallet

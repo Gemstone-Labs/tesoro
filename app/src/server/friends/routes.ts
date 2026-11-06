@@ -7,8 +7,6 @@ import { LINK_REDEEMS_PER_DAY, SESSION_DAYS, isLinkCode, newLinkCode } from "./r
 import type { FriendsList, FriendsSession, FriendsStore } from "./store";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-/** At most this many friend-Challenge emails a day from one Player to one Friend. */
-export const CHALLENGE_EMAILS_PER_FRIEND = 3;
 
 /** An open friend Challenge, as read from the chain. */
 export interface OpenChallenge {
@@ -18,18 +16,12 @@ export interface OpenChallenge {
   opener: string;
 }
 
-export type FriendNotice =
-  | { kind: "friend-request"; id: string; to: string }
-  | { kind: "friend-challenge"; id: string; to: string; matchId: string; game: GameId; entry: number };
-
 export interface FriendsDeps {
   store: FriendsStore;
   /** The Challenge Match if it is open, before its deadline, with its second seat free, else null. */
   openChallenge: (matchId: string) => Promise<OpenChallenge | null>;
   /** The same for many Matches in one read (the list); falls back to one read each. */
   openChallenges?: (matchIds: string[]) => Promise<(OpenChallenge | null)[]>;
-  /** Emails a Friend notice when the Player opted in. Never throws into the route. */
-  notify?: (n: FriendNotice) => Promise<void>;
   now?: () => number;
   env?: AuthEnv;
   newCode?: () => string;
@@ -110,11 +102,6 @@ async function session(deps: FriendsDeps, ctx: FriendsContext, now: number): Pro
   return { s, hash };
 }
 
-const quiet = (deps: FriendsDeps, n: FriendNotice) => {
-  if (!deps.notify) return Promise.resolve();
-  return deps.notify(n).catch((e) => console.error("friends-notify", e));
-};
-
 /** Every Friends action for the signed-in Account (body.op). Answers plain statuses; the list is its own op. */
 export async function handleFriends(deps: FriendsDeps, body: unknown, ctx: FriendsContext): Promise<{ result: unknown; signOut?: boolean }> {
   const now = (deps.now ?? Date.now)();
@@ -127,7 +114,6 @@ export async function handleFriends(deps: FriendsDeps, body: unknown, ctx: Frien
       return { result: await view(deps, me, now) };
     case "request": {
       const r = await deps.store.request(me, account(b.to), now);
-      if (r.requestId) await quiet(deps, { kind: "friend-request", id: `friend-request:${r.requestId}`, to: account(b.to) });
       return { result: { status: r.status } };
     }
     case "accept":
@@ -159,9 +145,6 @@ export async function handleFriends(deps: FriendsDeps, body: unknown, ctx: Frien
       const open = await deps.openChallenge(matchId);
       if (!open || open.opener !== me) throw new DemoHttpError(400, "not-your-challenge", "That Challenge isn't open.");
       const r = await deps.store.challenge(me, to, matchId, now);
-      if (r.status === "recorded" && (r.toThisFriendToday ?? 0) <= CHALLENGE_EMAILS_PER_FRIEND) {
-        await quiet(deps, { kind: "friend-challenge", id: `friend-challenge:${matchId}`, to, matchId, game: open.game, entry: open.entry });
-      }
       return { result: { status: r.status } };
     }
     case "seen":

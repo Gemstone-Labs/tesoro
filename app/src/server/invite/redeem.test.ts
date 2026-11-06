@@ -2,7 +2,6 @@ import { Keypair } from "@solana/web3.js";
 import nacl from "tweetnacl";
 import { describe, expect, it } from "vitest";
 import { newNonce, signedMessage, type SignedFields } from "../../lib/chain/signed-request";
-import { MemoryNotifyStore } from "../notify/store";
 import { DemoHttpError, type AuthEnv } from "../request-auth";
 import { inviteKeypair } from "./key";
 import { handleRedeem, type RedeemDeps } from "./redeem";
@@ -20,19 +19,16 @@ function signed(kp: Keypair, fields: SignedFields) {
 
 function setup(existing: string[] = []) {
   const invites = new MemoryInviteStore();
-  const notify = new MemoryNotifyStore();
   const events: string[] = [];
   const deps: RedeemDeps = {
     invites,
-    notify,
     accountExists: async (a) => existing.includes(a),
     buildCoSigned: async (a) => {
       events.push(`sign:${a}`);
       return `tx-for-${a}`;
     },
-    token: () => "t".repeat(32),
   };
-  return { deps, invites, notify, events };
+  return { deps, invites, events };
 }
 
 const run = (deps: RedeemDeps, kp: Keypair, code: string) => handleRedeem(deps, signed(kp, { code }), null, env, NOW);
@@ -46,28 +42,25 @@ const errCode = async (p: Promise<unknown>) => {
 };
 
 describe("Invite redeem", () => {
-  it("co-signs an unused code, marks it used and makes its email the verified notification email", async () => {
-    const { deps, invites, notify, events } = setup();
+  it("co-signs an unused code, marks it used", async () => {
+    const { deps, invites, events } = setup();
     const code = newInviteCode();
     await invites.create(hashCode(code), "ana@example.com");
     const kp = Keypair.generate();
     const out = await run(deps, kp, code);
     expect(out.tx).toBe(`tx-for-${kp.publicKey.toBase58()}`);
     expect(invites.rows.get(hashCode(code))?.usedBy).toBe(kp.publicKey.toBase58());
-    expect(await notify.get(kp.publicKey.toBase58())).toMatchObject({ email: "ana@example.com", verified: true, enabled: true });
     expect(events).toHaveLength(1);
   });
 
-  it("gives the same wallet a fresh co-signed transaction again, without touching its email", async () => {
-    const { deps, invites, notify, events } = setup();
+  it("gives the same wallet a fresh co-signed transaction again", async () => {
+    const { deps, invites, events } = setup();
     const code = newInviteCode();
     await invites.create(hashCode(code), "ana@example.com");
     const kp = Keypair.generate();
     await run(deps, kp, code);
-    await notify.saveEmail(kp.publicKey.toBase58(), "new@example.com", "z".repeat(32));
     await run(deps, kp, code);
     expect(events).toHaveLength(2);
-    expect((await notify.get(kp.publicKey.toBase58()))?.email).toBe("new@example.com");
   });
 
   it("refuses a used code from another wallet, and never co-signs for it", async () => {
