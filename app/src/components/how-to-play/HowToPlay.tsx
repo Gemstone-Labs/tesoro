@@ -52,6 +52,7 @@ export function HowToPlay({ game, open, onClose, end, practiceHref }: HowToPlayP
 function Guide({ game, end, practiceHref, onClose }: Omit<HowToPlayProps, "open">) {
   const steps = GUIDE_STEPS[game];
   const set = useClipSet();
+  const reduced = useReducedMotion();
   const [i, setI] = useState(0);
   const last = i === steps.length - 1;
   const step = steps[i];
@@ -77,20 +78,25 @@ function Guide({ game, end, practiceHref, onClose }: Omit<HowToPlayProps, "open"
     if (e.key === "ArrowRight" || e.key === "ArrowLeft") { e.preventDefault(); setI(next); }
   };
 
+  const [progress, setProgress] = useState({ step: 0, p: 0 });
+  const onProgress = (p: number) => setProgress({ step: i, p });
+  const fill = (n: number) => (n < i ? 1 : n > i ? 0 : progress.step === i && progress.p > 0 ? progress.p : playingStatic ? 1 : 0);
+  const playingStatic = reduced;
+
   return (
     <div className="htp" onKeyDown={onKeyDown}>
-      <div className="htp-stage" onPointerDown={onPointerDown} onPointerUp={onPointerUp} onPointerCancel={() => setDownX(null)} data-set={set}>
-        <Clip key={`${game}:${i}:${set}`} game={game} n={i + 1} set={set} />
-      </div>
-      <div className="htp-text" aria-live="polite">
-        <span className="htp-count">Step {i + 1} of {steps.length}</span>
-        <h3 className="htp-title">{step.title}</h3>
-        <p className="htp-line">{step.line}</p>
-      </div>
-      <div className="htp-dots" role="group" aria-label="Steps">
-        {steps.map((s, n) => (
-          <button key={s.title} type="button" className="htp-dot" aria-label={`Step ${n + 1}: ${s.title}`} aria-current={n === i ? "step" : undefined} onClick={() => go(n)} />
-        ))}
+      <div className="cut cut-frame htp-stage" onPointerDown={onPointerDown} onPointerUp={onPointerUp} onPointerCancel={() => setDownX(null)} data-set={set}>
+        <Clip key={`${game}:${i}:${set}`} game={game} n={i + 1} set={set} onProgress={onProgress} />
+        <div className="htp-bars" role="img" aria-label={`Step ${i + 1} of ${steps.length}`}>
+          {steps.map((s, n) => <i key={s.title}><b style={{ transform: `scaleX(${fill(n)})` }} /></i>)}
+        </div>
+        <button type="button" className="htp-tap htp-tap-l" tabIndex={-1} aria-hidden="true" onClick={() => go(i - 1)} />
+        <button type="button" className="htp-tap htp-tap-r" tabIndex={-1} aria-hidden="true" onClick={() => go(i + 1)} />
+        <div className="htp-cap" aria-live="polite">
+          <span className="htp-count">{i + 1} of {steps.length}</span>
+          <h3 className="htp-title">{step.title}</h3>
+          <p className="htp-line">{step.line}</p>
+        </div>
       </div>
       <div className="htp-nav">
         <Button onClick={() => go(i - 1)} disabled={i === 0} icon={<ChevronLeft aria-hidden="true" />}>Back</Button>
@@ -111,7 +117,7 @@ function Guide({ game, end, practiceHref, onClose }: Omit<HowToPlayProps, "open"
  * One step's clip: a looping muted video over its poster. Reduced motion shows the poster until tapped. A clip that fails
  * to load leaves the poster, and a missing poster leaves a plain frame, never a broken box.
  */
-function Clip({ game, n, set }: { game: GameId; n: number; set: ClipSet }) {
+function Clip({ game, n, set, onProgress }: { game: GameId; n: number; set: ClipSet; onProgress: (p: number) => void }) {
   const reduced = useReducedMotion();
   const [tapped, setTapped] = useState(false);
   const [videoFailed, setVideoFailed] = useState(false);
@@ -123,7 +129,7 @@ function Clip({ game, n, set }: { game: GameId; n: number; set: ClipSet }) {
       {/* eslint-disable-next-line @next/next/no-img-element */}
       {!posterFailed && <img className="htp-poster" src={poster} alt="" onError={() => setPosterFailed(true)} />}
       {playing && (
-        <video className="htp-video" autoPlay loop muted playsInline preload="auto" poster={posterFailed ? undefined : poster} aria-hidden="true">
+        <video className="htp-video" autoPlay loop muted playsInline preload="auto" poster={posterFailed ? undefined : poster} aria-hidden="true" onTimeUpdate={(e) => { const v = e.currentTarget; if (v.duration) onProgress(v.currentTime / v.duration); }}>
           <source src={webm} type="video/webm" />
           <source src={mp4} type="video/mp4" onError={() => setVideoFailed(true)} />
         </video>

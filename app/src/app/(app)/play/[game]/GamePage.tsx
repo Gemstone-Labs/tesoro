@@ -75,20 +75,17 @@ export function GamePage({ game }: { game: GameId }) {
               <i key={i} />
             ))}
           </span>
+          <button type="button" className="cut cut-chip gp-how-tab" onClick={() => setHow(true)}>
+            <BookOpen aria-hidden="true" /> How to play<span className="sr-only"> {name}</span>
+          </button>
           <div className="gp-art-title">
             <h1 className="gp-title">{name}</h1>
-            <button type="button" className="gp-how-btn" onClick={() => setHow(true)}>
-              <BookOpen aria-hidden="true" /> How to play<span className="sr-only"> {name}</span>
-            </button>
           </div>
         </div>
         <div className="cut cut-frame gp-hero-body">
           {/* desktop: the name sits over the art's dark side with the panel under it (phones show it on the art above) */}
           <div className="gp-body-title">
             <h1 className="gp-title">{name}</h1>
-            <button type="button" className="gp-how-btn" onClick={() => setHow(true)}>
-              <BookOpen aria-hidden="true" /> How to play<span className="sr-only"> {name}</span>
-            </button>
           </div>
           {game === "trading-duel" && <AssetPicker value={asset} onChange={setAsset} name="gp-asset" />}
           <EntryPicker value={entry} onChange={setEntry} name={`gp-entry-${game}`} />

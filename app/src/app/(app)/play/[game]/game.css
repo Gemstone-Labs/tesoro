@@ -9,9 +9,9 @@
 }
 .gp-hero-art { object-fit: cover; object-position: center; }
 .gp-art::after { content: ""; position: absolute; inset: 0; z-index: 1; background: linear-gradient(180deg, transparent 40%, rgba(6, 10, 16, 0.7) 78%, rgba(6, 10, 16, 0.95)); }
+.gp-how-tab { position: absolute; z-index: 3; top: 14px; right: 0; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px 0 14px; background: #161b1f; --edge: rgba(236, 240, 242, 0.42); color: var(--fg); font-size: var(--fs-14); font-weight: 600; }
+.gp-how-tab svg { width: 20px; height: 20px; }
 .gp-art-title { position: absolute; z-index: 2; left: 16px; right: 8px; bottom: 44px; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
-.gp-how-btn { flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; background: transparent; border: 1.5px solid var(--fg-2); border-radius: 999px; color: var(--fg); font-size: var(--fs-15); font-weight: 700; }
-.gp-how-btn svg { width: 20px; height: 20px; }
 .gp-hero-body { position: relative; z-index: 3; margin-top: -32px; display: grid; gap: 14px; padding: 16px; background: var(--surface); --edge: var(--edge-2); }
 .gp-tag { --edge: var(--edge-2); background: rgba(9, 13, 15, 0.8); display: inline-flex; align-items: center; gap: 10px; padding: 9px 16px; font-size: var(--fs-15); color: var(--fg-2); }
 .gp-tag svg { width: 20px; height: 20px; color: var(--fg); }

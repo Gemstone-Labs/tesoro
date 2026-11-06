@@ -1,26 +1,30 @@
-/* How to play guide. One file for the whole look, so the picked design (ticket 06) replaces it in one place. */
+/* How to play guide (founder pick g3, story style). One file for the whole look. */
 dialog.htp-sheet { max-width: 520px; }
-@media (max-width: 639px) { dialog.htp-sheet { max-height: 100dvh; height: 100dvh; max-width: none; } }
-@media (min-width: 1024px) { dialog.htp-sheet { max-width: 880px; } }
+@media (max-width: 639px) { dialog.htp-sheet { max-height: 94dvh; max-width: none; } }
+@media (min-width: 1024px) { dialog.htp-sheet { max-width: 820px; } }
 
 .htp { display: grid; gap: 14px; }
-.htp-stage { touch-action: pan-y; }
-.htp-clip { position: relative; aspect-ratio: 4 / 5; overflow: hidden; background: #060a10; border: 1px solid var(--edge-2); }
-.htp-stage[data-set="desktop"] .htp-clip { aspect-ratio: 16 / 10; }
-@media (max-width: 639px) { .htp-clip { max-height: 52dvh; margin-inline: auto; } }
+.htp-stage { --c: var(--cut-frame); position: relative; overflow: hidden; background: #060a10; touch-action: pan-y; aspect-ratio: 4 / 5; }
+.htp-stage[data-set="desktop"] { aspect-ratio: 16 / 10; }
+.htp-clip { position: absolute; inset: 0; }
 .htp-poster, .htp-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.htp-play { position: absolute; inset: auto 12px 12px auto; display: grid; place-items: center; width: 48px; height: 48px; background: rgba(9, 13, 15, 0.8); color: var(--fg); border: 0; }
+.htp-play { position: absolute; z-index: 4; top: 40px; right: 12px; display: grid; place-items: center; width: 48px; height: 48px; background: rgba(9, 13, 15, 0.8); color: var(--fg); border: 0; }
 .htp-play svg { width: 22px; height: 22px; }
 
-.htp-text { display: grid; gap: 4px; }
-.htp-count { color: var(--fg-2); font-size: var(--fs-13); }
-.htp-title { font-size: var(--fs-20); font-weight: 900; letter-spacing: -0.01em; }
-.htp-line { color: var(--fg-2); font-size: var(--fs-15); }
+.htp-bars { position: absolute; z-index: 3; top: 12px; left: 14px; right: 14px; display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; pointer-events: none; }
+.htp-bars i { display: block; height: 3px; background: rgba(255, 255, 255, 0.3); overflow: hidden; }
+.htp-bars b { display: block; height: 100%; background: #fff; transform-origin: left; transform: scaleX(0); }
 
-.htp-dots { display: flex; justify-content: center; gap: 4px; }
-.htp-dot { position: relative; width: 28px; height: 28px; background: transparent; border: 0; padding: 0; }
-.htp-dot::after { content: ""; position: absolute; inset: 10px; border-radius: 50%; background: var(--fg-2); opacity: 0.4; }
-.htp-dot[aria-current="step"]::after { opacity: 1; background: var(--fg); }
+.htp-tap { position: absolute; z-index: 2; top: 0; bottom: 0; width: 50%; background: transparent; border: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+.htp-tap-l { left: 0; }
+.htp-tap-r { right: 0; }
+
+/* the text sits on a gradient dark enough for 4.5:1 over any frame */
+.htp-cap { position: absolute; z-index: 3; left: 0; right: 0; bottom: 0; display: grid; gap: 4px; padding: 72px 18px 18px; pointer-events: none;
+  background: linear-gradient(180deg, rgba(6, 10, 16, 0) 0%, rgba(6, 10, 16, 0.82) 38%, rgba(6, 10, 16, 0.94) 100%); color: #fff; }
+.htp-count { font-size: var(--fs-14); font-weight: 700; color: rgba(255, 255, 255, 0.88); }
+.htp-title { font-size: clamp(26px, 6vw, 34px); font-weight: 900; letter-spacing: -0.01em; line-height: 1.05; }
+.htp-line { font-size: var(--fs-16, 16px); line-height: 1.35; color: rgba(255, 255, 255, 0.92); }
 
 .htp-nav { display: flex; justify-content: space-between; gap: 10px; }
 .htp-nav > :last-child { margin-left: auto; }

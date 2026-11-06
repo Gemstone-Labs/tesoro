@@ -30,7 +30,7 @@ describe("HowToPlay markup", () => {
     expect(html).toContain("Step 1 of 5");
     expect(html).toContain("/art/how-to-play/holdem/1-phone.webm");
     expect(html).not.toContain("/art/how-to-play/holdem/2-phone.webm");
-    expect(html.match(/class="htp-dot"/g)).toHaveLength(5);
+    expect(html.match(/<i><b /g)).toHaveLength(5);
     expect(html).toContain("How to play Buckshot Hold");
   });
 
