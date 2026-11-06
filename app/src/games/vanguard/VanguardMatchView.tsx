@@ -5,7 +5,7 @@ import { Busy, Button, Card, Label, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { useMatchSigner } from "@/lib/seat/useMatchSigner";
 import { commitCopy } from "@/lib/chain/commit-pending";
-import { matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
+import { matchDelta, matchFee, settledOutcome } from "@/lib/chain/ledger";
 import { refundMatch } from "@/lib/chain/match-flow";
 import { BackingSplit } from "@/components/match/BackingSplit";
 import { MatchResult } from "@/components/match/MatchResult";
@@ -42,7 +42,7 @@ export function VanguardMatchView({ matchId }: { matchId: string }) {
 
   const link = typeof window === "undefined" || !m ? "" : `${window.location.origin}/play/challenge/${m.id.toString()}`;
   const refunded = m?.status === "refunded";
-  const outcome = !m || stage !== "settled" ? null : refunded ? "refunded" : m.seat !== null && seatResult(m, m.seat) === "won" ? "won" : "lost";
+  const outcome = !m || stage !== "settled" ? null : settledOutcome(m, refunded);
   const showTable = !!battle && !!army && seat !== null && (stage === "live" || stage === "closing") && battle.status >= STATUS.live;
 
   if (stage === "settled" && m && outcome) {

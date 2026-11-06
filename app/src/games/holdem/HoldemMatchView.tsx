@@ -5,7 +5,7 @@ import { Busy, Button, Card, Chip, GemaAmount, Label, Notice } from "@/component
 import { useAccount } from "@/lib/account";
 import { useMatchSigner } from "@/lib/seat/useMatchSigner";
 import { commitCopy } from "@/lib/chain/commit-pending";
-import { matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
+import { matchDelta, matchFee, settledOutcome } from "@/lib/chain/ledger";
 import { refundMatch } from "@/lib/chain/match-flow";
 import { BackingSplit } from "@/components/match/BackingSplit";
 import { MatchResult } from "@/components/match/MatchResult";
@@ -42,7 +42,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
   const link = typeof window === "undefined" || !m ? "" : `${window.location.origin}/play/challenge/${m.id.toString()}`;
   const delta = m ? matchDelta(m) : 0;
   const refunded = m?.status === "refunded";
-  const outcome = !m || stage !== "settled" ? null : refunded ? "refunded" : m.seat !== null && seatResult(m, m.seat) === "won" ? "won" : "lost";
+  const outcome = !m || stage !== "settled" ? null : settledOutcome(m, refunded);
   const tableOver = !!t && t.status !== STATUS.live;
   const refundable = view.refundable;
   const showTable = !!t && seat !== null && (stage === "live" || stage === "closing" || stage === "settled");

@@ -6,7 +6,7 @@ import { TradingDuelMatchView } from "@/games/trading-duel/TradingDuelMatchView"
 import { VanguardMatchView } from "@/games/vanguard/VanguardMatchView";
 import { getChain } from "@/lib/chain/client";
 import { matchAddressOf } from "@/lib/chain/match-id";
-import { gameOf } from "@/lib/chain/read";
+import { fetchClosedMatch, gameOf } from "@/lib/chain/read";
 import { enteredHint } from "@/lib/chain/entered-hint";
 import { PublicKey } from "@solana/web3.js";
 import { useAccount } from "@/lib/account";
@@ -33,8 +33,9 @@ export function MatchRoute({ matchId }: { matchId: string }) {
       try {
         const address = matchAddressOf(matchId);
         const state: any = address ? await getChain().core.account.matchState.fetchNullable(address) : null;
-        // No Match (or a key that names none): Block Burst's view says so. A program this app does not play is shown as such, never as Block Burst.
-        const g = state ? gameOf(new PublicKey(Uint8Array.from(state.inner.game))) : "block-puzzle";
+        // A closed account: the history row names its Game. No Match at all (or a key that names none): Block Burst's view says so.
+        // A program this app does not play is shown as such, never as Block Burst.
+        const g = state ? gameOf(new PublicKey(Uint8Array.from(state.inner.game))) : ((await fetchClosedMatch(matchId, null).catch(() => null))?.game ?? "block-puzzle");
         if (live) setGame(g ?? "unknown");
       } catch {
         if (live) setGame("block-puzzle");

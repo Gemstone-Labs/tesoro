@@ -164,6 +164,12 @@ export function seatResult(m: Outcome, seat: 0 | 1): "won" | "lost" | "draw" | n
   return (result === "opener") === (seat === 0) ? "won" : "lost";
 }
 
+/** A settled Match's result for the Player's seat, for the result screen: null while the winner is not known yet, never a guess. */
+export function settledOutcome(m: Outcome & { seat: 0 | 1 | null }, refunded: boolean): "won" | "lost" | "draw" | "refunded" | null {
+  if (refunded) return "refunded";
+  return m.seat === null ? null : seatResult(m, m.seat);
+}
+
 /**
  * Gemas won or lost at settlement, net of Fees. Refunds and draws are 0. Block Burst settles from
  * its Session; Hold'em has none, so a settled table's winner comes in as `winner`. A backed Player
