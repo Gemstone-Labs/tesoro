@@ -102,6 +102,8 @@ export interface AssignerDeps {
   tables(game: GameId): Promise<TablePick[]>;
   /** Marks the table as held by the Match once its join is sent (the pool's `claim`). */
   claim?(game: GameId, pick: TablePick, matchKey: string): Promise<boolean>;
+  /** The table generation the Game assigns now (`config.generation`). A pick of any other generation is refused by the Game, so it is never built. */
+  generation?(game: GameId): Promise<number>;
   now(): number;
 }
 
@@ -140,7 +142,9 @@ export class Assigner {
     if (!canAssign(game)) return null;
     const lockKey = player ? `player/${game}/${player}` : undefined;
     if (lockKey && !(await this.d.leases.take(lockKey, holder, BUILD_LEASE_MS, this.d.now()))) throw new PlayerBusy();
-    const free = [...(await this.d.tables(game))].sort((x, y) => x.generation - y.generation || x.index - y.index);
+    const generation = await this.d.generation?.(game).catch(() => null);
+    const current = generation === null ? [] : (await this.d.tables(game)).filter((t) => generation === undefined || t.generation === generation);
+    const free = [...current].sort((x, y) => x.generation - y.generation || x.index - y.index);
     for (const pick of free) {
       const leaseKey = `${game}/${pick.generation}/${pick.index}/${pick.epoch}`;
       if (!(await this.d.leases.take(leaseKey, holder, BUILD_LEASE_MS, this.d.now()))) continue;

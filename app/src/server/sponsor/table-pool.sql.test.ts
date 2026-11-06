@@ -20,6 +20,7 @@ beforeAll(async () => {
   await db.exec("create role anon; create role authenticated;");
   await db.exec(sql("0021_table_leases.sql"));
   await db.exec(sql("0023_table_pool_claims.sql"));
+  await db.exec(sql("0026_table_pool_dead_rows.sql"));
 });
 beforeEach(() => db.exec("delete from public.table_pool"));
 
@@ -62,12 +63,12 @@ describe("table pool kept by the server (migration 0023)", () => {
     expect(await free_rows()).toEqual([{ idx: 1, epoch: "6" }]);
   });
 
-  it("publishing leaves a claimed table the rollup does not list, and other Games", async () => {
+  it("publishing leaves a claimed table the rollup does not list (an unclaimed one is dropped), and other Games", async () => {
     await publish([{ index: 0, epoch: 4 }, { index: 1, epoch: 4 }]);
     await q("select public.publish_table_pool('vanguard', '[{\"generation\":1,\"index\":0,\"epoch\":\"1\"}]', now())");
     await claim("holdem", 0, 4, "m");
     await publish([]);
-    expect((await q("select idx from public.table_pool where game = 'holdem' order by idx")).length).toBe(2);
+    expect(await q("select idx from public.table_pool where game = 'holdem' order by idx")).toEqual([{ idx: 0 }]);
     expect((await q("select idx from public.table_pool where game = 'vanguard'")).length).toBe(1);
   });
 
@@ -91,5 +92,49 @@ describe("table pool kept by the server (migration 0023)", () => {
     await db.exec("update public.table_pool set claimed_at = now() - interval '5 minutes', updated_at = now() - interval '5 minutes'");
     await publish([{ index: 0, epoch: 4 }], "now() - interval '10 minutes'"); // read before the claim
     expect(await q("select claimed_match from public.table_pool")).toEqual([{ claimed_match: "m1" }]);
+  });
+});
+
+describe("a table pool without dead rows (migration 0026)", () => {
+  const publishGen = (tables: { generation: number; index: number; epoch: number }[], readAt = "now()") =>
+    q(`select public.publish_table_pool('holdem', $1::jsonb, ${readAt})`, [JSON.stringify(tables.map((t) => ({ ...t, epoch: String(t.epoch) })))]);
+  const rows = () => q<{ generation: number; idx: number; epoch: string }>("select generation, idx, epoch::text from public.table_pool where game = 'holdem' order by generation, idx");
+
+  it("drops unclaimed rows of a retired generation that the read does not list", async () => {
+    await publishGen([{ generation: 1, index: 0, epoch: 2 }, { generation: 1, index: 1, epoch: 0 }]);
+    await publishGen([{ generation: 2, index: 0, epoch: 1 }]);
+    expect(await rows()).toEqual([{ generation: 2, idx: 0, epoch: "1" }]);
+  });
+
+  it("drops an unclaimed row the read does not list, but not one changed after the read", async () => {
+    await publishGen([{ generation: 2, index: 0, epoch: 1 }, { generation: 2, index: 1, epoch: 1 }]);
+    await q("update public.table_pool set updated_at = now() + interval '1 minute' where idx = 1");
+    await publishGen([]);
+    expect(await rows()).toEqual([{ generation: 2, idx: 1, epoch: "1" }]);
+  });
+
+  it("keeps a claimed row the read does not list", async () => {
+    await publishGen([{ generation: 2, index: 0, epoch: 1 }]);
+    await q("select public.claim_table('holdem', 2, 0, 1, 'm')");
+    await publishGen([]);
+    expect(await rows()).toEqual([{ generation: 2, idx: 0, epoch: "1" }]);
+  });
+
+  it("a claim cleared before the Match settled still ends at epoch + 1, whichever of read and settle comes first", async () => {
+    // The read lists the finished table at epoch 1 (E + 1) once the claim is old enough to clear.
+    await publishGen([{ generation: 2, index: 0, epoch: 0 }]);
+    await q("select public.claim_table('holdem', 2, 0, 0, 'm')");
+    await db.exec("update public.table_pool set claimed_at = now() - interval '10 minutes', updated_at = now() - interval '10 minutes'");
+    await publishGen([{ generation: 2, index: 0, epoch: 1 }]);
+    expect(await free("m", true)).toBe(false);
+    expect(await rows()).toEqual([{ generation: 2, idx: 0, epoch: "1" }]);
+  });
+
+  it("a fresh claim keeps its epoch when the read already shows the table one epoch on, so the settle does not count twice", async () => {
+    await publishGen([{ generation: 2, index: 0, epoch: 0 }]);
+    await q("select public.claim_table('holdem', 2, 0, 0, 'm')");
+    await publishGen([{ generation: 2, index: 0, epoch: 1 }], "now() + interval '1 second'");
+    expect(await free("m", true)).toBe(true);
+    expect(await rows()).toEqual([{ generation: 2, idx: 0, epoch: "1" }]);
   });
 });
