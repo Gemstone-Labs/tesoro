@@ -14,6 +14,7 @@ import { protectionsPda } from "./native";
 import { freeOf, readEntryStores, type BackingRef } from "./entry";
 import { DrawError } from "./draw";
 import { fetchMatch, matchKeyOfState } from "./read";
+import { backingTicketOf, cancelTicket } from "./ticket";
 import type { Entered } from "./queue";
 
 /**
@@ -291,12 +292,25 @@ export function cancelOfferIx(owner: PublicKey, offer: PublicKey, acceptedReques
   });
 }
 
-export async function cancelOffer(signer: ChainSigner, offer: ChainOffer) {
+/**
+ * Core refuses to withdraw or release an Offer while its Backing Ticket is open (`OfferHasTicket`), as when the Player
+ * left an entry half-prepared: the Ticket is cancelled first, its lines going home to the Backer. The Backer cancels it
+ * at once; anyone else an hour after it opened, well inside the Offer's life.
+ */
+async function cancelOpenTicket(signer: ChainSigner, getToken: GetToken, offer: ChainOffer) {
+  if (!offer.ticketOpen) return;
+  const ticket = await backingTicketOf(getChain().base, offer.address, new PublicKey(offer.backer));
+  if (ticket) await cancelTicket(signer, getToken, ticket, { offer: offer.address });
+}
+
+export async function cancelOffer(signer: ChainSigner, offer: ChainOffer, getToken: GetToken) {
+  await cancelOpenTicket(signer, getToken, offer);
   return getChain().sendBase(signer, [cancelOfferIx(signer.publicKey, offer.address, offer.status === "accepted" ? new PublicKey(offer.request) : null)]);
 }
 
 /** Anyone releases the reservation of an Offer nobody accepted, or nobody used, within 24h. */
-export async function expireOffer(signer: ChainSigner, offer: ChainOffer) {
+export async function expireOffer(signer: ChainSigner, offer: ChainOffer, getToken: GetToken) {
+  await cancelOpenTicket(signer, getToken, offer);
   const chain = getChain();
   const backerAccount = new PublicKey(offer.backer);
   const ix = coreIx("expire_offer", {
