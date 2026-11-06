@@ -215,9 +215,29 @@ export function schedulerSettings(env: NodeJS.ProcessEnv = process.env): Schedul
 /** The tables that can take a Match right now, in order, for the pool the sponsor server assigns from. */
 export function poolOf(rows: TableRow[], promised: Promised[], generation: number, now: number): PoolTable[] {
   return rows
-    .filter((r) => isAvailable(r, promised, now))
-    .sort((a, b) => a.index - b.index)
-    .map((r) => ({ generation, index: r.index, epoch: r.view!.epoch }));
+    .flatMap((r) => {
+      const epoch = poolEpoch(r, promised, now);
+      return epoch === null ? [] : [{ generation, index: r.index, epoch }];
+    })
+    .sort((a, b) => a.index - b.index);
+}
+
+/** The Game's `RESET_DELAY_SECS`: `begin_match` resets a finished table only this long after it went Over. */
+export const RESET_DELAY_SECS = 30;
+
+/**
+ * The epoch the next Match on this table would have, or null when it cannot take one. An Idle table takes its own epoch; a finished
+ * (Over) table whose result is committed and seats are closed is reset by `begin_match` for the epoch one ahead, so it is offered
+ * there. Nobody else resets it, so a finished table never turns Idle on its own.
+ */
+export function poolEpoch(row: TableRow, promised: Promised[], now: number): number | null {
+  const v = row.view;
+  if (!v) return null;
+  const finished = v.coarse === "over" && !v.dirty && !v.seatsOpen && now >= v.overAt + RESET_DELAY_SECS;
+  if (row.base !== "delegated" || !v.seatsCreated || !(v.coarse === "idle" || finished)) return null;
+  if (!v.ring.some((s) => s.state === SLOT_FREE)) return null;
+  const epoch = finished ? v.epoch + 1 : v.epoch;
+  return promised.some((p) => p.index === row.index && p.epoch === epoch && p.startDeadline >= now) ? null : epoch;
 }
 
 // ---- pure planning ---------------------------------------------------------------------------------

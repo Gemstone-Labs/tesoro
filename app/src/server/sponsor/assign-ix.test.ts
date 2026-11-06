@@ -6,7 +6,7 @@ import * as holdem from "@/games/holdem/chain";
 import * as vanguard from "@/games/vanguard/chain";
 import * as duel from "@/games/trading-duel/chain";
 import { CORE_ID } from "./rules";
-import { assignMatchIx, canAssign } from "./assign-ix";
+import { assignMatchIx, canAssign, tableGenerationOf } from "./assign-ix";
 
 const k = () => Keypair.generate().publicKey;
 
@@ -42,5 +42,14 @@ describe("assignMatchIx", () => {
 
   it("assigns every Game", () => {
     for (const game of ["block-puzzle", "holdem", "trading-duel", "vanguard"] as const) expect(canAssign(game)).toBe(true);
+  });
+});
+
+describe("tableGenerationOf", () => {
+  it("reads TableConfig.generation after the discriminator, bump and operator", () => {
+    const data = Buffer.alloc(8 + 1 + 32 + 2 + 2);
+    data.writeUInt16LE(7, 8 + 1 + 32);
+    data.writeUInt16LE(50, 8 + 1 + 32 + 2);
+    expect(tableGenerationOf(data)).toBe(7);
   });
 });

@@ -20,6 +20,8 @@ import { MemoryUsageStore, type UsageStore } from "./store";
 import { supabaseUsageStore } from "./supabase-store";
 import { sendConfirmed } from "./chain-send";
 import { Assigner, MemoryLeaseStore } from "./assign";
+import type { GameId } from "@/lib/mock/types";
+import { tableConfigAddress, tableGenerationOf } from "./assign-ix";
 import { supabaseClaimTable, supabaseLeaseStore, supabasePoolTables } from "./table-pool";
 
 const LAMPORTS = 1_000_000_000n;
@@ -139,6 +141,24 @@ export function sponsor(): Sponsor {
  * a JSON byte array): the key `set_config` named as `TableConfig.operator`, which is the keeper's key unless that was changed.
  * Tables come from the pool in Supabase (`table_pool`, kept by the server and repaired by the keeper), so without Supabase there is nothing to assign from.
  */
+/** Each Game's current table generation, read from its `TableConfig` and kept for 30 s (it changes only with a program upgrade). */
+function tableGeneration(): (game: GameId) => Promise<number> {
+  const conn = new Connection(BASE_RPC, "confirmed");
+  const reads = new Map<GameId, () => Promise<number>>();
+  return (game) => {
+    let read = reads.get(game);
+    if (!read) {
+      read = ttl(30_000, async () => {
+        const account = await conn.getAccountInfo(tableConfigAddress(game));
+        if (!account) throw new Error(`${game} has no table settings`);
+        return tableGenerationOf(account.data);
+      });
+      reads.set(game, read);
+    }
+    return read();
+  };
+}
+
 function assignerFromEnv(): Assigner | undefined {
   if (!process.env.TESORO_TABLE_OPERATOR_SECRET_KEY) return undefined;
   const hosted = !!process.env.SUPABASE_URL;
@@ -146,6 +166,7 @@ function assignerFromEnv(): Assigner | undefined {
     operator: inviteKeypair(process.env.TESORO_TABLE_OPERATOR_SECRET_KEY, "TESORO_TABLE_OPERATOR_SECRET_KEY"),
     leases: hosted ? supabaseLeaseStore : new MemoryLeaseStore(),
     tables: async (game) => (hosted ? supabasePoolTables(game) : []),
+    generation: tableGeneration(),
     claim: hosted ? supabaseClaimTable : undefined,
     now: () => Date.now(),
   });
