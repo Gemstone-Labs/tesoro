@@ -235,8 +235,21 @@ describe("a missing checkpoint page, created by the relayer", () => {
   it("is refused when the book does not need that page", async () => {
     const s = setup();
     withBook(s);
-    await expect(s.sponsor.build(s.player.publicKey, wire([asIx(initCkptPageIx(s.relayer.publicKey, s.source, 1, 0))]))).rejects.toMatchObject({ code: "bad-setup" });
     await expect(s.sponsor.build(s.player.publicKey, wire([asIx(initCkptPageIx(s.relayer.publicKey, s.source, 3, 5))]))).rejects.toMatchObject({ code: "bad-setup" });
+    await expect(s.sponsor.build(s.player.publicKey, wire([asIx(initCkptPageIx(s.relayer.publicKey, s.source, 2, 0))]))).rejects.toMatchObject({ code: "bad-setup" });
+  });
+  it("is allowed for the page a settling fee cut writes, in any class that records checkpoints", async () => {
+    const s = setup();
+    withBook(s);
+    const built = await s.sponsor.build(s.player.publicKey, wire([1, 3].map((cls) => asIx(initCkptPageIx(s.relayer.publicKey, s.source, cls, 0)))));
+    expect(built.class).toBe("exit");
+  });
+  it("is refused for a page beyond the cut's reach, a class that writes no checkpoints, or too many at once", async () => {
+    const s = setup();
+    withBook(s);
+    await expect(s.sponsor.build(s.player.publicKey, wire([asIx(initCkptPageIx(s.relayer.publicKey, s.source, 1, 1))]))).rejects.toMatchObject({ code: "bad-setup" });
+    await expect(s.sponsor.build(s.player.publicKey, wire([0, 2].map((cls) => asIx(initCkptPageIx(s.relayer.publicKey, s.source, cls, 0)))))).rejects.toMatchObject({ code: "bad-setup" });
+    await expect(s.sponsor.build(s.player.publicKey, wire(Array.from({ length: 7 }, (_, i) => asIx(initCkptPageIx(s.relayer.publicKey, s.source, 3, i)))))).rejects.toMatchObject({ code: "bad-shape" });
   });
   it("is refused when the page is not the book's own", async () => {
     const s = setup();

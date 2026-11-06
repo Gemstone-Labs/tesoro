@@ -208,3 +208,34 @@ describe("createFinisher", () => {
     expect(calls).toBe(4);
   });
 });
+
+describe("finishMatch with checkpoint pages", () => {
+  it("creates the pages a chunk needs, then sends the chunk", async () => {
+    const c = chain(settling(0), { steps: { "chunk-0": closed, close: null } });
+    const pages = [ix("page-a"), ix("page-b")];
+    let made = false;
+    c.deps.plan = async (p): Promise<Planned> => (p.stage === "closed" ? { kind: "close", ix: ix("close") } : made ? { kind: "chunk", ix: ix("chunk-0") } : { kind: "pages", ixs: pages });
+    c.deps.createPages = async (ixs) => {
+      made = true;
+      c.sent.push(ixs.map((i) => i.data.toString()).join("+"));
+      return "sig-pages";
+    };
+    const r = await finishMatch(c.deps, address);
+    expect(c.sent).toEqual(["page-a+page-b", "chunk-0", "close"]);
+    expect(r).toEqual({ done: true, signatures: ["sig-pages", "sig-chunk-0", "sig-close"] });
+  });
+
+  it("stalls as needs-page when nobody can pay for pages", async () => {
+    const c = chain(settling(0));
+    c.deps.plan = async () => ({ kind: "pages", ixs: [ix("page-a")] });
+    expect(await finishMatch(c.deps, address)).toEqual({ done: false, stage: "settling", stalled: "needs-page", signatures: [] });
+  });
+
+  it("does not loop forever when pages keep being asked for", async () => {
+    const c = chain(settling(0));
+    c.deps.plan = async () => ({ kind: "pages", ixs: [ix("page-a")] });
+    c.deps.createPages = async () => "sig";
+    c.deps.maxSteps = 3;
+    expect(await finishMatch(c.deps, address)).toMatchObject({ done: false, stalled: "step-limit" });
+  });
+});
