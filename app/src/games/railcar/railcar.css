@@ -135,6 +135,7 @@
 .rc-check-tell span { color: var(--fg-2); font-size: var(--fs-14); }
 .rc-check-at { color: var(--fg) !important; }
 .rc-check-note { margin: 0; color: var(--fg-2); font-size: var(--fs-14); }
+.rc-check-note.cut-card { padding: 10px 14px; background: var(--surface); }
 .rc-check-brakes { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .rc-check-draw { margin: 0; padding: 10px 14px; background: var(--surface); color: var(--fg-2); font-size: var(--fs-13); overflow-wrap: anywhere; }
 .rc-check-verdict { display: flex; align-items: flex-start; gap: 10px; margin: 4px 0 0; font-weight: 600; }

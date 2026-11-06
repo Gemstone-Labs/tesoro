@@ -56,7 +56,7 @@ export function MatchBanner({ r, account, now, backing, me }: { r: HistoryRow; a
         )}
         {own && <span className="mb-vs" aria-hidden="true">{r.ride ? "of" : "vs"}</span>}
         {r.ride ? (
-          <span className="mb-seat mb-crowd">
+          <span className={`mb-seat mb-crowd${own ? "" : " alone"}`}>
             <span className="mb-av-wrap">
               <span className="mb-av">
                 <Users aria-hidden="true" />
