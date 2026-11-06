@@ -20,8 +20,9 @@ export function playAgainRows(rows: HistoryRow[], limit = 3): HistoryRow[] {
   return out;
 }
 
-/** Where Play again leads: a Challenge to the same opponent when that is known, otherwise the Queue at the same entry. */
+/** Where Play again leads: a Challenge to the same opponent when that is known, otherwise the Queue at the same entry (Railcar: its own page). */
 export function playAgainTarget(r: HistoryRow): { href: string; sameOpponent: boolean } {
+  if (r.game === "railcar") return { href: "/play/railcar", sameOpponent: false };
   if (canRematch({ role: r.role, outcome: r.result as "won" | "lost" | "draw", opponent: r.opp })) {
     return { href: rematchHref({ game: r.game, asset: r.asset, entry: r.entry, opponent: r.opp! }), sameOpponent: true };
   }
@@ -39,7 +40,7 @@ export interface GameFacts {
 export function gameFacts(rows: HistoryRow[]): Partial<Record<GameId, GameFacts>> {
   const out: Partial<Record<GameId, GameFacts>> = {};
   for (const r of [...rows].sort((a, b) => b.at - a.at)) {
-    if (r.role !== "player" || unplayed(r.result)) continue;
+    if (r.role !== "player" || unplayed(r.result) || r.game === "railcar") continue;
     const f = (out[r.game] ??= { last: r.result, best: null });
     if (r.game === "block-puzzle" && r.scores) f.best = Math.max(f.best ?? 0, r.scores[0]);
   }

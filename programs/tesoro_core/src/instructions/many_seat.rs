@@ -10,9 +10,11 @@
 //!   and its room held (`cover_room`) so the lines can always come back.
 //! * **Step-off.** Before departure the seat empties at once and the funder's mark carries the
 //!   lines home (`return_stepped_off` continues when one transaction cannot move them all). The
-//!   Entry Limit and the open-Match count are released at the step-off.
+//!   funder's Entry Limit count and the open-Match count are released at the step-off; a refunded
+//!   car releases the count when the seat closes (`close_many_seat`).
 //! * **Backing.** With an accepted Offer of a listed Game the Backer funds the seat (as
-//!   `join_match`): the Offer is spent, the Backer's limit counted the entry when it was made,
+//!   `join_match`): the Offer is spent, the Backer's limit counted the entry when it was made
+//!   (the count moves onto the seat),
 //!   refunds and the entry go back to the Backer, a place's winnings split by the Offer's share.
 //!   The Backer has a seat mark too, so it funds one seat per car and rides in none of it.
 //! * **Departure** is the Game's call, with at least the car's minimum seated.
@@ -309,9 +311,17 @@ pub(crate) fn open_many_seat_match(
     )
     .map_err(seat_err)?;
     {
+        let (_, receipt_bump) = Pubkey::find_program_address(
+            &[
+                crate::ledger::lifecycle::RECEIPT_SEED,
+                ctx.accounts.match_state.key().as_ref(),
+            ],
+            &crate::ID,
+        );
         let mut state = ctx.accounts.match_state.load_init()?;
         state.bump = ctx.bumps.match_state;
         state.inner = rec;
+        state.inner.set_receipt_bump(receipt_bump);
         state.listing_epoch = record.listing_epoch.to_le_bytes();
         state.payer = ctx.accounts.payer.key().to_bytes();
     }
@@ -426,6 +436,8 @@ pub struct JoinManySeatMatch<'info> {
     /// created here.
     #[account(mut)]
     pub funder_mark: Option<UncheckedAccount<'info>>,
+    /// The seat key that plays this seat; the wallet itself when it wants none.
+    pub seat_signer: Signer<'info>,
 }
 
 /// Refuses a mark that exists: the Account is in a seat of this car, or its lines from a
@@ -574,8 +586,9 @@ pub(crate) fn join_many_seat_match<'info>(
     let seat = seat_index(page, slot);
 
     // Protections and the Entry Limit, then the open-Match count. A backed Player puts none of
-    // their own Gemas at risk: the Backer's limit counted the entry when the Offer was made.
-    let counted = if backed {
+    // their own Gemas at risk: the Backer's limit counted the entry when the Offer was made, and
+    // that count moves onto the seat.
+    let mut counted = if backed {
         require_can_play(&ctx.accounts.protections.to_account_info())?;
         None
     } else {
@@ -606,6 +619,7 @@ pub(crate) fn join_many_seat_match<'info>(
             .inner
             .consume(player.to_bytes(), game.to_bytes(), entry, ts)
             .map_err(core_err)?;
+        counted = offer.inner.take_count().map(|(_, period)| period);
         let share = offer.inner.player_share_bps;
         let backer = backer_side(
             &ctx.accounts.offer,
@@ -678,6 +692,7 @@ pub(crate) fn join_many_seat_match<'info>(
         p.seats[slot].fill(&SeatFill {
             player: player.to_bytes(),
             funder: funder.to_bytes(),
+            signer: ctx.accounts.seat_signer.key().to_bytes(),
             share_bps,
             pot: pot_info.key.to_bytes(),
             pot_lines: lines,
@@ -813,7 +828,7 @@ fn return_lines<'info>(
 }
 
 /// Steps the Player off seat `seat` before departure: the seat is free at once, the Entry Limit
-/// and the open-Match count are released, and up to `max_lines` of the entry's lines go back in
+/// count (the funder's: the Backer's on a backed seat) and the open-Match count are released, and up to `max_lines` of the entry's lines go back in
 /// this transaction (`return_stepped_off` moves the rest). Signed by the seat's Player, the
 /// Game's authority, or anyone when the Player is on a Break or Self-Excluded, when boarding has
 /// ended, or when the Game's build changed since the car opened (the Game accounts passed).
@@ -888,6 +903,10 @@ pub struct StepOffManySeatMatch<'info> {
     /// CHECK: the Backer's mark of a backed seat (`funder_mark_of`); it carries the lines home.
     #[account(mut)]
     pub funder_mark: Option<UncheckedAccount<'info>>,
+    /// CHECK: the Backer's Protections on a backed seat that counted on the Backer's Entry Limit,
+    /// which is given back (checked by `release_entry_of`).
+    #[account(mut)]
+    pub funder_protections: Option<UncheckedAccount<'info>>,
 }
 
 pub(crate) fn step_off_many_seat_match<'info>(
@@ -928,8 +947,6 @@ pub(crate) fn step_off_many_seat_match<'info>(
         )
     };
     let caller = ctx.accounts.caller.key();
-    let callers_account =
-        Pubkey::find_program_address(&[ACCOUNT_SEED, caller.as_ref()], &crate::ID).0;
     let upgraded = match (
         &ctx.accounts.game_record,
         &ctx.accounts.game_program,
@@ -946,8 +963,11 @@ pub(crate) fn step_off_many_seat_match<'info>(
         _ => false,
     };
     require!(
-        callers_account.to_bytes() == s.player()
-            || caller.to_bytes() == settle_authority
+        acts_for(
+            &Pubkey::new_from_array(s.player()),
+            &caller,
+            &Pubkey::new_from_array(s.signer()),
+        ) || caller.to_bytes() == settle_authority
             || ts >= boarding_ends
             || upgraded
             || is_away(&ctx.accounts.player_protections.to_account_info())?,
@@ -963,11 +983,21 @@ pub(crate) fn step_off_many_seat_match<'info>(
     ctx.accounts.player_counters.open_matches =
         ctx.accounts.player_counters.open_matches.saturating_sub(1);
     if let Some((gemas, period)) = s.counted() {
-        release_entry(
-            &ctx.accounts.player_protections.to_account_info(),
-            gemas,
-            period,
-        )?;
+        if s.funder() == s.player() {
+            release_entry(
+                &ctx.accounts.player_protections.to_account_info(),
+                gemas,
+                period,
+            )?;
+        } else {
+            let info = ctx
+                .accounts
+                .funder_protections
+                .as_ref()
+                .ok_or_else(|| error!(MatchError::AccountMissing))?
+                .to_account_info();
+            release_entry_of(&info, &Pubkey::new_from_array(s.funder()), gemas, period)?;
+        }
     }
     ctx.accounts.seat_page.load_mut()?.seats[slot].clear();
     let player = Pubkey::new_from_array(mark.account);
@@ -1211,7 +1241,7 @@ mod tests {
 
     #[test]
     fn accounts_are_their_declared_sizes() {
-        assert_eq!(SeatPage::SPACE, 8 + 72 + 1_600);
+        assert_eq!(SeatPage::SPACE, 8 + 72 + 1_920);
         assert_eq!(std::mem::size_of::<SeatPage>(), SeatPage::SPACE - DISC);
         assert_eq!(std::mem::size_of::<SeatMark>(), SeatMark::SPACE - DISC);
         assert_eq!(

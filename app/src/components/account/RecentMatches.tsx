@@ -5,10 +5,10 @@ import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { GemaMark } from "@/components/ui";
 import { PlayerAvatar, usePlayerLabel } from "@/components/account/Player";
-import { art } from "@/lib/art";
+import { thumbOf } from "@/lib/art";
+import { historyGameName, matchHref } from "@/lib/chain/history";
 import { ago } from "@/lib/catalogue";
 import { signed, type PlayedRow } from "@/lib/chain/player-account";
-import { GAME_NAMES } from "@/lib/mock";
 
 const WORD = { won: "Won", lost: "Lost", draw: "Draw", "no-show": "No-show", refunded: "Refunded" } as const;
 /** How many Matches the Account page lists before "See all". */
@@ -49,11 +49,11 @@ export function RecentMatches({ rows, now, allHref, onAll }: { rows: PlayedRow[]
 function RecentRow({ r, now }: { r: PlayedRow; now: number }) {
   const opp = usePlayerLabel(r.opp);
   return (
-    <Link href={`/play/match/${r.id}`} className="pa-recent-row">
+    <Link href={matchHref(r)} className="pa-recent-row">
       <span className={`cut cut-chip pa-res ${r.result}`}>{WORD[r.result]}</span>
-      <Image className="pa-recent-game" src={art.thumb[r.game]} alt="" width={40} height={40} />
+      <Image className="pa-recent-game" src={thumbOf(r.game)} alt="" width={40} height={40} />
       <span className="pa-recent-who">
-        <b>{GAME_NAMES[r.game]}</b>
+        <b>{historyGameName(r.game)}</b>
         {r.opp && <small>vs {opp}</small>}
       </span>
       {r.opp && (

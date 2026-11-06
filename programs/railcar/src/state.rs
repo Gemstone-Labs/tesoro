@@ -106,6 +106,8 @@ pub struct Car {
     pub opened_at: i64,
     /// Who paid this account's rent; it goes back there when the car closes.
     pub payer: Pubkey,
+    /// `reveal_ride` published the ride for the round history; `finalize` waits for it.
+    pub revealed: bool,
 }
 
 /// A program-owned lamport holder, delegated once, that pays the commits as the fee payer.
@@ -254,8 +256,8 @@ pub struct RideSeat {
     refund: [u8; 8],
     /// The Player's core Account.
     pub account: [u8; 32],
-    /// The seat key core recorded for this seat at join (seat-keys decision D4); zero when none
-    /// is recorded, and then only the Player's wallet acts for the seat.
+    /// The seat key core recorded for this seat at join (`Seat::signer`, seat-keys decision D4),
+    /// copied by `start_ride`. The Player's wallet acts for the seat too (`acts_for`).
     pub signer: [u8; 32],
     /// After the ride: the Player's Brake, ride ms + 1 (0: no Brake). Zero during the ride.
     brake_at: [u8; 4],

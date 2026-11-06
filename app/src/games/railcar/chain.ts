@@ -98,6 +98,8 @@ export interface CarAccountView {
   tables: number;
   openedAt: number;
   payer: PublicKey;
+  /** `reveal_ride` published the ride; `finalize` waits for it. */
+  revealed: boolean;
 }
 
 /** A Player's own Brake on a ride, as only that Player can read it. */
@@ -117,7 +119,7 @@ export function decodeBrakeSeat(data: Uint8Array): BrakeSeatView {
 
 export function decodeCarAccount(data: Uint8Array): CarAccountView {
   const c = accounts.decode("Car", Buffer.from(data));
-  return { carNo: BigInt(c.car_no.toString()), tesoroMatch: c.tesoro_match, table: c.table, tables: c.tables, openedAt: Number(c.opened_at.toString()), payer: c.payer };
+  return { carNo: BigInt(c.car_no.toString()), tesoroMatch: c.tesoro_match, table: c.table, tables: c.tables, openedAt: Number(c.opened_at.toString()), payer: c.payer, revealed: !!c.revealed };
 }
 
 /** One seat of a ride, public. */
@@ -134,8 +136,8 @@ export interface RideSeatView {
   refund: bigint;
   /** The Player's core Account. */
   account: PublicKey;
-  /** The seat key core recorded for this seat, null when none (the wallet alone acts for it). */
-  signer: PublicKey | null;
+  /** The seat key core recorded for the seat (the default key when none: only the wallet acts). */
+  signer: PublicKey;
   /** After the ride: ride ms of this Player's Brake, null when none (always null during the ride). */
   brakeMs: number | null;
 }
@@ -189,7 +191,6 @@ export function decodeTable(data: Uint8Array): TableView {
   const seats: RideSeatView[] = [];
   for (let i = 0; i < seated; i++) {
     const at = SEATS_AT + i * RIDE_SEAT;
-    const signer = new PublicKey(data.subarray(at + 48, at + 80));
     const brakeAt = v.getUint32(at + 80, true);
     seats.push({
       tableSeat: i,
@@ -198,7 +199,7 @@ export function decodeTable(data: Uint8Array): TableView {
       jumpMs: v.getUint32(at + 4, true),
       refund: v.getBigUint64(at + 8, true),
       account: new PublicKey(data.subarray(at + 16, at + 48)),
-      signer: signer.equals(PublicKey.default) ? null : signer,
+      signer: new PublicKey(data.subarray(at + 48, at + 80)),
       brakeMs: brakeAt === 0 ? null : brakeAt - 1,
     });
   }
@@ -273,7 +274,30 @@ export function openCarIx(a: OpenCarArgs): TransactionInstruction {
 export const checkDepartureIx = (carNo: bigint, match: PublicKey): TransactionInstruction =>
   railcarIx("check_departure", { car: carPda(carNo), match_state: match, game_record: gameRecord(), game_program: RAILCAR_PROGRAM_ID, program_data: programData(), authority: authorityPda() });
 
-/** `finalize`: anyone; reads the committed Table and sends core the result. Remaining = every seat page of the car. */
+/**
+ * `reveal_ride`: anyone, once per car, after the commit and before `finalize`; publishes the ride for the round history
+ * (`RideRevealed`). Remaining = every seat page of the car.
+ */
+export function revealRideIx(caller: PublicKey, car: { carNo: bigint; table: number; tesoroMatch: PublicKey }, pages: number): TransactionInstruction {
+  const remaining: AccountMeta[] = Array.from({ length: pages }, (_, p) => ({ pubkey: seatPagePda(car.tesoroMatch, p), isSigner: false, isWritable: false }));
+  return railcarIx(
+    "reveal_ride",
+    {
+      caller,
+      car: carPda(car.carNo),
+      table: tablePda(car.table),
+      match_state: car.tesoroMatch,
+      core_event_authority: corePda("__event_authority"),
+      tesoro_program: TESORO_CORE,
+      event_authority: pda("__event_authority"),
+      program: RAILCAR_PROGRAM_ID,
+    },
+    {},
+    remaining,
+  );
+}
+
+/** `finalize`: anyone, once the ride is revealed; reads the committed Table and sends core the result. Remaining = every seat page of the car. */
 export function finalizeIx(caller: PublicKey, car: { carNo: bigint; table: number; tesoroMatch: PublicKey; payer: PublicKey }, pages: number): TransactionInstruction {
   const remaining: AccountMeta[] = Array.from({ length: pages }, (_, p) => ({ pubkey: seatPagePda(car.tesoroMatch, p), isSigner: false, isWritable: true }));
   return railcarIx(
@@ -292,8 +316,6 @@ export function finalizeIx(caller: PublicKey, car: { carNo: bigint; table: numbe
       receipt: settledPda(car.tesoroMatch),
       system_program: SystemProgram.programId,
       core_event_authority: corePda("__event_authority"),
-      event_authority: pda("__event_authority"),
-      program: RAILCAR_PROGRAM_ID,
     },
     {},
     remaining,
@@ -338,7 +360,7 @@ export const signalIx = (caller: PublicKey, tableIndex: number): TransactionInst
   return railcarIx("signal", { caller, table, vault: vaultPda(table), ...magic() });
 };
 
-/** `jump`: the Player of Table seat `tableSeat`, signed by the wallet of the seat's core Account or the seat key core recorded. */
+/** `jump`: the Player of Table seat `tableSeat`. `signer` is the wallet of the seat's core Account or the seat's key. */
 export const jumpIx = (signer: PublicKey, tableIndex: number, carNo: bigint, tableSeat: number): TransactionInstruction => {
   const table = tablePda(tableIndex);
   return railcarIx("jump", { player: signer, table, vault: vaultPda(table), ...magic() }, { car_no: carNo, seat: tableSeat });

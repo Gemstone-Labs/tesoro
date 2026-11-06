@@ -238,6 +238,8 @@ struct Env {
     stakes: u8,
     /// Keys come from fixed seeds, so PDA bump searches (and compute units) repeat run to run.
     keys: u8,
+    /// Seat keys Players board with (by core Account); a Player not here boards with the wallet.
+    seat_keys: HashMap<APk, Keypair>,
     now: i64,
     slot: u64,
     last_cu: u64,
@@ -289,6 +291,7 @@ impl Env {
             Err(e) => {
                 self.last_cu = e.meta.compute_units_consumed;
                 self.last_logs = e.meta.logs.clone();
+                self.last_events = vec![];
                 Err(e)
             }
         }
@@ -394,6 +397,11 @@ impl Env {
     /// A Player with a Tesoro Account and 75,000 Gemas of a Source of their own.
     fn rider(&mut self) -> Person {
         let kp = self.next_key();
+        self.rider_from(kp)
+    }
+
+    /// A rider with this wallet.
+    fn rider_from(&mut self, kp: Keypair) -> Person {
         self.svm.airdrop(&kp.pubkey(), 100 * SOL).expect("airdrop");
         let key = a(kp.pubkey());
         let account = flow::account_of(key);
@@ -542,6 +550,7 @@ impl Env {
             committed: HashMap::new(),
             stakes: 0,
             keys: 0,
+            seat_keys: HashMap::new(),
             now: T0,
             slot: SLOT0,
             last_cu: 0,
@@ -863,6 +872,10 @@ impl Env {
                 backer_basket: None,
                 backer_spill: None,
                 funder_mark: None,
+                seat_signer: self
+                    .seat_keys
+                    .get(&p.account)
+                    .map_or(p.key, |k| a(k.pubkey())),
             },
             tesoro_core::instruction::JoinManySeatMatch {
                 pot_nonce: nonce,
@@ -878,7 +891,8 @@ impl Env {
     fn board(&mut self, p: &Person, car: &Car) -> Result<(), Failed> {
         let ixs = [self.join_ix(p, car), self.check_ix(car)];
         let kp = p.kp.insecure_clone();
-        self.send(&ixs, &kp, &[])
+        let seat_key = self.seat_keys.get(&p.account).map(|k| k.insecure_clone());
+        self.send(&ixs, &kp, &seat_key.iter().collect::<Vec<_>>())
     }
 
     /// Any page's `check_departure` while boarding.
@@ -936,7 +950,8 @@ impl Env {
         };
         let ixs = [open, self.join_page_ix(p, &car, 0), self.check_ix(&car)];
         let kp = p.kp.insecure_clone();
-        self.send(&ixs, &kp, &[])?;
+        let seat_key = self.seat_keys.get(&p.account).map(|k| k.insecure_clone());
+        self.send(&ixs, &kp, &seat_key.iter().collect::<Vec<_>>())?;
         Ok(car)
     }
 
@@ -991,6 +1006,7 @@ impl Env {
                 game_program: None,
                 program_data: None,
                 funder_mark: None,
+                funder_protections: None,
             },
             tesoro_core::instruction::StepOffManySeatMatch {
                 seat: mark.seat,
@@ -1339,8 +1355,6 @@ impl Env {
                 system_program: anchor_lang::system_program::ID,
                 core_event_authority: tpda(&[b"__event_authority"]),
                 tesoro_program: tesoro_core::ID,
-                event_authority: rpda(&[b"__event_authority"]),
-                program: railcar::ID,
             },
             railcar::instruction::Finalize {},
             pages,
@@ -1354,9 +1368,54 @@ impl Env {
         self.on_base(table, |env| env.send_v0(&[cu_limit(1_400_000), i], &payer))
     }
 
+    /// `finalize` as the finish flow sends it: `reveal_ride` first (unless done), then `finalize`.
     fn finalize(&mut self, car: &Car) -> Result<(), Failed> {
+        let c: railcar::state::Car = self.load(car.key);
+        if !c.revealed {
+            self.reveal(car)?;
+        }
         let pages = self.page_metas(car);
         self.finalize_with(car, pages)
+    }
+
+    fn reveal_ix(&self, car: &Car, pages: Vec<AccountMeta>) -> Instruction {
+        ix(
+            railcar::ID,
+            railcar::accounts::RevealRide {
+                caller: a(self.admin.pubkey()),
+                car: car.key,
+                table: car.table,
+                match_state: car.tesoro,
+                core_event_authority: tpda(&[b"__event_authority"]),
+                tesoro_program: tesoro_core::ID,
+                event_authority: rpda(&[b"__event_authority"]),
+                program: railcar::ID,
+            },
+            railcar::instruction::RevealRide {},
+            pages,
+        )
+    }
+
+    fn reveal(&mut self, car: &Car) -> Result<(), Failed> {
+        let pages = self.page_metas(car);
+        let i = self.reveal_ix(car, pages);
+        let payer = self.admin.insecure_clone();
+        let table = car.table;
+        self.on_base(table, |env| env.send_v0(&[cu_limit(1_400_000), i], &payer))
+    }
+
+    /// The `RideRevealed` the last transaction emitted, and its event-CPI data length.
+    fn revealed(&self) -> (railcar::RideRevealed, usize) {
+        use anchor_lang::{AnchorDeserialize, Discriminator};
+        let d = self
+            .last_events
+            .iter()
+            .find(|d| d.len() >= 16 && d[8..16] == *railcar::RideRevealed::DISCRIMINATOR)
+            .expect("RideRevealed");
+        (
+            railcar::RideRevealed::deserialize(&mut &d[16..]).expect("decode"),
+            d.len(),
+        )
     }
 
     /// Every seat of the car and its Pot's lines.
@@ -1863,6 +1922,13 @@ fn a_hundred_players_ride_one_car_and_the_hundred_and_first_boards_the_next() {
     }
     end_by_signal(&mut env, &car);
     println!("impact signal, 100 seats: {} CU", env.last_cu);
+    env.reveal(&car).expect("reveal");
+    let (event, bytes) = env.revealed();
+    println!(
+        "reveal_ride, 100 seats: {} CU, event {bytes} B",
+        env.last_cu
+    );
+    assert_eq!((event.seats.len(), event.brakes.len()), (100, 0));
     let pages = env.page_metas(&car);
     let finalize = env.finalize_ix(&car, pages);
     let payer = env.admin.insecure_clone();
@@ -1969,8 +2035,74 @@ fn finalize_needs_the_cars_own_finished_table_and_all_its_pages() {
     let err = env.finalize(&car).unwrap_err();
     assert_eq!(code(&err), rcode(railcar::RailcarError::BadTable));
     end_by_signal(&mut env, &car);
+    env.reveal(&car).expect("reveal");
     let err = env.finalize_with(&car, vec![]).unwrap_err();
     assert_eq!(code(&err), rcode(railcar::RailcarError::PagesMissing));
+    env.finalize(&car).expect("finalize");
+    assert_eq!(env.stage(&car), ManyStage::Settling);
+}
+
+#[test]
+fn the_ride_is_revealed_once_after_impact_and_finalize_waits_for_it() {
+    let draw = draw_where(|r| r.crash_ms >= 30_000);
+    let (mut env, car, riders) = riding(draw);
+    // the committed Table still holds the ride before it: nothing to reveal
+    let err = env.reveal(&car).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::BadTable));
+    env.at_ride(car.table, 12.0);
+    env.jump(car.table, &riders[ANA]).expect("jump");
+    env.brake(car.table, &riders[BEN]).ok();
+    // a commit of the ride in progress is not a finished ride either
+    env.commit_standin(car.table);
+    let err = env.reveal(&car).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::BadTable));
+    env.at_ride(car.table, 20.0);
+    env.jump(car.table, &riders[BEN]).expect("jump");
+    end_by_signal(&mut env, &car);
+    // finalize refuses a ride nobody revealed
+    let pages = env.page_metas(&car);
+    let err = env.finalize_with(&car, pages).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::NotRevealed));
+    env.reveal(&car).expect("reveal");
+    let (e, _) = env.revealed();
+    let id = env.core_car(&car).inner.id();
+    assert_eq!(
+        (e.opener.to_bytes(), e.n, e.car_no, e.tesoro_match),
+        (id.opener, id.n, car.no, car.tesoro)
+    );
+    let t = env.table(car.table);
+    assert_eq!(e.draw, t.reveal_draw);
+    assert_eq!(e.seats.len(), 5);
+    for (s, ts) in e.seats.iter().zip(&t.seats[..5]) {
+        assert_eq!(
+            (
+                s.seat,
+                s.order,
+                s.jump_ms,
+                s.refund,
+                s.player.to_bytes(),
+                s.backer
+            ),
+            (
+                ts.seat,
+                ts.order,
+                ts.jump_ms(),
+                ts.refund(),
+                ts.account,
+                None
+            )
+        );
+    }
+    assert_eq!(
+        e.brakes.iter().map(|b| (b.seat, b.ms)).collect::<Vec<_>>(),
+        t.seats[..5]
+            .iter()
+            .filter_map(|s| s.brake_ms().map(|ms| (s.seat, ms)))
+            .collect::<Vec<_>>()
+    );
+    // once per car
+    let err = env.reveal(&car).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::AlreadyRevealed));
     env.finalize(&car).expect("finalize");
     assert_eq!(env.stage(&car), ManyStage::Settling);
 }
@@ -2046,14 +2178,35 @@ fn only_one_car_boards_at_a_time() {
 
 #[test]
 fn a_seat_key_jumps_for_its_seat_and_no_other_key_does() {
-    let (mut env, car, riders) = riding(draw_where(|r| r.crash_ms >= 30_000));
-    // the seat key core records at join (seat-keys ticket 08), written here as it would be copied
-    let key = Keypair::new();
+    let mut env = Env::new(2);
+    let riders: Vec<Person> = (0..5).map(|_| env.rider()).collect();
+    // Ana boards with a seat key (it co-signs her join); core records it on her seat
+    let key = Keypair::new_from_array([240; 32]);
     env.svm.airdrop(&key.pubkey(), SOL).expect("airdrop");
+    env.seat_keys
+        .insert(riders[ANA].account, key.insecure_clone());
+    let mut car = None;
+    for p in &riders {
+        car = Some(env.queue(p).expect("board"));
+    }
+    let car = car.expect("a car");
+    env.set_time(env.now + COUNTDOWN_SECS);
+    env.check(&car).expect("depart");
+    env.start_ride(&car).expect("start");
     let seat = env.seat_of(car.table, &riders[ANA]);
-    env.patch_table(car.table, |t| {
-        t.seats[usize::from(seat)].signer = key.pubkey().to_bytes();
-    });
+    let t = env.table(car.table);
+    assert_eq!(
+        t.seats[usize::from(seat)].signer,
+        key.pubkey().to_bytes(),
+        "start_ride copied the seat key core recorded"
+    );
+    let bens = env.seat_of(car.table, &riders[BEN]);
+    assert_eq!(
+        t.seats[usize::from(bens)].signer,
+        riders[BEN].key.to_bytes()
+    );
+    env.callback(car.table, draw_where(|r| r.crash_ms >= 30_000))
+        .expect("draw");
     env.at_ride(car.table, 15.0);
     let as_key = Person {
         kp: key.insecure_clone(),
@@ -2062,12 +2215,11 @@ fn a_seat_key_jumps_for_its_seat_and_no_other_key_does() {
         source: riders[ANA].source,
     };
     // the key acts for Ana's seat only
-    let bens = env.seat_of(car.table, &riders[BEN]);
     let wrong = env.jump_ix(car.table, &as_key, car.no, bens);
     let err = env.send(&[wrong], &key, &[]).unwrap_err();
     assert_eq!(code(&err), rcode(railcar::RailcarError::NotAPlayer));
     // a stranger's key acts for nobody
-    let stranger = Keypair::new();
+    let stranger = Keypair::new_from_array([241; 32]);
     env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
     let mut not_hers = dup(&as_key);
     not_hers.kp = stranger.insecure_clone();
@@ -2076,8 +2228,98 @@ fn a_seat_key_jumps_for_its_seat_and_no_other_key_does() {
     let err = env.send(&[i], &stranger, &[]).unwrap_err();
     assert_eq!(code(&err), rcode(railcar::RailcarError::NotAPlayer));
     env.jump(car.table, &as_key).expect("the seat key jumps");
+    // the wallet still acts for its own seat
+    env.at_ride(car.table, 16.0);
+    env.jump(car.table, &riders[BEN])
+        .expect("Ben's wallet jumps");
     let t = env.table(car.table);
-    assert_eq!((t.jumps, t.seats[usize::from(seat)].order), (1, 1));
+    assert_eq!(
+        (
+            t.jumps,
+            t.seats[usize::from(seat)].order,
+            t.seats[usize::from(bens)].order
+        ),
+        (2, 1, 2)
+    );
+}
+
+// ==================================================================================// Compute: finalize does not depend on the receipt's bump
+// =========================================================================================
+
+/// The canonical bump of the receipt of the first car `wallet` opens.
+fn receipt_bump_of_first_car(wallet: &Keypair) -> u8 {
+    let account = flow::account_of(a(wallet.pubkey()));
+    let car = tpda(&[MATCH_SEED, account.as_ref(), &0u64.to_le_bytes()]);
+    APk::find_program_address(&[b"settled", car.as_ref()], &tesoro_core::ID).1
+}
+
+/// A wallet whose first car's receipt has a bump at most `max` (256 - max tries to find).
+fn wallet_with_receipt_bump_at_most(max: u8) -> Keypair {
+    for i in 0u32..1_000_000 {
+        let mut seed = [9u8; 32];
+        seed[..4].copy_from_slice(&i.to_le_bytes());
+        let kp = Keypair::new_from_array(seed);
+        if receipt_bump_of_first_car(&kp) <= max {
+            return kp;
+        }
+    }
+    panic!("no wallet found");
+}
+
+/// A 100-seat ride opened by `opener`: 13 Jumps at 2, 6, ... 50 s, Impact, `finalize`. Returns
+/// `finalize`'s compute units and the car's receipt bump.
+fn hundred_seat_finalize(opener: Keypair) -> (u64, u8) {
+    let mut env = Env::new(2);
+    let first = env.rider_from(opener);
+    let mut riders = vec![first];
+    riders.extend((0..99).map(|_| env.rider()));
+    let mut car = None;
+    for p in &riders {
+        car = Some(env.queue(p).expect("board"));
+    }
+    let car = car.expect("a car");
+    assert_eq!(env.stage(&car), ManyStage::Departed);
+    let (_, bump) = APk::find_program_address(&[b"settled", car.tesoro.as_ref()], &tesoro_core::ID);
+    assert_eq!(
+        env.core_car(&car).inner.receipt_bump(),
+        bump,
+        "core stored the canonical bump"
+    );
+    env.start_ride(&car).expect("start");
+    env.callback(car.table, draw_where(|r| r.crash_ms >= 60_000))
+        .expect("draw");
+    for (k, p) in riders.iter().take(13).enumerate() {
+        env.at_ride(car.table, 2.0 + 4.0 * k as f64);
+        env.jump(car.table, p).expect("jump");
+    }
+    end_by_signal(&mut env, &car);
+    env.finalize(&car).expect("finalize");
+    (env.last_cu, bump)
+}
+
+#[test]
+fn finalize_costs_the_same_whatever_the_receipt_bump() {
+    let easy = (0u32..)
+        .map(|i| {
+            let mut seed = [8u8; 32];
+            seed[..4].copy_from_slice(&i.to_le_bytes());
+            Keypair::new_from_array(seed)
+        })
+        .find(|kp| receipt_bump_of_first_car(kp) == 255)
+        .expect("a one-try receipt");
+    let hard = wallet_with_receipt_bump_at_most(245);
+    let (cu_easy, bump_easy) = hundred_seat_finalize(easy);
+    let (cu_hard, bump_hard) = hundred_seat_finalize(hard);
+    println!(
+        "finalize, 100 seats: {cu_easy} CU (receipt bump {bump_easy}), {cu_hard} CU (receipt bump {bump_hard}, {} tries to find)",
+        256 - u32::from(bump_hard)
+    );
+    assert!(bump_hard <= 245);
+    // the same work but for one rider's keys: well under one bump try (about 1,500 CU)
+    assert!(
+        cu_easy.abs_diff(cu_hard) < 500,
+        "finalize depends on the receipt bump: {cu_easy} vs {cu_hard}"
+    );
 }
 
 // =========================================================================================
@@ -2471,6 +2713,17 @@ fn a_hundred_brakes_and_ninety_nine_jumps_end_inside_one_default_transaction() {
             .count(),
         100
     );
+    // the reveal of the worst case: 100 seats, 99 Jumps, 100 Brakes, inside the CPI data limit
+    env.reveal(&car).expect("reveal");
+    let (event, bytes) = env.revealed();
+    println!(
+        "reveal_ride, 100 Brakes, 99 Jumps: {} CU, event {bytes} B",
+        env.last_cu
+    );
+    assert_eq!((event.seats.len(), event.brakes.len()), (100, 100));
+    assert_eq!(event.seats.iter().filter(|s| s.order != 0).count(), 99);
+    assert!(bytes <= 10_240);
+    assert!(env.last_cu < 140_000);
     let pages = env.page_metas(&car);
     let finalize = env.finalize_ix(&car, pages);
     let payer = env.admin.insecure_clone();
@@ -2478,8 +2731,7 @@ fn a_hundred_brakes_and_ninety_nine_jumps_end_inside_one_default_transaction() {
         e.send_v0(&[cu_limit(1_400_000), finalize], &payer)
     })
     .expect("finalize");
-    // known gap: over the 140,000 budget (ticket 12 moves the reveal out, ticket 19 the floor)
-    println!("finalize with 100 Brakes revealed: {} CU", env.last_cu);
+    println!("finalize after 100 Brakes revealed: {} CU", env.last_cu);
 }
 
 #[test]
@@ -2740,13 +2992,13 @@ impl Env {
 
     /// With `TESORO_RAILCAR_FIXTURE=<dir>` set, writes the riders and the event CPIs of the last
     /// transaction (a `finalize`) to `<dir>/<name>.json` for the keeper's Points tests. Railcar's
-    /// own `RideSettled` is left out: the file stands for core's events.
+    /// own `RideRevealed` is left out: the file stands for core's events.
     fn write_events_fixture(&self, name: &str, riders: &[Person]) {
         let Ok(dir) = std::env::var("TESORO_RAILCAR_FIXTURE") else {
             return;
         };
         let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
-        let ours = railcar::RideSettled::DISCRIMINATOR;
+        let ours = railcar::RideRevealed::DISCRIMINATOR;
         let events: Vec<String> = self
             .last_events
             .iter()

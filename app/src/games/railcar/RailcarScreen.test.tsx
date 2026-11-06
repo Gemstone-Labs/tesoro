@@ -134,6 +134,40 @@ describe("the Result", () => {
   });
 });
 
+describe("Spectators", () => {
+  const watch = (signedIn: boolean, nextSeated: number | null = 12) => renderToStaticMarkup(<RailcarScreen view={riding(null)} watch={{ signedIn, nextSeated }} actions={{ onBoard: () => undefined, onSignIn: () => undefined }} />);
+
+  it("watch the live ride as a Player who has not Braked: clock, Tells, aboard, at stake; no Jump, no Brake", () => {
+    const h = watch(false);
+    const t = text(h);
+    expect(t).toContain("Live");
+    expect(t).toContain("1:12");
+    expect(t).toContain("Aboard 29");
+    expect(t).toContain("At stake");
+    expect(h).not.toMatch(/<button[^>]*>(Jump|Brake)/);
+  });
+
+  it("are offered the next ride, with how many have boarded it", () => {
+    const t = text(watch(true));
+    expect(t).toContain("Play the next ride");
+    expect(t).toContain("Boarding next: 12 aboard");
+    expect(text(watch(true, null))).toContain("Boarding next: no car yet, you open it");
+  });
+
+  it("signed out: the same button signs in first", () => {
+    const t = text(watch(false));
+    expect(t).toContain("Play the next ride");
+    expect(t).toContain("Sign in to board");
+  });
+
+  it("the Result of the ride they watched: the ride's headline and the next ride", () => {
+    const t = text(renderToStaticMarkup(<RailcarScreen view={workedResult(null)} watch={{ signedIn: true, nextSeated: 3 }} actions={{ onBoard: () => undefined }} />));
+    expect(t).toContain("Ride over");
+    expect(t).toContain("Play the next ride");
+    expect(t).not.toContain("Play again");
+  });
+});
+
 describe("Backing: a Player boards with a Backer's Gemas", () => {
   const offer = { backer: BOB.toBase58(), sharePct: 40 };
   const backed = { seat: 1, backer: BOB, shareBps: 4_000 };

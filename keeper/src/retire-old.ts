@@ -23,8 +23,9 @@ const TOKEN_PROGRAM = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
 const ATA_PROGRAM = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 
 /** `State::SPACE` of the current layouts (programs/tesoro_core/src/state.rs). A Position is retired below 235 bytes: a 235-byte one
- * (before ticket 55) is migrated to 243 by `migrate_position`, never retired (`retire_position` refuses it too). */
-export const SPACE = { position: LEGACY_POSITION_SPACE, custody: 178, treasury: 143, offer: 174 } as const;
+ * (before ticket 55) is migrated to 243 by `migrate_position`, never retired (`retire_position` refuses it too). Likewise a 174-byte
+ * Offer (before `counted_in`, Railcar ticket 17) is grown to 182 by `grow_offer` (`scripts/grow-offers.ts`), never retired. */
+export const SPACE = { position: LEGACY_POSITION_SPACE, custody: 178, treasury: 143, offer: 182, offerV1: 174 } as const;
 const BACKING_TTL_SECS = 24 * 60 * 60;
 
 export type Kind = "custody" | "position" | "source" | "holding" | "offer" | "request" | "treasury" | "match" | "season";
@@ -133,7 +134,7 @@ export function planPhase(s: Snapshot, phase: 1 | 2 | 3 | 4): { items: Item[]; s
         items.push({ kind: "position", key: r.pubkey, refs: { position: r.pubkey } });
       } else if (t === "Treasury" && len < SPACE.treasury) {
         items.push({ kind: "treasury", key: r.pubkey, refs: { treasury: r.pubkey } });
-      } else if (t === "OfferState" && len < SPACE.offer) {
+      } else if (t === "OfferState" && len < SPACE.offerV1) {
         items.push({ kind: "offer", key: r.pubkey, refs: { offer: r.pubkey }, remaining: [] });
       } else if (t === "MatchState" && (LEGACY_LEN.match as readonly number[]).includes(len)) {
         items.push({ kind: "match", key: r.pubkey, refs: { account: r.pubkey } });

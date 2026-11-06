@@ -2,7 +2,7 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import type { CarView, SeatPageView, SeatView } from "../../lib/chain/many-seat";
 import type { TableView } from "./chain";
-import { boardingSteps, departureDue, mayFinish, nextRideStep, queueChoice, signalIntervalMs } from "./flow";
+import { boardingSteps, departureDue, mayFinish, nextRideStep, queueChoice, signalIntervalMs, watchedRide } from "./flow";
 
 const key = () => Keypair.generate().publicKey;
 const T0 = 1_762_300_000;
@@ -147,13 +147,32 @@ describe("finishing a ride from the Players' pages", () => {
 
   it("the Players the result pays send the finish; a Player aboard at Impact only watches", () => {
     const me = key();
-    const placed = table({ phase: "over", outcome: "placed", places: [2, 255, 255], seats: [0, 1, 2].map((i) => ({ tableSeat: i, seat: i, order: i === 2 ? 1 : 0, jumpMs: 0, refund: 0n, account: i === 2 ? me : key(), signer: null, brakeMs: null })) });
+    const placed = table({ phase: "over", outcome: "placed", places: [2, 255, 255], seats: [0, 1, 2].map((i) => ({ tableSeat: i, seat: i, order: i === 2 ? 1 : 0, jumpMs: 0, refund: 0n, account: i === 2 ? me : key(), signer: PublicKey.default, brakeMs: null })) });
     expect(mayFinish(placed, me)).toBe(true);
-    const lost = table({ phase: "over", outcome: "placed", places: [2, 255, 255], seats: [0, 1, 2].map((i) => ({ tableSeat: i, seat: i, order: 0, jumpMs: 0, refund: 0n, account: i === 0 ? me : key(), signer: null, brakeMs: null })) });
+    const lost = table({ phase: "over", outcome: "placed", places: [2, 255, 255], seats: [0, 1, 2].map((i) => ({ tableSeat: i, seat: i, order: 0, jumpMs: 0, refund: 0n, account: i === 0 ? me : key(), signer: PublicKey.default, brakeMs: null })) });
     expect(mayFinish(lost, me)).toBe(false);
-    const refunded = table({ phase: "over", outcome: "refund", seats: [{ tableSeat: 0, seat: 0, order: 0, jumpMs: 0, refund: 0n, account: me, signer: null, brakeMs: null }] });
+    const refunded = table({ phase: "over", outcome: "refund", seats: [{ tableSeat: 0, seat: 0, order: 0, jumpMs: 0, refund: 0n, account: me, signer: PublicKey.default, brakeMs: null }] });
     expect(mayFinish(refunded, me)).toBe(true);
-    const early = table({ phase: "over", outcome: "placed", seats: [{ tableSeat: 0, seat: 0, order: 1, jumpMs: 25_000, refund: 350n, account: me, signer: null, brakeMs: null }] });
+    const early = table({ phase: "over", outcome: "placed", seats: [{ tableSeat: 0, seat: 0, order: 1, jumpMs: 25_000, refund: 350n, account: me, signer: PublicKey.default, brakeMs: null }] });
     expect(mayFinish(early, me)).toBe(true);
+  });
+});
+
+describe("what a Spectator watches", () => {
+  const t = (index: number, carNo: bigint, phase: TableView["phase"], overAt = 0) => ({ index, carNo, phase, overAt }) as TableView;
+
+  it("the live ride: the newest car riding (or waiting for its draw)", () => {
+    expect(watchedRide([t(0, 4n, "riding"), t(1, 5n, "drawing")], T0)?.carNo).toBe(5n);
+    expect(watchedRide([t(0, 6n, "riding"), t(1, 5n, "over", T0 - 5)], T0)?.carNo).toBe(6n);
+  });
+
+  it("a ride that just ended, for its Result, until a minute after the wall", () => {
+    expect(watchedRide([t(0, 6n, "over", T0 - 59), t(1, 5n, "over", T0 - 200)], T0)?.carNo).toBe(6n);
+    expect(watchedRide([t(0, 6n, "over", T0 - 61)], T0)).toBeNull();
+  });
+
+  it("nothing riding: none (the page shows the boarding car)", () => {
+    expect(watchedRide([t(0, 0n, "idle"), t(1, 0n, "idle")], T0)).toBeNull();
+    expect(watchedRide([], T0)).toBeNull();
   });
 });

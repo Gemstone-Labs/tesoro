@@ -1,4 +1,4 @@
-import { Keypair } from "@solana/web3.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import type { CarView, SeatView } from "../../lib/chain/many-seat";
 import type { RideSeatView, TableView } from "./chain";
@@ -15,7 +15,7 @@ const coreCar = (o: Partial<CarView> = {}): CarView =>
 const seat = (i: number): SeatView => ({ index: i, seated: true, shareBps: 0, placeBps: 0, place: 0, potLines: 1, hold: 0, refund: 0n, player: players[i], funder: players[i], pot: key(), signer: null });
 const seats = players.map((_, i) => seat(i));
 
-const rideSeat = (i: number, order: number, jumpMs: number, refund = 0n): RideSeatView => ({ tableSeat: i, seat: i, order, jumpMs, refund, account: players[i], signer: null, brakeMs: null });
+const rideSeat = (i: number, order: number, jumpMs: number, refund = 0n): RideSeatView => ({ tableSeat: i, seat: i, order, jumpMs, refund, account: players[i], signer: PublicKey.default, brakeMs: null });
 const table = (o: Partial<TableView> = {}): TableView => ({
   index: 0,
   phase: "riding",

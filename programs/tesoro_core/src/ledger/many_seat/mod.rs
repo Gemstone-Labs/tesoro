@@ -113,7 +113,10 @@ pub struct ManySeatRecord {
     /// Seat pages created so far (always in order, page `pages` is the next one).
     pub pages: u8,
     stage: u8,
-    pub reserved: [u8; 6],
+    /// Canonical bump of the car's receipt `["settled", match]`, found once at open so settling
+    /// checks the address with one hash instead of a bump search.
+    receipt_bump: u8,
+    pub reserved: [u8; 5],
     /// From departure: anyone may refund the car from this time on (`settle::start_refund`).
     refund_after: [u8; 8],
     /// The run (ticket 03), fixed when settling starts. See `settle`.
@@ -131,7 +134,7 @@ const PAID: u8 = 5;
 pub const REFUND_AFTER_SECS: i64 = 24 * 60 * 60;
 
 impl ManySeatRecord {
-    pub const LEN: usize = 32 * 4 + 8 * 8 + 2 * 2 + 10 + 6 + 8 + SeatRun::LEN;
+    pub const LEN: usize = 32 * 4 + 8 * 8 + 2 * 2 + 10 + 1 + 5 + 8 + SeatRun::LEN;
 
     #[allow(clippy::too_many_arguments)]
     pub fn open(
@@ -180,7 +183,8 @@ impl ManySeatRecord {
             seated: 0,
             pages: 0,
             stage: BOARDING,
-            reserved: [0; 6],
+            receipt_bump: 0,
+            reserved: [0; 5],
             refund_after: [0; 8],
             run: bytemuck::Zeroable::zeroed(),
         })
@@ -253,6 +257,14 @@ impl ManySeatRecord {
             ManyStage::Paid => PAID,
             ManyStage::Closed => CLOSED,
         };
+    }
+
+    /// Canonical bump of the car's receipt PDA (set by the instruction layer at open).
+    pub fn receipt_bump(&self) -> u8 {
+        self.receipt_bump
+    }
+    pub fn set_receipt_bump(&mut self, bump: u8) {
+        self.receipt_bump = bump;
     }
 
     /// Anyone may refund the car from this time on (0 before departure).
@@ -362,6 +374,8 @@ pub enum SeatState {
 pub struct SeatFill {
     pub player: Key,
     pub funder: Key,
+    /// The seat key that plays the seat (the Player's own wallet when it named none).
+    pub signer: Key,
     /// The Player's share of a Backed seat's winnings (0 when unbacked).
     pub share_bps: u16,
     /// The Pot account holding the seat's entry lines, and how many lines it held.
@@ -369,7 +383,7 @@ pub struct SeatFill {
     pub pot_lines: u32,
     /// Slots held in the funder's stores for the seat's lines coming back.
     pub hold: u32,
-    /// Gemas the entry counted against the Entry Limit and the period they count in.
+    /// Gemas the entry counted against the funder's Entry Limit and the period they count in.
     pub counted: Option<(u64, i64)>,
 }
 
@@ -393,13 +407,14 @@ pub struct Seat {
     pub player: [u8; 32],
     pub funder: [u8; 32],
     pub pot: [u8; 32],
+    pub signer: [u8; 32],
     pub reserved: [u8; 24],
 }
 
 const SEATED: u8 = 1;
 
 impl Seat {
-    pub const LEN: usize = 160;
+    pub const LEN: usize = 192;
 
     pub fn zeroed() -> Self {
         bytemuck::Zeroable::zeroed()
@@ -426,6 +441,7 @@ impl Seat {
         self.player = f.player;
         self.funder = f.funder;
         self.pot = f.pot;
+        self.signer = f.signer;
     }
 
     pub fn clear(&mut self) {
@@ -440,6 +456,9 @@ impl Seat {
     }
     pub fn pot(&self) -> Key {
         self.pot
+    }
+    pub fn signer(&self) -> Key {
+        self.signer
     }
     pub fn share_bps(&self) -> u16 {
         u16::from_le_bytes(self.share_bps)

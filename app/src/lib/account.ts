@@ -124,7 +124,8 @@ function fromSnapshot(s: AccountSnapshot) {
     },
   }));
   const byId = new Map([...s.matches, ...s.funded].map((m) => [m.id.toString(), m]));
-  const matches: Match[] = accountHistory(s.matches, s.funded).map((r) => {
+  // Read from the head-to-head Matches on chain: never a Railcar ride.
+  const matches: Match[] = accountHistory(s.matches, s.funded).flatMap((r) => (r.game === "railcar" ? [] : [{ ...r, game: r.game }])).map((r) => {
     const m = byId.get(r.id);
     const seed = m?.session && r.role === "player" ? m.session.seed.toString(16).padStart(16, "0") : null;
     return {

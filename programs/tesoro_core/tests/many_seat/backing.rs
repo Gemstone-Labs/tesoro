@@ -4,6 +4,8 @@
 
 use super::settle::{result, ANA, BEN, CY, DEE, EVE};
 use super::*;
+use tesoro_core::error::MatchError;
+use tesoro_core::ledger::many_seat::ManySeatResult;
 use tesoro_core::ledger::many_seat::SeatState;
 use tesoro_core::ledger::OfferStatus;
 
@@ -81,6 +83,38 @@ impl Env {
         offer: APk,
         car: Car,
     ) -> Result<u8, litesvm::types::FailedTransactionMetadata> {
+        self.board_backed_keyed(player, backer, offer, car, None)
+    }
+
+    /// As `board_backed`, naming `seat_key` as the Player's seat key.
+    fn board_backed_keyed(
+        &mut self,
+        player: &Person,
+        backer: &Person,
+        offer: APk,
+        car: Car,
+        seat_key: Option<&Keypair>,
+    ) -> Result<u8, litesvm::types::FailedTransactionMetadata> {
+        let join = self.backed_join_ix(player, backer, offer, car, seat_key);
+        let kp = player.kp.insecure_clone();
+        match seat_key {
+            Some(k) => self.send_v0_with(&[cu_limit(1_400_000), join], &kp, &[k])?,
+            None => self.send_v0(&[cu_limit(1_400_000), join], &kp)?,
+        };
+        println!("backed join: {} CU", self.last_cu);
+        Ok(self.mark(car, player).expect("mark").seat)
+    }
+
+    /// The Backed join with every optional Backer account (and the seat key, when named).
+    fn backed_join_ix(
+        &mut self,
+        player: &Person,
+        backer: &Person,
+        offer: APk,
+        car: Car,
+        seat_key: Option<&Keypair>,
+    ) -> Instruction {
+        let named = seat_key.map_or(player.key, |k| a(k.pubkey()));
         let page = self.page_with_room(car);
         let nonce = self.next_ticket(backer.account);
         let pot = ticket_pda(backer.account, nonce);
@@ -89,17 +123,14 @@ impl Env {
             books.extend(book_metas(&self.svm, src));
         }
         self.ensure_spill(&backer.kp.insecure_clone(), backer.account, 40);
-        let join = self.join_ix(
+        self.join_ix(
             player,
             car,
             page,
             (nonce, 12, pot),
             books,
-            Some((offer, backer.account)),
-        );
-        self.send_v0(&[cu_limit(1_400_000), join], &player.kp.insecure_clone())?;
-        println!("backed join: {} CU", self.last_cu);
-        Ok(self.mark(car, player).expect("mark").seat)
+            (Some((offer, backer.account)), named),
+        )
     }
 
     fn offer_status(&self, offer: APk) -> OfferStatus {
@@ -367,4 +398,245 @@ fn an_unbacked_step_off_ignores_a_funder_mark_passed_with_it() {
     assert_eq!(env.total_gemas(ben), 2_000);
     assert_eq!(env.mark(car, ana).expect("Ana's mark").returning, 0);
     assert_eq!(env.car(car).inner.seated, 2);
+}
+
+#[test]
+fn a_backed_seat_steps_off_with_its_seat_key_and_the_return_lands_on_the_backer() {
+    let mut env = Env::new();
+    let opener = env.rider(2_000);
+    let ben = env.rider(2_000);
+    let bob = env.person();
+    let sources: Vec<APk> = (0..10).map(|i| env.forge_source(70 + i as u8, 0)).collect();
+    env.give_lines(&bob, &sources, 50, |i| i as i64);
+    let offer = env.backing(&ben, &bob, 1, SHARE);
+    let car = env.open_car(&opener, (2, 10));
+    let key = env.fresh_key();
+    let stranger = env.fresh_key();
+    env.board_backed_keyed(&ben, &bob, offer, car, Some(&key))
+        .expect("backed with a key");
+    // a stranger cannot step Ben off
+    let i = env.step_off_ix(a(stranger.pubkey()), car, &ben, 8, false);
+    let err = env.send_v0(&[i], &stranger).unwrap_err();
+    assert_eq!(custom_code(&err), seat_err(ManySeatError::NotYourSeat));
+    // the seat key steps off; the lines land on the Backer's mark
+    let i = env.step_off_ix(a(key.pubkey()), car, &ben, 8, false);
+    env.send_v0(&[i], &key).expect("seat key steps off");
+    assert!(env.mark(car, &ben).is_none());
+    let mark = env.mark(car, &bob).expect("Bob's return");
+    assert_eq!((mark.returning, mark.funder), (1, bob.account.to_bytes()));
+    assert_eq!(env.total_gemas(&bob), 8 * 50);
+    let other = opener.kp.insecure_clone();
+    env.return_rest(&other, car, &bob, 8).expect("rest");
+    assert_eq!(env.total_gemas(&bob), 500);
+    assert_eq!(env.total_gemas(&ben), 2_000);
+}
+
+/// What the sponsor sends: the relayer pays, the Player's wallet and the seat key co-sign.
+/// Prints the serialized size with no lookup table, and with every non-signer account in one.
+#[test]
+fn the_sponsored_backed_join_with_a_seat_key_fits_a_transaction() {
+    use solana_sdk::message::{v0, Message, VersionedMessage};
+    let mut env = Env::new();
+    let opener = env.rider(2_000);
+    let ben = env.rider(2_000);
+    let bob = env.person();
+    let sources: Vec<APk> = (0..4).map(|i| env.forge_source(70 + i as u8, 0)).collect();
+    env.give_lines(&bob, &sources, 125, |i| i as i64);
+    let offer = env.backing(&ben, &bob, 1, SHARE);
+    let car = env.open_car(&opener, (2, 10));
+    let key = env.fresh_key();
+    let relayer = env.fresh_key();
+    let mut join = env.backed_join_ix(&ben, &bob, offer, car, Some(&key));
+    join.accounts[0].pubkey = s(a(relayer.pubkey()));
+    let ixs = [cu_limit(1_400_000), join];
+    let legacy = Message::new(&ixs, Some(&relayer.pubkey()));
+    let sigs = legacy.header.num_required_signatures as usize;
+    let legacy_len = legacy.serialize().len() + 1 + 64 * sigs;
+    let table: Vec<Pk> = ixs
+        .iter()
+        .flat_map(|i| i.accounts.iter())
+        .filter(|m| !m.is_signer)
+        .map(|m| m.pubkey)
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let alt = solana_sdk::message::AddressLookupTableAccount {
+        key: Pk::new_unique(),
+        addresses: table,
+    };
+    let v0m = v0::Message::try_compile(&relayer.pubkey(), &ixs, &[alt], env.svm.latest_blockhash())
+        .expect("compile");
+    let v0_len = VersionedMessage::V0(v0m).serialize().len() + 1 + 64 * sigs;
+    println!(
+        "sponsored Backed join + seat key: {legacy_len} B without a table, {v0_len} B with every non-signer in a table ({sigs} signatures, {} accounts)",
+        ixs[1].accounts.len()
+    );
+    assert!(v0_len <= 1_232, "{v0_len} B with a table");
+}
+
+// --- Ticket 17: the Entry Limit gives back a seat's entry that comes back unplayed ------------
+
+impl Env {
+    fn used_now(&self, p: &Person) -> u64 {
+        self.entry_limit(p).used(self.now())
+    }
+
+    /// Steps `player` off, the Backer's Protections left out when `with_limit` is false.
+    fn step_off_backed(
+        &mut self,
+        car: Car,
+        player: &Person,
+        with_limit: bool,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let mut i = self.step_off_ix(player.key, car, player, 8, false);
+        if !with_limit {
+            // `funder_protections` is the last named account: absent
+            i.accounts[14] = AccountMeta::new_readonly(s(tesoro_core::ID), false);
+        }
+        self.send_v0(&[i], &player.kp.insecure_clone()).map(drop)
+    }
+
+    /// Closes every seat of a paid car; the funders' Protections left out when `with_limit` is
+    /// false (the first close fails then).
+    fn close_seats(
+        &mut self,
+        car: Car,
+        with_limit: bool,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let caller = self.admin.insecure_clone();
+        for seat in 0..self.car(car).inner.max_seats {
+            let page = self.page(car, seat / SEATS_PER_PAGE as u8);
+            if page.seats[seat as usize % SEATS_PER_PAGE].state() != SeatState::Seated {
+                continue;
+            }
+            let mut i = self.close_seat_ix(a(caller.pubkey()), car, seat);
+            if !with_limit {
+                let last = i.accounts.len() - 1;
+                i.accounts[last] = AccountMeta::new_readonly(s(tesoro_core::ID), false);
+            }
+            self.send(&[i], &caller, &[])?;
+        }
+        Ok(())
+    }
+}
+
+#[test]
+fn bobs_walk_through_a_backed_step_off_gives_the_backers_limit_back() {
+    let mut env = Env::new();
+    let opener = env.rider(2_000);
+    let (ben, bob) = (env.person(), env.rider(2_000));
+    env.set_entry_limit(&bob, 1_000).expect("Bob's limit");
+    let offer = env.backing(&ben, &bob, 1, SHARE);
+    assert_eq!(env.used_now(&bob), 500);
+    let car = env.open_car(&opener, (2, 10));
+    let seat = env.board_backed(&ben, &bob, offer, car).expect("backed");
+    let st = env.page(car, 0).seats[seat as usize];
+    assert_eq!(
+        st.counted().map(|(g, _)| g),
+        Some(500),
+        "the seat carries Bob's count"
+    );
+    assert_eq!(env.load::<OfferState>(offer).inner.counted_in, 0);
+    // the step-off cannot leave Bob's count behind
+    let err = env.step_off_backed(car, &ben, false).unwrap_err();
+    assert_eq!(custom_code(&err), match_err(MatchError::AccountMissing));
+    env.step_off_backed(car, &ben, true).expect("step off");
+    assert_eq!(env.used_now(&bob), 0);
+    assert_eq!(env.total_gemas(&bob), 2_000);
+    // Bob backs 1,000 again this period
+    let (cy, dee) = (env.person(), env.person());
+    env.backing(&cy, &bob, 2, SHARE);
+    env.backing(&dee, &bob, 3, SHARE);
+    assert_eq!(env.used_now(&bob), 1_000);
+}
+
+#[test]
+fn a_backed_step_off_after_the_period_rolled_over_gives_nothing_back() {
+    let mut env = Env::new();
+    let opener = env.rider(2_000);
+    let (ben, cy, bob) = (env.person(), env.person(), env.rider(2_000));
+    env.set_entry_limit(&bob, 1_000).expect("Bob's limit");
+    let offer = env.backing(&ben, &bob, 1, SHARE);
+    let car = env.open_car(&opener, (2, 10));
+    env.board_backed(&ben, &bob, offer, car).expect("backed");
+    let now = env.now();
+    env.set_time(now + 7 * 24 * 3_600 + 1);
+    env.backing(&cy, &bob, 2, SHARE);
+    assert_eq!(
+        env.used_now(&bob),
+        500,
+        "the new period counted only the new Offer"
+    );
+    env.step_off_backed(car, &ben, true).expect("step off");
+    assert_eq!(env.used_now(&bob), 500);
+}
+
+#[test]
+fn a_refunded_car_gives_back_the_riders_and_the_backers_counts() {
+    let mut env = Env::new();
+    let (ana, ben, bob) = (env.rider(2_000), env.person(), env.rider(2_000));
+    env.set_entry_limit(&ana, 1_000).expect("Ana's limit");
+    env.set_entry_limit(&bob, 1_000).expect("Bob's limit");
+    let offer = env.backing(&ben, &bob, 1, SHARE);
+    let car = env.open_car(&ana, (2, 10));
+    env.board(&ana, car).expect("Ana");
+    env.board_backed(&ben, &bob, offer, car)
+        .expect("Ben for Bob");
+    env.depart(car).expect("depart");
+    // the ride is void: every entry back, no result
+    env.settle_car(car, ManySeatResult::Refund).expect("void");
+    env.run_car(car);
+    assert_eq!((env.used_now(&ana), env.used_now(&bob)), (500, 500));
+    let err = env.close_seats(car, false).unwrap_err();
+    assert_eq!(custom_code(&err), match_err(MatchError::AccountMissing));
+    env.close_seats(car, true).expect("close");
+    assert_eq!((env.used_now(&ana), env.used_now(&bob)), (0, 0));
+}
+
+#[test]
+fn a_ride_with_a_result_gives_no_count_back() {
+    let mut env = Env::new();
+    let (ana, ben, bob) = (env.rider(2_000), env.person(), env.rider(2_000));
+    env.set_entry_limit(&ana, 1_000).expect("Ana's limit");
+    env.set_entry_limit(&bob, 1_000).expect("Bob's limit");
+    let offer = env.backing(&ben, &bob, 1, SHARE);
+    let car = env.open_car(&ana, (2, 10));
+    env.board(&ana, car).expect("Ana");
+    env.board_backed(&ben, &bob, offer, car)
+        .expect("Ben for Bob");
+    env.depart(car).expect("depart");
+    let studio = env.studio.kp.insecure_clone();
+    let studio_account = env.studio.account;
+    env.ensure_spill(&studio, studio_account, 16);
+    env.settle_car(car, result(&[(1, 10_000)], &[]))
+        .expect("Ben wins");
+    env.run_car(car);
+    env.close_seats(car, false).expect("nothing to give back");
+    assert_eq!((env.used_now(&ana), env.used_now(&bob)), (500, 500));
+}
+
+#[test]
+fn a_backed_step_off_with_its_most_lines_and_a_count_fits_the_budget() {
+    let mut env = Env::new();
+    let opener = env.rider(2_000);
+    let ben = env.person();
+    // Bob's 500 are ten lines of ten Sources, and each line merges into one he still holds
+    let bob = env.person();
+    let sources: Vec<APk> = (0..10).map(|i| env.forge_source(70 + i as u8, 0)).collect();
+    env.give_lines(&bob, &sources, 50, |i| i as i64);
+    env.set_entry_limit(&bob, 1_000).expect("Bob's limit");
+    let offer = env.backing(&ben, &bob, 1, SHARE);
+    let car = env.open_car(&opener, (2, 10));
+    env.board_backed(&ben, &bob, offer, car).expect("backed");
+    env.give_lines(&bob, &sources, 5, |i| i as i64);
+    let i = env.step_off_ix(ben.key, car, &ben, tesoro_core::MAX_RETURN_LINES, false);
+    env.send_v0(&[cu_limit(1_400_000), i], &ben.kp.insecure_clone())
+        .expect("step off");
+    let cu = env.last_cu;
+    println!(
+        "backed step-off, {} lines and a count: {cu} CU",
+        tesoro_core::MAX_RETURN_LINES
+    );
+    assert!(cu < 140_000, "{cu} CU");
+    assert_eq!(env.used_now(&bob), 0);
 }

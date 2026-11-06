@@ -456,10 +456,15 @@ pub(crate) fn retire_offer<'info>(
     ctx: Context<'_, '_, 'info, 'info, RetireOffer<'info>>,
 ) -> Result<()> {
     let offer = ctx.accounts.offer.to_account_info();
-    // Every earlier Offer layout had another length (longer: applicants, then reserved lines).
+    // Every earlier Offer layout had another length (longer: applicants, then reserved lines). The
+    // layout just before `counted_in` is grown (`grow_offer`), never retired: it may hold a
+    // reservation.
     let other_layout = offer.owner == &crate::ID
         && offer.try_borrow_data().is_ok_and(|d| {
-            d.len() >= 8 && d.len() != OfferState::SPACE && d[..8] == *OfferState::DISCRIMINATOR
+            d.len() >= 8
+                && d.len() != OfferState::SPACE
+                && d.len() != OfferState::SPACE_V1
+                && d[..8] == *OfferState::DISCRIMINATOR
         });
     require!(other_layout, TesoroError::NotOldWorld);
     close_to(&offer, &ctx.accounts.admin.to_account_info())?;

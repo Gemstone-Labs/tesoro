@@ -7,8 +7,8 @@ import { closeCarIx, closeSeatIx, joinSeatIx, reserveRoomIx, seatChunkIx, type S
 import { resetEntryTokenState, setIdentityTokenGetter, sponsoredSendBuilt } from "@/lib/chain/sponsor-client";
 import { SeatKeyManager, memorySeatKeyStore } from "@/lib/seat/seat-key";
 import { counted, countingFor, resetWalletSignatures, walletSignatures } from "@/lib/seat/signature-counter";
-import { RAILCAR_PROGRAM_ID, checkDepartureIx, finalizeIx } from "./chain";
-import { boardingSigner, finishSender, joinSeatKey, jumpSigner } from "./signers";
+import { RAILCAR_PROGRAM_ID, checkDepartureIx, finalizeIx, tickIx } from "./chain";
+import { boardingSigner, brakeSigner, finishSender, joinSeatKey, jumpSigner } from "./signers";
 
 const relayer = Keypair.generate().publicKey;
 const walletKp = Keypair.generate();
@@ -97,11 +97,27 @@ describe("a Railcar ride's wallet signatures (Privy bills each one)", () => {
     expect(r.total).toBe(1);
   });
 
-  it("the Jump switches to the seat key with one flag; until then the wallet signs it", async () => {
+  it("the seat key signs the Jump; the wallet only when there is no seat key", async () => {
     const w = wallet();
     const seatKey = await new SeatKeyManager({ store: memorySeatKeyStore() }).forMatch(matchKey, walletKp.publicKey);
-    expect(jumpSigner(w, seatKey)).toBe(w);
-    expect(jumpSigner(w, seatKey, true)).toBe(seatKey);
+    expect(jumpSigner(w, seatKey)).toBe(seatKey);
+    expect(jumpSigner(w, null)).toBe(w);
+    expect(jumpSigner(w, seatKey, false)).toBe(w);
     expect(finishSender(null, async () => null, true)).toBeNull();
+  });
+
+  it("a Brake rides the seat key's tick and never asks the wallet", async () => {
+    const seatKey = await new SeatKeyManager({ store: memorySeatKeyStore() }).forMatch(matchKey, walletKp.publicKey);
+    // the seat names this page's seat key: the Brake is a flag on the tick that key signs
+    const signer = brakeSigner(seatKey, seatKey.publicKey);
+    expect(signer).toBe(seatKey);
+    const tick = tickIx(signer!.publicKey, 0, 4n, 2, true);
+    expect(tick.keys.filter((k) => k.isSigner).map((k) => k.pubkey.toBase58())).toEqual([seatKey.publicKey.toBase58()]);
+    // the seat names another key (boarded on another device) or none, or this page has no seat key: no Brake from here,
+    // because a wallet-signed tick would be a prompt and a transaction anyone can tell apart from the page's ticks
+    expect(brakeSigner(seatKey, key())).toBeNull();
+    expect(brakeSigner(seatKey, PublicKey.default)).toBeNull();
+    expect(brakeSigner(null, seatKey.publicKey)).toBeNull();
+    expect(walletSignatures()[matchKey]?.total ?? 0).toBe(0);
   });
 });

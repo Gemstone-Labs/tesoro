@@ -2,7 +2,8 @@
  * Who signs what in a Railcar ride. Privy bills every wallet signature, so the wallet signs one thing: the boarding.
  *
  * - Boarding: the wallet (with the seat key co-signing once core names seat keys on seats, seat keys ticket 08).
- * - Jump: the seat key once Railcar's `jump` acts for the wallet through it (`JUMP_TAKES_SEAT_KEY`); the wallet until then.
+ * - Jump: the seat key the seat names (Railcar's `jump` accepts it through core's `acts_for`, `JUMP_TAKES_SEAT_KEY`).
+ * - Brake: a flag on the tick the seat key signs, never the wallet (`brakeSigner`).
  * - Signals, starting the ride and commits (rollup, anyone): a key made for the page.
  * - The departure check, finalize, room, every settle chunk and the closes (base, anyone): the relayer calls and pays; the
  *   seat key vouches for the request (the server checks the car names that key in the Player's seat).
@@ -16,10 +17,10 @@ import { cosigned } from "@/lib/seat/cosigned";
 import type { SeatKey } from "@/lib/seat/seat-key";
 
 /**
- * The one switch for the Jump: true once Railcar's `jump` accepts the seat key the seat names (rc-06's follow-up with seat
- * keys ticket 08). Until then the program checks the wallet, so the wallet signs each Jump.
+ * The one switch for the Jump: Railcar's `jump` accepts the seat key core recorded on the seat (copied into the Table at
+ * `start_ride`), so the seat key signs each Jump and the wallet is not asked.
  */
-export const JUMP_TAKES_SEAT_KEY = false;
+export const JUMP_TAKES_SEAT_KEY = true;
 
 /** The boarding transaction's signer: the wallet, with the seat key co-signing when core takes seat keys. */
 export function boardingSigner(wallet: ChainSigner, seat: SeatKey | null, seatsTakeKeys = SEATS_TAKE_SEAT_KEYS): ChainSigner {
@@ -32,6 +33,14 @@ export const joinSeatKey = (seat: SeatKey | null, seatsTakeKeys = SEATS_TAKE_SEA
 /** The Jump's signer. */
 export function jumpSigner(wallet: ChainSigner, seat: SeatKey | null, takesSeatKey = JUMP_TAKES_SEAT_KEY): ChainSigner {
   return takesSeatKey && seat ? seat : wallet;
+}
+
+/**
+ * The Brake's signer: this page's seat key when the Table seat names it, else none. Never the wallet: a wallet-signed tick
+ * would be a prompt of its own and a transaction anyone could tell apart from the page's ticks.
+ */
+export function brakeSigner(seat: SeatKey | null, seatSigner: PublicKey): SeatKey | null {
+  return seat && seatSigner.equals(seat.publicKey) ? seat : null;
 }
 
 /**

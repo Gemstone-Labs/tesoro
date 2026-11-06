@@ -93,7 +93,8 @@ export const TOP_GAMES = 3;
 export function topGames(rows: PlayedRow[], max = TOP_GAMES): { game: GameId; matches: number; wins: number }[] {
   const by = new Map<GameId, { game: GameId; matches: number; wins: number; latest: number }>();
   for (const r of rows) {
-    if (r.result !== "won" && r.result !== "lost") continue;
+    // Railcar rides count in the record, not among the head-to-head Games listed here.
+    if ((r.result !== "won" && r.result !== "lost") || r.game === "railcar") continue;
     const g = by.get(r.game) ?? { game: r.game, matches: 0, wins: 0, latest: 0 };
     g.matches += 1;
     if (r.result === "won") g.wins += 1;

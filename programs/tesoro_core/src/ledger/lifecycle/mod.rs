@@ -260,6 +260,17 @@ impl RunKind {
     pub fn is_refund(&self) -> bool {
         !matches!(self, RunKind::Win { .. } | RunKind::NoShow)
     }
+
+    /// The entries came back unplayed: a refund in place of a result, so the Entry Limit gives
+    /// them back. A result the Game reported (a win, a Draw, a No-show) was played.
+    pub fn releases_entry(&self) -> bool {
+        match self {
+            RunKind::Cancelled | RunKind::Abandoned | RunKind::GameUpgraded | RunKind::ByGame => {
+                true
+            }
+            RunKind::Win { .. } | RunKind::NoShow | RunKind::Draw => false,
+        }
+    }
 }
 
 /// The settlement receipt written when the Match enters Settling or Refunding: the outcome is

@@ -34,8 +34,9 @@ import { bindTargets, brakeState, pageSend, tellCues } from "./brake";
 import { ENTRY_GEMAS, RAILCAR_PROGRAM_ID, bindBrakeIx, brakeSeatPda, carPda, checkDepartureIx, commitTableIx, configPda, decodeBrakeSeat, decodeCarAccount, decodeConfig, decodeTable, jumpIx, openCarIx, signalIx, startRideIx, tablePda, tickIx, type BrakeSeatView, type RailcarConfigView, type TableView } from "./chain";
 import { backerSeatedIn, boardingEntry, stepOffFor, type BoardingBacking } from "./boarding";
 import { finishRide } from "./finish";
-import { mayFinish, nextRideStep, queueChoice, signalIntervalMs } from "./flow";
-import { boardingSigner, finishSender, joinSeatKey, jumpSigner } from "./signers";
+import { mayFinish, nextRideStep, queueChoice, signalIntervalMs, watchedRide } from "./flow";
+import type { RailcarWatch } from "./RailcarScreen";
+import { boardingSigner, brakeSigner, finishSender, joinSeatKey, jumpSigner } from "./signers";
 import type { RailcarBrake, RailcarOffer } from "./RailcarScreen";
 import { playTells } from "./tells";
 import { railcarView, type FeeRates, type RailcarView } from "./view";
@@ -88,9 +89,13 @@ function keyOf(address: string | null): PublicKey | null {
 
 interface Snapshot {
   config: RailcarConfigView | null;
-  /** The car shown: the Player's, else the boarding one. */
+  /** The car shown: the Player's, else a ride in progress (watched), else the boarding one. */
   car: { carNo: bigint; table: number; match: PublicKey } | null;
   loaded: LoadedCar | null;
+  /** The car boarding now, which the Queue boards (the shown car too unless a ride is watched). */
+  boarding: { carNo: bigint; loaded: LoadedCar } | null;
+  /** The shown car is a ride this page watches, not the Player's. */
+  watching: boolean;
   rollup: TableView | null;
   base: TableView | null;
   previousFrozen: boolean;
@@ -103,18 +108,33 @@ async function readSnapshot(read: Reader, tee: () => Promise<Connection | null>,
   const [cfgInfo] = await read.many([configPda()]);
   const config = cfgInfo ? decodeConfig(cfgInfo.data) : null;
   let car: Snapshot["car"] = my ? { carNo: BigInt(my.carNo), table: my.table, match: new PublicKey(my.match) } : null;
+  let boarding: Snapshot["boarding"] = null;
+  let watching = false;
   if (!car && config && !config.boardingMatch.equals(PublicKey.default) && config.nextCar > 0n) {
     const carNo = config.nextCar - 1n;
     const [info] = await read.many([carPda(carNo)]);
     if (info) {
       const c = decodeCarAccount(info.data);
       car = { carNo, table: c.table, match: c.tesoroMatch };
+      const loadedBoarding = await loadCar(read, c.tesoroMatch);
+      if (loadedBoarding?.car.stage === "boarding") boarding = { carNo, loaded: loadedBoarding };
     }
   }
-  if (!car) return { config, car: null, loaded: null, rollup: null, base: null, previousFrozen: false, mine: false, backerSeated: false };
-  const loaded = await loadCar(read, car.match);
+  // Not in a car: watch the ride in progress, if any, on the rollup's Tables.
+  if (!my && config) {
+    const conn = await tee();
+    const infos = conn ? await conn.getMultipleAccountsInfo(Array.from({ length: config.tables }, (_, i) => tablePda(i)), "confirmed").catch(() => []) : [];
+    const live = watchedRide(infos.flatMap((i) => (i ? [decodeTable(i.data)] : [])), Math.floor(Date.now() / 1000));
+    if (live) {
+      car = { carNo: live.carNo, table: live.index, match: live.tesoroMatch };
+      watching = true;
+    }
+  }
+  if (!car) return { config, car: null, loaded: null, boarding, watching, rollup: null, base: null, previousFrozen: false, mine: false, backerSeated: false };
+  const loaded = boarding && boarding.carNo === car.carNo ? boarding.loaded : await loadCar(read, car.match);
   const mine = !!me && !!loaded?.seats.some((s) => s.seated && s.player.equals(me));
-  const backerSeated = !!backer && !mine && loaded?.car.stage === "boarding" && (await backerSeatedIn(read, car.match, backer));
+  // The Backer's mark is checked in the car the Queue boards, which a watched ride is not.
+  const backerSeated = !!backer && !!boarding && !boarding.loaded.seats.some((x) => x.seated && !!me && x.player.equals(me)) && (await backerSeatedIn(read, boarding.loaded.car.address, backer));
   let rollup: TableView | null = null;
   let base: TableView | null = null;
   let previousFrozen = false;
@@ -126,7 +146,7 @@ async function readSnapshot(read: Reader, tee: () => Promise<Connection | null>,
     rollup = info ? decodeTable(info.data) : null;
     if (rollup && rollup.carNo !== car.carNo && rollup.phase === "over") previousFrozen = !!(await read.many([settledPda(rollup.tesoroMatch)]))[0];
   }
-  return { config, car, loaded, rollup, base, previousFrozen, mine, backerSeated };
+  return { config, car, loaded, boarding, watching, rollup, base, previousFrozen, mine, backerSeated };
 }
 
 export interface RailcarPage {
@@ -134,6 +154,8 @@ export interface RailcarPage {
   busy: string | null;
   error: string | null;
   signedIn: boolean;
+  /** Set while this page watches a ride it is not in. */
+  watch: RailcarWatch | null;
   /** The accepted Offer this page boards with (`?backing=`), null without one. */
   offer: RailcarOffer | null;
   /** The `?backing=` Offer has been used (this page boarded with it): the page drops it from its address. */
@@ -317,8 +339,8 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   const riding = !!snap?.car && snap.mine && !!ride && (ride.phase === "riding" || ride.phase === "drawing");
   const signalTable = snap?.car?.table ?? null;
   const mySeat = me && ride ? (ride.seats.find((x) => x.account.equals(me)) ?? null) : null;
-  // The seat key signs ticks only when the seat names it (core records it at boarding, seat keys ticket 08).
-  const tickKey = seat && mySeat?.signer?.equals(seat.publicKey) ? seat : null;
+  // The seat key signs ticks (and so the Brake) only when the seat names it (core records it at boarding).
+  const tickKey = mySeat ? brakeSigner(seat, mySeat.signer) : null;
   const aboard = !!mySeat && mySeat.order === 0;
   const allBound = !!ride && ride.brakesBound >= ride.seated && ride.seated > 0;
   const myBound = allBound || (!!mine && !!ride && mine.bound && mine.carNo === ride.carNo);
@@ -414,9 +436,10 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
         const chain = getChain();
         const s = await refresh();
         if (!s.config) throw new Error("Railcar is not open yet.");
-        const loaded = s.car && !s.mine ? s.loaded : null;
+        const loaded = s.boarding?.loaded ?? null;
+        const seatedThere = !!loaded?.seats.some((x) => x.seated && x.player.equals(me));
         if (offerAddress && offerProblem) throw new BackingError(offerProblem);
-        const choice = queueChoice({ config: s.config, boarding: loaded && s.car ? { car: loaded.car, carNo: s.car.carNo, pages: loaded.pages } : null, now: Math.floor(Date.now() / 1000), mine: s.mine, backerSeated: s.backerSeated });
+        const choice = queueChoice({ config: s.config, boarding: loaded && s.boarding ? { car: loaded.car, carNo: s.boarding.carNo, pages: loaded.pages } : null, now: Math.floor(Date.now() / 1000), mine: seatedThere, backerSeated: s.backerSeated });
         if (choice.kind === "seated") return;
         if (choice.kind === "backer-seated") throw new Error("Your Backer is in this car: board the next one.");
         // The car's Match key names the seat key: the boarding car's opener and number, or the Player's own next Match.
@@ -479,21 +502,11 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   );
 
   const pressBrake = useCallback(() => {
-    if (!wallet || !me || !meKey || !snap?.car || !ride || tableSeat === null) return;
-    if (tickKey) {
-      // the next tick carries it: no transaction of its own
-      pendingBrake.current = true;
-      setPending(true);
-      return;
-    }
-    // No seat key on the seat yet: one tick of its own, signed by the wallet.
-    const table = snap.car.table;
-    const at = Math.max(0, Date.now() - ride.rideTs * 1000);
-    void act("brake", async () => {
-      await getChain().sendTee(wallet, [tickIx(wallet.publicKey, table, ride.carNo, tableSeat, true)]);
-      rememberBrake(meKey, ride.carNo, at);
-    });
-  }, [act, wallet, me, meKey, snap, ride, tableSeat, tickKey]);
+    if (!tickKey) return;
+    // the next tick carries it: no transaction of its own, no wallet prompt
+    pendingBrake.current = true;
+    setPending(true);
+  }, [tickKey]);
 
   // The press the page knows: my Brake seat when it can read it, else this page's memory of the send.
   const knownPress = mine && ride && mine.used && mine.carNo === ride.carNo ? mine.pressMs : meKey && ride ? recallBrake(meKey, ride.carNo) : null;
@@ -505,7 +518,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
     }
   }, [pending, now, ride, meKey]);
   const rideMs = ride && ride.phase === "riding" ? Math.max(0, now - ride.rideTs * 1000) : 0;
-  const state = ride?.phase === "riding" ? brakeState({ aboard, allBound, myBound, canSign: !!tickKey || !!wallet, pressMs: knownPress, pending: pending || busy === "brake", rideMs }) : null;
+  const state = ride?.phase === "riding" ? brakeState({ aboard, allBound, myBound, canSign: !!tickKey, pressMs: knownPress, pending, rideMs }) : null;
   const brake: RailcarBrake | null = state ? { ...state, onBrake: pressBrake } : null;
 
   const playAgain = useCallback(() => {
@@ -519,10 +532,11 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
     snap?.loaded && snap.car
       ? railcarView({ me: meKey, core: snap.loaded.car, seats: snap.loaded.seats, table: snap.rollup && snap.rollup.carNo === snap.car.carNo ? snap.rollup : snap.base && snap.base.carNo === snap.car.carNo ? snap.base : null, fees: FEES, nowMs: now, myBacking, myBrakeMs: knownPress })
       : null;
+  const watch: RailcarWatch | null = snap?.watching && !snap.mine ? { signedIn: !!wallet, nextSeated: snap.boarding ? snap.boarding.loaded.car.seated : null } : null;
   const blocked = offerProblem ? new BackingError(offerProblem).message : snap?.backerSeated ? "Your Backer is in this car: board the next one" : null;
   const shownOffer: RailcarOffer | null = offer ? { backer: offer.backer, sharePct: offer.shareBps / 100, ...(blocked ? { blocked } : {}) } : null;
   const missing = offerAddress && offer === null ? new BackingError("missing").message : null;
-  return { view, busy, error: error ?? missing, signedIn: !!wallet, offer: shownOffer, offerSpent: offer?.status === "consumed", board, stepOff, jump, brake, playAgain };
+  return { view, busy, error: error ?? missing, signedIn: !!wallet, watch, offer: shownOffer, offerSpent: offer?.status === "consumed", board, stepOff, jump, brake, playAgain };
 }
 
 /** A share of the finish (finalize, room, chunks, closes) through the relayer, sized against the server's lookup tables. */

@@ -105,8 +105,8 @@ describe("a Table reads as the program writes it", () => {
     // the reveal, and the seat key core recorded for Ben
     expect([t.revealed, t.brakesBound, Array.from(t.revealDraw)]).toEqual([true, 5, draw]);
     expect(t.seats.map((x) => x.brakeMs)).toEqual([48_000, null, null, null, null]);
-    expect(t.seats[1].signer?.equals(benKey)).toBe(true);
-    expect(t.seats[0].signer).toBeNull();
+    expect(t.seats[1].signer.equals(benKey)).toBe(true);
+    expect(t.seats[0].signer.equals(PublicKey.default)).toBe(true);
   });
 });
 

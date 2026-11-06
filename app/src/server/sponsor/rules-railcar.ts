@@ -6,6 +6,7 @@
  *   open          open_car + join_many_seat_match + check_departure
  *   101st Player  check_departure (the full car) + open_car + join_many_seat_match + check_departure (the new car)
  *   depart        check_departure                    (anyone, at the departure time)
+ *   reveal        reveal_ride                        (the relayer as caller; the ride for the round history)
  *   finalize      finalize                           (the relayer as caller; the result goes to core)
  *
  * The core join is checked by `planCore` with the core rows (`join_many_seat_match`); the Gemas rules are the head-to-head
@@ -29,8 +30,8 @@ interface IdlAccount {
 }
 const layout = (name: string): IdlAccount[] => (railcarIdl.instructions as unknown as { name: string; accounts: IdlAccount[] }[]).find((i) => i.name === name)!.accounts;
 
-/** Rent of a Railcar `Car` (8 + 93 bytes); it goes back to its payer when `finalize` closes it. */
-export const CAR_RENT = (101n + 128n) * 6_960n;
+/** Rent of a Railcar `Car` (8 + 94 bytes); it goes back to its payer when `finalize` closes it. */
+export const CAR_RENT = (102n + 128n) * 6_960n;
 /** Seat pages a car has at most: `finalize` takes every one. */
 const MAX_PAGES = 10;
 
@@ -39,6 +40,7 @@ const SHAPES: readonly (readonly string[])[] = [
   ["open_car", "join_many_seat_match", "check_departure"],
   ["check_departure", "open_car", "join_many_seat_match", "check_departure"],
   ["check_departure"],
+  ["reveal_ride"],
   ["finalize"],
 ];
 
@@ -122,6 +124,11 @@ export function planRailcar(ixs: Ix[], relayer: PublicKey, player: PublicKey, is
   const railcarAt = (n: string, i: number) => ixs[i].programId.equals(RAILCAR_ID) && names[i] === n;
   if (!names.every((n, i) => (n === "join_many_seat_match" ? ixs[i].programId.equals(CORE_ID) : railcarAt(n, i)))) throw new RuleError("bad-shape", "A Railcar transaction names Railcar's and core's instructions in their places.");
 
+  if (names.length === 1 && names[0] === "reveal_ride") {
+    const a = checkRailcar(ixs[0], "reveal_ride", relayer, "caller", MAX_PAGES);
+    // Publishes the ride (an event); the relayer pays only the fee.
+    return { ...base(names), kind: "game", class: "exit", spend: { refundable: 0n, sunk: 0n }, cu: 200_000, obligations: [a.get("match_state")!] };
+  }
   if (names.length === 1 && names[0] === "finalize") {
     const a = checkRailcar(ixs[0], "finalize", relayer, "caller", MAX_PAGES);
     const match = a.get("match_state")!;

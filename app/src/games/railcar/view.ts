@@ -6,6 +6,7 @@ import type { CarView, SeatView } from "../../lib/chain/many-seat";
 import { NO_SEAT, type TableView } from "./chain";
 import { placeSharesBps, positionMs, refund as scheduleRefund } from "./engine";
 import { departsAt } from "./flow";
+import { PLACE_WORDS } from "./words";
 
 export interface FeeRates {
   platformBps: number;
@@ -149,8 +150,6 @@ function backingsOf(f: RailcarFacts): BackingOf {
   const bySeat = new Map(f.seats.filter((s) => s.seated && !s.player.equals(s.funder)).map((s) => [s.index, { backer: s.funder.toBase58(), shareBps: s.shareBps }]));
   return (coreSeat, account, me) => bySeat.get(coreSeat) ?? byAccount.get(account) ?? (me ? (f.myBacking ?? null) : null);
 }
-
-const PLACE_WORDS = ["Last off", "Second-last off", "Third-last off"];
 
 export function railcarView(f: RailcarFacts): RailcarView {
   const core = f.core;
