@@ -31,12 +31,24 @@ export function assignmentDiscriminator(program: { idl: any }): number[] {
   return found.discriminator;
 }
 
-function assignmentSource(label: string, program: { programId: PublicKey; idl: any }, rpc: ScanRpc, close: (m: PublicKey) => Promise<string>): AssignmentSource {
+/**
+ * Bytes of an Assignment in the Game's current layout. Assignments of an older layout (from before seat keys) decode neither in
+ * the client nor in the program, so `close_assignment` can never close them; the scan leaves them out.
+ */
+export function assignmentSize(program: { idl: any; coder: any }): number {
+  const found = program.idl.accounts.find((a: { name: string }) => a.name.toLowerCase() === "assignment");
+  if (!found) throw new Error("the Game's IDL has no Assignment account");
+  return program.coder.accounts.size(found.name);
+}
+
+export function assignmentSource(label: string, program: { programId: PublicKey; idl: any; coder: any }, rpc: ScanRpc, close: (m: PublicKey) => Promise<string>): AssignmentSource {
   const disc = assignmentDiscriminator(program);
+  const size = assignmentSize(program);
   return {
     label,
     matches: async () => {
-      const rows = await scanProgramAccounts(rpc, program.programId, { filters: [{ memcmp: { offset: 0, bytes: bs58.encode(Buffer.from(disc)) } }], dataSlice: { offset: MATCH_AT, length: 32 } });
+      const filters = [{ memcmp: { offset: 0, bytes: bs58.encode(Buffer.from(disc)) } }, { dataSize: size }];
+      const rows = await scanProgramAccounts(rpc, program.programId, { filters, dataSlice: { offset: MATCH_AT, length: 32 } });
       return rows.map((r) => new PublicKey(r.account.data));
     },
     close,
@@ -46,7 +58,7 @@ function assignmentSource(label: string, program: { programId: PublicKey; idl: a
 export function realJanitorDeps(ctx: Ctx): JanitorDeps {
   const gpa = new Connection(ctx.settings.gpaRpc, { commitment: "confirmed", fetch: solanaFetch, disableRetryOnRateLimit: true });
   const rpc = makeScanRpc(ctx.settings.gpaRpc, solanaFetch, (p, c) => gpa.getProgramAccounts(p, c as any) as any);
-  const chains: Record<string, { programId: PublicKey; idl: any }> = {
+  const chains: Record<string, { programId: PublicKey; idl: any; coder: any }> = {
     "trading-duel": (ctx.duel as any).program,
     holdem: (ctx.holdem as any).program,
     "block-burst": (ctx.burst as any).program,
