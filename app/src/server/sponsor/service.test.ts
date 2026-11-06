@@ -29,6 +29,8 @@ import { assignMatchIx } from "./assign-ix";
 import { joinMatchIx as joinMatchIxOf } from "@/lib/chain/entry";
 import { ComputeBudgetProgram, TransactionMessage } from "@solana/web3.js";
 import { GAME_IDS } from "@/lib/chain/games";
+import { STORE_HEADER, TICKET_HEAD, TICKET_VERSION } from "@/lib/chain/pot-store";
+import { stageEntryIx } from "@/lib/chain/ticket";
 
 const SOL = 1_000_000_000n;
 const wire = (ixs: Ix[]): { ixs: WireIx[] } => ({
@@ -1270,5 +1272,41 @@ describe("a first Break for a Player with no SOL (keeper diet ticket 27)", () =>
     await expect(s.sponsor.build(s.player.publicKey, wire(await topUp(s)))).rejects.toMatchObject({ code: "topup-limit" });
     s.tick(16 * 60_000);
     await s.sponsor.build(s.player.publicKey, wire(await topUp(s)));
+  });
+});
+
+describe("an Entry Ticket staged by its seat key", () => {
+  // the head as pots.rs lays it out: version 2, kind entry, open, the Account at 8, the seat key at 152
+  const ticketData = (account: PublicKey, seat: PublicKey, kind = 0) => {
+    const head = Buffer.alloc(TICKET_HEAD);
+    head[0] = TICKET_VERSION;
+    head[2] = kind;
+    head.set(account.toBytes(), 8);
+    head.set(seat.toBytes(), 152);
+    return new Uint8Array(Buffer.concat([Buffer.alloc(8), head, Buffer.alloc(STORE_HEADER)]));
+  };
+  function world(recorded: (s: ReturnType<typeof setup>) => { account: PublicKey; seat: PublicKey; kind?: number }) {
+    const s = setup();
+    const seat = key();
+    const owner = accountPda(s.player.publicKey);
+    const ticket = key();
+    const r = recorded(s);
+    s.accounts.set(ticket.toBase58(), { owner: CORE_ID, data: ticketData(r.account, r.seat ?? seat, r.kind) });
+    return { s, ix: (signer: PublicKey) => stageEntryIx(signer, owner, ticket, 4, []) };
+  }
+
+  it("builds for the seat key Ana's Ticket recorded, without a wallet signature", async () => {
+    const seat = key();
+    const { s, ix } = world((s) => ({ account: accountPda(s.player.publicKey), seat }));
+    await expect(s.sponsor.build(s.player.publicKey, wire([ix(seat)]), "did:privy:ana", { kind: "token" })).resolves.toMatchObject({ class: "continue" });
+  });
+  it("refuses a key the Ticket did not record, the seat key of Ben's Ticket, and a Backing Ticket", async () => {
+    const seat = key();
+    const stranger = world((s) => ({ account: accountPda(s.player.publicKey), seat }));
+    await expect(stranger.s.sponsor.build(stranger.s.player.publicKey, wire([stranger.ix(key())]), "did:privy:ana", { kind: "token" })).rejects.toMatchObject({ code: "no-account" });
+    const bens = world(() => ({ account: key(), seat }));
+    await expect(bens.s.sponsor.build(bens.s.player.publicKey, wire([bens.ix(seat)]), "did:privy:ana", { kind: "token" })).rejects.toMatchObject({ code: "no-account" });
+    const backing = world((s) => ({ account: accountPda(s.player.publicKey), seat, kind: 1 }));
+    await expect(backing.s.sponsor.build(backing.s.player.publicKey, wire([backing.ix(seat)]), "did:privy:ana", { kind: "token" })).rejects.toMatchObject({ code: "no-account" });
   });
 });

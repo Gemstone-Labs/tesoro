@@ -24,6 +24,7 @@ import { describeEntry } from "./use-entry";
 import { SponsorError } from "./sponsor-client";
 import { planTransaction } from "@/server/sponsor/rules";
 import { cancelTicketIx, closeTicketIx, openTicketIx, stageEntryIx, decodeTicket, stagedEntryState } from "./ticket";
+import { TICKET_HEAD, TICKET_VERSION } from "./pot-store";
 
 const { sendBase, sponsoredSend, readAccounts, readSlice } = vi.hoisted(() => ({ sendBase: vi.fn(), sponsoredSend: vi.fn(), readSlice: vi.fn(), readAccounts: vi.fn(async (keys: unknown[]): Promise<({ data: Uint8Array } | null)[]> => keys.map(() => null)) }));
 
@@ -245,8 +246,9 @@ describe("what the relayer's allow-list accepts", () => {
 describe("Tickets", () => {
   it("decodes a staged Ticket and says how far along it is", () => {
     const account = k();
-    const head = Buffer.alloc(160);
-    head[0] = 1;
+    // the head as pots.rs lays it out: version 2, 192 bytes
+    const head = Buffer.alloc(TICKET_HEAD);
+    head[0] = TICKET_VERSION;
     head[2] = 0;
     head[3] = 0;
     head.set(account.toBytes(), 8);
@@ -256,10 +258,13 @@ describe("Tickets", () => {
     head.writeBigUInt64LE(500n, 112);
     head.writeBigInt64LE(2_000n, 120);
     head.writeUInt32LE(8, 128);
+    head.writeBigUInt64LE(9n, 184);
     const store = encodeStore([lineOf({ source: srcA, amount: 120n, dueAt: 1n }), lineOf({ source: srcB, amount: 80n, dueAt: 2n })], { capacity: 8, account });
     const data = Buffer.concat([Buffer.alloc(8), head, store.subarray(8)]);
     const t = decodeTicket(k(), data);
-    expect(t).toMatchObject({ kind: "entry", state: "open", target: 500n, staged: 200n, lines: 2, lineCap: 8, expiresAt: 2000 });
+    expect(t).toMatchObject({ kind: "entry", state: "open", target: 500n, staged: 200n, lines: 2, lineCap: 8, expiresAt: 2000, offerNonce: 9n });
+    // an older head is refused rather than misread
+    expect(() => decodeTicket(k(), Buffer.concat([Buffer.alloc(8), Buffer.from([1]), head.subarray(1), store.subarray(8)]))).toThrow(/version 1/);
     expect(t.account.toBase58()).toBe(account.toBase58());
     const st = stagedEntryState(t, 1_000);
     expect(st).toMatchObject({ progress: 0.4, complete: false, cancelling: false, expired: false, expiresIn: 1000 });
