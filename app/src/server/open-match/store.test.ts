@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { testDb } from "../history/test-db";
-import { MemoryOpenMatchStore, rpcOpenMatchStore, type OpenMatchStore } from "./open-match";
+import { MemoryOpenMatchStore, rpcOpenMatchStore, type OpenMatchStore } from "./store";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -19,7 +19,6 @@ describe.each(stores)("the open-Match table (%s)", (_name, make) => {
     const { store } = await make();
     await open(store);
     expect(await store.get("m1")).toEqual({ matchState: "m1", matchKey: "accountA-1", game: "holdem", entry: 100, players: [A], deadline: null });
-    expect(await store.toCheck()).toEqual([]);
     expect(await store.get("nope")).toBeNull();
   });
 
@@ -30,7 +29,7 @@ describe.each(stores)("the open-Match table (%s)", (_name, make) => {
     await store.join("m1", B, 6000);
     expect(await store.get("m1")).toMatchObject({ players: [A, B], deadline: 5000 });
     await store.extend("m1", 9000);
-    expect((await store.toCheck()).map((m) => [m.matchState, m.deadline])).toEqual([["m1", 9000]]);
+    expect((await store.get("m1"))!.deadline).toBe(9000);
   });
 
   it("opening again changes nothing", async () => {
@@ -41,22 +40,13 @@ describe.each(stores)("the open-Match table (%s)", (_name, make) => {
     expect(await store.get("m1")).toMatchObject({ players: [A, B], deadline: 5000 });
   });
 
-  it("drops a closed Match from the check list but still reads it, and ignores later joins and extends", async () => {
+  it("keeps a closed Match readable and ignores later joins and extends", async () => {
     const { store } = await make();
     await open(store);
     await store.join("m1", B, 5000);
     await store.close("m1");
     await store.extend("m1", 1);
-    expect(await store.toCheck()).toEqual([]);
     expect((await store.get("m1"))!.deadline).toBe(5000);
-  });
-
-  it("stops listing a Match once its Delayed email is told", async () => {
-    const { store } = await make();
-    await open(store);
-    await store.join("m1", B, 5000);
-    await store.delayedTold("m1");
-    expect(await store.toCheck()).toEqual([]);
   });
 });
 

@@ -1,17 +1,14 @@
 import { DemoHttpError, NonceStore, verifySignedRequest, type AuthEnv } from "../request-auth";
-import type { NotifyStore } from "../notify/store";
 import { WindowLimiter, takeAll } from "../rate-limit";
 import { hashCode, normalizeCode, type InviteStore } from "./store";
 import { BRAND } from "../../lib/brand";
 
 export interface RedeemDeps {
   invites: InviteStore;
-  notify: NotifyStore;
   /** True when the wallet already has its Tesoro Account (nothing to redeem for). */
   accountExists: (authority: string) => Promise<boolean>;
   /** A `create_account` transaction with the Player as fee payer, signed by the Invite key and not by the Player; base64. */
   buildCoSigned: (authority: string) => Promise<string>;
-  token?: () => string;
 }
 
 const nonces = new NonceStore();
@@ -20,11 +17,8 @@ const byAuthority = new WindowLimiter(10, 60 * 60_000);
 const bySub = new WindowLimiter(20, 60 * 60_000);
 const CODE = /^[0-9A-Z]{16}$/;
 
-const randomToken = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (x) => x.toString(16).padStart(2, "0")).join("");
-
 /**
- * Redeems an Invite code for the signing wallet: checks the code, marks it used by that wallet, makes its email the
- * Account's verified notification email, and only then co-signs. The same wallet may ask again (a new co-signed
+ * Redeems an Invite code for the signing wallet: checks the code, marks it used by that wallet, and only then co-signs. The same wallet may ask again (a new co-signed
  * transaction); another wallet is refused.
  */
 export async function handleRedeem(deps: RedeemDeps, body: unknown, authorization: string | null, env?: AuthEnv, now?: number): Promise<{ tx: string }> {
@@ -41,11 +35,5 @@ export async function handleRedeem(deps: RedeemDeps, body: unknown, authorizatio
   if (claim.state === "unknown") throw new DemoHttpError(404, "unknown-code", "That Invite code isn’t valid.");
   if (claim.state === "other") throw new DemoHttpError(403, "code-used", "That Invite code has already been used.");
 
-  const record = await deps.notify.get(authority);
-  if (claim.state === "claimed" || !record) {
-    const token = (deps.token ?? randomToken)();
-    await deps.notify.saveEmail(authority, claim.email, token);
-    await deps.notify.verify(token);
-  }
   return { tx: await deps.buildCoSigned(authority) };
 }

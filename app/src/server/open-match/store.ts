@@ -1,7 +1,7 @@
 import type { GameId } from "@/lib/mock/types";
 import type { Rpc } from "../history/rpc";
 
-/** A Player of a Match: the TesoroAccount key and the wallet that controls it (the key notification settings are kept under). */
+/** A Player of a Match: the TesoroAccount key and the wallet that controls it. */
 export interface MatchPlayer {
   account: string;
   authority: string;
@@ -28,20 +28,17 @@ export interface OpenMatchStore {
   join(matchState: string, joiner: MatchPlayer, deadline: number): Promise<void>;
   extend(matchState: string, deadline: number): Promise<void>;
   get(matchState: string): Promise<OpenMatch | null>;
-  /** The Match has settled or been refunded. It stays readable for a few days (its emails may still be retried). */
+  /** The Match has settled or been refunded. It stays readable for a few days. */
   close(matchState: string): Promise<void>;
-  /** Joined Matches that are not closed and whose Delayed email was not sent. */
-  toCheck(): Promise<OpenMatch[]>;
-  delayedTold(matchState: string): Promise<void>;
   /** Drops what is no longer needed; returns how many rows went. */
   prune(nowSecs: number): Promise<number>;
 }
 
 /** In memory, for tests. */
 export class MemoryOpenMatchStore implements OpenMatchStore {
-  readonly rows = new Map<string, OpenMatch & { closed: boolean; told: boolean }>();
+  readonly rows = new Map<string, OpenMatch & { closed: boolean }>();
   async open({ opener, ...m }: Parameters<OpenMatchStore["open"]>[0]) {
-    if (!this.rows.has(m.matchState)) this.rows.set(m.matchState, { ...m, players: [opener], deadline: null, closed: false, told: false });
+    if (!this.rows.has(m.matchState)) this.rows.set(m.matchState, { ...m, players: [opener], deadline: null, closed: false });
   }
   async join(matchState: string, joiner: MatchPlayer, deadline: number) {
     const r = this.rows.get(matchState);
@@ -61,13 +58,6 @@ export class MemoryOpenMatchStore implements OpenMatchStore {
     const r = this.rows.get(matchState);
     if (r) r.closed = true;
   }
-  async toCheck() {
-    return Promise.all([...this.rows.values()].filter((r) => !r.closed && r.deadline !== null && !r.told).map((r) => this.get(r.matchState) as Promise<OpenMatch>));
-  }
-  async delayedTold(matchState: string) {
-    const r = this.rows.get(matchState);
-    if (r) r.told = true;
-  }
   async prune() {
     return 0;
   }
@@ -86,7 +76,5 @@ export const rpcOpenMatchStore = (rpc: Rpc): OpenMatchStore => ({
     return r ? fromRow(r) : null;
   },
   close: async (matchState) => void (await rpc("open_match_close", { p_match_state: matchState })),
-  toCheck: async () => ((await rpc("open_match_to_check", {})) as Row[]).map(fromRow),
-  delayedTold: async (matchState) => void (await rpc("open_match_delayed_told", { p_match_state: matchState })),
   prune: async (nowSecs) => Number(await rpc("open_match_prune", { p_now: nowSecs, p_closed_days: 3, p_stale_days: 7 })),
 });

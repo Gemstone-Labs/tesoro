@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Email } from "../notify/decide";
-import type { EmailSender } from "../notify/sender";
+import type { Email, EmailSender } from "../notify/sender";
 import { hashCode, MemoryInviteStore, normalizeCode } from "./store";
 import { inviteEmail, runInvites, type Member } from "./send";
 

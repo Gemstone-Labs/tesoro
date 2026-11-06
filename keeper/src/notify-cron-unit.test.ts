@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
 
-// Vercel's cron cannot run every 5 minutes on the plan in use; the VPS timer calls the same route instead.
-describe("the delayed-notification cron", () => {
+// Vercel's cron cannot run every 5 minutes on the plan in use; the VPS timer calls the route instead. The route keeps the open-Match table (the safety sweep reads it) and mails no one; the unit keeps its old name.
+describe("the open-Match cron (tesoro-notify-cron)", () => {
   const service = read("../deploy/tesoro-notify-cron.service");
   const timer = read("../deploy/tesoro-notify-cron.timer");
 
@@ -22,8 +22,7 @@ describe("the delayed-notification cron", () => {
     assert.match(timer, /WantedBy=timers\.target/);
   });
 
-  it("is no longer a Vercel cron; the daily digest stays", () => {
-    const crons: { path: string }[] = JSON.parse(read("../../app/vercel.json")).crons;
-    assert.deepEqual(crons.map((c) => c.path), ["/api/cron/digest"]);
+  it("is not a Vercel cron, and no daily digest cron exists", () => {
+    assert.equal(existsSync(new URL("../../app/vercel.json", import.meta.url)), false);
   });
 });

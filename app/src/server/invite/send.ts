@@ -1,5 +1,4 @@
-import type { Email } from "../notify/decide";
-import type { EmailSender } from "../notify/sender";
+import type { Email, EmailSender } from "../notify/sender";
 import { hashCode, newInviteCode, type InviteStore } from "./store";
 import { BRAND } from "../../lib/brand";
 

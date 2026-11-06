@@ -1,5 +1,11 @@
 import { BRAND } from "../../lib/brand";
-import type { Email } from "./decide";
+
+/** One plain-text email. */
+export interface Email {
+  to: string;
+  subject: string;
+  text: string;
+}
 
 /** Sends one email. Resend in production; a fake in tests. */
 export interface EmailSender {
@@ -31,6 +37,3 @@ const withDisplayName = (from: string) => (from.includes("<") ? from : `${BRAND.
 export function senderFromEnv(env: NodeJS.ProcessEnv = process.env): EmailSender | null {
   return env.RESEND_API_KEY && env.NOTIFY_FROM ? new ResendSender(env.RESEND_API_KEY, withDisplayName(env.NOTIFY_FROM)) : null;
 }
-
-/** True when this server can send email, so the app shows the email settings. */
-export const emailReady = (env: NodeJS.ProcessEnv = process.env) => senderFromEnv(env) !== null;

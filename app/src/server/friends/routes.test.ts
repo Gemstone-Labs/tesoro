@@ -5,7 +5,7 @@ import { accountKeyOf } from "../../lib/chain/account-key";
 import { newNonce, signedMessage } from "../../lib/chain/signed-request";
 import { DemoHttpError, type AuthEnv } from "../request-auth";
 import { MAX_FRIENDS, MAX_OUTGOING, pairOf } from "./rules";
-import { handleFriends, requestIsHttps, startSession, type FriendNotice, type FriendsDeps, type OpenChallenge } from "./routes";
+import { handleFriends, requestIsHttps, startSession, type FriendsDeps, type OpenChallenge } from "./routes";
 import { MemoryFriendsStore } from "./store";
 
 const NOW = 1_800_000_000_000;
@@ -31,7 +31,6 @@ const code = async (p: Promise<unknown>) => {
 
 function world(opts: { env?: AuthEnv } = {}) {
   const store = new MemoryFriendsStore();
-  const notices: FriendNotice[] = [];
   const open = new Map<string, OpenChallenge>();
   let now = NOW;
   let tokens = 0;
@@ -40,7 +39,6 @@ function world(opts: { env?: AuthEnv } = {}) {
     now: () => now,
     env: opts.env ?? dev,
     openChallenge: async (id) => open.get(id) ?? null,
-    notify: async (n) => void notices.push(n),
     newToken: () => `token-${++tokens}`,
   };
   const player = async (authorization: string | null = null) => {
@@ -55,7 +53,7 @@ function world(opts: { env?: AuthEnv } = {}) {
     now += ms;
     if (!expireSessions) for (const x of store.sessions.values()) x.expiresAt += ms;
   };
-  return { store, notices, open, deps, player, advance };
+  return { store, open, deps, player, advance };
 }
 
 /** A Match key: the opener's Account and its counter value. */
@@ -124,7 +122,6 @@ describe("Friend requests", () => {
     const w = world();
     const [a, b] = [await w.player(), await w.player()];
     expect(await a.call({ op: "request", to: b.account })).toEqual({ status: "sent" });
-    expect(w.notices).toEqual([{ kind: "friend-request", id: "friend-request:r1", to: b.account }]);
     const bv = await b.call({ op: "list" });
     expect(bv.incoming.map((r: any) => r.account)).toEqual([a.account]);
     expect(bv.badge).toBe(1);
@@ -152,7 +149,6 @@ describe("Friend requests", () => {
     expect(await a.call({ op: "request", to: a.account })).toEqual({ status: "self" });
     await a.call({ op: "request", to: b.account });
     expect(await a.call({ op: "request", to: b.account })).toEqual({ status: "sent" });
-    expect(w.notices).toHaveLength(1);
     await b.call({ op: "accept", from: a.account });
     expect(await a.call({ op: "request", to: b.account })).toEqual({ status: "already-friends" });
   });
@@ -174,14 +170,11 @@ describe("Friend requests", () => {
     expect((await b.call({ op: "list" })).incoming).toEqual([]);
     expect((await a.call({ op: "list" })).outgoing.map((r: any) => r.account)).toEqual([b.account]);
     expect(await a.call({ op: "request", to: b.account })).toEqual({ status: "sent" });
-    expect(w.notices).toHaveLength(1);
     // A declined request is not one B can accept, and it doesn't turn B's own request into a friendship.
     expect(await b.call({ op: "accept", from: a.account })).toEqual({ status: "gone" });
     w.advance(31 * DAY);
     expect((await a.call({ op: "list" })).outgoing).toEqual([]);
     expect(await a.call({ op: "request", to: b.account })).toEqual({ status: "sent" });
-    expect(w.notices).toHaveLength(2);
-    expect(w.notices[1].id).not.toBe(w.notices[0].id);
   });
 
   it("a request nobody answers is gone after 30 days", async () => {
@@ -255,7 +248,6 @@ describe("friend Challenges", () => {
     const [a, b] = [await w.player(), await w.player()];
     await a.call({ op: "request", to: b.account });
     await b.call({ op: "accept", from: a.account });
-    w.notices.length = 0;
     return { w, a, b };
   };
 
@@ -269,7 +261,6 @@ describe("friend Challenges", () => {
     expect(await a.call({ op: "challenge", matchId: mk(13), to: stranger.account })).toEqual({ status: "not-friends" });
     expect(await a.call({ op: "challenge", matchId: mk(13), to: b.account })).toEqual({ status: "recorded" });
     expect(await a.call({ op: "challenge", matchId: mk(13), to: b.account })).toEqual({ status: "duplicate" });
-    expect(w.notices).toEqual([{ kind: "friend-challenge", id: `friend-challenge:${mk(13)}`, to: b.account, matchId: mk(13), game: "holdem", entry: 500 }]);
     const bv = await b.call({ op: "list" });
     expect(bv.challenges).toEqual([{ matchId: mk(13), from: a.account, at: NOW, game: "holdem", entry: 500 }]);
     expect(bv.badge).toBe(1);
@@ -277,19 +268,16 @@ describe("friend Challenges", () => {
     expect((await b.call({ op: "list" })).challenges).toEqual([]);
   });
 
-  it("emails a Friend at most 3 Challenges a day and caps a sender at 10 a day", async () => {
+  it("caps a sender at 10 Challenges a day", async () => {
     const { w, a, b } = await friends();
     const c = await w.player();
     await a.call({ op: "request", to: c.account });
     await c.call({ op: "accept", from: a.account });
-    w.notices.length = 0;
     for (let i = 0; i < 10; i++) {
       const id = mk(101 + 2 * i);
       w.open.set(id, { game: "block-puzzle", entry: 500, opener: a.account });
       expect(await a.call({ op: "challenge", matchId: id, to: i < 5 ? b.account : c.account })).toEqual({ status: "recorded" });
     }
-    expect(w.notices.filter((n) => n.to === b.account)).toHaveLength(3);
-    expect(w.notices.filter((n) => n.to === c.account)).toHaveLength(3);
     w.open.set(mk(999), { game: "block-puzzle", entry: 500, opener: a.account });
     expect(await a.call({ op: "challenge", matchId: mk(999), to: b.account })).toEqual({ status: "challenge-cap" });
   });

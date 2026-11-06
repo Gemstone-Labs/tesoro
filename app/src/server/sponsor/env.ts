@@ -7,7 +7,7 @@ import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { gameRecordPda, programDataPda } from "@/lib/chain/game-record";
 import { BRAND } from "@/lib/brand";
 import { BASE_RPC, relayerKey } from "../demo-advance";
-import { alertRecipients } from "../notify/routes";
+import { alertRecipients } from "../notify/alert";
 import { senderFromEnv } from "../notify/sender";
 import { DemoHttpError } from "../request-auth";
 import { DEFAULT_LIMITS, type Limits } from "./policy";

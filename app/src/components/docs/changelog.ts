@@ -10,7 +10,6 @@ const ALL_CHANGES: Change[] = [
   { date: "19 Oct", iso: "2026-10-19", title: "Vanguard", body: "The fourth Game: blitz Stratego on a 10x10 desert board. Hidden ranks, 5 seconds a move, capture the enemy Supply Truck to win. Play now, Practice free or Challenge a friend.", href: "/docs/matches#vanguard" },
   { date: "19 Oct", iso: "2026-10-19", title: "Buckshot Hold'em", body: "Heads-up Hold'em has a new name. Same Game, same rules.", href: "/docs/matches#holdem" },
   { date: "19 Oct", iso: "2026-10-19", title: "Limits and Breaks", body: "Set an Entry Limit for any 7 days, take a Break from one day to six weeks, or exclude yourself for six months or more. Unlock and Redeem always work. Find them under Edit profile." },
-  { date: "19 Oct", iso: "2026-10-19", title: "Email when your Match settles", body: "Add an email under Edit profile and we tell you how your Match went. Optional, and never public." },
   { date: "19 Oct", iso: "2026-10-19", title: "ETH and HYPE Locks earn by the clock", body: "Earned on Ethereum and HyperEVM Locks now grows with time, like SOL. Unlock and Redeem take two quick steps.", href: "/docs/chains" },
   { date: "18 Oct", iso: "2026-10-18", title: "Say who you are on the waitlist", body: "Tell us if you play games, stake crypto or make games. Your tag shows on your card and its share link.", href: "/" },
   { date: "17 Oct", iso: "2026-10-17", title: "Wallet by chain", body: "One card per chain, each with its own Redeem, its Locks and the Players you won Gemas from.", href: "/vault" },

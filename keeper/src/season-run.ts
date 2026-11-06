@@ -6,7 +6,6 @@ import { batchJob, realBatchDeps, type BatchDeps } from "./batches.ts";
 import { makeScanRpc, scanProgramAccounts } from "./credits.ts";
 import { harvestJob, realCounterDeps } from "./counters.ts";
 import { stateDir } from "./history.ts";
-import { tellSeasonPlacings } from "./notify-events.ts";
 import { CORE_ID } from "./kit.ts";
 import { failuresSince, failureMark } from "./errors.ts";
 import { discriminatorOf } from "./lists.ts";
@@ -150,16 +149,6 @@ export async function settlingViews(ctx: Ctx): Promise<MatchView[]> {
   return rows.map((r) => viewOf(r.pubkey, ctx.core.coder.accounts.decode("matchState", r.account.data))).filter((v) => v.stage === "settling");
 }
 
-/**
- * The pay step: pay, and once nothing is left to pay, send the Season placing emails. Emails the app has not taken (it was down)
- * keep the step pending, so the next hourly run sends them again; the app counts each placing once.
- */
-export async function payThenTell(pay: () => Promise<StepResult>, tell: () => Promise<number>): Promise<StepResult> {
-  const paid = await pay();
-  if (paid.pending) return paid;
-  return { ...paid, pending: (await tell()) > 0 };
-}
-
 const counted = (actions: number): StepResult => ({ actions, pending: actions > 0 });
 
 /** The steps over the real chain. Seasons found empty go into `store`, so no later run reads them again. */
@@ -180,7 +169,7 @@ export function realSteps(ctx: Ctx, store: StateStore, d: SeasonDeps = realSeaso
     batches: async () => counted(await batchJob(ctx, extra.batchDeps ?? realBatchDeps(ctx, realCounterDeps(ctx)), weeklyBatchRule(extra.history ?? fileHistory(join(stateDir(), "admin-batches.json")), { kinds: [0, 1, 2], payouts: true }))),
     pools: async () => counted(await poolJob(ctx)),
     record: () => pass(false),
-    pay: () => payThenTell(() => pass(true), () => tellSeasonPlacings(ctx)),
+    pay: () => pass(true),
   });
 }
 

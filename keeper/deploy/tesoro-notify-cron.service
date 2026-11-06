@@ -1,5 +1,5 @@
 [Unit]
-Description=Tesoro delayed-notification cron (calls the app's /api/cron/notify)
+Description=Tesoro open-Match tracking cron (calls the app's /api/cron/notify; sends no email)
 
 [Service]
 Type=oneshot
