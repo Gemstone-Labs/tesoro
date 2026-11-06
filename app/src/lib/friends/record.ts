@@ -43,3 +43,12 @@ export function sortFriends<T extends { account: string; since: number }>(friend
     return b.since - a.since;
   });
 }
+
+/**
+ * The rows a head-to-head record counts: finished Matches from the history (their accounts are closed, so the Account's live list no
+ * longer has them) plus the live ones, each Match once. Counting the live list alone missed every closed Match.
+ */
+export function recordRows(history: HistoryRow[], live: HistoryRow[]): HistoryRow[] {
+  const seen = new Set(history.map((r) => r.id));
+  return [...history, ...live.filter((r) => !seen.has(r.id))];
+}

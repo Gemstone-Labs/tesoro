@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HistoryRow } from "@/lib/chain/history";
-import { recordAgainst, recordText, sortFriends } from "./record";
+import { recordAgainst, recordIncluding, recordRows, recordText, sortFriends } from "./record";
 
 const row = (opp: string, result: HistoryRow["result"], at: number, role: HistoryRow["role"] = "player"): HistoryRow => ({
   id: String(at),
@@ -43,5 +43,19 @@ describe("record against a Friend", () => {
       ["C", recordAgainst(rows, "C")],
     ]);
     expect(sortFriends(friends, records).map((f) => f.account)).toEqual(["B", "C", "D", "E"]);
+  });
+});
+
+describe("recordRows: a record counts closed Matches from the history", () => {
+  it("counts a Match whose account closed (history only) with the one on screen: 1–1, not 1–0", () => {
+    // 2026-11-06: Match -6 (lost, closed, history only) and Match -7 (won, on screen) showed "1 – 0".
+    const lostEarlier = row("B", "lost", 6);
+    const rows = recordRows([lostEarlier], []);
+    expect(recordIncluding(rows, "B", { id: "7", result: "won" })).toMatchObject({ won: 1, lost: 1 });
+  });
+  it("keeps each Match once when the history and the live list both have it", () => {
+    const live = row("B", "won", 7);
+    expect(recordRows([row("B", "won", 7), row("B", "lost", 6)], [live])).toHaveLength(2);
+    expect(recordRows([], [live])).toEqual([live]);
   });
 });

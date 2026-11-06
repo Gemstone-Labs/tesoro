@@ -4,11 +4,13 @@ import { useMemo } from "react";
 import { Check, Link2 } from "lucide-react";
 import { PlayerAvatar, PlayerName, usePlayerLabel } from "@/components/account/Player";
 import { Button, Sheet } from "@/components/ui";
-import { useAccount } from "@/lib/account";
-import { accountHistory } from "@/lib/chain/history";
+import type { HistoryRow } from "@/lib/chain/history";
 import { useFriends } from "@/lib/friends/FriendsProvider";
 import { recordAgainst, recordText, sortFriends } from "@/lib/friends/record";
+import { useRecordRows } from "@/lib/friends/useRecordRows";
 import "./friends.css";
+
+const EMPTY_ROWS: HistoryRow[] = [];
 
 /**
  * Who a new Challenge is for (founder pick C3, as a centred modal): one of your Friends, or anyone with
@@ -28,10 +30,9 @@ export function FriendPicker({
   onOpen: () => void;
 }) {
   const friends = useFriends();
-  const { snapshot } = useAccount();
   const pickedName = usePlayerLabel(picked);
   const view = friends.view;
-  const myRows = useMemo(() => (snapshot ? accountHistory(snapshot.matches) : []), [snapshot]);
+  const myRows = useRecordRows() ?? EMPTY_ROWS;
   const records = useMemo(() => new Map((view?.friends ?? []).map((f) => [f.account, recordAgainst(myRows, f.account)])), [view, myRows]);
   const list = useMemo(() => sortFriends(view?.friends ?? [], records), [view, records]);
 
