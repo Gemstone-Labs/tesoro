@@ -4,7 +4,7 @@ import { PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
 import coreIdl from "../../lib/chain/idl/tesoro_core.json";
 import railcarIdl from "../../lib/chain/idl/railcar.json";
-import type { StoredRide } from "../../lib/chain/ride-history";
+import type { StoredRide } from "../../lib/chain/ride-record";
 
 const CORE = new PublicKey((coreIdl as { address: string }).address);
 const EVENT_AUTHORITY = PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], CORE)[0].toBase58();

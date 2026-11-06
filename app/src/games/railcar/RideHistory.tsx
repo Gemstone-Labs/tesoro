@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { PlayerAvatar, PlayerName } from "@/components/account/Player";
 import { CheckIcon, XIcon } from "@/components/ui";
-import { rideRecordOf, type StoredRide } from "@/lib/chain/ride-history";
+import { rideRecordOf } from "@/lib/chain/ride-history";
+import type { StoredRide } from "@/lib/chain/ride-record";
 import { RailcarScreen, TELLS, type RailcarActions } from "./RailcarScreen";
 import { replayRide, replayView } from "./replay";
 import { clock } from "./words";

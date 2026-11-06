@@ -4,7 +4,7 @@ import { GAME_NAMES } from "../mock";
 import type { GameId, MatchResult } from "../mock/types";
 import { backerDelta, matchDelta, seatResult } from "./ledger";
 import type { ChainMatch } from "./read";
-import type { RideRole } from "./ride-history";
+import type { RideRole } from "./ride-record";
 
 /** A Game a history row can name: the head-to-head Games, and Railcar (a ride of 5 to 100 Players). */
 export type HistoryGame = GameId | "railcar";

@@ -4,7 +4,7 @@
  */
 import { Keypair, PublicKey } from "@solana/web3.js";
 import type { CarView, SeatView } from "../../lib/chain/many-seat";
-import type { StoredRide } from "../../lib/chain/ride-history";
+import type { StoredRide } from "../../lib/chain/ride-record";
 import type { RideSeatView, TableView } from "./chain";
 import { refund, ride } from "./engine";
 import { railcarView, type FeeRates, type RailcarView } from "./view";

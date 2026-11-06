@@ -1,5 +1,5 @@
 import { HISTORY_PAGE, type HistoryRow } from "@/lib/chain/history";
-import type { StoredRide } from "@/lib/chain/ride-history";
+import type { StoredRide } from "@/lib/chain/ride-record";
 import { HIDDEN_GAMES } from "@/lib/games";
 import type { Win } from "@/lib/chain/season";
 import { matchKeyOf, type MatchKey } from "./match-key";

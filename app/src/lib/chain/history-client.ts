@@ -1,5 +1,5 @@
 import type { HistoryRow } from "./history";
-import type { StoredRide } from "./ride-history";
+import type { StoredRide } from "./ride-record";
 import { readScores } from "./settled";
 
 export interface HistoryPageData {
