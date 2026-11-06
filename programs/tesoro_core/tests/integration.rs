@@ -4857,7 +4857,7 @@ impl Env {
 /// The 140,000 CU budget of `a_chunk_of_twelve_steps_fits_one_transaction_with_a_lookup_table`,
 /// with Sources of `kind`: the worst 12-step chunk (fewer steps when the accounts pass 60) of a
 /// head-to-head Match whose loser has two lines of each of `k` Sources.
-fn twelve_step_worst(k: usize, kind: SourceKind) -> (u64, u8) {
+fn twelve_step_worst(k: usize, kind: SourceKind) -> (u64, u32) {
     let mut env = Env::with_kind(kind);
     let alice = env.person();
     let bob = env.person();
