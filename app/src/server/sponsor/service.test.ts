@@ -1136,6 +1136,15 @@ describe("seat keys on the sponsor (ticket 10)", () => {
     await expect(s.sponsor.build(s.player.publicKey, wire([finalize]), null, seat(ana, key()))).rejects.toMatchObject({ code: "bad-request" });
   });
 
+  it("cancels (refund_match) signed by the opener's seat key itself, as the app sends it; a stranger as caller is still refused", async () => {
+    const { s, ana, match } = await world();
+    const r = s.relayer.publicKey;
+    const refundBy = (caller: PublicKey) => coreIx("refund_match", [], { caller, payer: r, gameProgram: s.game, programData: key(), gameRecord: key(), matchState: match, openerProtections: null });
+    await expect(s.sponsor.build(s.player.publicKey, wire([await refundBy(ana)]), null, seat(ana, match))).resolves.toMatchObject({ class: "exit" });
+    // a key that signs but is not the one the request was checked for needs an Account of its own
+    await expect(s.sponsor.build(s.player.publicKey, wire([await refundBy(key())]), null, seat(ana, match))).rejects.toMatchObject({ code: "no-account" });
+  });
+
   it("cancels (refund_match) only for the opener side's key", async () => {
     const { s, ana, ben, match } = await world();
     const r = s.relayer.publicKey;
