@@ -12,7 +12,7 @@ import { decodeTicketHead } from "../../lib/chain/pot-store";
 import { supplySources, type Reader } from "../../lib/chain/settle-plan";
 import { ENTRY_GEMAS } from "./chain";
 
-/** An accepted Offer the Player boards with: the Backer's Account funds the entry, from the Backing Ticket it opened. */
+/** An accepted Offer the Player boards with: the Backer's Account funds the entry, staged in the Offer's Backing Ticket. */
 export interface BoardingBacking {
   offer: PublicKey;
   backerAccount: PublicKey;

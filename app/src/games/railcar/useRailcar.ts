@@ -335,7 +335,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
         countingFor(key);
         const seatKey = await seatKeys().forMatch(key, wallet.publicKey);
         // The entry draws the Player's Gemas (more lines than one transaction draws are staged in an Entry Ticket first), or
-        // under a Backing comes from the Backing Ticket the Offer opened when it was accepted: a backed seat takes only that.
+        // under a Backing always comes from the Offer's Backing Ticket, opened now (or found again after a reload).
         const { funder, preview } = await boardingEntry(chain.base, me, backing ?? undefined);
         const staging = { signer: wallet, seat: seatKey, getToken, game: RAILCAR_PROGRAM_ID, entry: BigInt(ENTRY_GEMAS), lines: preview.ticketLines };
         const ticket = backing ? await readyBackingTicket({ ...staging, ...backing }) : preview.needsTicket ? await prepareEntryTicket(staging) : null;

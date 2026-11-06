@@ -377,7 +377,7 @@ class World {
     // Sponsored, as the page sends it: the relayer pays, the wallet signs the entry once, the seat key co-signs.
     const payer = this.relayer.publicKey;
     const seatKey = p.seat;
-    // A backed seat boards from the Backing Ticket its Offer opened at acceptance, staged now by the seat key.
+    // A backed seat boards from its Offer's Backing Ticket, opened at the entry and staged by the seat key.
     let pot: ReturnType<typeof freshPot>;
     let remaining: AccountMeta[] = [];
     if (backing) {
