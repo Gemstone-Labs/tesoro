@@ -75,7 +75,7 @@ impl Env {
         offer
     }
 
-    /// `player` boards with `backer`'s Gemas, drawn directly into a fresh Pot of the Backer's.
+    /// `player` boards with `backer`'s Gemas, staged first in the Backing Ticket of `offer`.
     fn board_backed(
         &mut self,
         player: &Person,
@@ -105,7 +105,34 @@ impl Env {
         Ok(self.mark(car, player).expect("mark").seat)
     }
 
-    /// The Backed join with every optional Backer account (and the seat key, when named).
+    /// The open Backing Ticket `offer` opened, if any: its nonce (the Offer names it).
+    fn ticket_of(&self, offer: APk) -> Option<u64> {
+        let o = self.load::<OfferState>(offer).inner;
+        o.ticket_nonce.filter(|_| o.ticket_open)
+    }
+
+    /// `player` opens the Backing Ticket of `offer` (as they would with the accept) and anyone
+    /// stages it until it holds the entry. Returns its nonce; an open one is used as it is.
+    fn stage_backing(&mut self, player: &Person, backer: &Person, offer: APk) -> u64 {
+        if let Some(n) = self.ticket_of(offer) {
+            return n;
+        }
+        let nonce = self.next_ticket(backer.account);
+        self.open_backing_ticket(backer, player, offer, nonce, CAR_ENTRY, 20)
+            .expect("open the Backing Ticket");
+        let mut books = vec![];
+        for src in self.sources_in(backer.account) {
+            books.extend(book_metas(&self.svm, src));
+        }
+        let anyone = self.admin.insecure_clone();
+        while self.load_ticket_staged(backer, nonce) < CAR_ENTRY {
+            self.stage_with(&anyone, backer, nonce, 255, books.clone())
+                .expect("stage");
+        }
+        nonce
+    }
+
+    /// The Backed join: its Pot is the complete Backing Ticket, so it names no books.
     fn backed_join_ix(
         &mut self,
         player: &Person,
@@ -116,19 +143,13 @@ impl Env {
     ) -> Instruction {
         let named = seat_key.map_or(player.key, |k| a(k.pubkey()));
         let page = self.page_with_room(car);
-        let nonce = self.next_ticket(backer.account);
-        let pot = ticket_pda(backer.account, nonce);
-        let mut books = vec![];
-        for src in self.sources_in(backer.account) {
-            books.extend(book_metas(&self.svm, src));
-        }
-        self.ensure_spill(&backer.kp.insecure_clone(), backer.account, 40);
+        let nonce = self.stage_backing(player, backer, offer);
         self.join_ix(
             player,
             car,
             page,
-            (nonce, 12, pot),
-            books,
+            (nonce, 20, ticket_pda(backer.account, nonce)),
+            vec![],
             (Some((offer, backer.account)), named),
         )
     }
@@ -278,7 +299,7 @@ fn a_backer_funds_one_seat_per_car_and_cannot_ride_in_it() {
     let err = env.board_backed(&cy, &bob, for_cy, car).unwrap_err();
     assert_eq!(custom_code(&err), seat_err(ManySeatError::AlreadySeated));
     assert_eq!(env.offer_status(for_cy), OfferStatus::Accepted, "unused");
-    assert_eq!(env.reserved_of(&bob), 500);
+    assert!(env.ticket_of(for_cy).is_some(), "its Ticket waits");
     let err = env.board(&bob, car).unwrap_err();
     assert_eq!(custom_code(&err), seat_err(ManySeatError::AlreadySeated));
     // a rider of the car cannot fund another seat in it either
@@ -313,7 +334,7 @@ fn only_a_listed_games_car_can_be_backed() {
         anchor_code(tesoro_core::error::TesoroError::GameNotListed)
     );
     assert_eq!(env.offer_status(offer), OfferStatus::Accepted);
-    assert_eq!(env.reserved_of(&bob), 500);
+    assert!(env.ticket_of(offer).is_some(), "its Ticket waits");
     // the same Player rides it with his own Gemas
     env.board(&ben, car).expect("unbacked");
 }
@@ -431,11 +452,25 @@ fn a_backed_seat_steps_off_with_its_seat_key_and_the_return_lands_on_the_backer(
     assert_eq!(env.total_gemas(&ben), 2_000);
 }
 
-/// What the sponsor sends: the relayer pays, the Player's wallet and the seat key co-sign.
-/// Prints the serialized size with no lookup table, and with every non-signer account in one.
+/// The compute unit price instruction the sponsor puts in front of what it sends.
+fn cu_price(micro_lamports: u64) -> Instruction {
+    let mut data = vec![3u8];
+    data.extend_from_slice(&micro_lamports.to_le_bytes());
+    Instruction {
+        program_id: "ComputeBudget111111111111111111111111111111"
+            .parse()
+            .expect("compute budget program"),
+        accounts: vec![],
+        data,
+    }
+}
+
+/// What the sponsor sends: the relayer pays, the Player's wallet and the seat key co-sign, with the
+/// compute limit and price the sponsor puts in front. It must fit with no lookup table at all (the
+/// sponsor's table is optional). Bob's 500 come from 4 Sources.
 #[test]
-fn the_sponsored_backed_join_with_a_seat_key_fits_a_transaction() {
-    use solana_sdk::message::{v0, Message, VersionedMessage};
+fn the_sponsored_backed_join_with_a_seat_key_fits_a_transaction_with_no_table() {
+    use solana_sdk::message::{v0, VersionedMessage};
     let mut env = Env::new();
     let opener = env.rider(2_000);
     let ben = env.rider(2_000);
@@ -448,30 +483,122 @@ fn the_sponsored_backed_join_with_a_seat_key_fits_a_transaction() {
     let relayer = env.fresh_key();
     let mut join = env.backed_join_ix(&ben, &bob, offer, car, Some(&key));
     join.accounts[0].pubkey = s(a(relayer.pubkey()));
-    let ixs = [cu_limit(1_400_000), join];
-    let legacy = Message::new(&ixs, Some(&relayer.pubkey()));
-    let sigs = legacy.header.num_required_signatures as usize;
-    let legacy_len = legacy.serialize().len() + 1 + 64 * sigs;
-    let table: Vec<Pk> = ixs
-        .iter()
-        .flat_map(|i| i.accounts.iter())
-        .filter(|m| !m.is_signer)
-        .map(|m| m.pubkey)
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .collect();
-    let alt = solana_sdk::message::AddressLookupTableAccount {
-        key: Pk::new_unique(),
-        addresses: table,
-    };
-    let v0m = v0::Message::try_compile(&relayer.pubkey(), &ixs, &[alt], env.svm.latest_blockhash())
+    let ixs = [cu_limit(1_400_000), cu_price(1_000), join];
+    let m = v0::Message::try_compile(&relayer.pubkey(), &ixs, &[], env.svm.latest_blockhash())
         .expect("compile");
-    let v0_len = VersionedMessage::V0(v0m).serialize().len() + 1 + 64 * sigs;
+    let sigs = m.header.num_required_signatures as usize;
+    let len = VersionedMessage::V0(m).serialize().len() + 1 + 64 * sigs;
     println!(
-        "sponsored Backed join + seat key: {legacy_len} B without a table, {v0_len} B with every non-signer in a table ({sigs} signatures, {} accounts)",
-        ixs[1].accounts.len()
+        "sponsored Backed join + seat key, no table: {len} B ({sigs} signatures, {} join accounts)",
+        ixs[2].accounts.len()
     );
-    assert!(v0_len <= 1_232, "{v0_len} B with a table");
+    assert_eq!(sigs, 3);
+    assert!(len <= 1_232, "{len} B");
+}
+
+#[test]
+fn a_backed_seat_takes_its_backing_ticket_not_a_direct_draw() {
+    let mut env = Env::new();
+    let opener = env.rider(2_000);
+    let (ben, bob) = (env.person(), env.rider(2_000));
+    let offer = env.backing(&ben, &bob, 1, SHARE);
+    let car = env.open_car(&opener, (2, 10));
+    let nonce = env.next_ticket(bob.account);
+    let mut books = vec![];
+    for src in env.sources_in(bob.account) {
+        books.extend(book_metas(&env.svm, src));
+    }
+    env.ensure_spill(&bob.kp.insecure_clone(), bob.account, 40);
+    let join = env.join_ix(
+        &ben,
+        car,
+        0,
+        (nonce, 12, ticket_pda(bob.account, nonce)),
+        books,
+        (Some((offer, bob.account)), ben.key),
+    );
+    let err = env
+        .send_v0(&[cu_limit(1_400_000), join], &ben.kp.insecure_clone())
+        .unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        seat_err(ManySeatError::BackingNeedsTicket)
+    );
+    assert_eq!(env.offer_status(offer), OfferStatus::Accepted);
+    assert_eq!(env.reserved_of(&bob), 500);
+}
+
+#[test]
+fn a_backing_ticket_boards_only_with_the_offer_that_opened_it() {
+    let mut env = Env::new();
+    let opener = env.rider(2_000);
+    let (ben, cy, bob) = (env.person(), env.person(), env.rider(2_000));
+    // Bob backs Ben twice and Cy once; Ben stages the first Offer
+    let first = env.backing(&ben, &bob, 1, SHARE);
+    let second = env.backing(&ben, &bob, 2, SHARE);
+    let for_cy = env.backing(&cy, &bob, 3, SHARE);
+    let car = env.open_car(&opener, (2, 10));
+    let nonce = env.stage_backing(&ben, &bob, first);
+    let with = |env: &mut Env, p: &Person, offer: APk| {
+        let page = env.page_with_room(car);
+        let join = env.join_ix(
+            p,
+            car,
+            page,
+            (nonce, 20, ticket_pda(bob.account, nonce)),
+            vec![],
+            (Some((offer, bob.account)), p.key),
+        );
+        env.send_v0(&[cu_limit(1_400_000), join], &p.kp.insecure_clone())
+    };
+    // Ben's other Offer, and Cy's Offer, cannot spend the Ticket the first one opened
+    let err = with(&mut env, &ben, second).unwrap_err();
+    assert_eq!(custom_code(&err), match_err(MatchError::BadBacking));
+    let err = with(&mut env, &cy, for_cy).unwrap_err();
+    assert_eq!(custom_code(&err), match_err(MatchError::BadBacking));
+    assert_eq!(env.offer_status(second), OfferStatus::Accepted);
+    assert_eq!(env.offer_status(for_cy), OfferStatus::Accepted);
+    // the Offer that opened it boards Ben
+    with(&mut env, &ben, first).expect("the Ticket's own Offer");
+    assert_eq!(env.offer_status(first), OfferStatus::Consumed);
+    assert_eq!(env.counters(bob.account).open_offers, 2);
+    assert_eq!(
+        env.page(car, 0).seats[env.mark(car, &ben).expect("mark").seat as usize].funder(),
+        bob.account.to_bytes()
+    );
+}
+
+#[test]
+fn an_unused_backing_ticket_goes_home_to_the_backer_and_only_with_its_own_offer() {
+    let mut env = Env::new();
+    let (ben, cy, bob) = (env.person(), env.person(), env.rider(2_000));
+    let for_ben = env.backing(&ben, &bob, 1, SHARE);
+    let for_cy = env.backing(&cy, &bob, 2, SHARE);
+    let nonce = env.stage_backing(&ben, &bob, for_ben);
+    assert_eq!(env.total_gemas(&bob), 1_500);
+    // an hour on, anyone may cancel it, but naming another of Bob's Offers would leave Ben's
+    // tied to a Ticket that no longer exists: refused
+    env.set_time(env.now() + 3_601);
+    let stranger = env.fresh_key();
+    let mut books = vec![];
+    for src in env.sources_in(bob.account) {
+        books.extend(book_metas(&env.svm, src));
+    }
+    let err = env
+        .cancel_backing_ticket(&stranger, &bob, nonce, Some(for_cy), books.clone())
+        .unwrap_err();
+    assert_eq!(custom_code(&err), match_err(MatchError::BadBacking));
+    env.cancel_backing_ticket(&stranger, &bob, nonce, Some(for_ben), books)
+        .expect("cancel with its Offer");
+    assert_eq!(env.total_gemas(&bob), 2_000);
+    assert_eq!(env.offer_status(for_ben), OfferStatus::Accepted);
+    assert!(!env.load::<OfferState>(for_ben).inner.ticket_open);
+    // Ben's Offer is free again: it stages and boards a car
+    let opener = env.rider(2_000);
+    let car = env.open_car(&opener, (2, 10));
+    env.board_backed(&ben, &bob, for_ben, car)
+        .expect("boards after all");
+    assert_eq!(env.total_gemas(&bob), 1_500);
 }
 
 // --- Ticket 17: the Entry Limit gives back a seat's entry that comes back unplayed ------------

@@ -26,7 +26,7 @@ import { joinSeatIx } from "@/lib/chain/many-seat";
 import { loadCar, type LoadedCar } from "@/lib/chain/many-seat-plan";
 import { connReader, fits, type Reader } from "@/lib/chain/settle-plan";
 import { sponsorStatus, sponsoredSend } from "@/lib/chain/sponsor-client";
-import { prepareBackingTicket, prepareEntryTicket } from "@/lib/chain/ticket";
+import { prepareEntryTicket, readyBackingTicket } from "@/lib/chain/ticket";
 import { seatKeys, type SeatKey } from "@/lib/seat/seat-key";
 import { countingFor } from "@/lib/seat/signature-counter";
 import { browserStore } from "@/lib/storage";
@@ -450,23 +450,32 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
         const key = choice.kind === "join" ? matchKeyOf({ opener: loaded!.car.opener.toBase58(), n: loaded!.car.n }) : matchKeyOf({ opener: me.toBase58(), n });
         countingFor(key);
         const seatKey = await seatKeys().forMatch(key, wallet.publicKey);
-        // The entry draws the Player's Gemas, or under a Backing the Backer's. More lines than one transaction draws are staged
-        // in an Entry Ticket (a Backing Ticket for the Backer's) first.
+        // The entry draws the Player's Gemas (more lines than one transaction draws are staged in an Entry Ticket first), or
+        // under a Backing always comes from the Offer's Backing Ticket, opened now (or found again after a reload).
         const { funder, preview } = await boardingEntry(chain.base, me, backing ?? undefined);
         const staging = { signer: wallet, seat: seatKey, getToken, game: RAILCAR_PROGRAM_ID, entry: BigInt(ENTRY_GEMAS), lines: preview.ticketLines };
-        const ticket = !preview.needsTicket ? null : backing ? await prepareBackingTicket({ ...staging, ...backing }) : await prepareEntryTicket(staging);
+        const ticket = backing ? await readyBackingTicket({ ...staging, ...backing }) : preview.needsTicket ? await prepareEntryTicket(staging) : null;
         const remaining = ticket ? [] : await drawRemaining(preview.plan);
+        // A Backed Player who opens the car opens it first: the open and a Backed join do not fit one transaction.
+        const opensFirst = choice.kind === "open" && !!backing;
         const build = async (payer: PublicKey, sponsored: boolean) => {
           const pot = ticket ? { address: ticket.address, nonce: ticket.nonce, lines: ticket.lineCap } : freshPot(funder, preview.potLines, await readNextTicket(funder));
           const join = joinSeatIx({ payer, player: wallet.publicKey, car: match, game: RAILCAR_PROGRAM_ID, page: choice.kind === "join" ? choice.page : 0, pot, backing: backing ?? undefined, remaining, seatSigner: joinSeatKey(seatKey) });
           const ixs: TransactionInstruction[] = sponsored ? [] : [ComputeBudgetProgram.setComputeUnitLimit({ units: SELF_PAID_UNITS })];
-          if (choice.kind === "join") ixs.push(join, checkDepartureIx(choice.carNo, match));
+          if (choice.kind === "join" || opensFirst) ixs.push(join, checkDepartureIx(choice.carNo, match));
           else {
             if (choice.departFirst) ixs.push(checkDepartureIx(choice.departFirst.carNo, choice.departFirst.car));
             ixs.push(openCarIx({ payer, opener: wallet.publicKey, config: s.config!, n }), join, checkDepartureIx(choice.carNo, match));
           }
           return ixs;
         };
+        if (opensFirst) {
+          await sendEntryTx(wallet, getToken, async (payer, sponsored) => [
+            ...(sponsored ? [] : [ComputeBudgetProgram.setComputeUnitLimit({ units: SELF_PAID_UNITS })]),
+            ...(choice.departFirst ? [checkDepartureIx(choice.departFirst.carNo, choice.departFirst.car)] : []),
+            openCarIx({ payer, opener: wallet.publicKey, config: s.config!, n }),
+          ]);
+        }
         // The one wallet signature of the ride (the seat key co-signs once core names seat keys); the relayer pays.
         await sendEntryTx(boardingSigner(wallet, seatKey), getToken, build);
         const carNo = choice.carNo;

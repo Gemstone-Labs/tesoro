@@ -629,10 +629,11 @@ pub struct OfferState {
 
 impl OfferState {
     // discriminator, bump, nonce, backer, game, entry, player_share_bps, request, status,
-    // expires_at, use_by, player, ticket_open, counted_in
-    pub const SPACE: usize = 8 + 1 + 8 + 32 + 32 + 8 + 2 + 32 + 1 + 8 + 8 + 33 + 1 + 8;
-    /// The length before `counted_in` (`grow_offer` grows it).
-    pub const SPACE_V1: usize = Self::SPACE - 8;
+    // expires_at, use_by, player, ticket_open, counted_in, ticket_nonce
+    pub const SPACE: usize = 8 + 1 + 8 + 32 + 32 + 8 + 2 + 32 + 1 + 8 + 8 + 33 + 1 + 8 + 9;
+    /// The length before `counted_in` and `ticket_nonce` (`grow_offer` grows it; its zeros read
+    /// as 0 and None).
+    pub const SPACE_V1: usize = Self::SPACE - 17;
 }
 
 /// The one custody of every native Position (ADR 0010): a single simSOL vault that keeps their

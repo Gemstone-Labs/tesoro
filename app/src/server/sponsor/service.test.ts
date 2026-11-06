@@ -31,6 +31,7 @@ import { ComputeBudgetProgram, TransactionMessage } from "@solana/web3.js";
 import { GAME_IDS } from "@/lib/chain/games";
 import { STORE_HEADER, TICKET_HEAD, TICKET_VERSION } from "@/lib/chain/pot-store";
 import { stageEntryIx } from "@/lib/chain/ticket";
+import { offerPda } from "@/lib/chain/backing-ix";
 
 const SOL = 1_000_000_000n;
 const wire = (ixs: Ix[]): { ixs: WireIx[] } => ({
@@ -1317,5 +1318,85 @@ describe("an Entry Ticket staged by its seat key", () => {
     await expect(bens.s.sponsor.build(bens.s.player.publicKey, wire([bens.ix(seat)]), "did:privy:ana", { kind: "token" })).rejects.toMatchObject({ code: "no-account" });
     const backing = world((s) => ({ account: accountPda(s.player.publicKey), seat, kind: 1 }));
     await expect(backing.s.sponsor.build(backing.s.player.publicKey, wire([backing.ix(seat)]), "did:privy:ana", { kind: "token" })).rejects.toMatchObject({ code: "no-account" });
+  });
+});
+
+describe("a Backing Ticket staged by the Requester's seat key", () => {
+  // Bob backs Ana: Ana opened Bob's Backing Ticket 4 for Offer 7 and named her seat key; her seat key stages the rest.
+  const TICKET = 4n;
+  const offerCoder = new BorshAccountsCoder(coreIdl as unknown as Idl);
+  const headOf = (backer: PublicKey, seat: PublicKey, nonce: bigint) => {
+    const head = Buffer.alloc(TICKET_HEAD);
+    head[0] = TICKET_VERSION;
+    head[2] = 1;
+    head.set(backer.toBytes(), 8);
+    head.writeBigUInt64LE(nonce, 104);
+    head.set(seat.toBytes(), 152);
+    return new Uint8Array(Buffer.concat([Buffer.alloc(8), head, Buffer.alloc(STORE_HEADER)]));
+  };
+  const offerData = (o: { backer: PublicKey; nonce: bigint; player: PublicKey; ticketNonce: bigint | null }) =>
+    offerCoder.encode("OfferState", {
+      bump: 255,
+      nonce: new BN(o.nonce.toString()),
+      inner: {
+        backer: Array.from(o.backer.toBytes()),
+        game: Array.from(GAME_IDS.holdem.toBytes()),
+        entry: new BN(500),
+        player_share_bps: 4_000,
+        request: Array.from(key().toBytes()),
+        status: { Accepted: {} },
+        expires_at: new BN(0),
+        use_by: new BN(2_000_000_000),
+        player: Array.from(o.player.toBytes()),
+        ticket_open: o.ticketNonce !== null,
+        counted_in: new BN(0),
+        ticket_nonce: o.ticketNonce === null ? null : new BN(o.ticketNonce.toString()),
+      },
+    });
+  function world() {
+    const s = setup();
+    const seat = key();
+    const bob = key();
+    const ticket = key();
+    s.accounts.set(ticket.toBase58(), { owner: CORE_ID, data: headOf(bob, seat, TICKET) });
+    const offerAt = async (nonce: bigint, o: { player?: PublicKey; ticketNonce?: bigint | null; at?: PublicKey } = {}) => {
+      const address = o.at ?? offerPda(bob, nonce);
+      const ticketNonce = o.ticketNonce === undefined ? TICKET : o.ticketNonce;
+      s.accounts.set(address.toBase58(), { owner: CORE_ID, data: await offerData({ backer: bob, nonce, player: o.player ?? accountPda(s.player.publicKey), ticketNonce }) });
+      return address;
+    };
+    const stage = (asker: PublicKey, signer: PublicKey, offer?: PublicKey) =>
+      s.sponsor.build(asker, { ...wire([stageEntryIx(signer, bob, ticket, 4, [])]), ...(offer ? { offer: offer.toBase58() } : {}) }, "did:privy:ana", { kind: "token" });
+    return { s, seat, offerAt, stage };
+  }
+
+  it("builds for Ana's seat key when the request names the Offer that opened the Ticket for her", async () => {
+    const w = world();
+    const offer = await w.offerAt(7n);
+    await expect(w.stage(w.s.player.publicKey, w.seat, offer)).resolves.toMatchObject({ class: "continue" });
+  });
+
+  it("refuses a stranger's key, Ana's key asked for by another Player, and a request naming no Offer", async () => {
+    const w = world();
+    const offer = await w.offerAt(7n);
+    await expect(w.stage(w.s.player.publicKey, key(), offer)).rejects.toMatchObject({ code: "no-account" });
+    // Cy has an Account of his own, but the Offer is Ana's: the free step would count against the wrong Player
+    const cy = Keypair.generate().publicKey;
+    w.s.accounts.set(accountPda(cy).toBase58(), { owner: CORE_ID, data: new Uint8Array(10) });
+    await expect(w.stage(cy, w.seat, offer)).rejects.toMatchObject({ code: "no-account" });
+    await expect(w.stage(w.s.player.publicKey, w.seat)).rejects.toMatchObject({ code: "no-account" });
+  });
+
+  it("refuses a hint that is not this Ticket's Offer: another Ticket's, one with no Ticket open, a copy away from its address", async () => {
+    const w = world();
+    await expect(w.stage(w.s.player.publicKey, w.seat, await w.offerAt(8n, { ticketNonce: TICKET + 1n }))).rejects.toMatchObject({ code: "no-account" });
+    await expect(w.stage(w.s.player.publicKey, w.seat, await w.offerAt(9n, { ticketNonce: null }))).rejects.toMatchObject({ code: "no-account" });
+    await expect(w.stage(w.s.player.publicKey, w.seat, await w.offerAt(7n, { at: key() }))).rejects.toMatchObject({ code: "no-account" });
+    await expect(w.stage(w.s.player.publicKey, w.seat, key())).rejects.toMatchObject({ code: "no-account" });
+  });
+
+  it("refuses a hint that is not an address", async () => {
+    const w = world();
+    await expect(w.s.sponsor.build(w.s.player.publicKey, { ...wire([]), offer: "not a key" }, "did:privy:ana", { kind: "token" })).rejects.toMatchObject({ code: "bad-request" });
   });
 });

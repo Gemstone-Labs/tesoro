@@ -268,6 +268,7 @@ pub(crate) fn open_ticket(
                 MatchError::OfferNotUsable
             );
             offer.inner.ticket_open = true;
+            offer.inner.ticket_nonce = Some(nonce);
         }
     }
     let basket_info = ctx.accounts.basket.to_account_info();
@@ -534,13 +535,15 @@ pub(crate) fn cancel_ticket<'info>(
                 .offer
                 .as_mut()
                 .ok_or_else(|| error!(MatchError::BadBacking))?;
+            // the Offer that opened this Ticket, no other of the Backer's: that one would stay tied
+            // to a Ticket that no longer exists
             require!(
                 offer.inner.backer == ctx.accounts.owner.key().to_bytes()
-                    && offer.inner.entry == t.target
-                    && offer.inner.game == t.game,
+                    && offer.inner.ticket_nonce == Some(t.nonce),
                 MatchError::BadBacking
             );
             offer.inner.ticket_open = false;
+            offer.inner.ticket_nonce = None;
         }
         let held = extra.spill_room;
         extra.spill_room = 0;

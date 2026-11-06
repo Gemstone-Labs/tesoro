@@ -10,8 +10,11 @@
  * Stand-ins, as the Rust ride tests (programs/railcar/tests/ride.rs) use them: one LiteSVM is both base and rollup; the
  * magic, permission and VRF programs accept anything (`test-programs/noop.so`); the Vault is written as `init_vault`
  * would; the VRF callback is signed by its scoped identity directly; a commit is base keeping the Table's bytes, and
- * `finalize` reads them owned by the delegation program. The lookup tables are written in place (the server's own tables
- * on devnet).
+ * `finalize` reads them owned by the delegation program.
+ *
+ * Every transaction is compiled by the app's one size rule (`lib/chain/tx-size`) with no lookup table, as the sponsor
+ * sends it when `TESORO_SPONSOR_LOOKUP_TABLES` is unset: one over 1,232 B or 64 accounts fails the test, naming its
+ * instructions. Boarding goes as the sponsor sends it: the relayer pays, the wallet and the seat key sign.
  */
 import { AnchorProvider, BN, BorshAccountsCoder, Program, type Idl } from "@coral-xyz/anchor";
 import { DELEGATION_PROGRAM_ID, PERMISSION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
@@ -20,9 +23,9 @@ import {
   ComputeBudgetProgram,
   Keypair,
   PublicKey,
-  TransactionMessage,
   VersionedTransaction,
   type AccountInfo,
+  type AccountMeta,
   type TransactionInstruction,
 } from "@solana/web3.js";
 import { createHash } from "node:crypto";
@@ -31,7 +34,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CLASS_STUDIO, basketPda, countersPda, matchPda, spillPda } from "../../lib/chain/basket";
 import { coreIx } from "../../lib/chain/core-ix";
-import { drawRemaining, freshPot, nextMatchOf, readNextTicket } from "../../lib/chain/entry";
+import { drawRemaining, freshPot, nextMatchOf, previewEntry, readEntryStores, readNextTicket } from "../../lib/chain/entry";
 import coreIdl from "../../lib/chain/idl/tesoro_core.json";
 import railcarIdl from "../../lib/chain/idl/railcar.json";
 import { acceptOfferIx, backingNonce, createOfferIx, createRequestIx } from "../../lib/chain/backing-ix";
@@ -39,7 +42,10 @@ import { joinSeatIx, seatMarkPda } from "../../lib/chain/many-seat";
 import { loadCar } from "../../lib/chain/many-seat-plan";
 import { decodeStore } from "../../lib/chain/pot-store";
 import { OVERFLOW_STORE_AT, matchOverflowPda } from "../../lib/chain/overflow";
-import { MAX_ACCOUNTS, MAX_TX_BYTES, type Reader } from "../../lib/chain/settle-plan";
+import { fits, type Reader } from "../../lib/chain/settle-plan";
+import { checkedV0, instructionName, messageSize, type TxSize } from "../../lib/chain/tx-size";
+import { backingTicketOf, nextStageIx, openBackingTicketIxs, type TicketView } from "../../lib/chain/ticket";
+import { sponsoredInstructions } from "../../server/sponsor/service";
 import {
   RAILCAR_PROGRAM_ID,
   bindBrakeIx,
@@ -80,7 +86,6 @@ const BUILT = existsSync(join(SO_DIR, "tesoro_core.so")) && existsSync(join(SO_D
 
 const CORE = new PublicKey((coreIdl as { address: string }).address);
 const UPGRADEABLE = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
-const ALT_PROGRAM = new PublicKey("AddressLookupTab1e1111111111111111111111111");
 const MAGIC = new PublicKey("Magic11111111111111111111111111111111111111");
 const VRF = new PublicKey("Vrf1RNUjXmQGjmQrQLvJHs9SNkvDJEsRVFPkfSQUwGz");
 const SOL = 1_000_000_000n;
@@ -219,9 +224,15 @@ class World {
 
   // ---- sending ------------------------------------------------------------------------------------------------------
 
+  /** The largest size each kind of transaction took (its instructions, compute budget left out). */
+  sizes = new Map<string, TxSize>();
+
   send(ixs: TransactionInstruction[], payer: Keypair, signers: Keypair[] = [], tables: AddressLookupTableAccount[] = []): void {
     this.svm.expireBlockhash();
-    const msg = new TransactionMessage({ payerKey: payer.publicKey, recentBlockhash: this.svm.latestBlockhash(), instructions: ixs }).compileToV0Message(tables);
+    const msg = checkedV0(payer.publicKey, this.svm.latestBlockhash(), ixs, tables);
+    const kind = ixs.map(instructionName).filter((n) => n !== "compute_budget").join(" + ");
+    const size = messageSize(msg);
+    if (size.bytes > (this.sizes.get(kind)?.bytes ?? 0)) this.sizes.set(kind, size);
     const tx = new VersionedTransaction(msg);
     const all = [payer, ...signers];
     tx.sign(all.filter((k, i) => all.findIndex((x) => x.publicKey.equals(k.publicKey)) === i && msg.staticAccountKeys.slice(0, msg.header.numRequiredSignatures).some((s) => s.equals(k.publicKey))));
@@ -232,28 +243,6 @@ class World {
     this.lastInner = res.inner;
     this.lastUnits = res.units;
     if (res.err) throw new Error(`transaction failed: ${String(res.err)}\n${this.lastLogs.join("\n")}`);
-  }
-
-  /** A lookup table holding every non-signer account of `ixs`, written in place (the server compiles with its own). */
-  table(ixs: TransactionInstruction[]): AddressLookupTableAccount {
-    const keys = [...new Map(ixs.flatMap((i) => [i.programId, ...i.keys.filter((k) => !k.isSigner).map((k) => k.pubkey)]).map((k) => [k.toBase58(), k])).values()];
-    const key = Keypair.generate().publicKey;
-    const head = Buffer.alloc(56);
-    head.writeUInt32LE(1, 0);
-    head.writeBigUInt64LE(0xffff_ffff_ffff_ffffn, 4);
-    this.svm.set(key, { lamports: Number(10n * SOL), data: Buffer.concat([head, ...keys.map((k) => k.toBuffer())]), owner: ALT_PROGRAM, executable: false });
-    return new AddressLookupTableAccount({ key, state: { deactivationSlot: 0xffff_ffff_ffff_ffffn, lastExtendedSlot: 0, lastExtendedSlotStartIndex: 0, authority: undefined, addresses: keys } });
-  }
-
-  fits(payer: PublicKey, ixs: TransactionInstruction[]): boolean {
-    const t = this.table(ixs);
-    try {
-      const msg = new TransactionMessage({ payerKey: payer, recentBlockhash: PublicKey.default.toBase58(), instructions: ixs }).compileToV0Message([t]);
-      const accounts = msg.staticAccountKeys.length + msg.addressTableLookups.reduce((n, l) => n + l.writableIndexes.length + l.readonlyIndexes.length, 0);
-      return new VersionedTransaction(msg).serialize().length <= MAX_TX_BYTES && accounts <= MAX_ACCOUNTS;
-    } catch {
-      return false;
-    }
   }
 
   setClock(slot: bigint, ts: number) {
@@ -294,6 +283,9 @@ class World {
     this.svm.set(treasury, { lamports: Number(SOL), data: tdata, owner: CORE, executable: false });
     const pool = corePda("leaderboard");
     this.send([coreIx("init_leaderboard", { admin: admin.publicKey, config: corePda("config"), pool_authority: pool, pool_account: corePda("account", pool.toBuffer()), treasury }, { leaderboard_bps: 100 })], admin);
+    // core's sponsor, which fronts the rent of the sponsored Tickets the relayer opens
+    this.send([coreIx("init_sponsor", { admin: admin.publicKey, config: corePda("config"), sponsor: corePda("sponsor") }, { relayer: this.relayer.publicKey, per_account_cap: 100n * SOL, total_cap: 1_000n * SOL, pages_cap: 100n * SOL })], admin);
+    this.svm.airdrop(corePda("sponsor"), 100n * SOL);
     // The control key is Railcar's upgrade authority; core approves the build's hash.
     const pd = programData(RAILCAR_PROGRAM_ID);
     const acct = this.get(pd)!;
@@ -404,19 +396,35 @@ class World {
     const backerSeated = !!backing && !!boarding && (await backerSeatedIn(conn, boarding.car.address, backing.backerAccount));
     const choice = queueChoice({ config, boarding, now: this.now, mine: false, backerSeated });
     if (choice.kind !== "join" && choice.kind !== "open") return choice.kind;
-    const { funder, preview } = await boardingEntry(conn, p.account, backing);
-    expect(preview.needsTicket).toBe(false);
-    const pot = freshPot(funder, preview.potLines, await readNextTicket(funder, conn));
-    const remaining = await drawRemaining(preview.plan, conn);
-    const ixs: TransactionInstruction[] = [cu(1_000_000)];
+    // Sponsored, as the page sends it: the relayer pays, the wallet signs the entry once, the seat key co-signs.
+    const payer = this.relayer.publicKey;
+    const seatKey = p.seat;
+    // A backed seat boards from its Offer's Backing Ticket, opened at the entry and staged by the seat key.
+    let pot: ReturnType<typeof freshPot>;
+    let remaining: AccountMeta[] = [];
+    if (backing) {
+      const t = await this.stageBacking(p, backing, seatKey);
+      pot = { address: t.address, nonce: t.nonce, lines: t.lineCap, ticket: true };
+    } else {
+      const { funder, preview } = await boardingEntry(conn, p.account);
+      expect(preview.needsTicket).toBe(false);
+      pot = freshPot(funder, preview.potLines, await readNextTicket(funder, conn));
+      remaining = await drawRemaining(preview.plan, conn);
+    }
+    const ixs: TransactionInstruction[] = [];
     if (choice.kind === "join") {
-      ixs.push(joinSeatIx({ payer: p.key, player: p.key, seatSigner: p.seat.publicKey, car: choice.car, game: RAILCAR_PROGRAM_ID, page: choice.page, pot, backing, remaining }), checkDepartureIx(choice.carNo, choice.car));
+      ixs.push(joinSeatIx({ payer, player: p.key, car: choice.car, game: RAILCAR_PROGRAM_ID, page: choice.page, pot, backing, remaining, seatSigner: seatKey.publicKey }), checkDepartureIx(choice.carNo, choice.car));
     } else {
       const n = nextMatchOf(this.info(countersPda(p.account))?.data);
       const match = matchPda(p.account, n);
-      ixs.push(openCarIx({ payer: p.key, opener: p.key, config, n }), joinSeatIx({ payer: p.key, player: p.key, seatSigner: p.seat.publicKey, car: match, game: RAILCAR_PROGRAM_ID, page: 0, pot, backing, remaining }), checkDepartureIx(choice.carNo, match));
+      const join = joinSeatIx({ payer, player: p.key, car: match, game: RAILCAR_PROGRAM_ID, page: 0, pot, backing, remaining, seatSigner: seatKey.publicKey });
+      if (backing) {
+        // A Backed Player opens the car first, as the page does: the open and a Backed join do not fit one transaction.
+        this.send(sponsoredInstructions({ cu: 1_000_000, grows: [], ixs: [openCarIx({ payer, opener: p.key, config, n })], assignment: null }), this.relayer, [p.kp]);
+        ixs.push(join, checkDepartureIx(choice.carNo, match));
+      } else ixs.push(openCarIx({ payer, opener: p.key, config, n }), join, checkDepartureIx(choice.carNo, match));
     }
-    this.send(ixs, p.kp, [p.seat]);
+    this.send(sponsoredInstructions({ cu: 1_000_000, grows: [], ixs, assignment: null }), this.relayer, [p.kp, seatKey]);
     return choice.kind;
   }
 
@@ -428,6 +436,27 @@ class World {
     this.send([offer.ix], backer.kp);
     this.send([acceptOfferIx({ player: player.key, request: request.address, offer: offer.address })], player.kp);
     return { offer: offer.address, backerAccount: backer.account };
+  }
+
+  /**
+   * The Backing Ticket a backed seat boards from, as the page readies it (`readyBackingTicket`): the Player opens it with
+   * the first stage (wallet and seat key sign, the relayer pays), the seat key stages the rest.
+   */
+  async stageBacking(p: Person, backing: BoardingBacking, seatKey: Keypair): Promise<TicketView> {
+    const conn = this.reader();
+    if (!(await backingTicketOf(conn, backing.offer, backing.backerAccount))) {
+      const lines = previewEntry(await readEntryStores(backing.backerAccount, conn), 500n, { backing: true }).ticketLines;
+      const built = await openBackingTicketIxs({ payer: this.relayer.publicKey, requester: p.key, seat: seatKey.publicKey, backerAccount: backing.backerAccount, offer: backing.offer, game: RAILCAR_PROGRAM_ID, entry: 500n, lines, sponsored: true }, conn);
+      this.send(sponsoredInstructions({ cu: 700_000, grows: [], ixs: built.ixs, assignment: null }), this.relayer, [p.kp, seatKey]);
+    }
+    for (let i = 0; i < 20; i++) {
+      const t = await backingTicketOf(conn, backing.offer, backing.backerAccount);
+      if (!t) throw new Error("the Offer has no open Backing Ticket");
+      const ix = await nextStageIx(seatKey.publicKey, t, await readEntryStores(t.account, conn), conn);
+      if (!ix) return t;
+      this.send([ix], this.relayer, [seatKey]);
+    }
+    throw new Error("the Backing Ticket did not fill");
   }
 
   offerStatus(offer: PublicKey): string {
@@ -614,7 +643,7 @@ async function rideCar(
   const backedRow = backed ? rowOf(riders[backed.seat]).backing ?? null : null;
 
   // The finish as a paid Player's page sends it (finish.ts), the relayer as caller of every step: finalize on base (the
-  // committed Table), room, every chunk the planner sizes, every close. Compiled with a lookup table, as the server does.
+  // committed Table), room, every chunk the planner sizes, every close. Sized and sent with no lookup table.
   const core = new Program(coreIdl as Idl, { connection: {} } as unknown as AnchorProvider);
   const chunkSteps: number[] = [];
   const finishTxs: InnerInstruction[][] = [];
@@ -630,10 +659,10 @@ async function rideCar(
       const t = decodeTable(w.committed.get(table.toBase58())!);
       return t.carNo === carNo && t.phase === "over";
     },
-    fits: (ix) => w.fits(w.relayer.publicKey, [cu(1_400_000), ix]),
+    fits: (ix) => fits(w.relayer.publicKey, [cu(1_400_000), ix]),
     send: async (ixs, step) => {
       const all = [cu(1_400_000), ...ixs];
-      const go = () => w.send(all, w.relayer, [], [w.table(all)]);
+      const go = () => w.send(all, w.relayer);
       if (step === "finalize" || step === "reveal") w.onBase(carAcct.table, go);
       else go();
       finishTxs.push(w.lastInner);
@@ -658,6 +687,7 @@ async function rideCar(
   const rows = await Promise.all(riders.map(async (p) => (await accountHistory(rpc, p.account.toBase58(), 1)).rows));
   const history = { deltas: rows.map((r) => (r.length === 1 && r[0].game === ("railcar" as string) ? r[0].delta : NaN)), replay: replayRide(record) };
 
+  console.log(`Railcar transactions, ${n} riders, no lookup table (largest of each kind):\n${[...w.sizes].map(([k, s]) => `  ${s.bytes} B, ${s.accounts} accounts: ${k}`).join("\n")}`);
   return {
     riders,
     backer: backer ? { person: backer, delta: w.gemas(backer, id) - backerBefore, shown: backedRow && { backerGets: backedRow.backerGets, playerGets: backedRow.playerGets } } : null,
@@ -771,8 +801,9 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     // The result screen shows the split the chain paid.
     expect(r.shown).toEqual(r.deltas);
     expect(r.backer!.shown).toEqual({ backerGets: 578n, playerGets: 52n });
-    // Ben signed his Request, the acceptance and his boarding; Bob nothing after his Offer; the seat keys played the Jumps.
-    expect(r.walletSigs).toEqual({ setup: 2, boarding: 5 });
+    // Ben signed his Request, the acceptance, the opening of his Backing Ticket and his boarding (6 in boarding: his two
+    // and the four others'); Bob nothing after his Offer; the seat keys played the Jumps.
+    expect(r.walletSigs).toEqual({ setup: 2, boarding: 6 });
   });
 
   it("a backed step-off sends the Backer's 500 home and leaves the Player free to board again", { timeout: 120_000 }, async () => {
@@ -803,6 +834,7 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     // Ben's seat is free again: he can board the same car (here with Gemas of his own from a second Backing).
     const ann = w.rider();
     expect(await w.board(ben, w.backing(ben, ann, 5_000))).toBe("join");
+    console.log(`Railcar transactions, a Backed opener and step-off, no lookup table:\n${[...w.sizes].map(([k, s]) => `  ${s.bytes} B, ${s.accounts} accounts: ${k}`).join("\n")}`);
   });
 
   it("a Backer already in the car: the Player is told to board the next one and nothing is sent", { timeout: 120_000 }, async () => {

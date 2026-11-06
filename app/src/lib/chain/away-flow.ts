@@ -20,11 +20,11 @@ const BUDGET = [ComputeBudgetProgram.setComputeUnitLimit({ units: 1 }), ComputeB
 
 /**
  * How many of `steps` (in order) travel with `lead` in one transaction: as many as the sponsor's bundle limit and the
- * 1,232-byte wire size allow. `signers` are the keys that sign besides the fee payer.
+ * 1,232-byte wire size allow (every signer the instructions name is counted).
  */
-export function stepsThatFit(feePayer: PublicKey, signers: PublicKey[], lead: TransactionInstruction[], steps: TransactionInstruction[]): number {
+export function stepsThatFit(feePayer: PublicKey, lead: TransactionInstruction[], steps: TransactionInstruction[]): number {
   let n = 0;
-  while (n < steps.length && n < MAX_CLEANUP && fits(feePayer, [...BUDGET, ...lead, ...steps.slice(0, n + 1)], { signers: [feePayer, ...signers] })) n++;
+  while (n < steps.length && n < MAX_CLEANUP && fits(feePayer, [...BUDGET, ...lead, ...steps.slice(0, n + 1)])) n++;
   return n;
 }
 
@@ -75,7 +75,7 @@ export async function startAwayWithCleanup(signer: ChainSigner, getToken: GetTok
       return sponsored ? list : [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }), ...list];
     });
   const fitting = async (lead: TransactionInstruction[], rest: AwayStep[]) =>
-    stepsThatFit(feePayer, [owner], lead.length && needsRent ? [rentTopUp(feePayer, owner, rent), ...lead] : lead, await Promise.all(rest.map((s) => awayStepIx(owner, feePayer, s))));
+    stepsThatFit(feePayer, lead.length && needsRent ? [rentTopUp(feePayer, owner, rent), ...lead] : lead, await Promise.all(rest.map((s) => awayStepIx(owner, feePayer, s))));
 
   const first = await fitting([setIx], steps);
   let signature: string;

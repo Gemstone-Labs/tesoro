@@ -67,13 +67,22 @@ export interface SponsorBuild {
 
 const bytesOf = (b64text: string) => Uint8Array.from(atob(b64text), (c) => c.charCodeAt(0));
 
-const intentOf = (ixs: TransactionInstruction[]) =>
+/**
+ * What the sponsor cannot read from the instructions alone, sent beside them in the intent (signed with it when the wallet
+ * signs). `offer`: the Offer of the Backing Ticket a step stages, so the sponsor can check the asking Player is its Requester.
+ */
+export interface SponsorHint {
+  offer?: PublicKey;
+}
+
+const intentOf = (ixs: TransactionInstruction[], hint: SponsorHint = {}) =>
   JSON.stringify({
     ixs: ixs.map((ix) => ({
       program: ix.programId.toBase58(),
       keys: ix.keys.map((k) => ({ pubkey: k.pubkey.toBase58(), signer: k.isSigner, writable: k.isWritable })),
       data: btoa(String.fromCharCode(...ix.data)),
     })),
+    ...(hint.offer ? { offer: hint.offer.toBase58() } : {}),
   });
 
 /**
@@ -81,8 +90,8 @@ const intentOf = (ixs: TransactionInstruction[]) =>
  * instead: `address` stays the wallet, `signer` is the key and `match` the Match it plays; only a Match's finish steps are
  * ever asked of the server this way.
  */
-async function signedIntent(signer: ChainSigner, step: string, ixs: TransactionInstruction[]) {
-  const intent = intentOf(ixs);
+async function signedIntent(signer: ChainSigner, step: string, ixs: TransactionInstruction[], hint: SponsorHint = {}) {
+  const intent = intentOf(ixs, hint);
   const address = walletOf(signer).toBase58();
   const ts = Date.now();
   const nonce = newNonce();
@@ -98,13 +107,13 @@ async function signedIntent(signer: ChainSigner, step: string, ixs: TransactionI
 }
 
 /** The request of the token-only `entry` step: no wallet signature, the Privy login (and identity token) vouch for it. */
-function entryIntent(signer: ChainSigner, ixs: TransactionInstruction[]) {
-  return { step: "entry", address: walletOf(signer).toBase58(), ts: Date.now(), nonce: newNonce(), intent: intentOf(ixs) };
+function entryIntent(signer: ChainSigner, ixs: TransactionInstruction[], hint: SponsorHint = {}) {
+  return { step: "entry", address: walletOf(signer).toBase58(), ts: Date.now(), nonce: newNonce(), intent: intentOf(ixs, hint) };
 }
 
 /** Asks the server to build the message for `ixs` (the signer authenticates the request). */
-export async function sponsorBuild(signer: ChainSigner, getToken: GetToken, ixs: TransactionInstruction[]): Promise<SponsorBuild> {
-  const body = await signedIntent(signer, "build", ixs);
+export async function sponsorBuild(signer: ChainSigner, getToken: GetToken, ixs: TransactionInstruction[], hint: SponsorHint = {}): Promise<SponsorBuild> {
+  const body = await signedIntent(signer, "build", ixs, hint);
   const token = await getToken().catch(() => null);
   return post<SponsorBuild>("/api/sponsor/build", body, token);
 }
@@ -123,20 +132,20 @@ export const resetEntryTokenState = () => {
  * transaction. When the server refuses (identity tokens are not on in the Privy dashboard) the wallet-signed `build` is used,
  * and that is remembered for a few minutes so the following steps do not ask twice.
  */
-export async function sponsorBuildEntry(signer: ChainSigner, getToken: GetToken, ixs: TransactionInstruction[], now = Date.now()): Promise<SponsorBuild> {
+export async function sponsorBuildEntry(signer: ChainSigner, getToken: GetToken, ixs: TransactionInstruction[], now = Date.now(), hint: SponsorHint = {}): Promise<SponsorBuild> {
   if (now - entryTokenOff > ENTRY_TOKEN_RETRY_MS) {
     const [token, identity] = await Promise.all([getToken().catch(() => null), identityTokenGetter ? identityTokenGetter().catch(() => null) : null]);
     // with no sign-in provider (the local dev wallet) there is neither token: the dev server accepts that, production refuses and the wallet vouches
     if (!identityTokenGetter || (token && identity)) {
       try {
-        return await post<SponsorBuild>("/api/sponsor/build", entryIntent(signer, ixs), token, identity);
+        return await post<SponsorBuild>("/api/sponsor/build", entryIntent(signer, ixs, hint), token, identity);
       } catch (e) {
         if (!entryRefused(e)) throw e;
         entryTokenOff = now;
       }
     }
   }
-  return sponsorBuild(signer, getToken, ixs);
+  return sponsorBuild(signer, getToken, ixs, hint);
 }
 
 /** Adds this wallet's signature to a built message. Returns the serialized transaction, base64. */
@@ -154,14 +163,14 @@ export async function sponsorSubmit(tx: string, built: SponsorBuild): Promise<st
 }
 
 /** Sends `ixs` with the relayer paying the fee. Resolves with the signature. Throws SponsorError (`selfPay` says to pay instead). */
-export async function sponsoredSend(signer: ChainSigner, getToken: GetToken, ixs: TransactionInstruction[], opts: { entry?: boolean } = {}): Promise<string> {
+export async function sponsoredSend(signer: ChainSigner, getToken: GetToken, ixs: TransactionInstruction[], opts: { entry?: boolean; hint?: SponsorHint } = {}): Promise<string> {
   return (await sponsoredSendBuilt(signer, getToken, ixs, opts)).sig;
 }
 
 /** `sponsoredSend` that also says whether the join travelled without its table (`requestTable` then follows). */
-export async function sponsoredSendBuilt(signer: ChainSigner, getToken: GetToken, ixs: TransactionInstruction[], opts: { entry?: boolean } = {}): Promise<{ sig: string; table: boolean }> {
+export async function sponsoredSendBuilt(signer: ChainSigner, getToken: GetToken, ixs: TransactionInstruction[], opts: { entry?: boolean; hint?: SponsorHint } = {}): Promise<{ sig: string; table: boolean }> {
   if (!signer.signSerialized) throw new SponsorError("This wallet cannot take part in free transactions.", "unsupported-wallet", 400);
-  const built = await (opts.entry ? sponsorBuildEntry : sponsorBuild)(signer, getToken, ixs);
+  const built = opts.entry ? await sponsorBuildEntry(signer, getToken, ixs, Date.now(), opts.hint) : await sponsorBuild(signer, getToken, ixs, opts.hint);
   return { sig: await sponsorSubmit(await sponsorSign(signer, built), built), table: !!built.table };
 }
 

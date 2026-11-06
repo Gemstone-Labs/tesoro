@@ -5,7 +5,7 @@
  * `core.account.<type>.all()` is therefore filtered to the current length (`onlyCurrentLayouts`), as Positions are
  * (`position-size.ts`).
  */
-export const CURRENT_SIZE = { matchState: 840, sourceState: 170, offerState: 182 } as const;
+export const CURRENT_SIZE = { matchState: 840, sourceState: 170, offerState: 191 } as const;
 
 type AccountClient = { all: (filters?: unknown[]) => Promise<unknown[]> };
 

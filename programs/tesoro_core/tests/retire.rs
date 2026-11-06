@@ -649,6 +649,7 @@ fn offers_retire_when_old_sized_and_only_then() {
             player: None,
             ticket_open: false,
             counted_in: 0,
+            ticket_nonce: None,
         },
     };
     put(

@@ -7,6 +7,7 @@ import { matchAddressOf } from "../../lib/chain/match-id";
 import { settledPda } from "../../lib/chain/basket";
 import { protectionsPda } from "../../lib/chain/native";
 import { gameAccounts, gameRecordPda } from "../../lib/chain/game-record";
+import { checkLegacy } from "../../lib/chain/tx-size";
 import { AnchorProvider, Program, type Idl } from "@coral-xyz/anchor";
 import {
   ComputeBudgetProgram,
@@ -145,6 +146,7 @@ export class BlockPuzzleChain {
   async sendBase(signer: ChainSigner, ixs: TransactionInstruction[]): Promise<string> {
     // a seat key holds no SOL and plays only inside its Match: base-layer sends are the wallet's
     if (isSeatKey(signer)) throw new Error("This needs your wallet.");
+    checkLegacy(signer.publicKey, ixs);
     const tx = new Transaction().add(...ixs);
     tx.feePayer = signer.publicKey;
     const { blockhash, lastValidBlockHeight } = await this.base.getLatestBlockhash();
@@ -194,6 +196,7 @@ export class BlockPuzzleChain {
   }
 
   async sendTee(signer: ChainSigner, ixs: TransactionInstruction[]): Promise<string> {
+    checkLegacy(signer.publicKey, ixs);
     const conn = await this.tee(signer);
     const tx = new Transaction().add(...ixs);
     tx.feePayer = signer.publicKey;

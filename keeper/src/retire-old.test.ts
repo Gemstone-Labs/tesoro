@@ -66,7 +66,7 @@ class World {
 }
 
 describe("retire plan", () => {
-  it("keeps SPACE.offer equal to the program's OfferState::SPACE (182 B)", () => {
+  it("keeps SPACE.offer equal to the program's OfferState::SPACE (191 B)", () => {
     const rust = readFileSync(new URL("../../programs/tesoro_core/src/state.rs", import.meta.url), "utf8");
     const expr = /impl OfferState \{[^}]*?pub const SPACE: usize = ([0-9+ ]+);/s.exec(rust)?.[1];
     assert.ok(expr, "OfferState::SPACE not found in state.rs");

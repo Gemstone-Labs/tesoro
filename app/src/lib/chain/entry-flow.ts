@@ -35,7 +35,7 @@ import { GAME_IDS } from "./games";
 import { assertGameListed } from "./game-listing";
 import { getChain } from "./client";
 import { requestTable } from "./sponsor-client";
-import { prepareBackingTicket, prepareEntryTicket, type StagedEntry } from "./ticket";
+import { prepareEntryTicket, readyBackingTicket, type StagedEntry } from "./ticket";
 
 /** The Account of a wallet. Callers pass the wallet, never a seat key. */
 const accountOf = (wallet: PublicKey) => accountOfSigner({ publicKey: wallet });
@@ -74,14 +74,18 @@ interface EntryArgs {
   onStaged?: (s: StagedEntry) => void;
 }
 
-/** The Pot of this entry: a fresh account for a direct draw, a complete Ticket for a long one. */
+/**
+ * The Pot of this entry: a fresh account for a direct draw, a complete Entry Ticket for a long one, and for a Backed
+ * entry always its Backing Ticket (a direct draw of the Backer's Gemas names their books: with a seat key it does not
+ * fit one transaction, `backed-entry-size.test.ts`).
+ */
 async function potFor(a: EntryArgs, preview: EntryPreview): Promise<{ pot: () => Promise<PotRef>; lines: number; remaining: Awaited<ReturnType<typeof drawRemaining>> }> {
   const funder = a.backing ? a.backing.backerAccount : accountOf(a.signer.publicKey);
   // a fresh Pot takes the funder's next_ticket, read again every time the transaction is built (a retry, a self-paid rebuild)
-  if (!preview.needsTicket) return { pot: () => freshPotNow(funder, preview.potLines), lines: preview.potLines, remaining: await drawRemaining(preview.plan) };
+  if (!a.backing && !preview.needsTicket) return { pot: () => freshPotNow(funder, preview.potLines), lines: preview.potLines, remaining: await drawRemaining(preview.plan) };
   a.onStep?.("Preparing your entry…");
   const base = { signer: a.signer, seat: a.seat, getToken: a.getToken, game: a.game, entry: BigInt(a.entry), lines: preview.ticketLines, onProgress: a.onStaged };
-  const t = a.backing ? await prepareBackingTicket({ ...base, backerAccount: a.backing.backerAccount, offer: a.backing.offer }) : await prepareEntryTicket(base);
+  const t = a.backing ? await readyBackingTicket({ ...base, ...a.backing }) : await prepareEntryTicket(base);
   const pot: PotRef = { address: t.address, nonce: t.nonce, lines: t.lineCap, ticket: true };
   return { pot: async () => pot, lines: pot.lines, remaining: [] };
 }

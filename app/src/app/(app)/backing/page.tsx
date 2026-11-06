@@ -365,8 +365,8 @@ export default function Backing() {
                     requests={requestByAddress}
                     nowMs={nowMs}
                     busy={busy}
-                    onCancel={() => act("cancel an Offer", `co-${o.address.toBase58()}`, "Offer cancelled. Your Gemas are released.", (s) => cancelOffer(s, o))}
-                    onRelease={() => act("release Gemas", `ex-${o.address.toBase58()}`, "Expired. Your Gemas are released.", (s) => expireOffer(s, o))}
+                    onCancel={() => act("cancel an Offer", `co-${o.address.toBase58()}`, "Offer cancelled. Your Gemas are released.", (s) => cancelOffer(s, o, auth.getAccessToken))}
+                    onRelease={() => act("release Gemas", `ex-${o.address.toBase58()}`, "Expired. Your Gemas are released.", (s) => expireOffer(s, o, auth.getAccessToken))}
                     onRefund={() =>
                       o.refundableMatchId !== null &&
                       act("refund a Match", `rf-${o.address.toBase58()}`, "Refunded. Your Gemas return to you.", async (s) => (await refundBackedMatch(s, o.refundableMatchId as string, auth.getAccessToken)) ?? undefined)

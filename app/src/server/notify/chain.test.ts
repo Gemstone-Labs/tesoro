@@ -36,7 +36,7 @@ describe("reading accounts for notifications", () => {
     const game = BLOCK_PUZZLE_PROGRAM_ID;
     const offer = await accounts.encode("OfferState", {
       bump: 1, nonce: new anchor.BN(1),
-      inner: { backer: bytes(key(6)), game: [...game.toBytes()], entry: new anchor.BN(250), player_share_bps: 5000, request: bytes(key(7)), status: { Open: {} }, expires_at: new anchor.BN(1), use_by: new anchor.BN(2), player: null, ticket_open: false },
+      inner: { backer: bytes(key(6)), game: [...game.toBytes()], entry: new anchor.BN(250), player_share_bps: 5000, request: bytes(key(7)), status: { Open: {} }, expires_at: new anchor.BN(1), use_by: new anchor.BN(2), player: null, ticket_open: false, counted_in: new anchor.BN(0), ticket_nonce: null },
     });
     const request = await accounts.encode("RequestState", {
       bump: 1, nonce: new anchor.BN(1),

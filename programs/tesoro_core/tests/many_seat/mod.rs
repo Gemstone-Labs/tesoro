@@ -190,7 +190,6 @@ impl Env {
                 seat_mark: mark_pda(car.key, p.account),
                 system_program: anchor_lang::system_program::ID,
                 offer: backing.map(|(o, _)| o),
-                backer_account: backer,
                 backer_counters: backer.map(counters_pda),
                 backer_protections: backer.map(protections_pda),
                 backer_basket: backer.map(|b| basket_address(&b).0),

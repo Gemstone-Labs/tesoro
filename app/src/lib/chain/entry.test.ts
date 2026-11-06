@@ -258,11 +258,10 @@ describe("Tickets", () => {
     head.writeBigUInt64LE(500n, 112);
     head.writeBigInt64LE(2_000n, 120);
     head.writeUInt32LE(8, 128);
-    head.writeBigUInt64LE(9n, 184);
     const store = encodeStore([lineOf({ source: srcA, amount: 120n, dueAt: 1n }), lineOf({ source: srcB, amount: 80n, dueAt: 2n })], { capacity: 8, account });
     const data = Buffer.concat([Buffer.alloc(8), head, store.subarray(8)]);
     const t = decodeTicket(k(), data);
-    expect(t).toMatchObject({ kind: "entry", state: "open", target: 500n, staged: 200n, lines: 2, lineCap: 8, expiresAt: 2000, offerNonce: 9n });
+    expect(t).toMatchObject({ kind: "entry", state: "open", target: 500n, staged: 200n, lines: 2, lineCap: 8, expiresAt: 2000 });
     // an older head is refused rather than misread
     expect(() => decodeTicket(k(), Buffer.concat([Buffer.alloc(8), Buffer.from([1]), head.subarray(1), store.subarray(8)]))).toThrow(/version 1/);
     expect(t.account.toBase58()).toBe(account.toBase58());
@@ -311,6 +310,14 @@ describe("sendEntryTx", () => {
     sponsoredSend.mockClear();
     expect((await sendEntryTx(signer, async () => null, async () => [], { sponsorable: false })).sponsored).toBe(false);
     expect(sponsoredSend).not.toHaveBeenCalled();
+  });
+
+  it("hands the sponsor the hint beside the instructions", async () => {
+    const { sendEntryTx } = await import("./entry");
+    sponsoredSend.mockResolvedValue("sig1");
+    const offer = k();
+    await sendEntryTx(signer, async () => null, async () => [], { hint: { offer } });
+    expect(sponsoredSend.mock.calls[0][3]).toEqual({ entry: true, hint: { offer } });
   });
 
   it("does not pay itself past a refusal that is not about the relayer", async () => {

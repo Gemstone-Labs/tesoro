@@ -866,7 +866,6 @@ impl Env {
                 seat_mark: mark_pda(car.tesoro, p.account),
                 system_program: anchor_lang::system_program::ID,
                 offer: None,
-                backer_account: None,
                 backer_counters: None,
                 backer_protections: None,
                 backer_basket: None,

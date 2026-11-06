@@ -431,12 +431,32 @@ pub struct OpenMatch<'info> {
 }
 
 /// The Backer's side of a backed entry, checked against the Offer.
-pub(crate) struct Backer<'a, 'info> {
-    pub(crate) account: &'a Account<'info, TesoroAccount>,
-    pub(crate) counters: &'a mut Account<'info, AccountCounters>,
-    pub(crate) protections: &'a AccountInfo<'info>,
-    pub(crate) basket: AccountInfo<'info>,
-    pub(crate) spill: AccountInfo<'info>,
+struct Backer<'a, 'info> {
+    account: &'a Account<'info, TesoroAccount>,
+    counters: &'a mut Account<'info, AccountCounters>,
+    protections: &'a AccountInfo<'info>,
+    basket: AccountInfo<'info>,
+    spill: AccountInfo<'info>,
+}
+
+/// An Offer and its Backing Ticket are spent together: a Backing Ticket (`pot` is not a fresh
+/// address) only with the Offer that has it open and names its Ticket number
+/// (`Offer::ticket_nonce`), and an Offer whose Backing is staged in an open Ticket only through that
+/// Ticket. Otherwise one of the pair would be left tied to the other after it is gone.
+pub(crate) fn require_tickets_offer(pot: &AccountInfo, offer: &crate::ledger::Offer) -> Result<()> {
+    if pot.owner == &system_program::ID && pot.data_is_empty() {
+        require!(!offer.ticket_open, crate::error::MatchError::BadBacking);
+        return Ok(());
+    }
+    let nonce = offer
+        .ticket_nonce
+        .ok_or_else(|| error!(crate::error::MatchError::BadBacking))?;
+    let (ticket, _) = ticket_address(&Pubkey::new_from_array(offer.backer), nonce);
+    require!(
+        offer.ticket_open && *pot.key == ticket,
+        crate::error::MatchError::BadBacking
+    );
+    Ok(())
 }
 
 pub(crate) fn counters_pda(account: &Pubkey) -> Pubkey {
@@ -448,7 +468,7 @@ pub(crate) fn protections_pda(account: &Pubkey) -> Pubkey {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn backer_side<'a, 'info>(
+fn backer_side<'a, 'info>(
     offer: &'a Option<Box<Account<'info, OfferState>>>,
     account: &'a Option<Box<Account<'info, TesoroAccount>>>,
     counters: &'a mut Option<Account<'info, AccountCounters>>,
@@ -551,6 +571,7 @@ pub(crate) fn open_match<'info>(
             .offer
             .as_mut()
             .ok_or(error!(crate::error::MatchError::BadBacking))?;
+        require_tickets_offer(&pot_info, &offer.inner)?;
         offer
             .inner
             .consume(player.to_bytes(), game.to_bytes(), entry, ts)
@@ -897,6 +918,7 @@ pub(crate) fn join_match<'info>(
             .offer
             .as_mut()
             .ok_or(error!(crate::error::MatchError::BadBacking))?;
+        require_tickets_offer(&pot_info, &offer.inner)?;
         offer
             .inner
             .consume(player.to_bytes(), game.to_bytes(), entry, ts)

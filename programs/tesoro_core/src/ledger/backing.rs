@@ -92,6 +92,10 @@ pub struct Offer {
     /// Start of the Backer's Entry Limit period that counted `entry` when the Offer was made (zero:
     /// nothing counted, or the count moved on to a Pot or seat when the Offer was used).
     pub counted_in: i64,
+    /// The Backer's Ticket number of the Backing Ticket this Offer has open (with `backer`, its
+    /// address): the only Ticket this Offer spends, and the only Offer that finishes cancelling it.
+    /// None when no Ticket is open (an Offer grown from the earlier layout reads None).
+    pub ticket_nonce: Option<u64>,
 }
 
 impl Offer {
@@ -125,6 +129,7 @@ impl Offer {
             player: None,
             ticket_open: false,
             counted_in: 0,
+            ticket_nonce: None,
         };
         offer.check_request(request, now)?;
         Ok(offer)
@@ -236,6 +241,7 @@ impl Offer {
         self.check_use(player, game, entry, now)?;
         self.status = OfferStatus::Consumed;
         self.ticket_open = false;
+        self.ticket_nonce = None;
         Ok(())
     }
 }
