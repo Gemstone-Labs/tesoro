@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useState, useSyncExternalStore, type PointerEvent } from "react";
 import { ChevronLeft, ChevronRight, Play } from "lucide-react";
 import { Button, Sheet } from "@/components/ui";
 import { useReducedMotion } from "@/games/fx/reduced-motion";
@@ -73,10 +73,16 @@ function Guide({ game, end, practiceHref, onClose }: Omit<HowToPlayProps, "open"
     setDownX(null);
     if (Math.abs(dx) >= SWIPE_PX) go(i + (dx < 0 ? 1 : -1));
   };
-  const onKeyDown = (e: KeyboardEvent) => {
-    const next = stepAfterKey(e.key, i, steps.length);
-    if (e.key === "ArrowRight" || e.key === "ArrowLeft") { e.preventDefault(); setI(next); }
-  };
+  // On the window: when the sheet opens, focus sits on its close button, outside the guide.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+      e.preventDefault();
+      setI((at) => stepAfterKey(e.key, at, steps.length));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [steps.length]);
 
   const [progress, setProgress] = useState({ step: 0, p: 0 });
   const onProgress = (p: number) => setProgress({ step: i, p });
@@ -84,7 +90,7 @@ function Guide({ game, end, practiceHref, onClose }: Omit<HowToPlayProps, "open"
   const playingStatic = reduced;
 
   return (
-    <div className="htp" onKeyDown={onKeyDown}>
+    <div className="htp">
       <div className="cut cut-frame htp-stage" onPointerDown={onPointerDown} onPointerUp={onPointerUp} onPointerCancel={() => setDownX(null)} data-set={set}>
         <Clip key={`${game}:${i}:${set}`} game={game} n={i + 1} set={set} onProgress={onProgress} />
         <div className="htp-bars" role="img" aria-label={`Step ${i + 1} of ${steps.length}`}>
