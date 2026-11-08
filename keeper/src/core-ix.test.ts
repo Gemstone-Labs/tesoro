@@ -49,6 +49,11 @@ describe("core instruction builders", () => {
     await ix.expireOfferIx(core, { caller: k(), backerAccount: k(), offer: k() });
     await ix.clearRequestIx(core, { caller: k(), request: k(), protections: k() });
   });
+  it("expire_offer sends the Backer's Protections writable: the W3 core gives a counted entry back there", async () => {
+    const protections = k();
+    const i = await ix.expireOfferIx(core, { caller: k(), backerAccount: k(), offer: k(), backerProtections: protections });
+    assert.equal(i.keys.find((m) => m.pubkey.equals(protections))?.isWritable, true);
+  });
   it("Season instructions build", async () => {
     const [authority, poolAccount, winner, prize, season] = [k(), k(), k(), k(), k()];
     await ix.recordSeasonIx(core, { authority, number: 3, points: [50n, 10n], poolAccount, ranked: [k(), k()], routes: [k()], routeRecords: [k()] });

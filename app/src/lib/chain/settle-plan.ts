@@ -19,6 +19,9 @@ const pda = (...seeds: (string | Uint8Array)[]): PublicKey => PublicKey.findProg
 const basketOf = (account: PublicKey) => pda("basket", account.toBuffer());
 const spillOf = (account: PublicKey) => pda("spill", account.toBuffer());
 const countersOf = (account: PublicKey) => pda("counters", account.toBuffer());
+const protectionsOf = (account: PublicKey) => pda("protections", account.toBuffer());
+/** Run kinds whose entries came back unplayed (`RunKind::releases_entry` on the W3 core): a Draw or a No-show was played. */
+const UNPLAYED = ["cancelled", "abandoned", "gameUpgraded", "byGame"];
 const sponsorAddress = pda("sponsor");
 
 /** A Pot's lines, as far as a run walks them. */
@@ -502,7 +505,11 @@ export async function fullAccounts(read: Reader, credited: PublicKey[]): Promise
   });
 }
 
-/** The remaining accounts of `close_match`: the spill of every Account that still holds room, and both Players' counters. */
+/**
+ * The remaining accounts of `close_match`: the spill of every Account that still holds room, both Players' counters, and for a
+ * refund (not a Draw or a No-show) each side's funder's Protections. The W3 core gives the entry counted on an Entry Limit back
+ * there; the current core skips them.
+ */
 export function closeRemaining(view: MatchView): AccountMeta[] {
   const out: AccountMeta[] = [];
   const add = (k: PublicKey) => {
@@ -511,6 +518,8 @@ export function closeRemaining(view: MatchView): AccountMeta[] {
   for (const r of view.room) add(spillOf(r.account));
   add(countersOf(keyOf(view.inner.a.player)));
   if (view.inner.b) add(countersOf(keyOf(view.inner.b.player)));
+  const kind = view.inner.run?.kind ? Object.keys(view.inner.run.kind)[0] : null;
+  if (kind && UNPLAYED.includes(kind)) for (const side of [view.inner.a, view.inner.b]) if (side) add(protectionsOf(keyOf(side.funder)));
   return out;
 }
 

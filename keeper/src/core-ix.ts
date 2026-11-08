@@ -91,11 +91,15 @@ export const redeemTreasuryIx = (core: Core, o: { line: LineRefArg; amount: bigi
 export const cashInFeeIx = (core: Core, o: { cls: number; recipientAccount: PublicKey; position: PublicKey; source: PublicKey; remaining: AccountMeta[] }): Promise<TransactionInstruction> =>
   core.methods.cashInFee(o.cls).accountsPartial({ recipientAccount: o.recipientAccount, position: o.position, source: o.source }).remainingAccounts(o.remaining).instruction();
 
-export const expireOfferIx = (core: Core, o: { caller: PublicKey; backerAccount: PublicKey; offer: PublicKey; request?: PublicKey | null; backerProtections?: PublicKey | null }): Promise<TransactionInstruction> =>
-  core.methods
+/** The Backer's Protections go writable: the W3 core gives the Offer's Entry Limit count back there, where this IDL still marks them read-only. */
+export async function expireOfferIx(core: Core, o: { caller: PublicKey; backerAccount: PublicKey; offer: PublicKey; request?: PublicKey | null; backerProtections?: PublicKey | null }): Promise<TransactionInstruction> {
+  const ix = await core.methods
     .expireOffer()
     .accountsPartial({ caller: o.caller, backerAccount: o.backerAccount, offer: o.offer, request: o.request ?? null, backerProtections: o.backerProtections ?? null })
     .instruction();
+  for (const m of ix.keys) if (o.backerProtections && m.pubkey.equals(o.backerProtections)) m.isWritable = true;
+  return ix;
+}
 
 export const clearRequestIx = (core: Core, o: { caller: PublicKey; request: PublicKey; protections: PublicKey }): Promise<TransactionInstruction> =>
   core.methods.clearRequest().accountsPartial({ caller: o.caller, request: o.request, protections: o.protections }).instruction();
