@@ -39,7 +39,7 @@ import { drawRemaining, freshPot, nextMatchOf, previewEntry, readEntryStores, re
 import coreIdl from "../../lib/chain/idl/tesoro_core.json";
 import railcarIdl from "../../lib/chain/idl/railcar.json";
 import { acceptOfferIx, backingNonce, createOfferIx, createRequestIx } from "../../lib/chain/backing-ix";
-import { joinSeatIx, seatMarkPda } from "../../lib/chain/many-seat";
+import { decodeCar, joinSeatIx, seatMarkPda } from "../../lib/chain/many-seat";
 import { loadCar } from "../../lib/chain/many-seat-plan";
 import { decodeStore } from "../../lib/chain/pot-store";
 import { OVERFLOW_STORE_AT, matchOverflowPda } from "../../lib/chain/overflow";
@@ -707,7 +707,7 @@ async function rideToImpact(n: number, draw: Uint8Array, jumps: [number, number]
   return { ...ctx, over, shown, backedRow };
 }
 
-async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], o: RideOpts = {}): Promise<RideRun & { over: ReturnType<typeof decodeTable>; finishSteps: string[] }> {
+async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], o: RideOpts = {}): Promise<RideRun & { over: ReturnType<typeof decodeTable>; finishSteps: string[]; credits: number }> {
   const { w, riders, backer, carNo, carAcct, match, id, before, backerBefore, studioBefore, table, over, shown, backedRow } = await rideToImpact(n, draw, jumps, o);
   if (!over) throw new Error("rideCar rides to the Impact");
   const sponsor = o.viaSponsor === undefined ? null : sponsorOn(w);
@@ -721,6 +721,7 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], o
   const finishTxs: InnerInstruction[][] = [];
   let finalizeUnits = 0;
   let revealUnits = 0;
+  let credits = 0;
   const sent = await finishRide({
     read: w.reader(),
     core,
@@ -752,6 +753,7 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], o
       if (step === "chunk") {
         chunkSteps.push(ixs[0].data[8]);
         chunkUnits.push(w.lastUnits);
+        credits = decodeCar(match, w.get(match)!.data).run.steps;
       }
       if (step === "room") rooms++;
     },
@@ -787,6 +789,7 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], o
     finalizeUnits,
     revealUnits,
     finishSteps: sent.sent,
+    credits,
   };
 }
 
@@ -870,7 +873,7 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     // The result screen shows what the chain paid.
     expect(r.shown).toEqual(r.deltas);
     // 11 steps in all (4 entries home, Ana's 150 cut three ways then to Dee, Eve's 500 to Dee, Ben, Cy).
-    expect(r.chunkSteps.reduce((a, b) => a + b, 0)).toBe(11);
+    expect(r.credits).toBe(11);
     // The wallets signed boarding (5) and nothing else: the seat keys played the Jumps, the relayer and page key the finish.
     expect(r.walletSigs).toEqual({ boarding: 5 });
     // The Match history, from the finish's own events: every rider's row, and a replay that agrees with the chain.

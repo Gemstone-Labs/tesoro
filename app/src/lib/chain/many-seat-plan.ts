@@ -298,17 +298,22 @@ export function planSeatChunk(core: Core, read: Reader, caller: PublicKey, l: Lo
   return sizeByCompute(MAX_SEAT_CHUNK_STEPS, (steps) => fittedSeatChunk(core, read, caller, l, fitsOne, steps), sizing.simulate && ((ix) => sizing.simulate!(ix)), sizing.log && ((m) => sizing.log!(m)));
 }
 
-/** The chunk of up to `steps` steps, halved until it fits one transaction (bytes and accounts). */
+/**
+ * The chunk of up to `steps` steps, halved until it fits one transaction (bytes and accounts). Core marks a run Paid only
+ * when a chunk takes one step past its last credit (`ManySeatRecord::chunk`), so a run that ends inside the chunk asks for
+ * that one step more, and a run whose last credit went at the end of the previous chunk still gets a one-step chunk.
+ */
 async function fittedSeatChunk(core: Core, read: Reader, caller: PublicKey, l: LoadedCar, fitsOne: (ix: TransactionInstruction) => boolean, steps: number): Promise<SeatChunkPlan | null> {
+  if (l.car.stage !== "settling" && l.car.stage !== "refunding") return null;
   for (let n = Math.max(1, Math.min(steps, MAX_SEAT_CHUNK_STEPS)); ; n = Math.max(1, Math.floor(n / 2))) {
     const ahead = aheadOf(l.car, l.seats, l.lines, n);
-    if (ahead.steps === 0) return null;
+    const asked = Math.min(n, ahead.steps + 1);
     const records = ahead.owners.map((o) => matchOverflowPda(o, { opener: l.car.opener, n: l.car.n }));
     const have = await read.many(records);
     const exists = (r: PublicKey) => records.some((x, i) => x.equals(r) && !!have[i]);
     const supply = await supplySources(core, read, sourcesOf(ahead));
-    const ix = seatChunkIx(caller, l.car.address, Math.min(n, ahead.steps), dedupe([...chunkRemaining(l, ahead, exists), ...supply.metas]));
-    if (n === 1 || fitsOne(ix)) return { ix, steps: Math.min(n, ahead.steps), missing: supply.missing };
+    const ix = seatChunkIx(caller, l.car.address, asked, dedupe([...chunkRemaining(l, ahead, exists), ...supply.metas]));
+    if (n === 1 || fitsOne(ix)) return { ix, steps: asked, missing: supply.missing };
   }
 }
 
