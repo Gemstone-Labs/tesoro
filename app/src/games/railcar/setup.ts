@@ -424,7 +424,7 @@ export function railcarSetupPlan(input: SetupInput, facts: SetupFacts): SetupSte
   for (const t of facts.tables) {
     add({
       id: `init-vault-${t.index}`,
-      title: `railcar init_vault for Table ${t.index} (rollup): Vault ${short(vaultPda(tablePda(t.index)))}, private permission with no member`,
+      title: `railcar init_vault for Table ${t.index}: Vault ${short(vaultPda(tablePda(t.index)))}, private permission with no member`,
       why: "the draw, the crash point and the Brake schedule live there, readable by nobody during a ride; start_ride refuses a Table without it",
       signer: "operator",
       layer: "rollup",
