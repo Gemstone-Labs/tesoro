@@ -66,3 +66,24 @@ describe("the table pool kept by the server", () => {
     expect(await join("holdem", 2)).not.toBeNull();
   });
 });
+
+describe("a Game's retired table generation", () => {
+  it("is never assigned: a stale row makes the join go without a table", async () => {
+    const pool = new MemoryTablePool();
+    pool.publish("holdem", [{ generation: 1, index: 0, epoch: 0n }, { generation: 2, index: 0, epoch: 3n }]);
+    const generation = async () => 2;
+    const assigner = new Assigner({ operator: Keypair.generate(), leases: new MemoryLeaseStore(), tables: (g) => pool.tables(g), generation, now: () => 0 });
+    expect((await assigner.assign("holdem", k(), k(), k(), "h1"))!.leaseKey).toBe("holdem/2/0/3");
+    expect(await assigner.assign("holdem", k(), k(), k(), "h2")).toBeNull();
+  });
+
+  it("makes the join go without a table when the generation cannot be read", async () => {
+    const pool = new MemoryTablePool();
+    pool.publish("holdem", [{ generation: 2, index: 0, epoch: 3n }]);
+    const generation = async () => {
+      throw new Error("rpc down");
+    };
+    const assigner = new Assigner({ operator: Keypair.generate(), leases: new MemoryLeaseStore(), tables: (g) => pool.tables(g), generation, now: () => 0 });
+    expect(await assigner.assign("holdem", k(), k(), k(), "h1")).toBeNull();
+  });
+});

@@ -11,18 +11,21 @@ import { Bust, Button, Card, Sheet } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { art, thumbOf } from "@/lib/art";
 import { ago } from "@/lib/catalogue";
-import { accountHistory, historyGameName, unplayed } from "@/lib/chain/history";
+import { historyGameName, unplayed, type HistoryRow } from "@/lib/chain/history";
 import { playedRows } from "@/lib/chain/player-account";
 import { usePlayerAccount } from "@/lib/chain/usePlayerAccount";
 import { fmtGemas } from "@/lib/format";
 import { useFriends } from "@/lib/friends/FriendsProvider";
 import { readShape, writeShape } from "@/lib/friends/memory";
 import { useFriendLink } from "@/lib/friends/useFriendLink";
+import { useRecordRows } from "@/lib/friends/useRecordRows";
 import { recordAgainst, recordText, sortFriends, type FriendRecord } from "@/lib/friends/record";
 import { GAME_SHORT, friendStatusText } from "@/lib/friends/words";
 import { GAME_NAMES } from "@/lib/mock";
 import { FriendLinkShare } from "./FriendLinkShare";
 import "./friends.css";
+
+const EMPTY_ROWS: HistoryRow[] = [];
 
 const PAGE = 20;
 const RESULT_WORD = { won: "Won", lost: "Lost", draw: "Draw" } as const;
@@ -30,7 +33,7 @@ const RESULT_ICON = { won: Check, lost: X, draw: Minus } as const;
 
 /** The signed-in Player's private Friends page: requests, Challenges for them, their Friends and their Friend link. */
 export function FriendsPage() {
-  const { auth, snapshot } = useAccount();
+  const { auth } = useAccount();
   const friends = useFriends();
   const [now, setNow] = useState(() => Date.now());
   const [shown, setShown] = useState(PAGE);
@@ -56,7 +59,7 @@ export function FriendsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [friends.me, friendKey]);
 
-  const myRows = useMemo(() => (snapshot ? accountHistory(snapshot.matches) : []), [snapshot]);
+  const myRows = useRecordRows() ?? EMPTY_ROWS;
   const records = useMemo(() => new Map((view?.friends ?? []).map((f) => [f.account, recordAgainst(myRows, f.account)])), [view, myRows]);
   const sorted = useMemo(() => sortFriends(view?.friends ?? [], records), [view, records]);
 

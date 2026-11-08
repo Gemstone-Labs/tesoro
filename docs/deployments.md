@@ -372,7 +372,7 @@ App (Vercel project `tesoro`, Production; names and shapes in `docs/environments
 - Do NOT set `TESORO_CLUSTER`, `INVITE_SECRET_KEY`, `NEXT_PUBLIC_WSTETH_VAULT` and the other mainnet vars on the test project. Leave `NEXT_PUBLIC_DEV_WALLET` unset on production.
 
 Keeper (VPS, `~/.config/tesoro-keeper.env`, mode 600; all optional for test mode):
-- `NOTIFY_URL=https://www.playtesoro.com/api/notify/` (trailing slash) and `NOTIFY_SECRET` equal to the app's, for player emails and the daily digest (`KEEPER_DIGEST_HOUR_UTC`, default 8).
+- `NOTIFY_URL=https://www.playtesoro.com/api/notify/` (trailing slash) and `NOTIFY_SECRET` equal to the app's, for the keeper alerts (Players are never emailed).
 - Alerts: `ALERT_EMAILS` lives on the app; the keeper only needs `NOTIFY_URL` / `NOTIFY_SECRET`. Optional thresholds: `ALERT_MIN_SOL_KEEPER|ORACLE|RELAYER`, `ALERT_MIN_ETH_*`, `ALERT_MIN_HYPE_*`, `ALERT_COMMIT_PENDING_SECS`, `ALERT_JOB_FAILS`, `ALERT_JOB_STALE_SECS`, `ALERT_REMINDER_SECS`, and the addresses `ALERT_ORACLE_SOL_ADDRESS`, `ALERT_RELAYER_SOL_ADDRESS` to watch those balances.
 - Unchanged and still required: `KEEPER_SECRET_KEY` / `KEEPER_ORACLE_SECRET_KEY` (or the key files), `KEEPER_EVM_*`, `KEEPER_HEALTH_HOST`.
 
@@ -389,7 +389,7 @@ After the program and admin steps: `ssh vps`; in `~/tesoro/repo`: `git fetch && 
 5. Advance: take an Advance (SOL: `take_native_advance`; and an EVM-Sourced `take_advance` if a Hoodi Position exists) with the new lists; Extend on an open Advance.
 6. Instant Redeem pays 75% (Treasury now at 2,500 bps).
 7. Season: on 2026-10-19 00:00 UTC the keeper records Season 2 and creates `season_window`; the Leaderboard shows "paying out <date>" 48 h later; `pay_season_rank` before then fails with `PayoutWindowOpen`. Optionally `void_season_rank` a test rank inside the window.
-8. Emails, if configured: verify an address in the Wallet, win a Match with the other wallet's email set, see the email (or the digest) arrive once; the keeper alert test (stop a job or set `ALERT_JOB_FAILS=1`) mails `ALERT_EMAILS`.
+8. Players get no email. The keeper alert test (stop a job or set `ALERT_JOB_FAILS=1`) mails `ALERT_EMAILS`.
 9. `/admin/review` opens for a wallet in `ADMIN_WALLETS` and refuses another.
 10. Rollback if a step fails: programs cannot be downgraded in place; keep the previous `.so` files (dump with `solana program dump <id> prev-<name>.so` BEFORE the first upgrade) and redeploy them. The data written by new instructions (Protections, Invite gate) is additive and ignored by the old code.
 

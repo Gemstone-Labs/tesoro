@@ -35,6 +35,23 @@ describe("poolOf", () => {
   });
 });
 
+describe("poolOf: a finished table", () => {
+  const over = (index: number, epoch: number, v: Partial<TableView> = {}) => row(index, view(index, epoch, { coarse: "over", overAt: 900, ...v }));
+
+  it("offers an Over table at the next epoch, as begin_match resets it", () => {
+    assert.deepEqual(poolOf([over(0, 0)], [], 2, 1000), [{ generation: 2, index: 0, epoch: 1 }]);
+  });
+
+  it("holds an Over table back while its result is uncommitted, its seats are open or the reset delay has not passed", () => {
+    assert.deepEqual(poolOf([over(0, 0, { dirty: true }), over(1, 0, { seatsOpen: true }), over(2, 0, { overAt: 990 })], [], 2, 1000), []);
+  });
+
+  it("leaves out an Over table whose next epoch an Assignment holds", () => {
+    assert.deepEqual(poolOf([over(0, 3)], [{ index: 0, epoch: 4, startDeadline: 2000 }], 2, 1000), []);
+    assert.deepEqual(poolOf([over(0, 3)], [{ index: 0, epoch: 3, startDeadline: 2000 }], 2, 1000), [{ generation: 2, index: 0, epoch: 4 }]);
+  });
+});
+
 describe("KEEPER_ASSIGN", () => {
   it("is on unless turned off", () => {
     assert.equal(schedulerSettings({}).assign, true);

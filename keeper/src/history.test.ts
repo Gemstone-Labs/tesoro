@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { eventTx, scriptedConn } from "./fixtures.ts";
-import { databaseSink, memoryCursor, notifySink, scanHistory, startedRuns, type HistoryDeps, type Sink } from "./history.ts";
+import { databaseSink, memoryCursor, scanHistory, type HistoryDeps, type Sink } from "./history.ts";
 import { collectSignatures } from "./events-scan.ts";
 import { GAME_IDS } from "../../app/src/lib/chain/games.ts";
 
@@ -117,15 +117,6 @@ describe("the Match history scan", () => {
     const sigs = await collectSignatures(scriptedConn(history(25)) as any, { pageSize: 10 });
     assert.equal(sigs.length, 25);
     assert.equal(sigs[0].signature, "sig025");
-  });
-});
-
-describe("notification feed", () => {
-  it("remembers run starts, not other records", async () => {
-    startedRuns.length = 0;
-    await scanHistory(depsOf(scriptedConn(history(2)), [notifySink]));
-    assert.equal(startedRuns.length, 2);
-    assert.equal(startedRuns[0].start.n, 1n);
   });
 });
 

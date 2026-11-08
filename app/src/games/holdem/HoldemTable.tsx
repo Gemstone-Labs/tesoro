@@ -5,7 +5,8 @@ import { PublicKey } from "@solana/web3.js";
 import { Button, CountUp, Sheet } from "@/components/ui";
 import { useGuideHidden } from "@/components/guide/Guide";
 import { NO_CARD, NO_WINNER, PHASE, SPLIT, STATUS, tesoroAccountPda, type Action, type Table } from "./chain";
-import { EMPTY_LOG, stepHandLog, type HandLog, type LogStreet } from "./handlog";
+import { EMPTY_LOG, stepHandLog, type HandLog } from "./handlog";
+import { HandLogView, type LogPlayer } from "./HandLogView";
 import { FlipCard, type FlipState } from "./cards";
 import { centre, flyFrom } from "./motion";
 import { inPlay } from "./rules";
@@ -37,13 +38,13 @@ function useNow(ms = 250) {
 }
 
 /** The hand log, inferred by this client from table reads (handlog.ts). */
-function useHandLog(t: Table, seat: 0 | 1): LogStreet[] {
+function useHandLog(t: Table, seat: 0 | 1): HandLog {
   const [log, setLog] = useState<HandLog>(EMPTY_LOG);
   useEffect(() => {
     const timer = setTimeout(() => setLog((cur) => stepHandLog(cur, t, seat)), 0);
     return () => clearTimeout(timer);
   }, [t, seat]);
-  return log.streets;
+  return log;
 }
 
 interface Props {
@@ -109,6 +110,12 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, onAct, onClaim,
   const ringFraction = practice ? 1 : Math.min(1, Math.max(0, remaining / total));
   const ringLow = !practice && remaining <= 10;
   const bots = art.avatars;
+  const logPlayers = useMemo(() => {
+    const ps: [LogPlayer, LogPlayer] = [{ label: "Opponent" }, { label: "Opponent" }];
+    ps[seat] = practice ? { picture: bots[2], label: "You" } : { account: accounts[seat], label: "You" };
+    ps[1 - seat] = practice ? { picture: bots[6], label: "Bot" } : { account: accounts[1 - seat], label: "Opponent" };
+    return ps;
+  }, [practice, accounts, seat, bots]);
 
   // Where things are on screen, so cards leave the deck, chips sweep into the pot and the dealer button slides.
   const deckRef = useRef<HTMLDivElement>(null);
@@ -406,25 +413,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, onAct, onClaim,
       )}
       <Sheet open={logOpen} onClose={() => setLogOpen(false)} title="Hand log" className="hdx-logsheet">
         <div className="hdx-log-body">
-          {log.length === 0 && <p className="meta">The hand log fills as the hand is played.</p>}
-          {log.map((s, i) => (
-            <div key={`${s.name}-${i}`} className="hdx-street">
-              <b>{s.name}</b>
-              {s.rows.length === 0 && (
-                <div className="hdx-row">
-                  <span>—</span>
-                  <span />
-                </div>
-              )}
-              {s.rows.map((r, j) => (
-                <div key={j} className="hdx-row">
-                  <span>{r.who}</span>
-                  <span className="mono">{r.text}</span>
-                </div>
-              ))}
-            </div>
-          ))}
-          <p className="note">Inferred by this client from table reads, not a record from the table: a slow read can merge two actions into one.</p>
+          <HandLogView log={log} seat={seat} players={logPlayers} hole={hole && hole.handNo === log.hand ? hole.cards : null} />
         </div>
       </Sheet>
 

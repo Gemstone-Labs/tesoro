@@ -16,6 +16,16 @@ const ASSIGNABLE: Partial<Record<GameId, { config: string }>> = {
 
 export const canAssign = (game: GameId): boolean => game in ASSIGNABLE;
 
+/** The Game's table settings account (`TableConfig`), whose `generation` is the only one the Game assigns. */
+export function tableConfigAddress(game: GameId): PublicKey {
+  const spec = ASSIGNABLE[game];
+  if (!spec) throw new Error(`${game} has no assigned tables`);
+  return PublicKey.findProgramAddressSync([Buffer.from(spec.config)], GAME_IDS[game])[0];
+}
+
+/** `TableConfig.generation` from the account data: after the discriminator come `bump` (1 byte), `operator` (32), then `generation` (u16). All four Games lay it out the same. */
+export const tableGenerationOf = (data: Uint8Array): number => Buffer.from(data).readUInt16LE(8 + 1 + 32);
+
 export interface TablePick {
   generation: number;
   index: number;

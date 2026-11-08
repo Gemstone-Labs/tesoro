@@ -14,7 +14,7 @@ export interface Progress {
   line: number;
 }
 
-export type Planned = { kind: "chunk" | "close"; ix: TransactionInstruction } | { kind: "stalled"; reason: string };
+export type Planned = { kind: "chunk" | "close"; ix: TransactionInstruction } | { kind: "pages"; ixs: TransactionInstruction[] } | { kind: "stalled"; reason: string };
 
 export interface FinishDeps {
   /** The Match as it is now; null once it is closed away. */
@@ -23,6 +23,8 @@ export interface FinishDeps {
   plan(progress: Progress, address: PublicKey): Promise<Planned>;
   /** Sends one planned step; resolves with its signature. */
   send(step: { kind: "chunk" | "close"; ix: TransactionInstruction }): Promise<string>;
+  /** Creates the checkpoint pages a chunk needs; without it a Match that needs pages stalls as "needs-page". */
+  createPages?(ixs: TransactionInstruction[]): Promise<string>;
   /** Most steps one call sends (default 24). */
   maxSteps?: number;
 }
@@ -53,6 +55,12 @@ export async function finishMatch(deps: FinishDeps, address: PublicKey): Promise
     if (i >= limit) return { done: false, stage: now.stage, stalled: "step-limit", signatures };
     const planned = await deps.plan(now, address);
     if (planned.kind === "stalled") return { done: false, stage: now.stage, stalled: planned.reason, signatures };
+    if (planned.kind === "pages") {
+      if (!deps.createPages) return { done: false, stage: now.stage, stalled: "needs-page", signatures };
+      signatures.push(await deps.createPages(planned.ixs));
+      now = await deps.fetch(address);
+      continue;
+    }
     let sent: string | null = null;
     let failure: unknown = null;
     try {

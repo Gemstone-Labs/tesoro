@@ -7,6 +7,7 @@ import { sourcePda } from "@/lib/chain/native";
 import { bookPda, ckptPda } from "@/lib/chain/basket";
 import { positionBytes } from "@/lib/chain/position-size";
 import { landingPageNumbers } from "@/lib/chain/redeem";
+import { cutPageNumbers } from "@/lib/chain/settle-plan";
 import { DemoHttpError } from "../request-auth";
 import { isStale, parseStakePool, updateStakePoolBalanceIx } from "@/lib/chain/stake-pool";
 import { STAKE_TOKENS } from "@/lib/chain/stake";
@@ -76,7 +77,8 @@ async function verifyPoolUpdate(pool: PublicKey, ix: NonNullable<Plan["setup"]>[
 
 /**
  * Checkpoint pages the relayer creates for a bridge bundle: each must be the page of the book it names (the book's own Source), be
- * one the book needs to land a payout or a yield, and not exist yet. Returns the rent the relayer fronts, from the chain.
+ * one the book needs to land a payout or a yield or to cut a fee while a Match settles, and not exist yet. Returns the rent the
+ * relayer fronts, from the chain.
  */
 export async function verifyCkptPages(pages: CkptPage[], chain: ChainReads): Promise<bigint> {
   if (pages.length === 0) return 0n;
@@ -91,7 +93,7 @@ export async function verifyCkptPages(pages: CkptPage[], chain: ChainReads): Pro
     if (!bookPda(source).equals(p.book) || !ckptPda(source, p.classId, p.pageNo).equals(p.page)) bad("The checkpoint is not this book's page.");
     let set = needed.get(p.book.toBase58());
     if (!set) {
-      try { set = new Set(landingPageNumbers(decodeBook(book!.data)).map((w) => `${w.classId}:${w.page}`)); }
+      try { set = new Set([...landingPageNumbers(decodeBook(book!.data)), ...cutPageNumbers(book!.data)].map((w) => `${w.classId}:${w.page}`)); }
       catch { return bad("The Source's book could not be read."); }
       needed.set(p.book.toBase58(), set);
     }

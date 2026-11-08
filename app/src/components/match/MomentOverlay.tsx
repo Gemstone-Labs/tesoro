@@ -24,6 +24,7 @@ const sessionStore = () => {
  */
 export function MomentOverlay({ bust, title, amount, momentKey, onDone }: { bust: BustName; title: string; amount: number; momentKey?: string; onDone?: () => void }) {
   const [show, setShow] = useState(false);
+  const dialog = useRef<HTMLDivElement>(null);
   const close = useRef<HTMLButtonElement>(null);
   const done = useRef(onDone);
   useEffect(() => {
@@ -43,7 +44,8 @@ export function MomentOverlay({ bust, title, amount, momentKey, onDone }: { bust
   useEffect(() => {
     if (!show) return;
     const back = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    close.current?.focus({ preventScroll: true });
+    const focusTarget = close.current?.getClientRects().length ? close.current : dialog.current;
+    focusTarget?.focus({ preventScroll: true });
     const timer = setTimeout(hide, SHOW_MS);
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" && e.key !== "Enter") return;
@@ -60,7 +62,7 @@ export function MomentOverlay({ bust, title, amount, momentKey, onDone }: { bust
 
   if (!show) return null;
   return (
-    <div className="mo" role="dialog" aria-modal="true" aria-labelledby="mo-title" aria-describedby="mo-amount" onClick={hide}>
+    <div ref={dialog} tabIndex={-1} className="mo" role="dialog" aria-modal="true" aria-labelledby="mo-title" aria-describedby="mo-amount" onClick={hide}>
       <div className="mo-stage">
         <span className="mo-rays" aria-hidden="true" />
         <Shards n={24} delay={120} />

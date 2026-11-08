@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { PAYOUT_WINDOW_SECS, SEASON_EPOCH, SEASON_SECS } from "../../app/src/lib/chain/season.ts";
-import { memoryStore, payThenTell, seasonRun, stepsDue, type StepName, type Steps } from "./season-run.ts";
+import { memoryStore, seasonRun, stepsDue, type StepName, type Steps } from "./season-run.ts";
 
 const monday = SEASON_EPOCH + 3 * SEASON_SECS;
 const mondayRun = monday + 15 * 60;
@@ -94,26 +94,6 @@ describe("the weekly Season run", () => {
     };
     await seasonRun(mondayRun, steps, store);
     assert.deepEqual(store.load()?.empty, [2]);
-  });
-});
-
-describe("the pay step and the Season placing emails", () => {
-  it("sends the placings after the payout is complete", async () => {
-    const order: string[] = [];
-    const r = await payThenTell(async () => (order.push("pay"), { actions: 3, pending: false }), async () => (order.push("tell"), 0));
-    assert.deepEqual(order, ["pay", "tell"]);
-    assert.deepEqual(r, { actions: 3, pending: false });
-  });
-
-  it("waits to send while payouts are still pending", async () => {
-    let told = 0;
-    const r = await payThenTell(async () => ({ actions: 1, pending: true }), async () => (told++, 0));
-    assert.deepEqual(r, { actions: 1, pending: true });
-    assert.equal(told, 0);
-  });
-
-  it("stays pending when the app has not taken every email, so the next run sends them again", async () => {
-    assert.deepEqual(await payThenTell(async () => ({ actions: 0, pending: false }), async () => 2), { actions: 0, pending: true });
   });
 });
 

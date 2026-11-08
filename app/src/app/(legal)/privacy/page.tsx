@@ -39,7 +39,7 @@ export default function Privacy() {
         <DataTable
           head={["Data", "Where it comes from", "Why we use it"]}
           rows={[
-            ["Email address", "The waitlist, your Invite, notification settings, or sign-in by email.", "To sign you in, send your Invite and the notices you asked for, and run the waitlist."],
+            ["Email address", "The waitlist, your Invite, or sign-in by email.", "To sign you in, send your Invite and run the waitlist."],
             ["Wallet addresses and on-chain activity", "Your wallets and the blockchains. Public.", "To run your Account: Locks, Gemas, Matches, payouts, Seasons."],
             ["Match history", "Public records the ledger writes when a Match settles, copied into our database.", "To show your Matches, win cards, recent wins and Backings fast, and to rebuild them if the database is lost. The same facts stay public on chain."],
             ["Sponsored-cost records", "Our server, when we pay a network cost for you.", "To enforce limits per Account and in total, and to keep the sponsoring budget safe from abuse."],
@@ -58,7 +58,7 @@ export default function Privacy() {
       <Section id="use" title="How we use it">
         <ul>
           <li>To provide {BRAND.name}: sign-in, Accounts, Matches, redemptions, Seasons and payouts.</li>
-          <li>To send Invites, service notices and the notification emails you turned on. You can turn them off.</li>
+          <li>To send Invites and service notices.</li>
           <li>To keep {BRAND.name} safe: finding bots, multiple Accounts and cheating, and handling disputes.</li>
           <li>To follow the law and protect our rights.</li>
           <li>To understand how {BRAND.name} is used, so we can improve it, in aggregate.</li>
@@ -75,7 +75,7 @@ export default function Privacy() {
           head={["Provider", "For", "What it sees"]}
           rows={[
             ["Privy", "Sign-in by email or wallet", "Your email or wallet, device and sign-in details."],
-            ["Supabase", "Database for the waitlist, notification emails and Friends", "Your email, sign-up details, notification settings and Friends list."],
+            ["Supabase", "Database for the waitlist, Invites and Friends", "Your email, sign-up details and Friends list."],
             ["Resend", "Sending email", "Your email address and the message."],
             ["Vercel", "Hosting our website", "Requests to our site, including your IP address and logs."],
             ["MagicBlock", "Rollups that run Matches, and price feeds", "Wallet addresses and the Match activity sent to its network."],
@@ -100,7 +100,7 @@ export default function Privacy() {
 
       <Section id="keep" title="How long we keep it">
         <p>
-          On-chain data stays on chain. We keep your email while you are on the waitlist or have an Account with notifications on, and delete it within a reasonable
+          On-chain data stays on chain. We keep your email while you are on the waitlist or have an Invite, and delete it within a reasonable
           time after you ask or unsubscribe. We keep server logs for a short period, and fair-play, Protection and 18+ records for as long as your Account exists and
           afterwards as long as the law or a dispute needs. Test mode data may be reset at any time.
         </p>
@@ -108,7 +108,7 @@ export default function Privacy() {
 
       <Section id="rights" title="Your choices and rights">
         <ul>
-          <li>Unsubscribe from any email with its link, or change notification settings in the app.</li>
+          <li>Ask us to stop emailing you.</li>
           <li>Ask us for a copy of the personal data we hold about you, to correct it, or to delete it. We cannot change or erase what is on a blockchain.</li>
           <li>Depending on where you live (for example California, the UK or the EU), you may also have the right to object to or limit some uses, to move your data, and to complain to your data regulator. We do not sell or share personal data for advertising.</li>
         </ul>

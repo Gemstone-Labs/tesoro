@@ -215,7 +215,18 @@ export interface SourceSupply {
   missing: PublicKey[];
 }
 
-/** Pages a fee cut's sync or paid Studio tranche can write; old pages cannot be recreated. */
+/** Pages a fee cut's sync or paid Studio tranche can write, per class; old pages cannot be recreated. */
+export function cutPageNumbers(bookData: Uint8Array): { classId: number; page: number }[] {
+  const out: { classId: number; page: number }[] = [];
+  bookCheckpointCounts(bookData).forEach((ck, classId) => {
+    if (classId === 0 || classId === 2) return;
+    // A sync closes up to three segments; the fee cut can then seal a paid Studio segment.
+    for (let page = Math.floor(ck / CKPT_PER_PAGE); page <= Math.floor((ck + 3) / CKPT_PER_PAGE); page++) out.push({ classId, page });
+  });
+  return out;
+}
+
+/** Pages a fee cut's sync or paid Studio tranche can write that do not exist yet. */
 export async function missingCutPages(read: Reader, ahead: Ahead[]): Promise<{ source: PublicKey; cls: number; pageNo: number; address: PublicKey }[]> {
   const cuts = ahead.filter((a) => a.cut);
   const books = await read.many(cuts.map((a) => bookPda(a.source)));
@@ -223,13 +234,7 @@ export async function missingCutPages(read: Reader, ahead: Ahead[]): Promise<{ s
   cuts.forEach((a, i) => {
     const book = books[i];
     if (!book) return;
-    bookCheckpointCounts(book.data).forEach((ck, cls) => {
-      if (cls === 0 || cls === 2) return;
-      // A sync closes up to three segments; the fee cut can then seal a paid Studio segment.
-      const first = Math.floor(ck / CKPT_PER_PAGE);
-      const last = Math.floor((ck + 3) / CKPT_PER_PAGE);
-      for (let pageNo = first; pageNo <= last; pageNo++) candidates.push({ source: a.source, cls, pageNo, address: ckptPda(a.source, cls, pageNo) });
-    });
+    for (const { classId, page } of cutPageNumbers(book.data)) candidates.push({ source: a.source, cls: classId, pageNo: page, address: ckptPda(a.source, classId, page) });
   });
   const pages = await read.many(candidates.map((c) => c.address));
   return candidates.filter((_, i) => !pages[i]);

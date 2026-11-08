@@ -219,7 +219,7 @@ export function EnterMatch(props: EnterKind) {
   const waiting = here.open;
   const found = status === "Opponent found.";
   const busy = !signedOut && existing === null && !needsGemas && !failure && gate !== "ask";
-  const seat = found ? "Opponent" : props.kind === "challenge-new" ? (picked ? pickedName : "Your friend") : props.kind === "challenge-join" ? "Opponent" : waiting.length ? `${waiting.length} waiting` : "Open seat";
+  const seat = found ? "Opponent" : props.kind === "challenge-new" ? (picked ? pickedName : null) : props.kind === "challenge-join" ? "Opponent" : waiting.length ? `${waiting.length} waiting` : "Open seat";
   // Under Open Challenge, before the Match exists: what happens to the Friend picked.
   const waitLine = pickedFriend
     ? `${pickedName} sees it on their Friends page. You also get a link to send.`
@@ -256,7 +256,7 @@ export function EnterMatch(props: EnterKind) {
           <span className="cut enter-av">
             {props.kind === "challenge-new" && picked ? <PlayerAvatar account={picked} size={112} /> : <SeekingFace keys={found ? [] : waiting} />}
           </span>
-          <figcaption>{seat}</figcaption>
+          {seat && <figcaption>{seat}</figcaption>}
           {props.kind === "challenge-new" && !confirmed && !signedOut && (
             <Button size="sm" onClick={() => setPicking(true)}>
               {picked ? "Change" : "Select friend"}

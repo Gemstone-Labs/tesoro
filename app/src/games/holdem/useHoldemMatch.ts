@@ -199,7 +199,7 @@ export function useHoldemMatch(id: string | null, signer: ChainSigner | null, on
     if (!fresh && m) {
       const seenAssignment = assignRef.current;
       const base = seenAssignment ? await hd.readTableOnBase(seenAssignment).catch(() => null) : null;
-      m = closedWhileSeen(m, base && seenAssignment ? { canFinalize: canFinalizeTable(base, seenAssignment, Date.now() / 1000), hasResult: !!slotOf(base, seenAssignment.tesoroMatch, seenAssignment.epoch) } : null) ?? m;
+      m = closedWhileSeen(m, base && seenAssignment ? { canFinalize: canFinalizeTable(base, seenAssignment, Date.now() / 1000), outcome: slotOf(base, seenAssignment.tesoroMatch, seenAssignment.epoch)?.outcome ?? null } : null) ?? m;
     }
     setView((v) => ({ ...v, match: m, refundable: !!m && m.status === "active" && Date.now() / 1000 > m.deadline }));
     if (!m) return setStage("notfound");

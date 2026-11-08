@@ -88,7 +88,7 @@ Follow `docs/environments.md` "Hand-off: what the founder does".
    - Important: the existing `tesoro` project carries the test-mode relayer and oracle secrets (`TESORO_RELAYER_SECRET_KEY`, `TESORO_ORACLE_SECRET_KEY`, `TESORO_RELAYER_EVM_PRIVATE_KEY`). `docs/mainnet-keys.md` requires that the mainnet web project does NOT carry them. Plan to delete those three before the mainnet redeploy (launch day step 1), or build the mainnet env on a fresh project and move the `www` domain to it instead (cleaner; decide now).
    Check: the test host loads in test mode with its own env and `robots.txt` has `Disallow: /`.
 4. **Supabase**: a separate mainnet project (recommended in `docs/environments.md`). Apply `app/supabase/migrations/0001` to `0005` in order, and any later `000N` that exists on the launch commit: `ls app/supabase/migrations` and apply every file. Each runs once.
-   Check: tables `waitlist`, `notify_settings`, `notify_events`, `invites`, `age_confirmations` exist, `invites.sent_at` exists, RLS is on (the anon role has no access).
+   Check: tables `waitlist`, `notify_settings` and `notify_events` (both unused since Player emails were removed), `invites`, `age_confirmations` exist, `invites.sent_at` exists, RLS is on (the anon role has no access).
 5. **Waitlist migration decision**: the waitlist is the source of Invite recipients. Copy the real waitlist rows from the current `tesoro-waitlist` project into the mainnet project's `waitlist` table (founders: SQL export/import), or point `send-invites.ts` at the project that holds the waitlist. Decide which; `send-invites.ts` reads `SUPABASE_URL` and the `waitlist` and `invites` tables of one project.
    Check: `select count(*) from waitlist` in the project the script will use matches the expected sign-ups; `invites` is empty.
 6. **Privy**: a separate mainnet app (recommended). Allowed origins `https://www.playtesoro.com`; Solana mainnet, Ethereum (1) and HyperEVM (999) enabled. App id goes into `NEXT_PUBLIC_PRIVY_APP_ID` of the mainnet env.
@@ -214,7 +214,7 @@ Check, for every program: `solana program show <ID>` shows the vault as upgrade 
 
 ### 7. The mainnet keeper (F)
 
-The mainnet keeper is not a loop (ADR 0015). It is the Season run, the safety sweep, the janitor and the Table-pool repair, each a systemd timer from `keeper/deploy/`, plus the notify cron timer, and a heartbeat ping after each run. Mainnet SOL needs no keeper job for yield (ADR 0010, ticket 41). Start the timers at T-7 anyway, so the runs are proven for a week before real players arrive and a first Season record has its runner. The `tesoro-keeper` service (the devnet price writer) is not installed on mainnet: it exits at once there.
+The mainnet keeper is not a loop (ADR 0015). It is the Season run, the safety sweep, the janitor and the Table-pool repair, each a systemd timer from `keeper/deploy/`, plus the notify cron timer (it keeps the `open_match` table the sweep reads; it mails no one), and a heartbeat ping after each run. Mainnet SOL needs no keeper job for yield (ADR 0010, ticket 41). Start the timers at T-7 anyway, so the runs are proven for a week before real players arrive and a first Season record has its runner. The `tesoro-keeper` service (the devnet price writer) is not installed on mainnet: it exits at once there.
 
 The timers read an env file. Create it first (step 1); then install the units (steps 2-3).
 

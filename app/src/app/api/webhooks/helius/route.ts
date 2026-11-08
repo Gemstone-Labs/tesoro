@@ -1,6 +1,6 @@
 import { after } from "next/server";
 import { supabaseRpc } from "@/server/history/db";
-import { webhookNotifyPasses } from "@/server/notify/env";
+import { openMatchPasses } from "@/server/open-match/env";
 import { Connection } from "@solana/web3.js";
 import { baseRpc } from "@/lib/chain/rpc-config";
 import { endCaptureHooks } from "@/server/history/end-capture";
@@ -10,7 +10,7 @@ export const runtime = "nodejs";
 
 /**
  * The Helius raw webhook on tesoro_core (devnet). Helius sends the secret as the Authorization header it was created with
- * (HELIUS_WEBHOOK_SECRET). The transactions are stored and the answer goes out; the history rows and the emails are written after it.
+ * (HELIUS_WEBHOOK_SECRET). The transactions are stored and the answer goes out; the history rows and the open-Match table are written after it.
  */
 export async function POST(request: Request) {
   try {
@@ -26,8 +26,8 @@ export async function POST(request: Request) {
         schedule: (work) => after(() => work().catch((e) => console.error("helius-webhook decode", e))),
         afterStore: async () => {
           const decoded = await decodePending({ store, rpc: supabaseRpc, captureEnds: ends.captureEnds, warn: (m) => console.warn("helius-webhook", m) }).catch((e) => console.error("helius-webhook decode", e));
-          // The emails of the same transactions; the notify cron picks up what this misses (rows not finalized yet).
-          await webhookNotifyPasses().pending().catch((e) => console.error("helius-webhook notify", e));
+          // Keeps the open-Match table in step; the cron picks up what this misses (rows not finalized yet).
+          await openMatchPasses().pending().catch((e) => console.error("helius-webhook open-match", e));
           return decoded;
         },
       },
