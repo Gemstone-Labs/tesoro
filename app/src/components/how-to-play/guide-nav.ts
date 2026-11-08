@@ -7,8 +7,7 @@ export function stepAfterKey(key: string, i: number, count: number): number {
   return i;
 }
 
-/** The last step's buttons, before Back: Practice free is a link only when the page gave one. */
-export function lastStepButtons(end: GuideEnd): string[] {
-  if (end === "game-page") return ["Practice free", "Done"];
-  return [end === "first-practice" ? "Start practice" : "Done"];
+/** The last step's button, beside Back: Start practice before a first Practice, Done everywhere else. */
+export function lastStepButton(end: GuideEnd): string {
+  return end === "first-practice" ? "Start practice" : "Done";
 }

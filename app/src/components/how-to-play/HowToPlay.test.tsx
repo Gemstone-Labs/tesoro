@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { GUIDE_STEPS } from "@/lib/how-to-play";
 import { usePracticeHowTo } from "./PracticeGuide";
 import { HowToPlay } from "./HowToPlay";
-import { lastStepButtons, stepAfterKey } from "./guide-nav";
+import { lastStepButton, stepAfterKey } from "./guide-nav";
 
 describe("guide navigation", () => {
   it("moves with the arrow keys and stops at both ends", () => {
@@ -14,15 +14,15 @@ describe("guide navigation", () => {
     expect(stepAfterKey("a", 2, 5)).toBe(2);
   });
 
-  it("ends with the buttons of where the guide was opened", () => {
-    expect(lastStepButtons("game-page")).toEqual(["Practice free", "Done"]);
-    expect(lastStepButtons("first-practice")).toEqual(["Start practice"]);
-    expect(lastStepButtons("practice-menu")).toEqual(["Done"]);
+  it("ends with Back and the button of where the guide was opened", () => {
+    expect(lastStepButton("game-page")).toBe("Done");
+    expect(lastStepButton("first-practice")).toBe("Start practice");
+    expect(lastStepButton("practice-menu")).toBe("Done");
   });
 });
 
 describe("HowToPlay markup", () => {
-  const render = (open: boolean) => renderToStaticMarkup(<HowToPlay game="holdem" open={open} onClose={() => {}} end="game-page" practiceHref="/play/practice?game=holdem" />);
+  const render = (open: boolean) => renderToStaticMarkup(<HowToPlay game="holdem" open={open} onClose={() => {}} end="game-page" />);
 
   it("opens on step 1 of 5 with the phone clip set, one dot per step", () => {
     const html = render(true);
@@ -32,7 +32,7 @@ describe("HowToPlay markup", () => {
     expect(html).not.toContain("/art/how-to-play/holdem/2-phone.webm");
     expect(html.match(/<i><b /g)).toHaveLength(5);
     expect(html).toContain("How to play Buckshot Hold");
-    expect(html).not.toContain("Back");
+    expect(html).toMatch(/<button[^>]*disabled[^>]*>.*?Back/);
   });
 
   it("renders nothing inside while closed", () => {

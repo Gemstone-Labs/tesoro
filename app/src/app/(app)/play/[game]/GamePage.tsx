@@ -75,7 +75,7 @@ export function GamePage({ game }: { game: GameId }) {
               <i key={i} />
             ))}
           </span>
-          <button type="button" className="cut cut-chip gp-how-tab" onClick={() => setHow(true)}>
+          <button type="button" className="gp-how-tab" onClick={() => setHow(true)}>
             <BookOpen aria-hidden="true" /> How to play<span className="sr-only"> {name}</span>
           </button>
           <div className="gp-art-title">
@@ -121,7 +121,7 @@ export function GamePage({ game }: { game: GameId }) {
         </div>
       </section>
 
-      <HowToPlay game={game} open={how} onClose={() => setHow(false)} end="game-page" practiceHref={practiceHref(game, asset)} />
+      <HowToPlay game={game} open={how} onClose={() => setHow(false)} end="game-page" />
 
       <div className="gp-grid">
         <section className="cut cut-frame gp-panel" aria-labelledby="gp-recent">
