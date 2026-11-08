@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { NO_CARD, PHASE, STATUS, call, check, raise, type Action } from "@/games/holdem/chain";
+import { NO_CARD, PHASE, SPLIT, STATUS, call, check, raise, type Action } from "@/games/holdem/chain";
 import { HoldemTable } from "@/games/holdem/HoldemTable";
 import { PlayingCard } from "@/games/holdem/cards";
 import { HandLogView, type LogPlayer } from "@/games/holdem/HandLogView";
@@ -131,6 +131,7 @@ const logOf = (done: boolean): HandLog => ({
   hand: 7,
   done,
   prev: null,
+  past: [],
   end: done ? { handNo: 7, result: 0, pot: 1640n, showdown: true, shown: [[12 + 26, 10], [11 + 39, 9 + 13]], board: LOG_BOARD } : null,
   streets: [
     { name: "Pre-flop", rows: [{ who: "you", act: "small-blind", amount: 10n }, { who: "opponent", act: "big-blind", amount: 20n }, { who: "you", act: "raise", amount: 60n }, { who: "opponent", act: "call", amount: 40n }] },
@@ -141,12 +142,31 @@ const logOf = (done: boolean): HandLog => ({
       : []),
   ],
 });
+const LOG_HOLES = { 5: [3, 3 + 13], 6: [8 + 39, 8 + 26], 7: [12 + 26, 10], 8: [1 + 13, 6] };
 const LogSheet = ({ log }: { log: HandLog }) => (
   <div className="sbm" style={{ maxWidth: 520 }}>
     <div className="hdx-log-body">
-      <HandLogView log={log} seat={0} players={LOG_PLAYERS} hole={[12 + 26, 10]} />
+      <HandLogView log={log} seat={0} players={LOG_PLAYERS} holes={LOG_HOLES} />
     </div>
   </div>
 );
+/** Hand 8 in play, with hand 7's showdown, a fold in hand 6 and a split in hand 5 kept below it. */
+const withPast = (): HandLog => {
+  const seven = logOf(true);
+  const preflop = (last: LogStreet["rows"]): LogStreet => ({ name: "Pre-flop", rows: [{ who: "opponent", act: "small-blind", amount: 10n }, { who: "you", act: "big-blind", amount: 20n }, ...last] });
+  return {
+    hand: 8,
+    done: false,
+    prev: null,
+    end: null,
+    streets: [{ name: "Pre-flop", rows: [{ who: "opponent", act: "small-blind", amount: 10n }, { who: "you", act: "big-blind", amount: 20n }, { who: "opponent", act: "raise", amount: 60n }] }],
+    past: [
+      { hand: 7, streets: seven.streets, end: seven.end },
+      { hand: 6, streets: [preflop([{ who: "opponent", act: "raise", amount: 60n }, { who: "you", act: "fold" }])], end: { handNo: 6, result: 1, pot: 80n, showdown: false, shown: [[NO_CARD, NO_CARD], [NO_CARD, NO_CARD]], board: [NO_CARD, NO_CARD, NO_CARD, NO_CARD, NO_CARD] } },
+      { hand: 5, streets: [preflop([{ who: "opponent", act: "call", amount: 10n }, { who: "you", act: "check" }])], end: { handNo: 5, result: SPLIT, pot: 40n, showdown: true, shown: [[3, 3 + 13], [3 + 26, 3 + 39]], board: LOG_BOARD } },
+    ],
+  };
+};
 export const HandLogPlaying: StoryObj = { render: () => <LogSheet log={logOf(false)} /> };
 export const HandLogShowdown: StoryObj = { render: () => <LogSheet log={logOf(true)} /> };
+export const HandLogEarlierHands: StoryObj = { render: () => <LogSheet log={withPast()} /> };
