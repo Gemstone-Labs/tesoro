@@ -40,21 +40,21 @@ describe("hand log inference", () => {
 
   it("logs the closing call on the River before the showdown", () => {
     const river = (over: Partial<TableRead>) => read({ phase: PHASE.river, board: BOARD, pot: 400n, bets: [0n, 0n], stacks: [1300n, 1300n], toAct: 1, ...over });
-    const start: HandLog = { hand: 1, done: false, streets: [{ name: "River", rows: [{ who: "board", act: "board", cards: [BOARD[4]] }] }], end: null, prev: river({}) };
+    const start: HandLog = { hand: 1, done: false, streets: [{ name: "River", rows: [{ who: "board", act: "board", cards: [BOARD[4]] }] }], end: null, past: [], prev: river({}) };
     const log = run([river({ bets: [0n, 200n], stacks: [1300n, 1100n], pot: 600n, toAct: 0 }), ended({ result: 0, pot: 800n, showdown: true })], start);
     expect(view(log)).toEqual([["River", "Board: 9s", "Opponent: Bet 200", "You: Call 200", "Both: Showdown"]]);
   });
 
   it("logs a River checked through", () => {
     const river = read({ phase: PHASE.river, board: BOARD, pot: 400n, bets: [0n, 0n], stacks: [1300n, 1300n], toAct: 1 });
-    const start: HandLog = { hand: 1, done: false, streets: [{ name: "River", rows: [] }], end: null, prev: river };
+    const start: HandLog = { hand: 1, done: false, streets: [{ name: "River", rows: [] }], end: null, past: [], prev: river };
     expect(view(run([ended({ result: 1, pot: 400n, showdown: true })], start))).toEqual([["River", "Opponent: Check", "You: Check", "Both: Showdown"]]);
   });
 
   it("adds a street the reads skipped instead of dropping it", () => {
     const flop = read({ phase: PHASE.flop, board: [...BOARD.slice(0, 3), NO_CARD, NO_CARD], pot: 40n, bets: [0n, 0n], stacks: [1480n, 1480n], toAct: 1 });
     const river = read({ phase: PHASE.river, board: BOARD, pot: 40n, bets: [0n, 0n], stacks: [1480n, 1480n], toAct: 1 });
-    const start: HandLog = { hand: 1, done: false, streets: [{ name: "Flop", rows: [{ who: "board", act: "board", cards: BOARD.slice(0, 3) }] }], end: null, prev: flop };
+    const start: HandLog = { hand: 1, done: false, streets: [{ name: "Flop", rows: [{ who: "board", act: "board", cards: BOARD.slice(0, 3) }] }], end: null, past: [], prev: flop };
     expect(view(run([river], start))).toEqual([
       ["Flop", "Board: As Kd 7h", "Opponent: Check", "You: Check"],
       ["Turn", "Board: 2c"],
@@ -72,7 +72,7 @@ describe("hand log inference", () => {
 
   it("logs a bet and a raise seen in one read in order", () => {
     const flop = read({ phase: PHASE.flop, board: [...BOARD.slice(0, 3), NO_CARD, NO_CARD], pot: 40n, bets: [0n, 0n], stacks: [1480n, 1480n], toAct: 1 });
-    const start: HandLog = { hand: 1, done: false, streets: [{ name: "Flop", rows: [] }], end: null, prev: flop };
+    const start: HandLog = { hand: 1, done: false, streets: [{ name: "Flop", rows: [] }], end: null, past: [], prev: flop };
     const log = run([read({ phase: PHASE.flop, board: flop.board, pot: 640n, bets: [400n, 200n], stacks: [1080n, 1280n], toAct: 1 })], start);
     expect(view(log)).toEqual([["Flop", "Opponent: Bet 200", "You: Raise to 400"]]);
   });
@@ -85,5 +85,21 @@ describe("hand log inference", () => {
 
   it("logs a fold", () => {
     expect(view(run([read({}), ended({ result: 1, pot: 30n })]))).toEqual([["Pre-flop", "You: Small blind 10", "Opponent: Big blind 20", "You: Fold"]]);
+  });
+
+  it("keeps a finished hand, with how it ended, once the next hand begins", () => {
+    const next = read({ handNo: 2, dealer: 1, bets: [20n, 10n], lastHand: { ...noLast, handNo: 1, result: 1, pot: 30n, board: NO_BOARD } });
+    const log = run([read({}), next]);
+    expect(log.hand).toBe(2);
+    expect(log.past).toHaveLength(1);
+    expect(log.past[0]).toMatchObject({ hand: 1, end: { result: 1, pot: 30n } });
+    expect(log.past[0].streets[0].rows.map(rowText)).toEqual(["Small blind 10", "Big blind 20", "Fold"]);
+  });
+
+  it("keeps the last 10 finished hands, newest first", () => {
+    const reads = Array.from({ length: 13 }, (_, i) => read({ handNo: i + 1, dealer: i % 2, lastHand: i === 0 ? noLast : { ...noLast, handNo: i, result: 0, pot: 30n } }));
+    const log = run(reads);
+    expect(log.hand).toBe(13);
+    expect(log.past.map((h) => h.hand)).toEqual([12, 11, 10, 9, 8, 7, 6, 5, 4, 3]);
   });
 });

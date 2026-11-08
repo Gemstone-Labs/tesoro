@@ -52,6 +52,15 @@ describe("accepted", () => {
     // The planner sizes chunks to 125k; a page that cannot simulate sends the program's cap (12 steps, ~145k CU measured).
     expect(plan([await chunkIx(relayer, key(), 60)]).cu).toBe(300_000);
   });
+  // A refunded Match's close names two spills, both counters and both funders' Protections (the W3 core gives the
+  // entries counted on an Entry Limit back there).
+  it("a refunded close_match with two spills, both counters and both funders' Protections", async () => {
+    const ix = await coreIx("close_match", [], { caller: relayer, matchState: key(), matchPayer: relayer, potA: key(), potAPayer: relayer, potB: key(), potBPayer: relayer, sponsor: null });
+    for (let i = 0; i < 6; i++) ix.keys.push({ pubkey: key(), isSigner: false, isWritable: true });
+    expect(plan([ix])).toMatchObject({ names: ["close_match"], class: "exit" });
+    ix.keys.push({ pubkey: key(), isSigner: false, isWritable: true });
+    refused([ix], "bad-accounts");
+  });
   it("stages a fragmented entry with the Source books and pages required by the draw", async () => {
     const owner = accountOf(player);
     const ix = await coreIx("stage_entry", [32], { signer: player, owner, ticket: key() });

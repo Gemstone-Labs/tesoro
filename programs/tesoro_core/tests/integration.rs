@@ -1873,9 +1873,15 @@ impl Env {
         if let Some(b) = rec.b {
             remaining.push(rem(counters_pda(APk::new_from_array(b.player))));
         }
-        // a refund gives each side's count back to its funder's Entry Limit
-        for party in [Some(rec.a), rec.b].into_iter().flatten() {
-            remaining.push(rem(protections_pda(APk::new_from_array(party.funder))));
+        // As the app sends it (`closeRemaining`): an unplayed refund names each funder's
+        // Protections, so the entry counted on an Entry Limit is given back.
+        if rec.run().is_some_and(|r| r.kind.releases_entry()) {
+            for party in [Some(rec.a), rec.b].into_iter().flatten() {
+                let p = rem(protections_pda(APk::new_from_array(party.funder)));
+                if !remaining.contains(&p) {
+                    remaining.push(p);
+                }
+            }
         }
         ix(
             accounts::CloseMatch {
@@ -2765,20 +2771,7 @@ fn backing_cannot_be_revoked_after_start_and_backed_player_cannot_move_backer_ge
     assert_eq!(custom_code(&err), core(CoreError::InsufficientGemas));
     let id = b.open_backed(offer, 500).expect("backed entry");
     // The Offer is Consumed once the Match started: it cannot be cancelled, reused or expired.
-    let cancel = ix(
-        accounts::CancelOffer {
-            backer_authority: b.carol.key,
-            backer_account: b.carol.account,
-            basket: basket_address(&b.carol.account).0,
-            spill: spill_address(&b.carol.account).0,
-            counters: counters_pda(b.carol.account),
-            offer,
-            request: None,
-            backer_protections: Some(protections_pda(b.carol.account)),
-        },
-        instruction::CancelOffer {},
-        vec![],
-    );
+    let cancel = cancel_offer_ix(b.carol.key, b.carol.account, offer, None);
     let carol = b.carol.kp.insecure_clone();
     let err = b.d.env.send(&[cancel], &carol, &[]).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::InvalidStatus));
@@ -2795,6 +2788,55 @@ fn backing_cannot_be_revoked_after_start_and_backed_player_cannot_move_backer_ge
 }
 
 const DAY: i64 = 24 * 3_600;
+
+/// `cancel_offer` as the app sends it: with the Backer's Protections, where the Offer's Entry Limit
+/// count goes back.
+fn cancel_offer_ix(
+    backer_authority: APk,
+    backer_account: APk,
+    offer: APk,
+    request: Option<APk>,
+) -> Instruction {
+    ix(
+        accounts::CancelOffer {
+            backer_authority,
+            backer_account,
+            basket: basket_address(&backer_account).0,
+            spill: spill_address(&backer_account).0,
+            counters: counters_pda(backer_account),
+            offer,
+            request,
+            backer_protections: Some(protections_pda(backer_account)),
+        },
+        instruction::CancelOffer {},
+        vec![],
+    )
+}
+
+/// `expire_offer` as the app and the keeper send it: the Backer's Protections, when given, take the
+/// Offer's Entry Limit count back.
+fn expire_offer_ix(
+    caller: APk,
+    backer_account: APk,
+    offer: APk,
+    request: Option<APk>,
+    backer_protections: Option<APk>,
+) -> Instruction {
+    ix(
+        accounts::ExpireOffer {
+            caller,
+            backer_account,
+            basket: basket_address(&backer_account).0,
+            spill: spill_address(&backer_account).0,
+            counters: counters_pda(backer_account),
+            offer,
+            request,
+            backer_protections,
+        },
+        instruction::ExpireOffer {},
+        vec![],
+    )
+}
 
 #[test]
 fn an_entry_limit_stops_opening_and_joining_over_it() {
@@ -2888,6 +2930,50 @@ fn a_backed_player_playing_with_the_backers_gemas_is_not_counted() {
 }
 
 #[test]
+fn an_offer_counted_on_the_entry_limit_can_be_cancelled_or_expired() {
+    let mut b = backing_setup();
+    b.d.env.set_entry_limit(&b.carol, 1_000).unwrap();
+    let request = b.request(1, 500);
+    let cancelled = b.offer(1, request, 5_000);
+    let expired = b.offer(2, request, 5_000);
+    let carol = b.carol.kp.insecure_clone();
+    let cancel = cancel_offer_ix(b.carol.key, b.carol.account, cancelled, None);
+    b.d.env.send(&[cancel], &carol, &[]).expect("cancel");
+    let now = b.d.env.now();
+    b.d.env.set_time(now + 2 * DAY);
+    let stranger = b.d.env.admin.insecure_clone();
+    let expire = expire_offer_ix(
+        a(stranger.pubkey()),
+        b.carol.account,
+        expired,
+        None,
+        Some(protections_pda(b.carol.account)),
+    );
+    b.d.env.send(&[expire], &stranger, &[]).expect("expire");
+    assert_eq!(b.reserved(), 0);
+}
+
+#[test]
+fn an_unplayed_refund_closes_when_its_funders_have_an_entry_limit() {
+    let mut b = backing_setup();
+    b.d.env.set_entry_limit(&b.d.alice, 1_000).unwrap();
+    b.d.env.set_entry_limit(&b.carol, 1_000).unwrap();
+    let own = b.d.env.open_match(&b.d.alice, 500).unwrap();
+    let request = b.request(1, 500);
+    let offer = b.offer(1, request, 5_000);
+    b.accept(offer, request);
+    let backed = b.open_backed(offer, 500).expect("backed entry");
+    let now = b.d.env.now();
+    b.d.env.set_time(now + 3_601);
+    let stranger = b.d.env.admin.insecure_clone();
+    for id in [own, backed] {
+        b.d.env.refund_keep(&stranger, id).expect("refund");
+        b.d.env.close_match(id).expect("close");
+        assert!(b.d.env.svm.get_account(&s(b.d.env.match_key(id))).is_none());
+    }
+}
+
+#[test]
 fn a_player_with_no_entry_limit_set_is_not_limited() {
     let d = duel();
     assert!(d
@@ -2903,19 +2989,12 @@ fn offers_and_requests_expire_after_24_hours() {
     let request = b.request(1, 500);
     let offer = b.offer(1, request, 5_000);
     let expire = |b: &mut Backing| {
-        let expire = ix(
-            accounts::ExpireOffer {
-                caller: a(b.d.env.admin.pubkey()),
-                backer_account: b.carol.account,
-                basket: basket_address(&b.carol.account).0,
-                spill: spill_address(&b.carol.account).0,
-                counters: counters_pda(b.carol.account),
-                offer,
-                request: None,
-                backer_protections: None,
-            },
-            instruction::ExpireOffer {},
-            vec![],
+        let expire = expire_offer_ix(
+            a(b.d.env.admin.pubkey()),
+            b.carol.account,
+            offer,
+            None,
+            None,
         );
         let admin = b.d.env.admin.insecure_clone();
         b.d.env.send(&[expire], &admin, &[])
@@ -3082,38 +3161,18 @@ fn f12_a_request_returns_to_open_when_its_accepted_offer_ends_unused() {
                 let now = b.d.env.now();
                 b.d.env.set_time(now + 2 * 24 * 3_600);
                 (
-                    ix(
-                        accounts::ExpireOffer {
-                            caller: a(b.d.env.admin.pubkey()),
-                            backer_account: b.carol.account,
-                            basket: basket_address(&b.carol.account).0,
-                            spill: spill_address(&b.carol.account).0,
-                            counters: counters_pda(b.carol.account),
-                            offer,
-                            request,
-                            backer_protections: None,
-                        },
-                        instruction::ExpireOffer {},
-                        vec![],
+                    expire_offer_ix(
+                        a(b.d.env.admin.pubkey()),
+                        b.carol.account,
+                        offer,
+                        request,
+                        None,
                     ),
                     b.d.env.admin.insecure_clone(),
                 )
             } else {
                 (
-                    ix(
-                        accounts::CancelOffer {
-                            backer_authority: b.carol.key,
-                            backer_account: b.carol.account,
-                            basket: basket_address(&b.carol.account).0,
-                            spill: spill_address(&b.carol.account).0,
-                            counters: counters_pda(b.carol.account),
-                            offer,
-                            request,
-                            backer_protections: Some(protections_pda(b.carol.account)),
-                        },
-                        instruction::CancelOffer {},
-                        vec![],
-                    ),
+                    cancel_offer_ix(b.carol.key, b.carol.account, offer, request),
                     b.carol.kp.insecure_clone(),
                 )
             };
@@ -3506,19 +3565,12 @@ fn anyone_withdraws_the_requests_and_offers_of_a_player_who_started_a_break() {
         b.d.env.send(&[clear], &stranger, &[])
     };
     let expire = |b: &mut Backing, backer_protections: Option<APk>| {
-        let expire = ix(
-            accounts::ExpireOffer {
-                caller: a(stranger.pubkey()),
-                backer_account: b.carol.account,
-                basket: basket_address(&b.carol.account).0,
-                spill: spill_address(&b.carol.account).0,
-                counters: counters_pda(b.carol.account),
-                offer,
-                request: None,
-                backer_protections,
-            },
-            instruction::ExpireOffer {},
-            vec![],
+        let expire = expire_offer_ix(
+            a(stranger.pubkey()),
+            b.carol.account,
+            offer,
+            None,
+            backer_protections,
         );
         b.d.env.send(&[expire], &stranger, &[])
     };
@@ -3576,19 +3628,12 @@ fn a_withdrawn_accepted_offer_hands_its_request_back() {
     };
     b.d.env.set_break(&carol, 1).unwrap();
     let stranger = b.d.env.admin.insecure_clone();
-    let expire = ix(
-        accounts::ExpireOffer {
-            caller: a(stranger.pubkey()),
-            backer_account: b.carol.account,
-            basket: basket_address(&b.carol.account).0,
-            spill: spill_address(&b.carol.account).0,
-            counters: counters_pda(b.carol.account),
-            offer,
-            request: Some(request),
-            backer_protections: Some(protections_pda(b.carol.account)),
-        },
-        instruction::ExpireOffer {},
-        vec![],
+    let expire = expire_offer_ix(
+        a(stranger.pubkey()),
+        b.carol.account,
+        offer,
+        Some(request),
+        Some(protections_pda(b.carol.account)),
     );
     b.d.env.send(&[expire], &stranger, &[]).expect("withdrawn");
     assert_eq!(
@@ -5612,20 +5657,7 @@ fn a_backing_ticket_needs_the_requesters_signature_and_blocks_cancelling_the_off
         .open_backing_ticket(&carol, &dave, offer, 9, 500, 4)
         .expect("backing ticket");
     // the Offer cannot be cancelled while it stages
-    let cancel = ix(
-        accounts::CancelOffer {
-            backer_authority: carol.key,
-            backer_account: carol.account,
-            basket: basket_address(&carol.account).0,
-            spill: spill_address(&carol.account).0,
-            counters: counters_pda(carol.account),
-            offer,
-            request: None,
-            backer_protections: Some(protections_pda(b.carol.account)),
-        },
-        instruction::CancelOffer {},
-        vec![],
-    );
+    let cancel = cancel_offer_ix(carol.key, carol.account, offer, None);
     let err = b.d.env.send(&[cancel], &carol.kp, &[]).unwrap_err();
     assert_eq!(custom_code(&err), ERR_OFFER_HAS_TICKET);
     // anyone stages it, nobody can pick other lines

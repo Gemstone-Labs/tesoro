@@ -14,6 +14,7 @@ const disc = (name: string) => utils.bytes.bs58.encode(Uint8Array.from(coreIdl.a
 const MATCH = disc("MatchState");
 const HOLDING = disc("TesoroAccount");
 const POSITION = disc("PositionState");
+const OFFER = disc("OfferState");
 const q = (s: string) => parseQuery(new URLSearchParams(s));
 
 /** A TesoroAccount-shaped row whose owner key sits at offset 9. */
@@ -45,6 +46,8 @@ describe("gpa parseQuery", () => {
     const records = utils.bytes.bs58.encode(OVERFLOW_DISC);
     expect(q(`program=${CORE}&filter=m:0:${records}&filter=m:${OVERFLOW_OWNER_AT}:${owner}`).owner?.offset).toBe(OVERFLOW_OWNER_AT);
     expect(() => q(`program=${CORE}&filter=m:0:${records}&filter=m:41:${owner}`)).toThrow(GpaInputError);
+    // the Offer layout this IDL decodes: 191 B, after the W3 core's grow_offer
+    expect(q(`program=${CORE}&filter=m:0:${OFFER}&filter=s:191`).size).toBe(191);
   });
 
   it("rejects everything else", () => {
@@ -55,6 +58,9 @@ describe("gpa parseQuery", () => {
       `program=${CORE}&filter=m:0:${disc("Config")}`,
       `program=${CORE}&filter=m:0:${MATCH}&slice=0:8`,
       `program=${CORE}&filter=m:0:${MATCH}&filter=s:120`,
+      `program=${CORE}&filter=m:0:${MATCH}&filter=s:174`,
+      `program=${CORE}&filter=m:0:${OFFER}&filter=s:174`,
+      `program=${CORE}&filter=m:0:${OFFER}&filter=s:174&filter=s:191`,
       `program=${CORE}&filter=m:0:${MATCH}&filter=m:9:${owner}`,
       `program=${CORE}&filter=m:0:${HOLDING}&filter=m:41:${owner}`,
       `program=${CORE}&filter=m:0:${HOLDING}&filter=m:9:2222`,
@@ -92,7 +98,8 @@ describe("gpa list cache (OC-03)", () => {
       onlyCurrentLayouts(program);
       await expect(accounts.matchState.all()).resolves.toEqual([]);
       await expect(accounts.offerState.all()).resolves.toEqual([]);
-      expect(seen).toHaveLength(2);
+      // one Match list and one Offer list, each at its current length
+      expect(seen.map((p) => p.getAll("filter").find((f) => f.startsWith("s:")))).toEqual(["s:840", "s:191"]);
     } finally { vi.unstubAllGlobals(); }
   });
 

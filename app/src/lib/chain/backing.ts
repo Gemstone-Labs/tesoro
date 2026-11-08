@@ -309,12 +309,10 @@ export async function cancelOffer(signer: ChainSigner, offer: ChainOffer, getTok
 }
 
 /** Anyone releases the reservation of an Offer nobody accepted, or nobody used, within 24h. */
-export async function expireOffer(signer: ChainSigner, offer: ChainOffer, getToken: GetToken) {
-  await cancelOpenTicket(signer, getToken, offer);
-  const chain = getChain();
+export function expireOfferIx(caller: PublicKey, offer: ChainOffer) {
   const backerAccount = new PublicKey(offer.backer);
-  const ix = coreIx("expire_offer", {
-    caller: signer.publicKey,
+  return coreIx("expire_offer", {
+    caller,
     backerAccount,
     basket: basketPda(backerAccount),
     spill: spillPda(backerAccount),
@@ -324,7 +322,11 @@ export async function expireOffer(signer: ChainSigner, offer: ChainOffer, getTok
     // The Offer's Entry Limit count goes back to the Backer.
     backerProtections: protectionsPda(backerAccount),
   });
-  return chain.sendBase(signer, [ix]);
+}
+
+export async function expireOffer(signer: ChainSigner, offer: ChainOffer, getToken: GetToken) {
+  await cancelOpenTicket(signer, getToken, offer);
+  return getChain().sendBase(signer, [expireOfferIx(signer.publicKey, offer)]);
 }
 
 // ---- entering a Match under a Backing --------------------------------------------------------

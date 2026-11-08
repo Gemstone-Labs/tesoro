@@ -1,8 +1,9 @@
 import { TransactionInstruction } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
-import { coreIx, key, playerIx } from "@/server/sponsor/fixtures";
-import { MAX_CLEANUP } from "@/server/sponsor/rules";
-import { stepsThatFit } from "./away-flow";
+import { accountOf, coreIx, key, playerIx } from "@/server/sponsor/fixtures";
+import { MAX_CLEANUP, planTransaction } from "@/server/sponsor/rules";
+import { awayStepIx, stepsThatFit } from "./away-flow";
+import { protectionsPda } from "./native";
 
 const toWeb3 = (ix: { programId: any; keys: any[]; data: any }) => new TransactionInstruction({ programId: ix.programId, keys: ix.keys, data: Buffer.from(ix.data) });
 const player = key();
@@ -27,5 +28,15 @@ describe("how many clean-up steps fit one sponsored transaction", () => {
     expect(stepsThatFit(relayer, [], [])).toBe(0);
     const steps = [await refund()];
     expect(stepsThatFit(relayer, [], steps)).toBe(1);
+  });
+});
+
+describe("the clean-up's released Offer", () => {
+  // The W3 core gives an Offer's Entry Limit count back and needs the Backer's Protections for it.
+  it("carries the Backer's Protections, writable, and the sponsor pays for it", async () => {
+    const ix = await awayStepIx(player, relayer, { kind: "cancel-offer", offer: key(), request: null, owner: player });
+    expect(ix.keys.at(-1)).toEqual({ pubkey: protectionsPda(accountOf(player)), isSigner: false, isWritable: true });
+    const plan = planTransaction([ix], { relayer, player, isGame: () => false });
+    expect(plan).toMatchObject({ names: ["cancel_offer"], class: "exit", playerSigns: true });
   });
 });

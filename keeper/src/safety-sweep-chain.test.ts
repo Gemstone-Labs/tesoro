@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { PublicKey } from "@solana/web3.js";
-import { dbMatches, markGone, readHeadsByAddress } from "./safety-sweep-chain.ts";
+import { Raced } from "./act.ts";
+import { dbMatches, markGone, readHeadsByAddress, untabledOrRaced, waitingOf } from "./safety-sweep-chain.ts";
 import { SLICE_LEN } from "./safety-sweep.ts";
 
 const fixture = Buffer.from((JSON.parse(readFileSync(new URL("../fixtures/core-layouts.json", import.meta.url), "utf8")) as Record<string, string>).match, "hex");
@@ -55,5 +56,33 @@ describe("the database side", () => {
 
   it("refuses a reply that is not a list, so the sweep falls back to the chain", async () => {
     await assert.rejects(dbMatches(async () => null));
+  });
+});
+
+describe("why an Active Match with no result waits", () => {
+  const T = 1_800_000_000;
+  it("is untabled once its Game's table wait after the join is over, with no Assignment (ticket 58)", () => {
+    // Joined at T: the deadline is the join plus an hour.
+    assert.equal(waitingOf(null, T + 3600, T + 299), null);
+    assert.equal(waitingOf(null, T + 3600, T + 300), "untabled");
+  });
+  it("is unbegun once its Assignment's start window closed (ticket 59)", () => {
+    assert.equal(waitingOf({ startDeadline: T + 60 }, T + 86_400, T + 60), null);
+    assert.equal(waitingOf({ startDeadline: T + 60 }, T + 86_400, T + 61), "unbegun");
+  });
+});
+
+describe("the sweep's refund_untabled", () => {
+  const signer = { publicKey: key(5) };
+  it("sends it with the keeper's key", async () => {
+    const sent: unknown[] = [];
+    const chain = { refundUntabled: async (...a: unknown[]) => (sent.push(a), "sig") };
+    assert.equal(await untabledOrRaced(chain, signer, key(1), async () => true), "sig");
+    assert.deepEqual(sent, [[signer, key(1)]]);
+  });
+  it("calls a refusal for a Match that is no longer Active a lost race", async () => {
+    const chain = { refundUntabled: async () => Promise.reject(new Error("NotUntabled")) };
+    await assert.rejects(untabledOrRaced(chain, signer, key(1), async () => false), Raced);
+    await assert.rejects(untabledOrRaced(chain, signer, key(1), async () => true), /NotUntabled/);
   });
 });
