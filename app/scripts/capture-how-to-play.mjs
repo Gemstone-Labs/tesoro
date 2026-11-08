@@ -40,15 +40,23 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = resolve(process.env.OUT ?? join(HERE, "../public/art/how-to-play"));
 const BASE = process.env.BASE ?? "http://localhost:3141";
 const FFMPEG = process.env.FFMPEG ?? "ffmpeg";
+const FFPROBE = process.env.FFPROBE ?? FFMPEG.replace(/ffmpeg$/, "ffprobe");
 const MIN_SECS = 3;
 const MAX_SECS = 8;
 const MAX_KB = 300;
 const MIN_FPS = 20;
 const SEED = 3;
 
+/**
+ * The guide lays its words over the foot of the clip (about 38% of it) and, on desktop, its progress bars over the top (about 10%).
+ * `band` is the part of the frame that stays clear: phone 0-60%, desktop 12-62%. A crop puts what the step is about in that band.
+ * The crop may reach past the page's bottom or top edge: those rows are filled with the page's dark background (PAGE_FILL).
+ */
+const EDGE = 700;
+const PAGE_FILL = "0x070b10";
 const SETS = {
-  phone: { context: { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }, ratio: 4 / 5, out: [480, 600], pad: 8 },
-  desktop: { context: { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 }, ratio: 16 / 10, out: [960, 600], pad: 12 },
+  phone: { context: { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }, ratio: 4 / 5, out: [480, 600], pad: 8, band: [0, 0.6] },
+  desktop: { context: { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 }, ratio: 16 / 10, out: [960, 600], pad: 12, band: [0.12, 0.62] },
 };
 
 const run = (file, args) => promisify(execFile)(file, args, { maxBuffer: 1 << 28 });
@@ -147,9 +155,7 @@ async function bpUntilClear(page) {
     const move = bpBest(state);
     if (!move) return;
     if (move.cleared > 0) return move;
-    // build up along the top rows so the clear happens high in the frame, clear of the caption
-    const next = bpBest(state, true);
-    await bpPlace(page, next ?? move);
+    await bpPlace(page, move);
   }
 }
 
@@ -336,7 +342,7 @@ async function vgTruckSquare(page, seed) {
     const e = document.querySelectorAll(".vg-piece.it")[i];
     if (!e || e.classList.contains("gone")) return null;
     const [c, r] = [...e.getAttribute("style").matchAll(/\* (-?[\d.]+)\)/g)].map((m) => Math.round(Number(m[1])));
-    return { r, c };
+    return { r, c, index: i };
   }, index);
 }
 
@@ -378,7 +384,14 @@ async function vgCaptureTruck(page, seed, stopAt = 0) {
       if (plan && (!best || plan.turns < best.plan.turns)) best = { r, plan };
     }
     if (!best) { console.log(`  truck: no Recon plan to ${truck.r},${truck.c} on turn ${turn}`); return false; }
-    if (stopAt && best.plan.turns <= stopAt) return true;
+    if (stopAt && best.plan.turns <= stopAt) {
+      // tag the Recon and the Truck so the recorder frames the run between them
+      await page.evaluate(([i, t]) => {
+        document.querySelectorAll(".vg-piece.us:not(.gone)")[i].setAttribute("data-htp", "a");
+        document.querySelectorAll(".vg-piece.it")[t].setAttribute("data-htp", "b");
+      }, [best.r.i, truck.index]);
+      return true;
+    }
     console.log(`  truck: turn ${turn} truck ${truck.r},${truck.c} plan ${best.plan.turns} via ${best.plan.first.r},${best.plan.first.c}`);
     const marks = await vgTap(page, best.r.i);
     await sleep(1000);
@@ -422,14 +435,18 @@ async function tdWaitStart(page) {
 }
 
 /** Clicks the cell of column `c` in the row that holds band `k` (row 0 is the row the line starts in). */
+const tdCell = (page, c, k) => page.evaluateHandle(([col, band]) => [...document.querySelectorAll(`.tg-cell[data-cell^="${col}_"]`)].find((e) => e.dataset.cell === `${col}_${band}`) ?? null, [c, k]);
+
 async function tdPick(page, c, k) {
-  const cell = await page.evaluateHandle(([col, band]) => {
-    const dot = document.querySelector(".tg-head-dot");
-    return dot ? [...document.querySelectorAll(`.tg-cell[data-cell^="${col}_"]`)].find((e) => e.dataset.cell === `${col}_${band}`) : null;
-  }, [c, k]);
-  const box = await cell.asElement()?.boundingBox();
-  if (box) await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-  return !!box;
+  const el = (await tdCell(page, c, k)).asElement();
+  if (!el) return false;
+  await el.click({ force: true, timeout: 2000 }).catch(() => {});
+  return true;
+}
+
+/** Tags the cell of column c, band k so the recorder can frame it. */
+async function tdMark(page, c, k) {
+  await page.evaluate(([col, band]) => [...document.querySelectorAll(".tg-cell")].find((e) => e.dataset.cell === `${col}_${band}`)?.setAttribute("data-htp", "pick"), [c, k]);
 }
 
 // ---------------------------------------------------------------- the clips
@@ -460,18 +477,21 @@ async function tdPickAt(page, c, at, seed) {
   return tdPick(page, c, k);
 }
 
-/** The real Match result screen on fixtures: the whole page on a phone, the hero picture on desktop (no sidebar). */
-const RESULT_FOCUS = { phone: ["main"], desktop: [".mr-art"] };
+/** The real Match result screen on fixtures: the "You won" words and the amount, on both layouts. */
+const RESULT_FOCUS = [".mr-word", ".mr-amount"];
+const RESULT_PAD = { phone: 50, desktop: 70 };
+
+/** Vanguard camera helper: the whole board, with the top of the board below the progress bars and the foot under the words. */
+const VG_WHOLE_BOARD = { phone: [0.02, 0.74], desktop: [0.12, 0.98] };
 
 const GAMES = {
   "block-puzzle": {
-    focus: [".bp-board", ".bp-slot"],
+    // the bottom four rows of the board and the piece tray: where pieces land, inside the clear band
+    focus: { phone: [".bp-board .bp-cell:nth-child(n+33)", ".bp-slot"], desktop: [".bp-board .bp-cell:nth-child(n+41)", ".bp-slot"] },
     steps: {
-      // the real Match screen on a fixed Seed: you play the same pieces your opponent gets, with the line saying so under them
+      // the real Match screen on a fixed Seed: you play the same pieces your opponent gets
       1: {
         route: "/design/play?dev=demo",
-        focus: [".bp-slot", ".bpx-status"],
-        pad: { phone: 150, desktop: 400 },
         prep: (page) => page.waitForSelector(".bp-board"),
         act: async (page) => {
           for (let n = 0; n < 2; n++) {
@@ -511,40 +531,34 @@ const GAMES = {
             await bpPlace(page, move);
           }
         },
-        focus: ['[role="timer"]', ".bp-score-n"],
-        pad: { phone: 120, desktop: 400 },
+        focus: [".bp-score-n", '[role="timer"]', ".bp-board .bp-cell:nth-child(-n+16)"],
+        pad: { phone: 0, desktop: 40 },
       },
       // the Match result screen on fixtures: the higher score takes the Pot minus Fees
-      5: {
-        route: "/design/result?case=won&dev=demo",
-        focus: RESULT_FOCUS,
-        prep: () => sleep(1500),
-        act: async () => { await sleep(5000); },
-      },
+      5: { route: "/design/result?case=won&dev=demo", focus: RESULT_FOCUS, pad: RESULT_PAD, prep: () => sleep(1500), act: async () => { await sleep(5000); } },
     },
   },
   holdem: {
-    focus: [".hd-plaque-text", ".hdx-pot", ".hdx-board"],
+    focus: [".hdx-pot", ".hdx-board", ".hd-cards|last"],
     steps: {
       // both stacks: the camera goes from the Bot's down to yours (the whole table on desktop, closing in)
       1: {
         prep: () => sleep(500),
         focus: { phone: [".hd-plaque-text|first"], desktop: [".hd-plaque-text", ".hdx-pot"] },
-        pad: { phone: 170, desktop: 500 },
+        pad: { phone: 100, desktop: 500 },
         camera: {
-          from: { focus: { phone: [".hd-plaque-text|first"], desktop: [".hd-plaque-text", ".hdx-pot"] }, pad: { phone: 170, desktop: 500 } },
-          to: { focus: { phone: [".hd-plaque-text|last"], desktop: [".hd-plaque-text", ".hdx-pot"] }, pad: { phone: 170, desktop: 70 } },
-          span: [0.15, 0.85],
+          keys: [
+            { focus: { phone: [".hd-plaque-text|first"], desktop: [".hd-plaque-text", ".hdx-pot"] }, pad: { phone: 100, desktop: 500 }, at: 0.15 },
+            { focus: { phone: [".hd-plaque-text|last"], desktop: [".hdx-pot", ".hdx-board", ".hd-cards|last"] }, pad: { phone: 100, desktop: 20 }, at: 0.85 },
+          ],
         },
         act: async () => { await sleep(7000); },
       },
       // your two cards, then the shared cards dealt after you call; the Bot's two stay face down
       2: {
         prep: (page) => hdWaitMyTurn(page),
-        focus: [".hdx-board", ".hd-cards|last", ".hdx-pot"],
-        pad: { phone: 30, desktop: 170 },
+        pad: { phone: 20, desktop: 40 },
         act: async (page) => {
-          // call (the Bot may raise first) until the shared cards come down
           const start = Date.now();
           while ((await hdBoardCards(page)) < 3 && Date.now() - start < 14000) {
             const pass = page.locator(".hdx-btn", { hasText: /^(Call|Check)/ });
@@ -557,8 +571,8 @@ const GAMES = {
       // the four actions: pick two raise sizes, then call
       3: {
         prep: (page) => hdWaitMyTurn(page),
-        focus: [".hdx-actions", ".hd-cards|last", ".hdx-board"],
-        pad: { phone: 20, desktop: 500 },
+        focus: [".hdx-actions"],
+        pad: { phone: 60, desktop: 60 },
         act: async (page) => {
           for (const size of ["+400", "+600", "+200"]) {
             await page.locator(".hd-preset", { hasText: size }).first().click({ timeout: 2000 }).catch(() => {});
@@ -569,8 +583,7 @@ const GAMES = {
         },
       },
       4: {
-        focus: [".hdx-pot", ".hdx-board", ".hd-cards|last"],
-        pad: { phone: 30, desktop: 170 },
+        pad: { phone: 20, desktop: 40 },
         maxSecs: 11,
         prep: (page) => hdUntilBoard(page, 5),
         act: async (page) => {
@@ -586,69 +599,87 @@ const GAMES = {
         },
       },
       // the Match result screen on fixtures (a Practice game has no Pot)
-      5: { route: "/design/result?case=holdem-won&dev=demo", focus: RESULT_FOCUS, prep: () => sleep(1500), act: async () => { await sleep(5000); } },
+      5: { route: "/design/result?case=holdem-won&dev=demo", focus: RESULT_FOCUS, pad: RESULT_PAD, prep: () => sleep(1500), act: async () => { await sleep(5000); } },
     },
   },
   "trading-duel": {
-    focus: [".tg-stage"],
+    focus: [".tg-head-dot"],
     steps: {
-      // the live price line over the head start, with the scores and clocks above it
+      // the head start clock, then the live price line
       1: {
         prep: tdWaitStart,
-        focus: [".tg-strip-clock", ".tg-head-dot"],
-        pad: { phone: 100, desktop: 500 },
+        pad: { phone: 130, desktop: 200 },
+        camera: {
+          keys: [
+            { focus: { phone: [".tg-strip-clock"], desktop: [".tg-head-dot"] }, pad: { phone: 120, desktop: 200 }, at: 0.12 },
+            { focus: [".tg-head-dot"], pad: { phone: 130, desktop: 200 }, at: 0.7 },
+          ],
+        },
         act: async () => { await sleep(7500); },
       },
-      // tap one box in each column
+      // tap one box in each column (the row the line starts in, so the boxes sit beside the line)
       2: {
         prep: tdWaitStart,
-        focus: [".tg-head-dot"],
-        pad: { phone: 240, desktop: 500 },
-        act: async (page, { seed }) => {
-          for (const [c, at] of [[0, 35], [1, 45], [2, 55]]) { await tdPickAt(page, c, at, seed); await sleep(1700); }
+        pad: { phone: 130, desktop: 200 },
+        act: async (page) => {
+          for (const c of [0, 1, 2]) { await tdPick(page, c, 0); await sleep(1700); }
           await sleep(1200);
         },
       },
-      // a column locks: the lock clock on top counts down and the picks turn into locked chips
+      // a column locks: the picks turn into locked chips
       3: {
-        prep: async (page, { seed }) => { await tdWaitStart(page); await tdPickAt(page, 0, 35, seed); await tdUntil(page, 13); },
-        focus: [".tg-head-dot"],
-        pad: { phone: 240, desktop: 500 },
-        act: async (page, { seed }) => { await tdPickAt(page, 1, 45, seed); await tdUntil(page, 24); },
+        prep: async (page) => { await tdWaitStart(page); await tdPick(page, 0, 0); await tdUntil(page, 13); },
+        pad: { phone: 130, desktop: 200 },
+        act: async (page) => { await tdPick(page, 1, 0); await tdUntil(page, 24); },
       },
       // the line runs through your box: 100 points on the score
       4: {
-        prep: async (page, { seed }) => { await tdWaitStart(page); await tdPickAt(page, 0, 35, seed); await tdUntil(page, 30); },
-        focus: [".tg-head-dot"],
-        pad: { phone: 240, desktop: 500 },
-        camera: { from: { focus: [".tg-head-dot"], pad: { phone: 240, desktop: 500 } }, to: { focus: [".tg-scoreboard-in"], pad: { phone: 150, desktop: 500 } }, span: [0.62, 0.85] },
+        prep: async (page, { seed }) => { await tdWaitStart(page); await tdPickAt(page, 0, 35, seed); await tdMark(page, 0, await tdBand(35, seed)); await tdUntil(page, 30); },
+        focus: ['[data-htp="pick"]'],
+        pad: { phone: 150, desktop: 200 },
+        camera: {
+          keys: [
+            { focus: ['[data-htp="pick"]'], pad: { phone: 150, desktop: 200 }, at: 0.62 },
+            { focus: [".tg-scoreboard-in"], pad: { phone: 100, desktop: 200 }, at: 0.85 },
+          ],
+        },
         maxSecs: 11,
         act: async (page) => { await tdUntil(page, 42); },
         poster: 0.8,
       },
       // the Match result screen on fixtures (a Practice game has no Pot)
-      5: { route: "/design/result?case=trading-duel-won&dev=demo", focus: RESULT_FOCUS, prep: () => sleep(1500), act: async () => { await sleep(5000); } },
+      5: { route: "/design/result?case=trading-duel-won&dev=demo", focus: RESULT_FOCUS, pad: RESULT_PAD, prep: () => sleep(1500), act: async () => { await sleep(5000); } },
     },
   },
   vanguard: {
-    focus: [".vg-board", ".vg-plate.us"],
+    focus: [".vg-piece.us", ".vg-plate.us"],
     steps: {
       // your 20 pieces face up, the enemy's coins face down: the camera starts on your ranks and slides up to their coins
       1: {
         prep: (page) => page.waitForSelector(".vg-board"),
-        focus: { phone: [".vg-piece.us", ".vg-plate.us"], desktop: [".vg-piece.us"] },
+        focus: [".vg-piece.us"],
+        pad: { phone: 20, desktop: 10 },
         camera: {
-          from: { focus: { phone: [".vg-piece.us", ".vg-plate.us"], desktop: [".vg-piece.us"] }, pad: { phone: 6, desktop: 10 } },
-          to: { focus: { phone: [".vg-piece.it", ".vg-roster"], desktop: [".vg-piece.it"] }, pad: { phone: 6, desktop: 10 } },
-          span: [0.2, 0.85],
+          keys: [
+            { focus: [".vg-piece.us"], pad: { phone: 20, desktop: 10 }, at: 0.2 },
+            { focus: [".vg-piece.it"], pad: { phone: 20, desktop: 10 }, at: 0.85 },
+          ],
         },
         act: async () => { await sleep(7500); },
       },
-      // the ring round your name runs down while you pick a move; then the bot answers
+      // the ring round your name runs down while you pick a move; then the view widens and the bot answers
       2: {
         prep: (page) => vgMyTurn(page),
         focus: [".vg-plate.us .vg-ava"],
-        camera: { from: { focus: [".vg-plate.us .vg-ava"], pad: { phone: 75, desktop: 220 } }, to: { focus: [".vg-board", ".vg-plate.us"], pad: { phone: 8, desktop: 12 } }, span: [0.42, 0.6] },
+        pad: { phone: 60, desktop: 140 },
+        camera: {
+          keys: [
+            { focus: [".vg-plate.us .vg-ava"], pad: { phone: 60, desktop: 140 }, at: 0.4 },
+            { focus: [".vg-piece.us", ".vg-plate.us"], pad: { phone: 30, desktop: 60 }, at: 0.55 },
+            { focus: [".vg-piece.us", ".vg-plate.us"], pad: { phone: 30, desktop: 60 }, at: 0.68 },
+            { focus: [".vg-board"], pad: 0, band: VG_WHOLE_BOARD, at: 0.88 },
+          ],
+        },
         act: async (page) => {
           await sleep(5200);
           const mv = await vgSelect(page);
@@ -676,14 +707,24 @@ const GAMES = {
         reseed: true,
         poster: 0.75,
       },
-      // an Engineer walks up until enemy coins touch it, is tapped (its Blast button and the squares it will show appear), then blasts
+      // an Engineer walks up until enemy coins touch it; tapped, its preview squares show; the view drops to its Blast button, presses it, and returns
       4: {
         prep: async (page) => { page.__eng = await vgUntilBlast(page); if (page.__eng === null) throw new Error("no Engineer reached the enemy"); },
-        focus: [".vg-board", ".vg-plate.us"],
-        camera: { from: { focus: [".vg-board", ".vg-plate.us"], pad: { phone: 6, desktop: 12 } }, to: { focus: ['[data-htp="eng"]'], pad: { phone: 85, desktop: 150 } }, span: [0.5, 0.72] },
+        focus: ['[data-htp="eng"]'],
+        pad: { phone: 90, desktop: 150 },
+        camera: {
+          keys: [
+            { focus: ['[data-htp="eng"]'], pad: { phone: 90, desktop: 150 }, at: 0.2 },
+            { focus: [".vg-plate.us", ".vg-power"], pad: { phone: 40, desktop: 60 }, at: 0.36 },
+            { focus: [".vg-plate.us", ".vg-power"], pad: { phone: 40, desktop: 60 }, at: 0.47 },
+            { focus: ['[data-htp="eng"]'], pad: { phone: 90, desktop: 150 }, at: 0.62 },
+          ],
+        },
         act: async (page) => {
           await vgTap(page, page.__eng);
-          await sleep(2200);
+          await sleep(1700);
+          await sleep(1300);
+          await sleep(900);
           await page.locator(".vg-power").first().click({ force: true, timeout: 1500 });
           await sleep(4200);
         },
@@ -693,12 +734,13 @@ const GAMES = {
       // a Recon runs across the board and takes the Supply Truck (planned from the seeded setup); then the real result screen
       5: {
         prep: async (page, { seed }) => { if (!(await vgCaptureTruck(page, seed, 2))) throw new Error("no Recon route to the Truck"); },
-        focus: [".vg-board", ".vg-plate.us"],
+        focus: ['[data-htp]'],
+        pad: { phone: 40, desktop: 80 },
         maxSecs: 10,
         // seed 41 deals a Recon with a clear straight run to the Truck (found by search over the seeded setups)
         seed: 41,
         act: async (page, { seed }) => vgCaptureTruck(page, seed),
-        after: { route: "/design/result?case=vanguard-won&dev=demo", focus: RESULT_FOCUS, secs: 3200, speed: 1 },
+        after: { route: "/design/result?case=vanguard-won&dev=demo", focus: RESULT_FOCUS, pad: RESULT_PAD, secs: 3200, speed: 1 },
         poster: 0.85,
       },
     },
@@ -733,19 +775,23 @@ async function focusBox(page, focus) {
   return box;
 }
 
-/** Crop rectangle in CSS px: the union of `focus`, padded, widened or heightened to the set's aspect ratio, kept inside the viewport. */
-async function cropFor(page, focus, set, padOverride) {
+/**
+ * Crop rectangle in CSS px: the union of `focus`, padded, then sized to the set's aspect ratio so that it fits the clear band
+ * of the clip, and centred on the band's middle (not the frame's). It stays inside the viewport sideways; it may reach EDGE px past
+ * the page's top or bottom (the encoder fills that).
+ */
+async function cropFor(page, focus, set, padOverride, bandOverride) {
   const vp = set.context.viewport;
   const box = await focusBox(page, focus);
   const pad = padOverride ?? set.pad;
+  const [b0, b1] = bandOverride ?? set.band;
   let w = box.r - box.l + pad * 2;
-  let h = box.b - box.t + pad * 2;
+  let h = (box.b - box.t + pad * 2) / (b1 - b0);
   if (w / h < set.ratio) w = h * set.ratio;
   else h = w / set.ratio;
   if (w > vp.width) [w, h] = [vp.width, vp.width / set.ratio];
-  if (h > vp.height) [w, h] = [vp.height * set.ratio, vp.height];
   const x = Math.min(Math.max((box.l + box.r) / 2 - w / 2, 0), vp.width - w);
-  const y = Math.min(Math.max((box.t + box.b) / 2 - h / 2, 0), vp.height - h);
+  const y = Math.min(Math.max((box.t + box.b) / 2 - ((b0 + b1) / 2) * h, -EDGE), vp.height + EDGE - h);
   return { x, y, w, h };
 }
 
@@ -771,11 +817,14 @@ async function capture(ctx, page, set, dir, def, fn, info) {
   const crop = await cropFor(page, forSet(def.focus, info.set), set, def.pad?.[info.set]);
   let camera = null;
   if (def.camera) {
-    camera = {
-      from: await cropFor(page, forSet(def.camera.from.focus, info.set), set, def.camera.from.pad?.[info.set] ?? def.camera.from.pad),
-      to: await cropFor(page, forSet(def.camera.to.focus, info.set), set, def.camera.to.pad?.[info.set] ?? def.camera.to.pad),
-      span: def.camera.span ?? [0.05, 0.95],
-    };
+    // { keys: [{ focus, pad, band?, at }] } (the crop at each fraction of the clip, held before the first and after the last),
+    // or the short form { from, to, span }
+    const keys = def.camera.keys ?? [{ ...def.camera.from, at: (def.camera.span ?? [0.05, 0.95])[0] }, { ...def.camera.to, at: (def.camera.span ?? [0.05, 0.95])[1] }];
+    camera = [];
+    for (const k of keys) {
+      const pad = k.pad?.[info.set] ?? k.pad;
+      camera.push({ at: k.at, rect: await cropFor(page, forSet(k.focus, info.set), set, typeof pad === "number" ? pad : undefined, Array.isArray(k.band) ? k.band : k.band?.[info.set]) });
+    }
   }
   mkdirSync(dir, { recursive: true });
   const frames = [];
@@ -837,25 +886,47 @@ async function record(browser, game, step, setName, attempt, work) {
   return { ok: segments.every((s) => s.ok), segments };
 }
 
-/** The ffmpeg filter that turns one full-viewport frame into the output frame: a fixed crop, or a camera move between two crops. */
+/**
+ * The ffmpeg filter that turns one full-viewport frame into the output frame: a fixed crop, or a camera move between two crops.
+ * The frame is first padded top and bottom by EDGE px so a crop may reach past the page. The screencast frames are JPEG (full range,
+ * BT.601): the last step converts them to limited-range BT.709 yuv420p, the only kind every browser plays.
+ */
 function frameFilter(seg, set, secs, vp) {
   const [ow, oh] = set.out;
   const { crop, camera, scale } = seg;
+  const padPx = Math.round(EDGE * scale);
+  const pad = `pad=iw:ih+${2 * padPx}:0:${padPx}:color=${PAGE_FILL}`;
+  const fullH = vp.height + 2 * EDGE;
+  let move;
   if (!camera) {
-    return `crop=${even(crop.w * scale)}:${even(crop.h * scale)}:${Math.round(crop.x * scale)}:${Math.round(crop.y * scale)},scale=${ow}:${oh}:flags=lanczos`;
+    move = `crop=${even(crop.w * scale)}:${even(crop.h * scale)}:${Math.round(crop.x * scale)}:${Math.round((crop.y + EDGE) * scale)},scale=${ow}:${oh}:flags=lanczos`;
+  } else {
+    const cs = camera.map((k) => ({ t: k.at * secs, w: k.rect.w, cx: k.rect.x + k.rect.w / 2, cy: k.rect.y + k.rect.h / 2 }));
+    const track = (get) => {
+      let expr = get(cs[0]).toFixed(3);
+      for (let i = 0; i + 1 < cs.length; i++) {
+        const dt = cs[i + 1].t - cs[i].t;
+        const dv = get(cs[i + 1]) - get(cs[i]);
+        if (dt <= 0.001 || Math.abs(dv) < 0.001) continue;
+        const q = `clip((t-${cs[i].t.toFixed(3)})/${dt.toFixed(3)},0,1)`;
+        expr += `+(${dv.toFixed(3)})*(${q}*${q}*(3-2*${q}))`;
+      }
+      return `(${expr})`;
+    };
+    const rw = track((c) => c.w);
+    const cx = track((c) => c.cx);
+    const cy = track((c) => c.cy);
+    move = [
+      `scale=w='trunc(${ow}*${vp.width}/${rw}/2)*2':h='trunc(${ow}*${fullH}/${rw}/2)*2':eval=frame:flags=bicubic`,
+      `crop=${ow}:${oh}:x='${cx}*${ow}/${rw}-${ow / 2}':y='(${cy}+${EDGE})*${ow}/${rw}-${oh / 2}'`,
+    ].join(",");
   }
-  const [a, b] = camera.span.map((f) => f * secs);
-  const p = `clip((t-${a.toFixed(3)})/${(b - a).toFixed(3)},0,1)`;
-  const s = `(${p}*${p}*(3-2*${p}))`;
-  const lerp = (v0, v1) => `(${v0.toFixed(3)}+(${(v1 - v0).toFixed(3)})*${s})`;
-  const rw = lerp(camera.from.w, camera.to.w);
-  const cx = lerp(camera.from.x + camera.from.w / 2, camera.to.x + camera.to.w / 2);
-  const cy = lerp(camera.from.y + camera.from.h / 2, camera.to.y + camera.to.h / 2);
-  return [
-    `scale=w='trunc(${ow}*${vp.width}/${rw}/2)*2':h='trunc(${ow}*${vp.height}/${rw}/2)*2':eval=frame:flags=bicubic`,
-    `crop=${ow}:${oh}:x='(${cx})*${ow}/(${rw})-${ow / 2}':y='(${cy})*${ow}/(${rw})-${oh / 2}'`,
-  ].join(",");
+  return `${pad},${move},${LIMITED}`;
 }
+
+/** JPEG frames are full range; browsers only play limited-range BT.709 yuv420p (full-range files fail with MEDIA_ERR_DECODE). */
+const LIMITED = "scale=in_range=pc:out_range=tv:in_color_matrix=bt601:out_color_matrix=bt709,format=yuv420p";
+const COLOUR_TAGS = ["-color_range", "tv", "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709"];
 
 /** Frames per second of a video that differ from the frame before them (decoded frames compared, so a repeated frame is not counted). */
 async function uniqueFps(file) {
@@ -863,6 +934,48 @@ async function uniqueFps(file) {
   const sums = r.stdout.split("\n").filter((l) => l && !l.startsWith("#")).map((l) => l.split(",").pop().trim());
   const changed = sums.filter((m, i) => i > 0 && m !== sums[i - 1]).length;
   return changed / (sums.length / 30);
+}
+
+/** Every video written this run, checked in a real browser window at the end. */
+const written = [];
+
+/** The colour format browsers decode: yuv420p, limited range. Anything else fails to play in a normal browser. */
+async function assertPlayable(file) {
+  const out = await run(FFPROBE, ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=pix_fmt,color_range", "-of", "csv=p=0", file]);
+  const [pix, range] = out.stdout.trim().split(",");
+  if (pix !== "yuv420p" || range !== "tv") {
+    throw new Error(`${file} is ${pix}/${range}, not yuv420p/tv: browsers cannot decode full-range video (fix the colour conversion in frameFilter and the encoder tags)`);
+  }
+}
+
+/**
+ * Plays every video written this run in a HEADED Chromium window (a headless one decodes files that real browsers refuse):
+ * currentTime must pass 1 s within 5 s and the element must report no error. Returns the files that did not play.
+ */
+async function playbackCheck(files) {
+  const headed = await chromium.launch({ executablePath: process.env.CHROME, headless: false, args: ["--autoplay-policy=no-user-gesture-required"] });
+  const failures = [];
+  for (const file of files) {
+    const page = await headed.newPage();
+    try {
+      await page.goto(`file://${file}`);
+      const r = await page.evaluate(async () => {
+        const v = document.querySelector("video");
+        v.muted = true;
+        v.setAttribute("playsinline", "");
+        await v.play().catch(() => {});
+        const t0 = performance.now();
+        while (performance.now() - t0 < 5000 && v.currentTime <= 1 && !v.error) await new Promise((ok) => setTimeout(ok, 100));
+        return { t: v.currentTime, error: v.error ? v.error.code : null };
+      });
+      if (r.error || r.t <= 1) failures.push(`${file}: currentTime ${r.t.toFixed(2)}, error ${r.error}`);
+    } catch (e) {
+      failures.push(`${file}: ${e.message.split("\n")[0]}`);
+    }
+    await page.close();
+  }
+  await headed.close();
+  return failures;
 }
 
 async function encode(game, step, setName, take) {
@@ -892,13 +1005,13 @@ async function encode(game, step, setName, take) {
     const concat = join(seg.dir, "frames.txt");
     writeFileSync(concat, list.join("\n"));
     const out = join(seg.dir, "part.mp4");
-    await run(FFMPEG, ["-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", concat, "-vf", `fps=30,${frameFilter(seg, set, segSecs, vp)}`, "-an", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-crf", "10", "-preset", "veryfast", out]);
+    await run(FFMPEG, ["-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", concat, "-vf", `fps=30,${frameFilter(seg, set, segSecs, vp)}`, "-an", "-pix_fmt", "yuv420p", ...COLOUR_TAGS, "-c:v", "libx264", "-crf", "10", "-preset", "veryfast", out]);
     parts.push({ out, segSecs });
   }
   const joined = join(work, `${game}-${step}-${setName}-joined.txt`);
   writeFileSync(joined, parts.map((p) => `file '${p.out}'`).join("\n"));
   const fade = `fade=t=in:st=0:d=0.25,fade=t=out:st=${Math.max(0, secs - 0.3).toFixed(2)}:d=0.25`;
-  const input = ["-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", joined, "-vf", `fps=30,${fade}`, "-an", "-pix_fmt", "yuv420p"];
+  const input = ["-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", joined, "-vf", `fps=30,${fade}`, "-an", "-pix_fmt", "yuv420p", ...COLOUR_TAGS];
   const sizes = {};
   for (const [ext, codec, crfs] of [
     ["webm", (crf) => ["-c:v", "libvpx-vp9", "-b:v", "0", "-crf", String(crf), "-row-mt", "1", "-deadline", "good", "-cpu-used", "2"], [32, 36, 40, 44, 48, 52]],
@@ -913,9 +1026,11 @@ async function encode(game, step, setName, take) {
   // the poster: a frame from the segment that holds the point of the step
   const posterSeg = take.segments.find((s) => s.poster !== undefined) ?? take.segments[0];
   const posterAt = posterSeg.frames[Math.min(posterSeg.frames.length - 1, Math.floor(posterSeg.frames.length * (posterSeg.poster ?? def.poster ?? 0.6)))];
-  const posterFilter = frameFilter({ ...posterSeg, camera: null, crop: posterSeg.camera ? posterSeg.camera.to : posterSeg.crop }, set, secs, vp);
+  const posterFilter = frameFilter({ ...posterSeg, camera: null, crop: posterSeg.camera ? posterSeg.camera.at(-1).rect : posterSeg.crop }, set, secs, vp).replace(LIMITED, "scale=in_range=pc:out_range=tv,format=yuv420p");
   await run(FFMPEG, ["-y", "-loglevel", "error", "-i", posterAt.file, "-vf", posterFilter, "-frames:v", "1", "-c:v", "libwebp", "-quality", "82", `${base}.webp`]);
 
+  for (const ext of ["webm", "mp4"]) await assertPlayable(`${base}.${ext}`);
+  written.push(`${base}.webm`, `${base}.mp4`);
   const fps = await uniqueFps(`${base}.mp4`);
   const warn = secs < MIN_SECS ? "  (SHORT)" : sizes.webm > MAX_KB || sizes.mp4 > MAX_KB ? "  (OVER SIZE)" : "";
   console.log(`${game}/${step}-${setName}: ${ow}x${oh}, ${secs.toFixed(1)} s (x${squeeze.toFixed(2)}), webm ${sizes.webm} KB, mp4 ${sizes.mp4} KB, ${fps.toFixed(1)} unique fps${warn}`);
@@ -963,5 +1078,9 @@ for (const game of Object.keys(GAMES)) {
   }
 }
 await browser.close();
+const unplayable = process.env.NO_PLAYBACK_CHECK ? [] : await playbackCheck(written);
+console.log(`playback check (headed Chromium): ${written.length - unplayable.length}/${written.length} videos play`);
+for (const f of unplayable) console.log(`  DOES NOT PLAY ${f}`);
+failed += unplayable.length;
 if (!process.env.KEEP) rmSync(work, { recursive: true, force: true });
 if (failed) process.exit(1);

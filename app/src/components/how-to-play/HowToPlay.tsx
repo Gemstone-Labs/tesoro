@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore, type PointerEvent } from "react";
-import { ChevronLeft, ChevronRight, Play } from "lucide-react";
+import { useEffect, useRef, useState, useSyncExternalStore, type PointerEvent } from "react";
+import { Play } from "lucide-react";
 import { Button, Sheet } from "@/components/ui";
 import { useReducedMotion } from "@/games/fx/reduced-motion";
 import { GUIDE_STEPS, clipPaths, type ClipSet } from "@/lib/how-to-play";
@@ -88,25 +88,25 @@ function Guide({ game, end, onClose }: Omit<HowToPlayProps, "open">) {
   const playingStatic = reduced;
 
   return (
-    <div className="htp">
-      {/* bars above the clip and the words under it: nothing covers the video */}
+    <div className="htp" data-set={set}>
+      {/* founder pick g3: on phones the bars sit above the clip, on desktop they lie on its top edge (CSS); the words lie on its foot */}
       <div className="htp-bars" role="img" aria-label={`Step ${i + 1} of ${steps.length}`}>
         {steps.map((s, n) => <i key={s.title}><b style={{ transform: `scaleX(${fill(n)})` }} /></i>)}
       </div>
-      <div className="cut cut-frame htp-stage" onPointerDown={onPointerDown} onPointerUp={onPointerUp} onPointerCancel={() => setDownX(null)} data-set={set}>
+      <div className="cut cut-frame htp-stage" onPointerDown={onPointerDown} onPointerUp={onPointerUp} onPointerCancel={() => setDownX(null)}>
         <Clip key={`${game}:${i}:${set}`} game={game} n={i + 1} set={set} onProgress={onProgress} />
         <button type="button" className="htp-tap htp-tap-l" tabIndex={-1} aria-hidden="true" onClick={() => go(i - 1)} />
         <button type="button" className="htp-tap htp-tap-r" tabIndex={-1} aria-hidden="true" onClick={() => go(i + 1)} />
-      </div>
-      <div className="htp-cap" aria-live="polite">
-        <span className="htp-count">{i + 1} of {steps.length}</span>
-        <h3 className="htp-title">{step.title}</h3>
-        <p className="htp-line">{step.line}</p>
+        <div className="htp-cap" aria-live="polite">
+          <span className="htp-count">{i + 1} of {steps.length}</span>
+          <h3 className="htp-title">{step.title}</h3>
+          <p className="htp-line">{step.line}</p>
+        </div>
       </div>
       <div className="htp-nav">
-        <Button onClick={() => go(i - 1)} disabled={i === 0} icon={<ChevronLeft aria-hidden="true" />}>Back</Button>
+        <Button onClick={() => go(i - 1)} disabled={i === 0}>Back</Button>
         {!last ? (
-          <Button variant="light" onClick={() => go(i + 1)}>Next <ChevronRight aria-hidden="true" /></Button>
+          <Button variant="light" onClick={() => go(i + 1)}>Next</Button>
         ) : (
           <Button variant="light" onClick={onClose}>{lastStepButton(end)}</Button>
         )}
@@ -116,28 +116,58 @@ function Guide({ game, end, onClose }: Omit<HowToPlayProps, "open">) {
 }
 
 /**
- * One step's clip: a looping muted video over its poster. Reduced motion shows the poster until tapped. A clip that fails
- * to load leaves the poster, and a missing poster leaves a plain frame, never a broken box.
+ * One step's clip: a looping muted video over its poster. The video plays from script, not only the autoplay attribute:
+ * React never writes `muted` as an attribute, and some browsers then refuse to autoplay. If playing is refused, a play
+ * button shows; if the webm will not decode the mp4 is tried, then the poster stays. Reduced motion shows the poster
+ * until tapped.
  */
 function Clip({ game, n, set, onProgress }: { game: GameId; n: number; set: ClipSet; onProgress: (p: number) => void }) {
   const reduced = useReducedMotion();
-  const [tapped, setTapped] = useState(false);
-  const [videoFailed, setVideoFailed] = useState(false);
-  const [posterFailed, setPosterFailed] = useState(false);
   const { webm, mp4, poster } = clipPaths(game, n, set);
-  const playing = (!reduced || tapped) && !videoFailed;
+  const [src, setSrc] = useState<string | null>(webm);
+  const [needsTap, setNeedsTap] = useState(reduced);
+  const [posterFailed, setPosterFailed] = useState(false);
+  const video = useRef<HTMLVideoElement>(null);
+
+  const play = () => {
+    const v = video.current;
+    if (!v) return;
+    v.muted = true;
+    v.play().then(() => setNeedsTap(false), () => setNeedsTap(true));
+  };
+
+  useEffect(() => {
+    const v = video.current;
+    if (!v || !src) return;
+    v.defaultMuted = true;
+    v.setAttribute("muted", "");
+    if (!reduced) play();
+  }, [src, reduced]);
+
+  const onError = () => setSrc((at) => (at === webm ? mp4 : null));
+
   return (
     <div className="htp-clip">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       {!posterFailed && <img className="htp-poster" src={poster} alt="" onError={() => setPosterFailed(true)} />}
-      {playing && (
-        <video className="htp-video" autoPlay loop muted playsInline preload="auto" poster={posterFailed ? undefined : poster} aria-hidden="true" onTimeUpdate={(e) => { const v = e.currentTarget; if (v.duration) onProgress(v.currentTime / v.duration); }}>
-          <source src={webm} type="video/webm" />
-          <source src={mp4} type="video/mp4" onError={() => setVideoFailed(true)} />
-        </video>
+      {src && (
+        <video
+          ref={video}
+          key={src}
+          className="htp-video"
+          src={src}
+          loop
+          muted
+          playsInline
+          preload="auto"
+          poster={posterFailed ? undefined : poster}
+          aria-hidden="true"
+          onError={onError}
+          onTimeUpdate={(e) => { const v = e.currentTarget; if (v.duration) onProgress(v.currentTime / v.duration); }}
+        />
       )}
-      {reduced && !tapped && !videoFailed && (
-        <button type="button" className="cut cut-chip htp-play" onClick={() => setTapped(true)} aria-label="Play clip">
+      {src && needsTap && (
+        <button type="button" className="cut cut-chip htp-play" onClick={play} aria-label="Play clip">
           <Play aria-hidden="true" />
         </button>
       )}

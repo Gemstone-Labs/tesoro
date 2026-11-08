@@ -1,35 +1,48 @@
-/* How to play guide (founder pick g3, story style). One file for the whole look.
-   Founder 2026-11-08: the bars sit above the clip with room around them and the words sit under it, so nothing covers the video. */
+/* How to play guide: founder pick g3 (art-source/how-to-play/guide/g3-1440.png, g3-390.png), followed as drawn.
+   Phone: bars above the clip, the words over the clip's foot, Back and Next sharing the row.
+   Desktop: bars over the clip's top edge, the words over its foot, Back at the left and Next at the right.
+   The whole guide fits the screen: the clip shrinks with the viewport height, so the sheet never scrolls. */
 dialog.htp-sheet { max-width: 520px; }
-@media (max-width: 639px) { dialog.htp-sheet { max-height: 94dvh; max-width: none; } }
-@media (min-width: 1024px) { dialog.htp-sheet { max-width: 820px; } }
+@media (max-width: 639px) { dialog.htp-sheet { max-height: 96dvh; max-width: none; } }
+@media (min-width: 1024px) { dialog.htp-sheet { max-width: 880px; } }
 
-.htp { display: grid; gap: 14px; }
+.htp { position: relative; display: grid; gap: 14px; }
 
-.htp-bars { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 2px 6px 0; }
-.htp-bars i { display: block; height: 4px; background: rgba(255, 255, 255, 0.22); overflow: hidden; }
+.htp-bars { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 0 6px; }
+.htp-bars i { display: block; height: 5px; background: rgba(255, 255, 255, 0.28); overflow: hidden; }
 .htp-bars b { display: block; height: 100%; background: #fff; transform-origin: left; transform: scaleX(0); }
 
-/* phones: the clip shrinks with short screens so the words and buttons stay in view */
 .htp-stage {
   --c: var(--cut-frame); position: relative; overflow: hidden; background: #060a10; touch-action: pan-y;
-  aspect-ratio: 4 / 5; width: min(100%, calc((94dvh - 300px) * 0.8)); justify-self: center;
+  aspect-ratio: 4 / 5; justify-self: center;
+  /* phones: header, bars, buttons and padding take about 230px of the sheet */
+  width: min(100%, calc((96dvh - 230px) * 0.8));
 }
-.htp-stage[data-set="desktop"] { aspect-ratio: 16 / 10; width: 100%; }
 .htp-clip { position: absolute; inset: 0; }
 .htp-poster, .htp-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.htp-play { position: absolute; z-index: 4; top: 12px; right: 12px; display: grid; place-items: center; width: 48px; height: 48px; background: rgba(9, 13, 15, 0.8); color: var(--fg); border: 0; }
-.htp-play svg { width: 22px; height: 22px; }
+.htp-play { position: absolute; z-index: 4; top: 50%; left: 50%; transform: translate(-50%, -50%); display: grid; place-items: center; width: 64px; height: 64px; background: rgba(9, 13, 15, 0.82); color: var(--fg); border: 0; }
+.htp-play svg { width: 28px; height: 28px; }
 
 .htp-tap { position: absolute; z-index: 2; top: 0; bottom: 0; width: 50%; background: transparent; border: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 .htp-tap-l { left: 0; }
 .htp-tap-r { right: 0; }
 
-.htp-cap { display: grid; gap: 4px; padding: 0 4px; }
-.htp-count { font-size: var(--fs-14); font-weight: 700; color: var(--fg-2); }
-.htp-title { font-size: clamp(22px, 5.6vw, 30px); font-weight: 900; letter-spacing: -0.01em; line-height: 1.1; color: var(--fg); }
-.htp-line { font-size: var(--fs-16, 16px); line-height: 1.4; color: var(--fg-2); }
+/* the words lie on the clip's foot over a gradient dark enough for 4.5:1 */
+.htp-cap {
+  position: absolute; z-index: 3; left: 0; right: 0; bottom: 0; display: grid; gap: 4px; padding: 64px 18px 16px; pointer-events: none;
+  background: linear-gradient(180deg, rgba(6, 10, 16, 0) 0%, rgba(6, 10, 16, 0.78) 42%, rgba(6, 10, 16, 0.92) 100%); color: #fff;
+}
+.htp-count { font-size: var(--fs-15, 15px); font-weight: 700; color: rgba(255, 255, 255, 0.86); }
+.htp-title { font-size: clamp(24px, 6.6vw, 40px); font-weight: 900; letter-spacing: -0.01em; line-height: 1.05; }
+.htp-line { font-size: var(--fs-16, 16px); line-height: 1.35; color: rgba(255, 255, 255, 0.92); }
 
-/* Back sits beside Next (and beside Done or Start practice on the last step) */
-.htp-nav { display: flex; justify-content: flex-end; gap: 10px; }
-@media (max-width: 639px) { .htp-nav > * { flex: 1 1 0; justify-content: center; } }
+.htp-nav { display: flex; justify-content: space-between; gap: 10px; }
+.htp-nav > * { min-width: 180px; justify-content: center; }
+@media (max-width: 639px) { .htp-nav > * { flex: 1 1 0; min-width: 0; } }
+
+/* desktop: 16:10 clip, the bars lie on its top edge */
+/* the whole guide narrows with short screens, so the bars, laid over the clip, stay lined up with it */
+.htp[data-set="desktop"] { width: min(100%, calc((100dvh - 250px) * 1.6)); margin-inline: auto; }
+.htp[data-set="desktop"] .htp-stage { aspect-ratio: 16 / 10; width: 100%; }
+.htp[data-set="desktop"] .htp-bars { position: absolute; z-index: 3; top: 22px; left: 28px; right: 28px; margin: 0; pointer-events: none; }
+.htp[data-set="desktop"] .htp-cap { padding: 96px 28px 26px; }
