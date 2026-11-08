@@ -23,6 +23,7 @@ import {
   ComputeBudgetProgram,
   Keypair,
   PublicKey,
+  VersionedMessage,
   VersionedTransaction,
   type AccountInfo,
   type AccountMeta,
@@ -45,7 +46,12 @@ import { OVERFLOW_STORE_AT, matchOverflowPda } from "../../lib/chain/overflow";
 import { CHUNK_CU_TARGET, fits, type Reader } from "../../lib/chain/settle-plan";
 import { checkedV0, instructionName, messageSize, type TxSize } from "../../lib/chain/tx-size";
 import { backingTicketOf, nextStageIx, openBackingTicketIxs, type TicketView } from "../../lib/chain/ticket";
-import { sponsoredInstructions } from "../../server/sponsor/service";
+import { Sponsor, sponsoredInstructions, type ChainReads } from "../../server/sponsor/service";
+import { DEFAULT_LIMITS } from "../../server/sponsor/policy";
+import { MemoryUsageStore } from "../../server/sponsor/store";
+import { assertSeatMay } from "../../lib/seat/seat-scope";
+import { rideSweepStep, type SweepEnv } from "./sweep";
+import bs58 from "bs58";
 import {
   RAILCAR_PROGRAM_ID,
   bindBrakeIx,
@@ -78,7 +84,8 @@ import { testDb } from "../../server/history/test-db";
 import { queueChoice } from "./flow";
 import { railcarView } from "./view";
 import { finishRide } from "./finish";
-import { backerSeatedIn, boardingEntry, stepOffFor, type BoardingBacking } from "./boarding";
+import { backerSeatedIn, boardingEntry, type BoardingBacking } from "./boarding";
+import { stepOffFor } from "./step-off";
 
 const ROOT = join(process.cwd(), "..");
 const SO_DIR = process.env.RAILCAR_SO_DIR ?? join(ROOT, "target/deploy");
@@ -130,7 +137,7 @@ interface Inner {
   setClock(c: unknown): void;
   getAccount(k: Uint8Array): { lamports(): bigint; data(): Uint8Array; owner(): Uint8Array; executable(): boolean } | null;
   setAccount(k: Uint8Array, a: unknown): void;
-  simulateVersionedTransaction(bytes: Uint8Array): { meta(): { computeUnitsConsumed(): bigint }; err?(): unknown };
+  simulateVersionedTransaction(bytes: Uint8Array): { meta(): { computeUnitsConsumed(): bigint }; err?(): unknown; postAccounts?(): { address: Uint8Array; account(): { lamports(): bigint } }[] };
   sendVersionedTransaction(bytes: Uint8Array): { logs?(): string[]; meta?(): { logs(): string[] }; err?(): unknown; innerInstructions?(): { instruction(): { programIdIndex(): number; accounts(): Uint8Array; data(): Uint8Array } }[][]; computeUnitsConsumed?(): bigint };
 }
 
@@ -177,6 +184,13 @@ class Svm {
   simulate(tx: VersionedTransaction): number | null {
     const r = this.inner.simulateVersionedTransaction(tx.serialize());
     return r.err ? null : Number(r.meta().computeUnitsConsumed());
+  }
+  /** A dry run as the sponsor's chain reports it: whether it failed, and what `watch` holds after it. */
+  simulateWatch(tx: VersionedTransaction, watch: PublicKey): { err: unknown; lamports: bigint | null } {
+    const r = this.inner.simulateVersionedTransaction(tx.serialize());
+    if (r.err) return { err: r.err(), lamports: null };
+    const post = r.postAccounts!().find((a) => new PublicKey(a.address).equals(watch));
+    return { err: null, lamports: post ? post.account().lamports() : BigInt(this.get(watch)?.lamports ?? 0) };
   }
   /** `keys` resolves the message's account indexes (lookup tables included) for the inner instructions. */
   send(tx: VersionedTransaction, keys: (i: number) => PublicKey): { logs: string[]; err: unknown; inner: InnerInstruction[]; units: number } {
@@ -249,6 +263,18 @@ class World {
     this.lastInner = res.inner;
     this.lastUnits = res.units;
     if (res.err) throw new Error(`transaction failed: ${String(res.err)}\n${this.lastLogs.join("\n")}`);
+  }
+
+  /** Sends a transaction signed elsewhere (the sponsor's), as the sponsor's chain does; returns its signature. */
+  sendRaw(raw: Uint8Array): string {
+    const tx = VersionedTransaction.deserialize(raw);
+    const keys = tx.message.getAccountKeys();
+    const res = this.svm.send(tx, (i) => keys.get(i)!);
+    this.lastLogs = res.logs;
+    this.lastInner = res.inner;
+    this.lastUnits = res.units;
+    if (res.err) throw new Error(`transaction failed: ${String(res.err)}\n${this.lastLogs.join("\n")}`);
+    return bs58.encode(tx.signatures[0]);
   }
 
   /** The compute `ixs` would use, simulated with `payer` as fee payer and no signature (as the page simulates a chunk). */
@@ -401,8 +427,8 @@ class World {
     let boarding = null;
     if (config.nextCar > 0n) {
       const carNo = config.nextCar - 1n;
-      const car = decodeCarAccount(this.info(carPda(carNo))!.data);
-      const loaded = await loadCar(conn, car.tesoroMatch);
+      const info = this.info(carPda(carNo));
+      const loaded = info && (await loadCar(conn, decodeCarAccount(info.data).tesoroMatch));
       if (loaded) boarding = { car: loaded.car, carNo, pages: loaded.pages };
     }
     const backerSeated = !!backing && !!boarding && (await backerSeatedIn(conn, boarding.car.address, backing.backerAccount));
@@ -497,6 +523,18 @@ class World {
     if (t.phase === "over" && data[8 + 16] === 0) this.committed.set(tablePda(index).toBase58(), Buffer.from(data));
   }
 
+  /** `onBase` for an async `f`. */
+  async onBaseAsync<T>(index: number, f: () => Promise<T>): Promise<T> {
+    const key = tablePda(index);
+    const live = this.get(key)!;
+    this.svm.set(key, { lamports: live.lamports, data: this.committed.get(key.toBase58())!, owner: DELEGATION_PROGRAM_ID, executable: false });
+    try {
+      return await f();
+    } finally {
+      this.svm.set(key, live);
+    }
+  }
+
   /** Base's view of the Table (the committed bytes, owned by the delegation program) while `f` runs. */
   onBase<T>(index: number, f: () => T): T {
     const key = tablePda(index);
@@ -565,15 +603,24 @@ interface RideRun {
 /**
  * Boards `n` riders through the Queue, departs, rides with `draw`, Jumps rider `who` at `secs` (in that order), signals at
  * Impact, then finalizes, reserves room, runs every chunk and every close: everything after boarding and the Jumps is
- * sent by the relayer or the page key, never a rider's wallet.
+ * sent by the relayer or the page key, never a rider's wallet. With `viaSponsor` the finish goes through the sponsor as
+ * that rider's page sends it.
  */
 let rooms = 0;
-async function rideCar(
-  n: number,
-  draw: Uint8Array,
-  jumps: [number, number][],
-  o: { brakes?: [number, number][]; watch?: (w: World, at: { secs: number; table: PublicKey; riders: Person[] }) => void; backed?: { seat: number; shareBps: number }; noSeatKey?: number[] } = {},
-): Promise<RideRun & { over: ReturnType<typeof decodeTable> }> {
+
+interface RideOpts {
+  brakes?: [number, number][];
+  watch?: (w: World, at: { secs: number; table: PublicKey; riders: Person[] }) => void;
+  backed?: { seat: number; shareBps: number };
+  noSeatKey?: number[];
+  /** The pages leave after the last Jump: nobody sends the signal that applies the Impact. */
+  noImpact?: boolean;
+  /** The finish goes through the sponsor as this rider's page sends it, vouched for by its seat key (not the relayer directly). */
+  viaSponsor?: number;
+}
+
+/** A car boarded, departed and ridden through `jumps` (and, unless `noImpact`, its Impact): everything before the finish. */
+async function rideToImpact(n: number, draw: Uint8Array, jumps: [number, number][], o: RideOpts = {}) {
   const backed = o.backed;
   const w = await World.create();
   // A backed rider has no Gemas of their own: their Backer's entry boards for them.
@@ -645,6 +692,8 @@ async function rideCar(
   const impact = impactMs(vault.presses.slice(0, vault.press_count), vault.crash_ms);
   o.watch?.(w, { secs: impact / 1000 - 0.01, table, riders });
   w.setSlot(rideSlot + BigInt(Math.ceil(impact / 10)));
+  const ctx = { w, riders, backer, backing, carNo, carAcct, match, id, before, backerBefore, studioBefore, table };
+  if (o.noImpact) return { ...ctx, over: null, shown: [] as bigint[], backedRow: null };
   w.rollup([signalIx(w.pageKey.publicKey, carAcct.table)], w.pageKey, carAcct.table);
   const over = decodeTable(w.get(table)!.data);
   expect(over.phase).toBe("over");
@@ -655,6 +704,14 @@ async function rideCar(
   // A backed row shows what the Player gets and, beside it, what goes back to the Backer.
   const shown = riders.map((p) => rowOf(p).backing?.playerGets ?? rowOf(p).gets);
   const backedRow = backed ? rowOf(riders[backed.seat]).backing ?? null : null;
+  return { ...ctx, over, shown, backedRow };
+}
+
+async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], o: RideOpts = {}): Promise<RideRun & { over: ReturnType<typeof decodeTable>; finishSteps: string[] }> {
+  const { w, riders, backer, carNo, carAcct, match, id, before, backerBefore, studioBefore, table, over, shown, backedRow } = await rideToImpact(n, draw, jumps, o);
+  if (!over) throw new Error("rideCar rides to the Impact");
+  const sponsor = o.viaSponsor === undefined ? null : sponsorOn(w);
+  const finisher = o.viaSponsor === undefined ? null : riders[o.viaSponsor];
 
   // The finish as a paid Player's page sends it (finish.ts), the relayer as caller of every step: finalize on base (the
   // committed Table), room, every chunk the planner sizes, every close. Sized and sent with no lookup table.
@@ -675,12 +732,20 @@ async function rideCar(
       return t.carNo === carNo && t.phase === "over";
     },
     fits: (ix) => fits(w.relayer.publicKey, [cu(1_400_000), ix]),
+    fitsTx: (ixs) => fits(w.relayer.publicKey, [cu(1_400_000), ...ixs]),
+    mine: finisher?.account,
     simulate: async (ix) => w.simulate([cu(1_400_000), ix], w.relayer.publicKey),
     send: async (ixs, step) => {
-      const all = [cu(1_400_000), ...ixs];
-      const go = () => w.send(all, w.relayer);
-      if (step === "finalize" || step === "reveal") w.onBase(carAcct.table, go);
-      else go();
+      const onBase = step === "finalize" || step === "reveal";
+      if (sponsor && finisher) {
+        // As the page sends it: the seat key's scope, then the sponsor's rules against the chain as it is, then its send.
+        await (onBase ? w.onBaseAsync(carAcct.table, () => pageSend(w, sponsor, finisher, match, ixs)) : pageSend(w, sponsor, finisher, match, ixs));
+      } else {
+        const all = [cu(1_400_000), ...ixs];
+        const go = () => w.send(all, w.relayer);
+        if (onBase) w.onBase(carAcct.table, go);
+        else go();
+      }
       finishTxs.push(w.lastInner);
       if (step === "finalize") finalizeUnits = w.lastUnits;
       if (step === "reveal") revealUnits = w.lastUnits;
@@ -694,7 +759,8 @@ async function rideCar(
   expect(sent.done).toBe(true);
   expect(w.info(carPda(carNo))).toBeNull();
   expect(w.info(match)).toBeNull();
-  expect(sent.sent.filter((s) => s === "close-seat")).toHaveLength(n);
+  // A page's own seat closes in the car's close transaction (its seat key names no seat after it).
+  expect(sent.sent.filter((s) => s === "close-seat")).toHaveLength(finisher ? n - 1 : n);
   expect(sent.sent.at(-1)).toBe("close-car");
 
   // The Match history, written from the finish's transactions as the webhook writes it.
@@ -720,7 +786,74 @@ async function rideCar(
     history,
     finalizeUnits,
     revealUnits,
+    finishSteps: sent.sent,
   };
+}
+
+/** A sponsor whose chain is this LiteSVM: Railcar Listed, the relayer the World's. */
+function sponsorOn(w: World): Sponsor {
+  const chain: ChainReads = {
+    getTransaction: async () => null,
+    balance: async (k) => BigInt(w.get(k)?.lamports ?? 0),
+    rent: async (bytes) => BigInt(bytes + 128) * 6_960n,
+    account: async (k) => {
+      const a = w.info(k);
+      return a ? { owner: a.owner, data: a.data } : null;
+    },
+    // a fresh blockhash per build, so two equal steps are two transactions
+    latestBlockhash: async () => {
+      w.svm.expireBlockhash();
+      return w.svm.latestBlockhash();
+    },
+    simulate: async (tx, watch) => w.svm.simulateWatch(tx, watch),
+    send: async (raw) => w.sendRaw(raw),
+  };
+  return new Sponsor({ relayer: w.relayer, macKey: Buffer.from("litesvm"), store: new MemoryUsageStore(), limits: DEFAULT_LIMITS, chain, isListed: async (p) => p.equals(RAILCAR_PROGRAM_ID), lookupTables: async () => [], paused: async () => false, alertLowBalance: async () => undefined, lowBalance: 1n, now: () => Date.now() });
+}
+
+/**
+ * One finish step as a Player's page sends it (`finishSender` → `sponsoredSend`): the seat key may ask only for what its
+ * scope allows, the sponsor builds it under the seat-key rule (the car must name that key in the Player's seat) and sends it.
+ * No signature but the relayer's: a finish step names the relayer as caller and payer.
+ */
+async function pageSend(w: World, sponsor: Sponsor, p: Person, match: PublicKey, ixs: TransactionInstruction[]): Promise<void> {
+  assertSeatMay(ixs);
+  const raw = { ixs: ixs.map((i) => ({ program: i.programId.toBase58(), keys: i.keys.map((k) => ({ pubkey: k.pubkey.toBase58(), signer: k.isSigner, writable: k.isWritable })), data: Buffer.from(i.data).toString("base64") })) };
+  const built = await sponsor.build(p.key, raw, null, { kind: "seat", signer: p.seat.publicKey, match });
+  const tx = new VersionedTransaction(VersionedMessage.deserialize(Buffer.from(built.message, "base64")));
+  await sponsor.submit(Buffer.from(tx.serialize()).toString("base64"), built.meta, built.mac);
+}
+
+/** The keeper's sweep on this LiteSVM (one machine is base and rollup): its key calls and pays every step. */
+function sweepOn(w: World, match: PublicKey, tableIndex: number, keeper: Keypair): SweepEnv {
+  const core = new Program(coreIdl as Idl, { connection: {} } as unknown as AnchorProvider);
+  return {
+    base: w.reader(),
+    rollup: w.reader(),
+    core,
+    caller: keeper.publicKey,
+    match,
+    now: w.now,
+    fits: (ix) => fits(keeper.publicKey, [cu(1_400_000), ix]),
+    simulate: async (ix) => w.simulate([cu(1_400_000), ix], keeper.publicKey),
+    send: async (x) => {
+      const ixs = [cu(x.units), ...x.ixs];
+      if (x.layer === "rollup") w.rollup(ixs, keeper, tableIndex);
+      else if (x.what === "reveal" || x.what === "finalize") w.onBase(tableIndex, () => w.send(ixs, keeper));
+      else w.send(ixs, keeper);
+    },
+  };
+}
+
+/** Runs the sweep's step until the car is gone or `max` runs pass (one run per sweep, every five minutes). */
+async function sweepUntilGone(w: World, match: PublicKey, tableIndex: number, keeper: Keypair, max = 6): Promise<string[]> {
+  const sent: string[] = [];
+  for (let i = 0; i < max && w.info(match); i++) {
+    const r = await rideSweepStep(sweepOn(w, match, tableIndex, keeper));
+    if ("wait" in r) throw new Error(`the sweep waits: ${r.wait}`);
+    sent.push(...r.sent);
+  }
+  return sent;
 }
 
 describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders and the shared planner", () => {
@@ -892,5 +1025,79 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     expect(r.history.replay.seats.map((s) => s.gets)).toEqual(r.deltas);
     console.log(`reveal_ride, 100 seats: ${r.revealUnits} CU; finalize: ${r.finalizeUnits} CU`);
     expect(r.revealUnits).toBeLessThan(140_000);
+  });
+
+  // ---- the finish as it is really sent: a page through the sponsor, and the keeper's sweep ------------------------------
+
+  const WORKED: [number, number][] = [
+    [ANA, 25],
+    [CY, 95],
+    [BEN, 97],
+    [DEE, 99],
+  ];
+
+  it("Dee's page finishes the worked example through the sponsor, vouched for by her seat key alone: reveal, finalize, room, chunks, closes", { timeout: 120_000 }, async () => {
+    const r = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, { viaSponsor: DEE });
+    expect(r.finishSteps.slice(0, 2)).toEqual(["reveal", "finalize"]);
+    expect(r.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
+    expect(r.studioFee).toBe(64n);
+    // Dee's wallet signed her boarding and nothing after it.
+    expect(r.walletSigs).toEqual({ boarding: 5 });
+    expect(r.history.deltas).toEqual([-150, 130, 78, 313, -500]);
+  });
+
+  it("every page left before the Impact: the keeper's sweep applies it, reveals the ride, finalizes and pays the worked example", { timeout: 120_000 }, async () => {
+    const c = await rideToImpact(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, { noImpact: true });
+    const keeper = Keypair.generate();
+    c.w.svm.airdrop(keeper.publicKey, 100n * SOL);
+    c.w.setTime(c.w.now + 15 * 60);
+    const steps = await sweepUntilGone(c.w, c.match, c.carAcct.table, keeper);
+    expect(steps[0]).toMatch(/^signal/);
+    expect(steps.slice(1, 3)).toEqual(["reveal", "finalize"]);
+    expect(steps.at(-1)).toBe("close-car");
+    expect(c.w.info(c.match)).toBeNull();
+    expect(c.w.info(carPda(c.carNo))).toBeNull();
+    expect(c.riders.map((p, i) => c.w.gemas(p, c.id) - c.before[i])).toEqual([350n, 630n, 578n, 813n, 0n]);
+  });
+
+  it("a ride over on base that nobody finalized: from 24 h after departure the sweep refunds it through core, closes it and its Car", { timeout: 120_000 }, async () => {
+    const c = await rideToImpact(5, drawWhere((x) => x.crashMs >= 101_000), WORKED);
+    const keeper = Keypair.generate();
+    c.w.svm.airdrop(keeper.publicKey, 100n * SOL);
+    c.w.setTime((await loadCar(c.w.reader(), c.match))!.car.refundAfter);
+    const steps = await sweepUntilGone(c.w, c.match, c.carAcct.table, keeper);
+    expect(steps[0]).toBe("refund");
+    expect(steps).not.toContain("finalize");
+    expect(steps).toContain("close-ride");
+    expect(c.w.info(c.match)).toBeNull();
+    expect(c.w.info(carPda(c.carNo))).toBeNull();
+    // Every entry home in full: a refund charges no fee.
+    expect(c.riders.map((p, i) => c.w.gemas(p, c.id) - c.before[i])).toEqual(Array(5).fill(500n));
+  });
+
+  it("four boarded and the fifth never came: once core's boarding ends the sweep steps all four off home, closes the car and frees the Table", { timeout: 120_000 }, async () => {
+    const w = await World.create();
+    const riders = Array.from({ length: 4 }, () => w.rider());
+    const atStart = riders.map((p) => w.gemas(p));
+    for (const p of riders) await w.board(p);
+    const config = decodeConfig(w.info(configPda())!.data);
+    const carNo = config.nextCar - 1n;
+    const car = decodeCarAccount(w.info(carPda(carNo))!.data);
+    const loaded = (await loadCar(w.reader(), car.tesoroMatch))!;
+    expect([loaded.car.stage, loaded.car.seated]).toEqual(["boarding", 4]);
+    expect(riders.map((p, i) => atStart[i] - w.gemas(p))).toEqual(Array(4).fill(500n));
+    const keeper = Keypair.generate();
+    w.svm.airdrop(keeper.publicKey, 100n * SOL);
+    // An hour before the car's deadline nobody may join or depart it any more.
+    w.setTime(loaded.car.deadlineAbs - 3_600);
+    const steps = await sweepUntilGone(w, car.tesoroMatch, car.table, keeper, 1);
+    expect(steps.filter((x) => x.startsWith("step_off"))).toHaveLength(4);
+    expect(steps.slice(-3).map((x) => x.split(" ")[0])).toEqual(["close_many_seat_match", "skip_car", "close_car"]);
+    expect(w.info(car.tesoroMatch)).toBeNull();
+    expect(w.info(carPda(carNo))).toBeNull();
+    expect(riders.map((p) => w.gemas(p))).toEqual(atStart);
+    expect(decodeTable(w.get(tablePda(car.table))!.data).nextCar).toBe(carNo + BigInt(config.tables));
+    // The Queue opens the next car.
+    expect(await w.board(w.rider())).toBe("open");
   });
 });

@@ -600,6 +600,19 @@ describe("the safety sweep: a Railcar ride whose pages are all gone", () => {
     assert.deepEqual(asked, [due.address.toBase58()]);
   });
 
+  it("steps a Boarding car off once its boarding has ended, short or not: nobody can join or depart it any more", async () => {
+    // Four aboard waiting for a fifth, at the car's deadline less core's one-hour boarding margin.
+    const deadline = T0 + 3_600;
+    const short = car(8, { stage: "open", deadline }, { departedAt: 0, seated: 4, firstMinAt: 0 });
+    const asked: string[] = [];
+    const { deps } = fake([short]);
+    deps.ride = async (h) => void asked.push(h.address.toBase58());
+    await run(deps, memorySweepStore(), T0 - 1);
+    assert.deepEqual(asked, [], "boarding still open: the car waits for its fifth Player");
+    await run(deps, memorySweepStore(), T0);
+    assert.deepEqual(asked, [short.address.toBase58()]);
+  });
+
   it("finishes a car core is settling or has paid after the usual grace, through the same finisher", async () => {
     const settling = car(5, { stage: "settling" });
     const paid = car(6, { stage: "closed" });
