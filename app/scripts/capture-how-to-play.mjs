@@ -182,10 +182,10 @@ async function vgPieces(page) {
 async function vgSelect(page, { attack = false } = {}) {
   const pieces = page.locator(".vg-piece.us:not([disabled])");
   for (const { i, y } of await vgPieces(page)) {
-    await pieces.nth(i).click({ force: true, timeout: 1500 }).catch(() => {});
-    await sleep(250);
+    await pieces.nth(i).click({ force: true, timeout: 800 }).catch(() => {});
+    await sleep(120);
     const marks = await page.evaluate((atk) => [...document.querySelectorAll(atk ? ".vg-mark.atk" : ".vg-mark")].map((e, n) => ({ n, y: e.getBoundingClientRect().top })).sort((a, b) => a.y - b.y), attack);
-    if (marks.length && (attack || marks[0].y < y)) return { piece: pieces.nth(i), mark: page.locator(attack ? ".vg-mark.atk" : ".vg-mark").nth(marks[0].n) };
+    if (marks.length && (attack || marks[0].y < y)) return { index: i, piece: pieces.nth(i), mark: page.locator(attack ? ".vg-mark.atk" : ".vg-mark").nth(marks[0].n) };
   }
   return null;
 }
@@ -194,14 +194,15 @@ async function vgSelect(page, { attack = false } = {}) {
 async function vgUntilAttack(page) {
   for (let turn = 0; turn < 12; turn++) {
     await vgMyTurn(page);
-    await sleep(300);
-    if (await vgSelect(page, { attack: true })) return true;
+    await sleep(100);
+    const atk = await vgSelect(page, { attack: true });
+    if (atk) return atk.index;
     const mv = await vgSelect(page);
     if (!mv) return false;
     await mv.mark.click({ force: true, timeout: 1500 }).catch(() => {});
     await sleep(1500);
   }
-  return false;
+  return null;
 }
 
 // ---------------------------------------------------------------- Trading Duel (simulated price)
@@ -399,13 +400,15 @@ const GAMES = {
         },
       },
       3: {
-        prep: async (page) => { if (!(await vgUntilAttack(page))) throw new Error("no attack reached"); },
+        prep: async (page) => { page.__atk = await vgUntilAttack(page); if (page.__atk === null) throw new Error("no attack reached"); },
+        // the attacker is still selected from prep: click the enemy square at once, before the turn clock runs out
         act: async (page) => {
-          const atk = await vgSelect(page, { attack: true });
-          if (!atk) return false;
-          await sleep(900);
-          await atk.mark.click({ force: true, timeout: 1500 }).catch(() => {});
-          await sleep(3200);
+          const mark = page.locator(".vg-mark.atk").first();
+          if (!(await mark.count())) await page.locator(".vg-piece.us:not([disabled])").nth(page.__atk).click({ force: true, timeout: 800 }).catch(() => {});
+          await sleep(500);
+          if (!(await mark.count())) return false;
+          await mark.click({ force: true, timeout: 1500 }).catch(() => {});
+          await sleep(3500);
         },
         poster: 0.75,
       },
