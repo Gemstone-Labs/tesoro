@@ -7,7 +7,8 @@ export function stepAfterKey(key: string, i: number, count: number): number {
   return i;
 }
 
-/** The last step's button, beside Back: Start practice before a first Practice, Done everywhere else. */
+/** The last step's button, beside Back: it always leads into Practice. */
 export function lastStepButton(end: GuideEnd): string {
-  return end === "first-practice" ? "Start practice" : "Done";
+  if (end === "game-page") return "Practice free";
+  return end === "first-practice" ? "Start practice" : "Back to practice";
 }

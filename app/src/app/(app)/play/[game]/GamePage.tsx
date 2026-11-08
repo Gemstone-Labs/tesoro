@@ -121,7 +121,7 @@ export function GamePage({ game }: { game: GameId }) {
         </div>
       </section>
 
-      <HowToPlay game={game} open={how} onClose={() => setHow(false)} end="game-page" />
+      <HowToPlay game={game} open={how} onClose={() => setHow(false)} end="game-page" practiceHref={practiceHref(game, asset)} />
 
       <div className="gp-grid">
         <section className="cut cut-frame gp-panel" aria-labelledby="gp-recent">

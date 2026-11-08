@@ -12,7 +12,7 @@ import "./how-to-play.css";
 
 /**
  * Where the guide was opened from, which decides the last step's buttons:
- * game-page: Done · first-practice: Start practice · practice-menu: Done (back to the pause card). Back sits beside it.
+ * game-page: Practice free (a link) · first-practice: Start practice · practice-menu: Back to practice. Back sits beside it.
  */
 export type GuideEnd = "game-page" | "first-practice" | "practice-menu";
 
@@ -36,18 +36,20 @@ export interface HowToPlayProps {
   /** Close, by Done, Start practice, the close button, Esc or the backdrop. */
   onClose: () => void;
   end: GuideEnd;
+  /** Where Practice free leads, for the "game-page" end. */
+  practiceHref?: string;
 }
 
 /** Step-by-step guide with a looping clip per step: a bottom sheet on phones, a centred modal on wide screens. */
-export function HowToPlay({ game, open, onClose, end }: HowToPlayProps) {
+export function HowToPlay({ game, open, onClose, end, practiceHref }: HowToPlayProps) {
   return (
     <Sheet open={open} onClose={onClose} title={`How to play ${GAME_NAMES[game]}`} className="htp-sheet">
-      <Guide game={game} end={end} onClose={onClose} />
+      <Guide game={game} end={end} practiceHref={practiceHref} onClose={onClose} />
     </Sheet>
   );
 }
 
-function Guide({ game, end, onClose }: Omit<HowToPlayProps, "open">) {
+function Guide({ game, end, practiceHref, onClose }: Omit<HowToPlayProps, "open">) {
   const steps = GUIDE_STEPS[game];
   const set = useClipSet();
   const reduced = useReducedMotion();
@@ -108,7 +110,11 @@ function Guide({ game, end, onClose }: Omit<HowToPlayProps, "open">) {
         {!last ? (
           <Button variant="light" onClick={() => go(i + 1)}>Next</Button>
         ) : (
-          <Button variant="light" onClick={onClose}>{lastStepButton(end)}</Button>
+          end === "game-page" && practiceHref ? (
+            <Button variant="light" href={practiceHref}>{lastStepButton(end)}</Button>
+          ) : (
+            <Button variant="light" onClick={onClose}>{lastStepButton(end)}</Button>
+          )
         )}
       </div>
     </div>

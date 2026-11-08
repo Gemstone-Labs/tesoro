@@ -14,10 +14,10 @@ describe("guide navigation", () => {
     expect(stepAfterKey("a", 2, 5)).toBe(2);
   });
 
-  it("ends with Back and the button of where the guide was opened", () => {
-    expect(lastStepButton("game-page")).toBe("Done");
+  it("ends with Back and a way into Practice", () => {
+    expect(lastStepButton("game-page")).toBe("Practice free");
     expect(lastStepButton("first-practice")).toBe("Start practice");
-    expect(lastStepButton("practice-menu")).toBe("Done");
+    expect(lastStepButton("practice-menu")).toBe("Back to practice");
   });
 });
 

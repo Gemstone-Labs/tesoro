@@ -36,7 +36,7 @@ dialog.htp-sheet { max-width: 520px; }
 .htp-title { font-size: clamp(24px, 6.6vw, 40px); font-weight: 900; letter-spacing: -0.01em; line-height: 1.05; }
 .htp-line { font-size: var(--fs-16, 16px); line-height: 1.35; color: rgba(255, 255, 255, 0.92); }
 
-.htp-nav { display: flex; justify-content: space-between; gap: 10px; }
+.htp-nav { display: flex; justify-content: flex-end; gap: 10px; }
 .htp-nav > * { min-width: 180px; justify-content: center; }
 @media (max-width: 639px) { .htp-nav > * { flex: 1 1 0; min-width: 0; } }
 
