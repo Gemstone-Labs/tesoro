@@ -1,6 +1,7 @@
 import { PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import type { ChainSigner } from "@/games/block-puzzle/chain";
 import type { GetToken } from "./demo-client";
+import { isCancelling, untabledRefundDue } from "./match-status";
 import { SponsorError, sponsorStatus, sponsoredSend } from "./sponsor-client";
 
 /**
@@ -54,6 +55,34 @@ export const refundUntabledFree = <P>(
   getToken: GetToken,
   match: PublicKey,
 ) => stepFree(signer, getToken, (caller) => game.refundUntabledIx(caller, match), () => game.refundUntabled((signer.fallbackPayer ?? signer) as unknown as P, match));
+
+/** Least time between two tries of `refund_untabled` from one page. */
+export const UNTABLED_GAP_MS = 8_000;
+
+/** The refund was refused because the Match no longer qualifies: the other page or the sweep refunded it, or a table came. */
+const untabledRaced = (e: unknown) =>
+  /NotUntabled|already in use/i.test(String(e)) || (e instanceof SponsorError && (e.code === "would-fail" || e.code === "chain"));
+
+/**
+ * Ticket 58: a joined Match still without a table `TABLE_WAIT_SECS` after the join is refunded by its Game, and any
+ * participant's page sends it (`send`, which also runs the chunks). Resolves true when it tried this call; a refusal because
+ * the Match moved on counts as done, anything else is thrown. `last` holds the time of the last try, per page.
+ */
+export async function refundWhenUntabled(
+  m: { status: "open" | "active" | "settled" | "refunded"; sides: readonly unknown[]; deadline: number },
+  nowMs: number,
+  last: { current: number },
+  send: () => Promise<unknown>,
+): Promise<boolean> {
+  if (m.status !== "active" || isCancelling(m) || !untabledRefundDue(m.deadline, nowMs / 1000) || nowMs - last.current < UNTABLED_GAP_MS) return false;
+  last.current = nowMs;
+  try {
+    await send();
+  } catch (e) {
+    if (!untabledRaced(e)) throw e;
+  }
+  return true;
+}
 
 /** Closes a finished Match's Assignment (the Game's `close_assignment`); its rent goes back to the operator, not the caller. */
 export const closeAssignmentFree = <A, P>(

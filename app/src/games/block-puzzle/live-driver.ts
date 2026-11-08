@@ -1,6 +1,7 @@
 import type { Assignment, OwnBoard, Table } from "./live-chain";
 import { atAssignedEpoch } from "../../lib/chain/table-epoch";
 import { atNextEpoch } from "../../lib/chain/table-clean";
+import { untabledRefundDue } from "../../lib/chain/match-status";
 import { MAX_SEED_REQUESTS, SEED_RETRY_SLOTS, SEED_SLOTS, TABLE_PHASE, canFinalizeTable, phaseAt, tableOf } from "./live-chain";
 
 /**
@@ -14,7 +15,8 @@ export const OPENER_EXTRA_MS = 1_200;
 
 /** What the driver does next. `run` means the Player is playing: the submitter owns the moves. */
 export type Step =
-  | { kind: "wait"; why: "table" | "setup" | "opponent" | "seed" | "clock" | "result" | "payout" | "elsewhere" }
+  | { kind: "wait"; why: "table" | "setup" | "unbegun" | "opponent" | "seed" | "clock" | "result" | "payout" | "elsewhere" }
+  | { kind: "refundUntabled" }
   | { kind: "beginMatch" }
   | { kind: "seatPlayers" }
   | { kind: "checkIn" }
@@ -38,8 +40,10 @@ export interface DriveInput {
   baseTable: Table | null;
   /** The rollup slot now, from the page's clock. */
   slot: number;
-  /** Unix seconds (compared with the Assignment's wall-clock start deadline only). */
+  /** Unix seconds (compared with the Assignment's wall-clock start deadline and the Match's deadline only). */
   nowS: number;
+  /** tesoro_core's refund deadline of the Match (the join plus an hour until a table is assigned). */
+  deadline: number;
   /** The Player's own Board; `null` before they were seated and when it cannot be read. */
   board: OwnBoard | null;
   /** How long the table has been in this state as this page sees it. */
@@ -47,7 +51,7 @@ export interface DriveInput {
 }
 
 /** Steps nobody should repeat faster than this, ms. */
-export const MIN_GAP_MS: Partial<Record<Step["kind"], number>> = { beginMatch: 2_500, seatPlayers: 2_500, requestSeed: 5_000, start: 2_500, close: 2_500, commitTable: 5_000, finalize: 8_000, checkIn: 1_500, begin: 600 };
+export const MIN_GAP_MS: Partial<Record<Step["kind"], number>> = { refundUntabled: 8_000, beginMatch: 2_500, seatPlayers: 2_500, requestSeed: 5_000, start: 2_500, close: 2_500, commitTable: 5_000, finalize: 8_000, checkIn: 1_500, begin: 600 };
 
 /** True once this page should do a step anyone may do. */
 export const steppedIn = (i: Pick<DriveInput, "seat" | "stalledMs">): boolean => i.stalledMs >= STEP_IN_MS + (i.seat === 0 ? OPENER_EXTRA_MS : 0);
@@ -61,13 +65,15 @@ export function nextStep(i: DriveInput): Step {
   if (i.status === "settled" || i.status === "refunded") return { kind: "done" };
   if (i.status === "open") return { kind: "wait", why: "opponent" };
   const a = i.assignment;
-  if (!a) return { kind: "wait", why: "table" };
+  // No table in TABLE_WAIT_SECS: either page refunds it (both at once is harmless, the second is refused).
+  if (!a) return untabledRefundDue(i.deadline, i.nowS) ? { kind: "refundUntabled" } : { kind: "wait", why: "table" };
   const t = i.table;
   if (!t) return { kind: "wait", why: "setup" };
   const late = steppedIn(i);
 
   // The previous Match settled and the table is not reset yet: begin_match resets it once it may (30 s after the result).
-  if (atNextEpoch(a, t)) return late && i.nowS <= a.startDeadline ? { kind: "beginMatch" } : { kind: "wait", why: "setup" };
+  // After the start window the Match can no longer begin there: it is refunded once the table moves past its epoch.
+  if (atNextEpoch(a, t)) return i.nowS > a.startDeadline ? { kind: "wait", why: "unbegun" } : late ? { kind: "beginMatch" } : { kind: "wait", why: "setup" };
 
   // The table moved on to another Match: this Match's result is in the committed ring.
   if (!tableOf(a, t) && !(t.phase === TABLE_PHASE.idle && atAssignedEpoch(a, t))) return i.baseTable && canFinalizeTable(i.baseTable, a, i.nowS) && late ? { kind: "finalize" } : { kind: "wait", why: "payout" };

@@ -12,7 +12,7 @@ const seeding = (over: Partial<Table> = {}) => seated({ phase: TABLE_PHASE.seedi
 const running = (over: Partial<Table> = {}) => seeding({ phase: TABLE_PHASE.getReady, seedReady: true, startSlot: START, ...over });
 
 function input(over: Partial<DriveInput> = {}): DriveInput {
-  return { seat: 1, status: "active", assignment: fixtureAssignment({ startDeadline: 5_000 }), table: seated(), baseTable: null, slot: ASSIGNED + 5 * SECS, nowS: 1_000, board: null, stalledMs: 0, ...over };
+  return { seat: 1, status: "active", assignment: fixtureAssignment({ startDeadline: 5_000 }), table: seated(), baseTable: null, slot: ASSIGNED + 5 * SECS, nowS: 1_000, deadline: 1_000 + 86_400, board: null, stalledMs: 0, ...over };
 }
 const kind = (i: DriveInput) => nextStep(i).kind;
 
@@ -30,6 +30,16 @@ describe("nextStep", () => {
     expect(nextStep(input({ assignment: null, table: null }))).toEqual({ kind: "wait", why: "table" });
   });
 
+  describe("a joined Match no table was assigned to (ticket 58)", () => {
+    // Joined at 1,000: tesoro_core's deadline is the join plus an hour, and the Game refunds after five minutes.
+    const untabled = (nowS: number) => input({ assignment: null, table: null, nowS, deadline: 1_000 + 3_600 });
+    it("waits for a table for five minutes", () => expect(nextStep(untabled(1_299))).toEqual({ kind: "wait", why: "table" }));
+    it("then refunds it, from either page", () => {
+      expect(kind(untabled(1_300))).toBe("refundUntabled");
+      expect(kind({ ...untabled(1_300), seat: 0 })).toBe("refundUntabled");
+    });
+  });
+
   it("waits when the table cannot be read", () => {
     expect(nextStep(input({ table: null }))).toEqual({ kind: "wait", why: "setup" });
   });
@@ -45,7 +55,7 @@ describe("nextStep", () => {
       const behind = { table: blankTable({ phase: TABLE_PHASE.closed, epoch: 3 }), assignment: fixtureAssignment({ startDeadline: 5_000, epoch: 4 }) };
       it("is begun, which resets it first", () => expect(kind(input(behind))).toBe("beginMatch"));
       it("the opener gives the joiner a moment first", () => expect(nextStep(input({ seat: 0, ...behind }))).toEqual({ kind: "wait", why: "setup" }));
-      it("not after the start window", () => expect(nextStep(input({ ...behind, nowS: 5_001 }))).toEqual({ kind: "wait", why: "setup" }));
+      it("not after the start window: the Match never started", () => expect(nextStep(input({ ...behind, nowS: 5_001 }))).toEqual({ kind: "wait", why: "unbegun" }));
       it("two epochs behind is not this Match's table yet", () => expect(kind(input({ ...behind, table: blankTable({ phase: TABLE_PHASE.closed, epoch: 2 }) }))).not.toBe("beginMatch"));
     });
     it("not after the start window: tesoro_core refunds at its deadline", () => expect(nextStep(input({ ...idle, stalledMs: LATE, nowS: 5_001 }))).toEqual({ kind: "wait", why: "setup" }));

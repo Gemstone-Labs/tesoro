@@ -113,6 +113,26 @@ export function tableRefundBy(deadline: number, nowSecs: number): number | null 
   return deadline - CORE_WINDOW_SECS + TABLE_WAIT_SECS;
 }
 
+/**
+ * A joined Match that still has no table has waited `TABLE_WAIT_SECS`: any participant's page sends the Game's
+ * `refund_untabled` now (ticket 58). The same moment `tableWaitLine` says the entry is on its way back.
+ */
+export function untabledRefundDue(deadline: number, nowSecs: number): boolean {
+  const at = tableRefundBy(deadline, nowSecs);
+  return at !== null && nowSecs >= at;
+}
+
+/** The setup note of an assigned Match whose start window closed before it began (ticket 59). */
+export const UNBEGUN_NOTE = "The Match never started";
+
+/**
+ * The line under `UNBEGUN_NOTE`. Until the table can give up a Match on a finished table (economy 60), the refund comes once
+ * the table's next Match has run, or at tesoro_core's deadline.
+ */
+export function unbegunLine(deadline: number, nowMs: number): string {
+  return `The Match never started. Your entry comes back after this table’s next Match, or by ${refundByText(deadline, nowMs)} at the latest.`;
+}
+
 /** The line under "Waiting for a table": where the entry is safe, and when it comes back if no table opens. */
 export function tableWaitLine(deadline: number | undefined, nowMs: number): string {
   const at = deadline ? tableRefundBy(deadline, nowMs / 1000) : null;

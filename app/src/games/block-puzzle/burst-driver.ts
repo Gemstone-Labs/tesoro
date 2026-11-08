@@ -5,14 +5,14 @@ import { atAssignedEpoch } from "../../lib/chain/table-epoch";
 import { sessionFromTable, type BurstSession } from "@/lib/chain/burst-read";
 import { matchAddressOf } from "@/lib/chain/match-id";
 import { matchProgress } from "@/lib/chain/match-progress";
-import { isCancelling } from "@/lib/chain/match-status";
+import { UNBEGUN_NOTE, isCancelling } from "@/lib/chain/match-status";
 import { resultOf, type ChainMatch } from "@/lib/chain/read";
 import { settledPda } from "@/lib/chain/basket";
 import { commitPhase, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
 import type { GetToken } from "@/lib/chain/demo-client";
 import { createFinisher } from "@/lib/chain/finish-match";
 import { finalizeAndFinishFree, finishMatchFree } from "@/lib/chain/finish-match-client";
-import { finalizeFree } from "@/lib/chain/game-finalize";
+import { finalizeFree, refundUntabledFree } from "@/lib/chain/game-finalize";
 import { plainError } from "@/lib/errors";
 import {
   TABLE_PHASE,
@@ -457,15 +457,34 @@ export class BurstDriver {
       return void (await this.settle(m));
     }
 
-    if (!a) return this.patchStage(isCancelling(m) ? "cancelling" : "table", { seat });
+    if (!a) {
+      const cancelling = isCancelling(m);
+      this.patchStage(cancelling ? "cancelling" : "table", { seat });
+      if (cancelling) return;
+      // Joined, and no table in TABLE_WAIT_SECS: the Game refunds it, and any participant's page sends that (ticket 58).
+      const s = nextStep({ seat, status: m.status, assignment: null, table: null, baseTable: null, slot: 0, nowS: now() / 1000, deadline: m.deadline, board: null, stalledMs: 0 });
+      if (s.kind === "refundUntabled" && now() - (this.lastTry.refundUntabled ?? 0) >= (MIN_GAP_MS.refundUntabled ?? 0)) {
+        this.lastTry.refundUntabled = now();
+        let sig: string | undefined;
+        try {
+          await finalizeAndFinishFree(this.d.signer, () => this.d.getToken(), mk, async () => (sig = await refundUntabledFree(chain, this.d.signer, () => this.d.getToken(), mk)));
+          this.addSig("refund", sig, "base");
+        } catch (e) {
+          // The other page (or the sweep) refunded it first, or a table was assigned in the meantime: the next read shows which.
+          if (!/NotUntabled|already in use|AccountNotInitialized/i.test(String(e)) && ++this.failures >= 3) throw e;
+        }
+      }
+      return;
+    }
 
     // The table: the websocket's copy when it is fresh, else a read.
     let t = this.tableRef && now() - this.tableAt < 1_500 ? this.tableRef : null;
     if (!t) {
       const read = await chain.readTable(p, a).catch(() => null);
-      if (read && (tableOf(a, read) || atNextEpoch(a, read) || (read.phase === TABLE_PHASE.idle && atAssignedEpoch(a, read)))) {
+      if (read && (tableOf(a, read) || atNextEpoch(a, read) || (read.phase === TABLE_PHASE.idle && atAssignedEpoch(a, read)) || read.epoch > a.epoch)) {
         // A table one epoch behind still holds the previous Match: begin_match clears it, but it is not this Match's table to show.
         // An idle table at the assigned epoch is this Match's table that begin_match has not named yet.
+        // A table past the Match's epoch moved on: the result (a refund, when the Match never began) is in base's ring (ticket 59).
         t = read;
         this.tableRef = read;
         this.tableAt = now();
@@ -508,16 +527,19 @@ export class BurstDriver {
     }
     const stalledMs = now() - this.keyRef.since;
 
-    const s = nextStep({ seat, status: resultOf(m) ?? m.status, assignment: a, table: t, baseTable: baseTable ?? null, slot: slotNowV, nowS: now() / 1000, board: this.boardRef, stalledMs });
+    const s = nextStep({ seat, status: resultOf(m) ?? m.status, assignment: a, table: t, baseTable: baseTable ?? null, slot: slotNowV, nowS: now() / 1000, deadline: m.deadline, board: this.boardRef, stalledMs });
 
     // The stage the Player sees.
     const phase = t ? phaseAt(t, slotNowV) : null;
     const reason = t && t.phase === TABLE_PHASE.closed ? t.reason : null;
     const behind = !!t && !!a && atNextEpoch(a, t);
     const stage = tableStage({ hasTable: !!t, running: s.kind === "run", phase, closed: !!t && t.phase === TABLE_PHASE.closed, began: !!this.boardRef?.began, behind });
-    this.patchStage(stage, behind ? { seat, note: startNote(!!t && t.phase === TABLE_PHASE.closed) } : reason === null ? { seat } : { seat, reason });
+    const moved = !!t && !tableOf(a, t) && !behind && !(t.phase === TABLE_PHASE.idle && atAssignedEpoch(a, t));
+    if (s.kind === "wait" && s.why === "unbegun") this.patchStage("setup", { seat, note: UNBEGUN_NOTE });
+    else if (moved) this.patchStage("closing", { seat, note: "" });
+    else this.patchStage(stage, behind ? { seat, note: startNote(!!t && t.phase === TABLE_PHASE.closed) } : reason === null ? { seat, note: "" } : { seat, reason, note: "" });
     if (stage === "closing" && !this.closingSince) this.closingSince = now();
-    if (t && t.phase === TABLE_PHASE.closed && t.dirty && !this.commitSince) this.commitSince = now();
+    if (t && !moved && t.phase === TABLE_PHASE.closed && t.dirty && !this.commitSince) this.commitSince = now();
     if (this.commitSince) {
       const cp = commitPhase(this.commitSince, now());
       this.set((v) => (v.commit?.phase === cp ? v : { ...v, commit: { phase: cp, won: false } }));

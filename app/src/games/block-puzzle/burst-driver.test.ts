@@ -4,6 +4,7 @@ import { BurstDriver, type BurstDriverDeps } from "./burst-driver";
 import { ASSIGNED, SECS, blankTable, fixtureAssignment, fixtureKey } from "./live-fixtures";
 import { TABLE_PHASE, type Table } from "./live-chain";
 import { OPENER_EXTRA_MS } from "./live-driver";
+import { UNBEGUN_NOTE } from "@/lib/chain/match-status";
 
 const opener = fixtureKey(2);
 const joiner = fixtureKey(3);
@@ -43,6 +44,10 @@ function fakeChain(initial: Table) {
     close: record("close"),
     commitTable: record("commitTable"),
     finalize: record("finalize"),
+    refundUntabled: record("refundUntabled"),
+    refundUntabledIx: async () => {
+      throw new Error("the sponsored path is not used here");
+    },
   };
   return {
     chain: chain as unknown as BurstDriverDeps["chain"],
@@ -268,6 +273,69 @@ describe("BurstDriver, a page that missed the whole settle run", () => {
     expect(d.view.match?.status).toBe("settled");
     expect(d.view.match?.winner).toBe("opener");
     expect(refreshed).toBe(1);
+    d.stop();
+  });
+});
+
+describe("BurstDriver, a joined Match that never gets a table (ticket 58)", () => {
+  it("sends the Game's refund once the five-minute wait is over, not before, and not again at once", async () => {
+    const fake = fakeChain(seatedTable());
+    (fake.chain as unknown as { readAssignment: () => Promise<unknown> }).readAssignment = async () => null;
+    // Joined 290 s ago: tesoro_core's deadline is the join plus an hour.
+    const m = { ...activeMatch(1), sides: [{}, {}], deadline: Math.floor(Date.now() / 1000) - 290 + 3_600 } as unknown as ChainMatch;
+    const signer = { publicKey: joiner, signTransaction: async (t: never) => t, signMessage: async () => new Uint8Array(64) };
+    const d = new BurstDriver({ id: matchKey, signer: signer as never, accountKey: null, getToken: async () => null, chain: fake.chain, fetchMatch: async () => m });
+    d.start();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(fake.sent.map((s) => s.step)).toEqual([]);
+    await vi.advanceTimersByTimeAsync(7_000);
+    expect(fake.sent.map((s) => s.step)).toEqual(["refundUntabled"]);
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(fake.sent.map((s) => s.step)).toEqual(["refundUntabled"]);
+    d.stop();
+  });
+
+  it("does not send it for a Match nobody joined (its opener cancelled: that refund is already on its way)", async () => {
+    const fake = fakeChain(seatedTable());
+    (fake.chain as unknown as { readAssignment: () => Promise<unknown> }).readAssignment = async () => null;
+    const m = { ...activeMatch(1), sides: [{}], deadline: Math.floor(Date.now() / 1000) - 400 + 3_600 } as unknown as ChainMatch;
+    const signer = { publicKey: joiner, signTransaction: async (t: never) => t, signMessage: async () => new Uint8Array(64) };
+    const d = new BurstDriver({ id: matchKey, signer: signer as never, accountKey: null, getToken: async () => null, chain: fake.chain, fetchMatch: async () => m });
+    d.start();
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(fake.sent).toEqual([]);
+    d.stop();
+  });
+});
+
+describe("BurstDriver, an assigned Match that never began (ticket 59)", () => {
+  const lateAssignment = () => fixtureAssignment({ startDeadline: Math.floor(Date.now() / 1000) - 60 });
+
+  it("finalizes from base once its table has moved past the Match's epoch", async () => {
+    // Two later Matches ran on the table: epoch 5 now, another Match's key, committed.
+    const later = blankTable({ phase: TABLE_PHASE.closed, epoch: 5, tesoroMatch: fixtureKey(40), dirty: false });
+    const fake = fakeChain(later);
+    const chain = fake.chain as unknown as { readAssignment: () => Promise<unknown>; readTableOnBase: () => Promise<Table | null> };
+    chain.readAssignment = async () => lateAssignment();
+    chain.readTableOnBase = async () => later;
+    const d = driverFor(1, fake);
+    d.start();
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(fake.sent.map((s) => s.step)).toContain("finalize");
+    d.stop();
+  });
+
+  it("says the Match never started while the table still holds the previous Match", async () => {
+    const behind = blankTable({ phase: TABLE_PHASE.closed, epoch: 3, dirty: false });
+    const fake = fakeChain(behind);
+    (fake.chain as unknown as { readAssignment: () => Promise<unknown> }).readAssignment = async () => lateAssignment();
+    const proposed: [string, string | undefined][] = [];
+    const signer = { publicKey: joiner, signTransaction: async (t: never) => t, signMessage: async () => new Uint8Array(64) };
+    const d = new BurstDriver({ id: matchKey, signer: signer as never, accountKey: null, getToken: async () => null, chain: fake.chain, fetchMatch: async () => activeMatch(1), onProposed: (s, n) => proposed.push([s, n]) });
+    d.start();
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(fake.sent.map((s) => s.step)).not.toContain("beginMatch");
+    expect(proposed.at(-1)).toEqual(["setup", UNBEGUN_NOTE]);
     d.stop();
   });
 });

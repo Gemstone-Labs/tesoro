@@ -51,7 +51,7 @@ const T0 = 1_800_000_000;
 const head = (n: number, over: Partial<Head> = {}): Head => ({ address: key(n), game: key(200), stage: "active", joined: true, backed: false, openedAt: T0 - 3600, deadline: T0 + 86_400, ...over });
 
 /** A fake chain: `progress[address]` is the Match's state key (null once closed away); sends are recorded. */
-function fake(heads: Head[], opts: { committed?: Set<string>; failing?: Set<string>; stuck?: Set<string> } = {}) {
+function fake(heads: Head[], opts: { committed?: Set<string>; failing?: Set<string>; stuck?: Set<string>; waiting?: Map<string, "untabled" | "unbegun"> } = {}) {
   const sent: string[] = [];
   const progress = new Map<string, string | null>(heads.map((h) => [h.address.toBase58(), `${h.stage}:0:0`]));
   const name = (a: PublicKey) => a.toBase58().slice(0, 4);
@@ -71,6 +71,11 @@ function fake(heads: Head[], opts: { committed?: Set<string>; failing?: Set<stri
     },
     refund: async (h) => {
       sent.push(`refund ${name(h.address)}`);
+      progress.set(h.address.toBase58(), "refunding:0:0");
+    },
+    waiting: async (h) => opts.waiting?.get(h.address.toBase58()) ?? null,
+    refundUntabled: async (h) => {
+      sent.push(`refundUntabled ${name(h.address)}`);
       progress.set(h.address.toBase58(), "refunding:0:0");
     },
   };
@@ -267,8 +272,8 @@ describe("the safety sweep: --dry-run", () => {
 // ---- candidates from the database ---------------------------------------------------------------------------------
 
 /** The fake chain plus a database: `db` lists the Matches it knows; `scans` and `reads` count the chain calls. */
-function withDb(heads: Head[], db: Head[], opts: { committed?: Set<string>; dbFails?: boolean } = {}) {
-  const base = fake(heads, { committed: opts.committed });
+function withDb(heads: Head[], db: Head[], opts: { committed?: Set<string>; dbFails?: boolean; waiting?: Map<string, "untabled" | "unbegun"> } = {}) {
+  const base = fake(heads, { committed: opts.committed, waiting: opts.waiting });
   const calls = { committed: 0, scans: 0, reads: [] as string[][], gone: [] as string[] };
   const deps: SweepDeps = {
     ...base.deps,
@@ -492,5 +497,61 @@ describe("the safety sweep: an Active Match past its deadline with no result", (
     const r = await run(deps, memorySweepStore(), T0, true);
     assert.deepEqual(sent, []);
     assert.deepEqual([r.candidates[0].case, r.candidates[0].action], ["refund", "send"]);
+  });
+});
+
+describe("the safety sweep: a joined Match that never got a table (ticket 58)", () => {
+  // Opened 20 minutes ago, joined 6 minutes ago: no Assignment, and its Game's table wait is over.
+  const untabled = () => head(1, { openedAt: T0 - 1200, deadline: T0 - 360 + 3600 });
+  const tag = (h: Head) => h.address.toBase58().slice(0, 4);
+
+  it("sends the Game's refund_untabled at once, then the chunks and close", async () => {
+    const h = untabled();
+    const { deps, sent } = fake([h], { waiting: new Map([[h.address.toBase58(), "untabled"]]) });
+    const r = await run(deps, memorySweepStore(), T0);
+    assert.deepEqual(sent, [`refundUntabled ${tag(h)}`, `finish ${tag(h)}`]);
+    assert.deepEqual(r.candidates.map((c) => [c.case, c.action]), [["untabled", "send"]]);
+  });
+
+  it("checks again on the next run when the first refund did not land", async () => {
+    const h = untabled();
+    const { deps, sent, progress } = fake([h], { waiting: new Map([[h.address.toBase58(), "untabled"]]) });
+    deps.refundUntabled = async (x) => void sent.push(`refundUntabled ${tag(x)}`);
+    deps.finish = async (a) => void sent.push(`finish ${tag(head(0, { address: a }))}`);
+    const store = memorySweepStore();
+    await run(deps, store, T0);
+    progress.set(h.address.toBase58(), "active:0:0");
+    await run(deps, store, T0 + 300);
+    assert.deepEqual(sent.filter((x) => x.startsWith("refundUntabled")).length, 2, "the case is the untabled refund again, not a finalize");
+    assert.ok(!sent.some((x) => x.startsWith("finalize")));
+  });
+
+  it("does nothing while the table wait still runs", async () => {
+    const h = untabled();
+    const { deps, sent } = fake([h]);
+    const r = await run(deps, memorySweepStore(), T0);
+    assert.deepEqual(sent, []);
+    assert.deepEqual(r.candidates, []);
+  });
+});
+
+describe("the safety sweep: an assigned Match that never began (ticket 59)", () => {
+  it("is asked about every 5 minutes, not backed off, and is finalized soon after its table moves on", async () => {
+    const z = head(1, { openedAt: T0 - 3600 });
+    const committed = new Set<string>();
+    const { deps, calls, sent } = withDb([z], [z], { committed, waiting: new Map([[z.address.toBase58(), "unbegun"]]) });
+    const store = memorySweepStore({ seen: {}, fullScanAt: T0 });
+    const checkedAt: number[] = [];
+    let sentAt = -1;
+    for (let t = T0; t <= T0 + 2 * 3600 && sentAt < 0; t += 300) {
+      // The table's next Matches run: base holds a later epoch from 40 minutes on.
+      if (t === T0 + 2400) committed.add(z.address.toBase58());
+      const before = calls.committed;
+      await run(deps, store, t);
+      if (calls.committed > before) checkedAt.push((t - T0) / 60);
+      if (sent.length && sentAt < 0) sentAt = (t - T0) / 60;
+    }
+    assert.deepEqual(checkedAt.slice(0, 5), [0, 5, 10, 15, 20]);
+    assert.ok(sentAt >= 0 && sentAt <= 40 + GRACE_SECS / 60, `finalized at +${sentAt} min`);
   });
 });
