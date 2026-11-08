@@ -47,6 +47,16 @@ function useHandLog(t: Table, seat: 0 | 1): HandLog {
   return log;
 }
 
+/** This Player's two cards for each hand seen, so the hand log can show them after the hand. */
+function useHoles(hole: { handNo: number; cards: [number, number] } | null): Record<number, [number, number]> {
+  const [holes, setHoles] = useState<Record<number, [number, number]>>({});
+  const known = hole ? holes[hole.handNo] : undefined;
+  if (hole && (known?.[0] !== hole.cards[0] || known?.[1] !== hole.cards[1])) {
+    setHoles((cur) => ({ ...cur, [hole.handNo]: hole.cards }));
+  }
+  return holes;
+}
+
 interface Props {
   table: Table;
   seat: 0 | 1;
@@ -92,6 +102,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, onAct, onClaim,
   const total = t.phase === PHASE.shuffle ? 60 : 30;
   const expired = !practice && !ended && t.status === STATUS.live && remaining < -1;
   const log = useHandLog(t, seat);
+  const holes = useHoles(hole);
   const [logOpen, setLogOpen] = useState(false);
   const feed = useTableFeed(t);
   useGuideHidden(!ended);
@@ -413,7 +424,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, onAct, onClaim,
       )}
       <Sheet open={logOpen} onClose={() => setLogOpen(false)} title="Hand log" className="hdx-logsheet">
         <div className="hdx-log-body">
-          <HandLogView log={log} seat={seat} players={logPlayers} hole={hole && hole.handNo === log.hand ? hole.cards : null} />
+          <HandLogView log={log} seat={seat} players={logPlayers} holes={holes} />
         </div>
       </Sheet>
 

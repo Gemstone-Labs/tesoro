@@ -19,17 +19,29 @@ export interface LogStreet {
 /** What the log needs from one table read. */
 export type TableRead = Pick<Table, "handNo" | "phase" | "dealer" | "smallBlind" | "bigBlind" | "bets" | "stacks" | "pot" | "toAct" | "board" | "lastHand">;
 
+/** A hand that has ended, kept so the log can still show it while later hands play. */
+export interface PastHand {
+  hand: number;
+  streets: LogStreet[];
+  end: TableRead["lastHand"] | null;
+}
+
+/** How many finished hands the log keeps. */
+export const PAST_HANDS = 10;
+
 export interface HandLog {
   hand: number;
   done: boolean;
   streets: LogStreet[];
   /** How the hand ended, once it has. */
   end: TableRead["lastHand"] | null;
+  /** Finished hands, newest first. */
+  past: PastHand[];
   /** The read this log was last stepped with. */
   prev: TableRead | null;
 }
 
-export const EMPTY_LOG: HandLog = { hand: 0, done: false, streets: [], end: null, prev: null };
+export const EMPTY_LOG: HandLog = { hand: 0, done: false, streets: [], end: null, past: [], prev: null };
 
 const STREET_LOG = ["", "Pre-flop", "Flop", "Turn", "River", ""];
 const chips = (n: bigint | number) => Number(n).toLocaleString("en-US");
@@ -101,7 +113,7 @@ function closeStreet(street: LogStreet, p: TableRead, added: bigint, who: (i: nu
 export function stepHandLog(cur: HandLog, t: TableRead, seat: 0 | 1): HandLog {
   const who = (i: number): LogWho => (i === seat ? "you" : "opponent");
   const p = cur.prev;
-  let L: HandLog = { hand: cur.hand, done: cur.done, streets: cur.streets.map((s) => ({ ...s, rows: [...s.rows] })), end: cur.end, prev: t };
+  let L: HandLog = { hand: cur.hand, done: cur.done, streets: cur.streets.map((s) => ({ ...s, rows: [...s.rows] })), end: cur.end, past: cur.past, prev: t };
   const lh = t.lastHand;
 
   // The hand being logged has ended: record how.
@@ -134,7 +146,8 @@ export function stepHandLog(cur: HandLog, t: TableRead, seat: 0 | 1): HandLog {
 
   if (!isLive(t.phase)) return L;
   if (L.hand !== t.handNo) {
-    L = { hand: t.handNo, done: false, streets: [], end: null, prev: t };
+    const past = L.streets.length > 0 ? [{ hand: L.hand, streets: L.streets, end: L.end }, ...L.past].slice(0, PAST_HANDS) : L.past;
+    L = { hand: t.handNo, done: false, streets: [], end: null, past, prev: t };
     openStreet(L, t.phase, t.board);
     if (t.phase === PHASE.preflop) {
       L.streets[0].rows.push({ who: who(t.dealer), act: "small-blind", amount: t.smallBlind }, { who: who(1 - t.dealer), act: "big-blind", amount: t.bigBlind });
