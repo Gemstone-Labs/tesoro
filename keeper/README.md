@@ -39,7 +39,18 @@ Hosted keys come from env secrets, never from the image: `KEEPER_SECRET_KEY`, `K
 
 ## Alerts
 
-The last job of each pass (`src/alerts.ts`, `src/alerts-job.ts`) emails both founders through the app (`POST <NOTIFY_URL>alert`, `NOTIFY_SECRET`; the app mails `ALERT_EMAILS`, so the Resend key and the recipients stay in the app and the keeper holds no mail secret). Off when `NOTIFY_URL` or `NOTIFY_SECRET` is unset. Three triggers: commits pending longer than `ALERT_COMMIT_PENDING_SECS` (1800); a job that threw `ALERT_JOB_FAILS` (5) passes in a row or had no successful run for `ALERT_JOB_STALE_SECS` (1800); a key under its minimum balance: SOL of the keeper payer, oracle (`ALERT_ORACLE_SOL_ADDRESS`) and relayer (`ALERT_RELAYER_SOL_ADDRESS`) with `ALERT_MIN_SOL_KEEPER|ORACLE|RELAYER` (0.3 / 0.2 / 0.3), and the native balance of the keeper EVM key (`ALERT_KEEPER_EVM_ADDRESS`, default from `KEEPER_EVM_PRIVATE_KEY`) and relayer EVM key (`ALERT_RELAYER_EVM_ADDRESS`) on Ethereum (`ALERT_MIN_ETH_KEEPER|RELAYER`, 0.01) and HyperEVM (`ALERT_MIN_HYPE_KEEPER|RELAYER`, 0.05). A key with no address set is not watched; a balance that cannot be read is skipped. One mail when a condition starts, a reminder at most every `ALERT_REMINDER_SECS` (14400) while it lasts, one "recovered" mail when it clears; a mail the app did not take is retried next pass. State is in memory, so a restart re-announces a condition still active.
+Alert emails go to both founders through the app (`POST <NOTIFY_URL>alert` with `NOTIFY_SECRET`; the app mails `ALERT_EMAILS` through Resend, so the Resend key and the recipients stay in the app and the keeper holds no mail secret). Off when `NOTIFY_URL` or `NOTIFY_SECRET` is unset. The runs that send them:
+
+| Alert | Sent by | When |
+|---|---|---|
+| A key is low on SOL | safety sweep, hourly balance check (`src/balance-check.ts`) | keeper payer, oracle (`ALERT_ORACLE_SOL_ADDRESS`) or relayer (`ALERT_RELAYER_SOL_ADDRESS`) under `ALERT_MIN_SOL_KEEPER|ORACLE|RELAYER` (0.3 / 0.2 / 0.3), plus `ALERT_EXTRA_SOL` accounts |
+| A Game's Sponsor is low | Table-pool repair (every 15 minutes) | under `ALERT_MIN_SPONSOR_LAMPORTS` (100,000,000, about 1,000 commits) |
+| A Match is stuck | safety sweep | a Match the sweep sent to twice is still in the same place |
+| The database missed a Match | safety sweep | a Match that needed the sweep was found only by the hourly chain scan |
+| A Source was skipped | Season run | a step could not act on a Source |
+| A janitor part failed | janitor | one of its parts threw |
+
+Balance alerts mail once when a condition starts, as a reminder every `ALERT_REMINDER_SECS` (14400) while it lasts, and once on recovery. `src/alerts-job.ts` (commits pending, a job failing in a row, EVM key balances) belonged to the removed 20 s loop and has no caller now: a job that stops or fails is caught by the heartbeats below, and nothing yet watches a commit that stays pending on the rollup.
 
 ## Dead-keeper monitor and balance check
 
@@ -47,7 +58,7 @@ The last job of each pass (`src/alerts.ts`, `src/alerts-job.ts`) emails both fou
 
 | Env var | Pinged by | Monitor period / grace |
 |---|---|---|
-| `KEEPER_HEARTBEAT_URL` | the 20 s loop only (once per pass), until ticket 20 removes it | 5 min / 15 min |
+| `KEEPER_HEARTBEAT_URL` | the `tesoro-keeper` service (the devnet price writer, once per 60 s pass) | 5 min / 15 min |
 | `SWEEP_HEARTBEAT_URL` | the safety sweep (every 5 minutes, ping `ok` whether or not a Match is stuck; `fail` when the sweep itself crashed) | 5 min / 15 min |
 | `JANITOR_HEARTBEAT_URL` | the daily janitor (`ok` when every part ran, `fail` when one failed) | 1 day / 6 h |
 | `POOL_HEARTBEAT_URL` | the Table pool repair (every 15 minutes; `fail` when a Game's repair threw) | 15 min / 45 min |
