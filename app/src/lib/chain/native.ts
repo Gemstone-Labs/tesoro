@@ -13,7 +13,7 @@ import { parseNativeRoute, parseTreasury, parseVaultShares, type RouteView, type
 import { SPEEDUP, advanceUnits, positionAccrued, secondsUntilNet, type PositionClock, type StakeGrowth } from "./yield";
 import type { StakeMarket } from "./stake";
 import { coreIx } from "./core-ix";
-import { basketPda, bookPda, spillPda, type LineRef } from "./basket";
+import { TESORO_CORE, basketPda, bookPda, spillPda, type LineRef } from "./basket";
 import { stakeRateHighOf } from "./position-size";
 
 /**
@@ -23,7 +23,7 @@ import { stakeRateHighOf } from "./position-size";
  * Shared with the keeper: web3.js only, relative imports only. Simulated yield: 1 month = ~10 min.
  */
 
-export const TESORO_CORE_ID = new PublicKey("AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh");
+export const TESORO_CORE_ID = TESORO_CORE;
 export const SIM_LST_ID = new PublicKey("WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F");
 export const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 export const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");

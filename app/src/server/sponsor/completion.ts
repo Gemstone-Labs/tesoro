@@ -1,11 +1,13 @@
 import { createHash } from "node:crypto";
 import bs58 from "bs58";
 import { PublicKey, VersionedTransaction, type Connection, type VersionedTransactionResponse, type TransactionInstruction } from "@solana/web3.js";
+import coreIdl from "../../lib/chain/idl/tesoro_core.json";
+import railcarIdl from "../../lib/chain/idl/railcar.json";
 import type { ObservationStore } from "./observed-completion.ts";
 
-const CORE = new PublicKey("AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh");
-/** Railcar's `open_car` creates the car's core Match by CPI (completion.test.ts keeps it equal to the IDL's address). */
-export const RAILCAR = new PublicKey("DJkNxkAogb32VQm1TQMSVCbzHcaV3SDBy5kBmpqaNHxC");
+const CORE = new PublicKey(coreIdl.address);
+/** Railcar's `open_car` creates the car's core Match by CPI. Both ids come from the IDLs the program builds generate. */
+export const RAILCAR = new PublicKey(railcarIdl.address);
 export interface ReservationRef { key: string; generation: string }
 /**
  * Where a held address comes from: a Match is `["match", account, n]` and a Ticket or Pot `["ticket", account, n]`, and the
