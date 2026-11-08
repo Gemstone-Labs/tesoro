@@ -4,6 +4,7 @@
 //! run it with `UPDATE_KEEPER_FIXTURES=1` and commit the file.
 
 use crate::ledger::line_store::{Line, LineStore, CLASS_GENERAL, CLASS_STUDIO, SIDE_OWN, SIDE_WON};
+use crate::ledger::many_seat::{ManySeatRecord, SeatFill};
 use crate::ledger::{BudgetLine, PrizeSeason, SeasonWindow, PRIZE_PLACES};
 use crate::pots::{write_head_fields, HeadFields, TicketExtra, POT_AT, TICKET_HEAD_LEN};
 use crate::state::*;
@@ -229,6 +230,100 @@ fn keeper_fixtures_match_the_program() {
         opened_at: 1_790_000_000,
     };
     out.push(("matchWon".into(), hex(&won.data())));
+
+    // A many-seat car (Railcar's Match), opened, boarded by five and departed, through the
+    // record's own code. The app decodes it in place (`decodeCar`).
+    let (open_ts, depart_ts) = (1_790_000_000, 1_790_000_100);
+    let mut record = ManySeatRecord::open(
+        crate::ledger::lifecycle::MatchId {
+            opener: key(50),
+            n: 7,
+        },
+        crate::ledger::lifecycle::MatchMeta {
+            challenge: false,
+            asset: 0,
+            listed: true,
+        },
+        (key(51), key(52), 100),
+        crate::ledger::lifecycle::Terms {
+            platform_bps: 200,
+            studio_bps: 300,
+            studio_owner: None,
+            studio_priority: true,
+        },
+        500,
+        &[100, 500, 1_000],
+        (5, 100),
+        open_ts,
+    )
+    .unwrap();
+    for i in 0..5 {
+        record.take_seat(open_ts + 10 * i).unwrap();
+    }
+    record.pages = 1;
+    record.depart(depart_ts, &key(52), 100).unwrap();
+    let car = ManySeatMatch {
+        bump: 253,
+        listing_epoch: 3u32.to_le_bytes(),
+        payer: key(53),
+        inner: record,
+    };
+    out.push((
+        "manySeatMatch".into(),
+        hex(&with_disc(
+            ManySeatMatch::DISCRIMINATOR,
+            bytemuck::bytes_of(&car).to_vec(),
+        )),
+    ));
+
+    // A seat page (page 1) whose third seat (seat 12) a Backer funds, filled by the join's own
+    // `Seat::fill`, with its seat key. The sponsor reads the seat key from here.
+    let mut page: SeatPage = bytemuck::Zeroable::zeroed();
+    page.match_key = key(54);
+    page.payer = key(55);
+    page.bump = 252;
+    page.index = 1;
+    page.seats[2].fill(&SeatFill {
+        player: key(56),
+        funder: key(57),
+        signer: key(58),
+        share_bps: 4_000,
+        pot: key(59),
+        pot_lines: 3,
+        hold: 2,
+        counted: Some((500, 1_790_000_000)),
+    });
+    out.push((
+        "seatPage".into(),
+        hex(&with_disc(
+            SeatPage::DISCRIMINATOR,
+            bytemuck::bytes_of(&page).to_vec(),
+        )),
+    ));
+
+    // The seat's mark, as a step-off leaves it while the lines go home.
+    let mut mark: SeatMark = bytemuck::Zeroable::zeroed();
+    mark.bump = 251;
+    mark.seat = 12;
+    mark.returning = 1;
+    mark.set_hold(2);
+    mark.match_key = key(54);
+    mark.account = key(56);
+    mark.payer = key(60);
+    mark.match_seed = crate::ledger::lifecycle::MatchId {
+        opener: key(50),
+        n: 7,
+    }
+    .seed();
+    mark.funder = key(57);
+    mark.pot = key(59);
+    out.push((
+        "seatMark".into(),
+        hex(&with_disc(
+            SeatMark::DISCRIMINATOR,
+            bytemuck::bytes_of(&mark).to_vec(),
+        )),
+    ));
 
     let json = format!(
         "{{\n{}\n}}\n",
