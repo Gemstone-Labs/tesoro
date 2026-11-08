@@ -35,8 +35,7 @@ describe("guide steps", () => {
     });
   });
 
-  // Ticket 05 records the clips; the orchestrator un-skips this after merging them.
-  it.skip("has all 6 clip files for every step on disk (waits for ticket 05)", () => {
+  it("has all 6 clip files for every step on disk", () => {
     for (const g of GAMES) {
       for (let n = 1; n <= 5; n++) {
         for (const set of ["phone", "desktop"] as const) {

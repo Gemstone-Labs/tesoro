@@ -1,5 +1,6 @@
 "use client";
 
+import { practiceSeed } from "@/lib/practice-seed";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useGuideHidden } from "@/components/guide/Guide";
 import { Button, CountUp, GemaMark, Label } from "@/components/ui";
@@ -230,7 +231,8 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
   }, [setPreview, scorePresentation, resetEffects]);
 
   const start = () => {
-    const seed = run ? run.seed : randomSeed();
+    const fixed = practiceSeed();
+    const seed = run ? run.seed : fixed !== undefined ? BigInt(Math.abs(fixed)) : randomSeed();
     resetEffects();
     scorePresentation.reset();
     const initial = { st: run?.resume ?? newState(seed), colors: Array<number>(64).fill(NO_COLOR), lines: 0, gemsCleared: 0 };
