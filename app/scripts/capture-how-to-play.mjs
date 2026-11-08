@@ -132,13 +132,17 @@ function bpBest({ occ, pieces }, top = false) {
 }
 
 /** Drags the piece onto the board so its top-left cell lands on (x, y). Returns once the piece is used. */
-async function bpPlace(page, move) {
+async function bpPlace(page, move, m) {
   const slot = page.locator(".bp-slot").nth(move.piece.i);
   const from = await centre(page, `.bp-slot:nth-child(${move.piece.i + 1})`) ?? (await slot.boundingBox().then((b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 })));
   const first = await page.locator(".bp-board .bp-cell").nth(move.y * 8 + move.x).boundingBox();
   const last = await page.locator(".bp-board .bp-cell").nth((move.y + move.h - 1) * 8 + move.x + move.w - 1).boundingBox();
   const to = { x: (first.x + last.x + last.width) / 2, y: (first.y + last.y + last.height) / 2 };
+  // an arrow from the piece to where it lands, drawn just before the drag
+  const arrow = m ? await m.add({ kind: "arrow", target: `.bp-slot:nth-child(${move.piece.i + 1})`, to: `.bp-board .bp-cell:nth-child(${move.y * 8 + move.x + 1})` }) : null;
+  if (m) await sleep(650);
   await drag(page, from, to);
+  if (m) await m.remove(arrow);
   await sleep(500);
 }
 
@@ -370,7 +374,7 @@ async function vgUntilBlast(page) {
 }
 
 /** Plays Recon runs, planned by search from the live board, until one takes the Supply Truck. Returns false when the plan cannot work. */
-async function vgCaptureTruck(page, seed, stopAt = 0) {
+async function vgCaptureTruck(page, seed, stopAt = 0, m = null) {
   for (let turn = 0; turn < 5; turn++) {
     await vgMyTurn(page);
     await sleep(350);
@@ -393,9 +397,29 @@ async function vgCaptureTruck(page, seed, stopAt = 0) {
       return true;
     }
     console.log(`  truck: turn ${turn} truck ${truck.r},${truck.c} plan ${best.plan.turns} via ${best.plan.first.r},${best.plan.first.c}`);
-    const marks = await vgTap(page, best.r.i);
+    const runs = await vgTap(page, best.r.i);
+    if (m && best.plan.turns === 1) {
+      // name the Recon and the Truck, then draw the run just before it happens
+      const tb = await page.locator('[data-htp="b"]').boundingBox();
+      const ids = [
+        await m.add({ kind: "ring", target: '[data-htp="a"]', shape: "circle", pad: 4 }),
+        await m.add({ kind: "label", target: '[data-htp="a"]', text: "Recon", side: "left", gap: 12 }),
+        await m.add({ kind: "ring", target: '[data-htp="b"]', shape: "circle", pad: 4 }),
+        await m.add({ kind: "label", target: '[data-htp="b"]', text: "Enemy Truck", side: "left", gap: 12 }),
+      ];
+      await sleep(1500);
+      for (const id of ids) await m.remove(id);
+      await sleep(250);
+      const arrow = await m.add({ kind: "arrow", target: '[data-htp="a"]', to: '[data-htp="b"]' });
+      await sleep(700);
+      await vgGo(page, runs, best.plan.first.r, best.plan.first.c);
+      await m.remove(arrow);
+      await m.show({ kind: "label", target: { x: tb.x, y: tb.y, w: tb.width, h: tb.height }, text: "Truck captured", side: "left", gap: 12 }, 1300);
+      await sleep(1500);
+      return true;
+    }
     await sleep(1000);
-    await vgGo(page, marks, best.plan.first.r, best.plan.first.c);
+    await vgGo(page, runs, best.plan.first.r, best.plan.first.c);
     await sleep(1000);
     if (best.plan.turns === 1) {
       await sleep(2800);
@@ -445,8 +469,167 @@ async function tdPick(page, c, k) {
 }
 
 /** Tags the cell of column c, band k so the recorder can frame it. */
-async function tdMark(page, c, k) {
-  await page.evaluate(([col, band]) => [...document.querySelectorAll(".tg-cell")].find((e) => e.dataset.cell === `${col}_${band}`)?.setAttribute("data-htp", "pick"), [c, k]);
+async function tdMark(page, c, k, name = "pick") {
+  await page.evaluate(([col, band, id]) => [...document.querySelectorAll(".tg-cell")].find((e) => e.dataset.cell === `${col}_${band}`)?.setAttribute("data-htp", id), [c, k, name]);
+}
+
+// ---------------------------------------------------------------- teaching marks (callouts)
+
+/**
+ * Teaching marks drawn on top of the game while it records: rings, arrows and short labels, injected into the page so they sit on the
+ * real elements (they follow pieces that move) and stay crisp. They are marks, not game UI: off-white strokes and text on a near-black
+ * plate with cut corners, emerald only for points. Sizes are given in OUTPUT pixels and scaled by the crop, so a label reads at
+ * `LABEL_PX` in the finished clip whatever the zoom.
+ */
+const LABEL_PX = 20;
+
+const OVERLAY_JS = `(() => {
+  if (window.__htp) return;
+  const INK = "#EAEFEC", PLATE = "rgba(9,13,15,.85)", EMERALD = "#24D8A8", SHADOW = "rgba(9,13,15,.8)";
+  const items = new Map();
+  let root = null, svg = null, n = 0, u = 1, raf = 0;
+  const font = () => getComputedStyle(document.body).fontFamily;
+  const mount = () => {
+    if (root) return;
+    root = document.createElement("div");
+    root.setAttribute("aria-hidden", "true");
+    root.style.cssText = "position:fixed;inset:0;z-index:2147483647;pointer-events:none;overflow:hidden";
+    svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.style.cssText = "position:absolute;inset:0;width:100%;height:100%;overflow:visible";
+    root.appendChild(svg);
+    document.documentElement.appendChild(root);
+  };
+  const rectOf = (t) => {
+    if (t && typeof t === "object" && !Array.isArray(t)) return { l: t.x, t: t.y, r: t.x + t.w, b: t.y + t.h };
+    let box = null;
+    for (const spec of [].concat(t)) {
+      const [sel, pick] = spec.split("|");
+      const all = [...document.querySelectorAll(sel)];
+      for (const e of pick === "last" ? all.slice(-1) : pick === "first" ? all.slice(0, 1) : all) {
+        const r = e.getBoundingClientRect();
+        if (r.width < 2 || r.height < 2) continue;
+        box = box ? { l: Math.min(box.l, r.left), t: Math.min(box.t, r.top), r: Math.max(box.r, r.right), b: Math.max(box.b, r.bottom) } : { l: r.left, t: r.top, r: r.right, b: r.bottom };
+      }
+    }
+    return box;
+  };
+  const cut = (c) => "polygon(" + c + "px 0,100% 0,100% calc(100% - " + c + "px)," + "calc(100% - " + c + "px) 100%,0 100%,0 " + c + "px)";
+  const make = (s) => {
+    const el = document.createElement("div");
+    el.style.cssText = "position:absolute;opacity:0;transform:scale(.92);transition:opacity .18s ease,transform .18s ease;transform-origin:center";
+    if (s.kind === "label") {
+      const c = 8 * u, line = 2 * u;
+      el.style.clipPath = cut(c);
+      el.style.background = INK;
+      el.style.padding = line + "px";
+      const inner = document.createElement("div");
+      inner.textContent = s.text;
+      inner.style.cssText = "background:" + PLATE + ";clip-path:" + cut(c - line * 0.6) + ";color:" + (s.emerald ? EMERALD : INK) + ";font:800 " + (s.px * u) + "px/1.1 " + font() + ";letter-spacing:.01em;white-space:nowrap;padding:" + 6 * u + "px " + 12 * u + "px";
+      el.appendChild(inner);
+    } else if (s.kind === "ring") {
+      const w = (s.stroke || 3) * u;
+      el.style.border = w + "px solid " + INK;
+      el.style.boxShadow = "0 0 0 " + 1.5 * u + "px " + SHADOW + ", inset 0 0 0 " + 1.5 * u + "px " + SHADOW;
+      el.style.borderRadius = s.shape === "circle" ? "50%" : 8 * u + "px";
+      el.style.boxSizing = "border-box";
+    } else if (s.kind === "arrow") {
+      const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      g.style.cssText = "opacity:0;transition:opacity .18s ease";
+      const mk = (tag, attrs) => { const e = document.createElementNS("http://www.w3.org/2000/svg", tag); for (const k in attrs) e.setAttribute(k, attrs[k]); g.appendChild(e); return e; };
+      const w = 4 * u;
+      s.parts = { back: mk("line", { stroke: SHADOW, "stroke-width": w + 3 * u, "stroke-linecap": "round" }), line: mk("line", { stroke: INK, "stroke-width": w, "stroke-linecap": "round" }), headBack: mk("polygon", { fill: SHADOW, stroke: SHADOW, "stroke-width": 3 * u, "stroke-linejoin": "round" }), head: mk("polygon", { fill: INK }) };
+      svg.appendChild(g);
+      s.g = g;
+      return null;
+    }
+    root.appendChild(el);
+    return el;
+  };
+  const place = (s) => {
+    const r = rectOf(s.target);
+    if (!r) { if (s.el) s.el.style.opacity = "0"; if (s.g) s.g.style.opacity = "0"; return; }
+    if (s.kind === "ring") {
+      const pad = (s.pad ?? 5) * u;
+      let l = r.l - pad, t = r.t - pad, w = r.r - r.l + 2 * pad, h = r.b - r.t + 2 * pad;
+      if (s.shape === "circle") { const d = Math.max(w, h); l -= (d - w) / 2; t -= (d - h) / 2; w = h = d; }
+      Object.assign(s.el.style, { left: l + "px", top: t + "px", width: w + "px", height: h + "px" });
+    } else if (s.kind === "label") {
+      const w = s.el.offsetWidth, h = s.el.offsetHeight, gap = (s.gap ?? 10) * u;
+      let l = (r.l + r.r) / 2 - w / 2, t = (r.t + r.b) / 2 - h / 2;
+      if (s.side === "above") t = r.t - h - gap;
+      else if (s.side === "below") t = r.b + gap;
+      else if (s.side === "left") l = r.l - w - gap;
+      else if (s.side === "right") l = r.r + gap;
+      l += (s.dx || 0) * u; t += (s.dy || 0) * u;
+      const m = 6 * u;
+      l = Math.min(Math.max(l, m), innerWidth - w - m);
+      Object.assign(s.el.style, { left: l + "px", top: t + "px" });
+    } else if (s.kind === "arrow") {
+      const q = rectOf(s.to);
+      if (!q) return;
+      const ax = (r.l + r.r) / 2, ay = (r.t + r.b) / 2, bx = (q.l + q.r) / 2, by = (q.t + q.b) / 2;
+      const len = Math.hypot(bx - ax, by - ay) || 1, ux = (bx - ax) / len, uy = (by - ay) / len;
+      const start = (s.startGap ?? 18) * u, end = (s.endGap ?? 14) * u, head = 16 * u;
+      const x1 = ax + ux * start, y1 = ay + uy * start, x2 = bx - ux * end, y2 = by - uy * end;
+      const bxh = x2 - ux * head, byh = y2 - uy * head, px = -uy * head * 0.55, py = ux * head * 0.55;
+      const p = s.parts;
+      for (const e of [p.back, p.line]) { e.setAttribute("x1", x1); e.setAttribute("y1", y1); e.setAttribute("x2", bxh); e.setAttribute("y2", byh); }
+      const pts = x2 + "," + y2 + " " + (bxh + px) + "," + (byh + py) + " " + (bxh - px) + "," + (byh - py);
+      p.head.setAttribute("points", pts); p.headBack.setAttribute("points", pts);
+    }
+  };
+  const tick = () => { for (const s of items.values()) place(s); raf = requestAnimationFrame(tick); };
+  window.__htp = {
+    add(spec, scale) {
+      mount();
+      u = scale;
+      const s = { ...spec, id: ++n };
+      s.el = make(s);
+      items.set(s.id, s);
+      place(s);
+      if (!raf) raf = requestAnimationFrame(tick);
+      requestAnimationFrame(() => requestAnimationFrame(() => { if (s.el) { s.el.style.opacity = "1"; s.el.style.transform = "scale(1)"; } if (s.g) s.g.style.opacity = "1"; }));
+      return s.id;
+    },
+    remove(id) {
+      const s = items.get(id);
+      if (!s) return;
+      items.delete(id);
+      if (s.el) { s.el.style.opacity = "0"; s.el.style.transform = "scale(.92)"; setTimeout(() => s.el.remove(), 220); }
+      if (s.g) { s.g.style.opacity = "0"; setTimeout(() => s.g.remove(), 220); }
+    },
+    clear() { for (const id of [...items.keys()]) this.remove(id); },
+  };
+})();`;
+
+/**
+ * Marks for one take. `info.k` (output px per CSS px of the crop) sets their size. add() puts one up (it fades in over 180 ms) and
+ * returns its id; remove() fades it out; show() does both around a hold of `ms` (at least 1.2 s to be read).
+ */
+function marks(page, info) {
+  const u = 1 / (info.k ?? 1);
+  const px = (v) => v;
+  return {
+    add: (spec) => page.evaluate(([s, scale]) => window.__htp.add(s, scale), [{ px: LABEL_PX, ...spec }, u]),
+    remove: (id) => page.evaluate((i) => window.__htp.remove(i), id),
+    async show(spec, ms = 1600) {
+      const ids = [];
+      for (const one of [].concat(spec)) ids.push(await this.add(one));
+      await sleep(ms);
+      for (const id of ids) await this.remove(id);
+      await sleep(200);
+    },
+    /** After `delay` ms, shows every spec in `specs` together for `hold` ms. Not awaited by the caller: it runs beside the play. */
+    async at(delay, specs, hold = 1800) {
+      await sleep(delay);
+      const ids = [];
+      for (const spec of [].concat(specs)) ids.push(await this.add(spec));
+      await sleep(hold);
+      for (const id of ids) await this.remove(id);
+    },
+    clear: () => page.evaluate(() => window.__htp?.clear()),
+    px,
+  };
 }
 
 // ---------------------------------------------------------------- the clips
@@ -484,6 +667,24 @@ const RESULT_PAD = { phone: 50, desktop: 70 };
 /** Vanguard camera helper: the whole board, with the top of the board below the progress bars and the foot under the words. */
 const VG_WHOLE_BOARD = { phone: [0.02, 0.74], desktop: [0.12, 0.98] };
 
+/** A label, with a ring round its target when `ring` is set (`circle` or the default rounded rectangle). */
+const tag = (target, text, side, o = {}) => [
+  ...(o.ring ? [{ kind: "ring", target, shape: o.ring === "circle" ? "circle" : "rect", pad: o.pad }] : []),
+  { kind: "label", target, text, side, gap: o.gap, dx: o.dx, dy: o.dy, emerald: o.emerald },
+];
+
+/** The pieces of the Italian army by position, to tell which one moved. */
+const vgPositions = (page) => page.evaluate(() => [...document.querySelectorAll(".vg-piece.it")].map((e) => `${e.style.left}|${e.style.top}`));
+
+/** Tags the Italian piece that moved since `before` with data-htp="bot". */
+const vgTagMoved = (page, before) => page.evaluate((b) => {
+  const els = [...document.querySelectorAll(".vg-piece.it")];
+  const i = els.findIndex((e, k) => `${e.style.left}|${e.style.top}` !== b[k] && !e.classList.contains("gone"));
+  if (i < 0) return false;
+  els[i].setAttribute("data-htp", "bot");
+  return true;
+}, before);
+
 const GAMES = {
   "block-puzzle": {
     // the bottom four rows of the board and the piece tray: where pieces land, inside the clear band
@@ -493,49 +694,74 @@ const GAMES = {
       1: {
         route: "/design/play?dev=demo",
         prep: (page) => page.waitForSelector(".bp-board"),
-        act: async (page) => {
+        act: async (page, info) => {
+          const m = marks(page, info);
+          await m.show(tag(".bp-slot", "Same pieces", "above", { ring: "rect", pad: 6, gap: 16 }), 1900);
           for (let n = 0; n < 2; n++) {
-            const move = bpBest(await bpRead(page));
-            if (!move) break;
-            await bpPlace(page, move);
+            const state = await bpRead(page);
+            const move = bpBest(state);
+            if (!move) { console.log("  bp1: no move", JSON.stringify(state.pieces.map((p) => p.cells.length))); break; }
+            await bpPlace(page, move, m);
           }
           await sleep(600);
         },
       },
       2: {
         prep: bpWaitPlaying,
-        act: async (page) => {
+        act: async (page, info) => {
+          const m = marks(page, info);
+          const first = m.at(0, { kind: "label", target: ".bp-slot|first", text: "Drag to place", side: "above", gap: 14 }, 1700);
           for (let n = 0; n < 3; n++) {
             const move = bpBest(await bpRead(page));
             if (!move) break;
-            await bpPlace(page, move);
+            await bpPlace(page, move, m);
           }
+          await first;
         },
       },
       3: {
         prep: async (page) => { await bpWaitPlaying(page); page.__move = await bpUntilClear(page); },
-        act: async (page) => {
+        act: async (page, info) => {
           if (!page.__move) return false;
-          await bpPlace(page, page.__move);
-          await sleep(2200);
+          const m = marks(page, info);
+          const mv = page.__move;
+          const row = [`.bp-board .bp-cell:nth-child(${mv.y * 8 + 1})`, `.bp-board .bp-cell:nth-child(${mv.y * 8 + 8})`];
+          await m.show(tag(row, "Fill the line", "above", { ring: "rect", pad: 4, gap: 12 }), 1700);
+          await bpPlace(page, mv, m);
+          await m.show({ kind: "label", target: row, text: "Full line", side: "above", gap: 12 }, 1700);
         },
         poster: 0.7,
       },
       // Practice has no opponent: the closest real screen is your own score and the clock counting while you play
       4: {
         prep: bpWaitPlaying,
-        act: async (page) => {
+        act: async (page, info) => {
+          const m = marks(page, info);
+          const score = m.at(300, tag(".bp-score-n", "Score", "right", { ring: "rect", pad: 4, gap: 12 }), 2400);
+          const clock = m.at(3200, tag('[role="timer"]', "Clock", "right", { ring: "circle", pad: 3, gap: 12 }), 2200);
           for (let n = 0; n < 4; n++) {
             const move = bpBest(await bpRead(page), true);
             if (!move) break;
             await bpPlace(page, move);
           }
+          await Promise.all([score, clock]);
         },
         focus: [".bp-score-n", '[role="timer"]', ".bp-board .bp-cell:nth-child(-n+16)"],
-        pad: { phone: 0, desktop: 40 },
+        pad: { phone: 0, desktop: 100 },
       },
       // the Match result screen on fixtures: the higher score takes the Pot minus Fees
-      5: { route: "/design/result?case=won&dev=demo", focus: RESULT_FOCUS, pad: RESULT_PAD, prep: () => sleep(1500), act: async () => { await sleep(5000); } },
+      5: {
+        route: "/design/result?case=won&dev=demo",
+        focus: RESULT_FOCUS,
+        pad: RESULT_PAD,
+        prep: () => sleep(1500),
+        act: async (page, info) => {
+          const m = marks(page, info);
+          const l = m.at(900, { kind: "label", target: ".mr-amount", text: "Higher score wins", side: "below", gap: 14 }, 2800);
+          await sleep(5000);
+          await l;
+        },
+      },
     },
   },
   holdem: {
@@ -552,20 +778,30 @@ const GAMES = {
             { focus: { phone: [".hd-plaque-text|last"], desktop: [".hdx-pot", ".hdx-board", ".hd-cards|last"] }, pad: { phone: 100, desktop: 20 }, at: 0.85 },
           ],
         },
-        act: async () => { await sleep(7000); },
+        act: async (page, info) => {
+          const m = marks(page, info);
+          const a = m.at(500, tag(".hd-stack|first", "Bot stack", "right", { ring: "rect", pad: 5, gap: 14 }), 2400);
+          const b = m.at(4400, tag(".hd-stack|last", "Your stack", "right", { ring: "rect", pad: 5, gap: 14 }), 2400);
+          await sleep(7000);
+          await Promise.all([a, b]);
+        },
       },
       // your two cards, then the shared cards dealt after you call; the Bot's two stay face down
       2: {
         prep: (page) => hdWaitMyTurn(page),
         pad: { phone: 20, desktop: 40 },
-        act: async (page) => {
+        act: async (page, info) => {
+          const m = marks(page, info);
+          const mine = m.at(300, tag(".hd-cards|last", "Your cards", "above", { ring: "rect", pad: 5, gap: 14 }), 1900);
           const start = Date.now();
           while ((await hdBoardCards(page)) < 3 && Date.now() - start < 14000) {
             const pass = page.locator(".hdx-btn", { hasText: /^(Call|Check)/ });
             if (await pass.isEnabled().catch(() => false)) { await sleep(1100); await pass.click().catch(() => {}); }
             await sleep(400);
           }
+          const shared = m.at(900, tag(".hdx-board", "Shared cards", "above", { ring: "rect", pad: 5, gap: 14 }), 2400);
           await sleep(3800);
+          await Promise.all([mine, shared]);
         },
       },
       // the four actions: pick two raise sizes, then call
@@ -573,20 +809,25 @@ const GAMES = {
         prep: (page) => hdWaitMyTurn(page),
         focus: [".hdx-actions"],
         pad: { phone: 60, desktop: 60 },
-        act: async (page) => {
+        act: async (page, info) => {
+          const m = marks(page, info);
+          const clock = m.at(200, tag(".hdx-actions", "30 s to act", "below", { ring: "rect", pad: 4, gap: 12 }), 1900);
+          const sizes = m.at(2300, tag(".hd-presets", "Raise size", "above", { gap: 12 }), 2400);
           for (const size of ["+400", "+600", "+200"]) {
             await page.locator(".hd-preset", { hasText: size }).first().click({ timeout: 2000 }).catch(() => {});
             await sleep(1300);
           }
           await page.locator(".hdx-btn", { hasText: /^Call/ }).first().click({ timeout: 2000 }).catch(() => {});
           await sleep(1800);
+          await Promise.all([clock, sizes]);
         },
       },
       4: {
         pad: { phone: 20, desktop: 40 },
         maxSecs: 11,
         prep: (page) => hdUntilBoard(page, 5),
-        act: async (page) => {
+        act: async (page, info) => {
+          const m = marks(page, info);
           const start = Date.now();
           while (Date.now() - start < 22000) {
             const pass = page.locator(".hdx-btn", { hasText: /^(Call|Check)/ });
@@ -595,11 +836,24 @@ const GAMES = {
             if (won) break;
             await sleep(250);
           }
+          const best = m.at(300, tag(".hdx-board", "Best five", "above", { ring: "rect", pad: 5, gap: 14 }), 2600);
           await sleep(3000);
+          await best;
         },
       },
       // the Match result screen on fixtures (a Practice game has no Pot)
-      5: { route: "/design/result?case=holdem-won&dev=demo", focus: RESULT_FOCUS, pad: RESULT_PAD, prep: () => sleep(1500), act: async () => { await sleep(5000); } },
+      5: {
+        route: "/design/result?case=holdem-won&dev=demo",
+        focus: RESULT_FOCUS,
+        pad: RESULT_PAD,
+        prep: () => sleep(1500),
+        act: async (page, info) => {
+          const m = marks(page, info);
+          const l = m.at(900, { kind: "label", target: ".mr-amount", text: "Last stack wins", side: "below", gap: 14 }, 2800);
+          await sleep(5000);
+          await l;
+        },
+      },
     },
   },
   "trading-duel": {
@@ -615,26 +869,52 @@ const GAMES = {
             { focus: [".tg-head-dot"], pad: { phone: 130, desktop: 200 }, at: 0.7 },
           ],
         },
-        act: async () => { await sleep(7500); },
+        act: async (page, info) => {
+          const m = marks(page, info);
+          const a = m.at(300, { kind: "label", target: ".tg-strip-clock", text: "Head start", side: "below", gap: 14 }, 2200);
+          const b = m.at(4400, tag(".tg-head-dot", "Live price", "above", { ring: "circle", pad: 8, gap: 16 }), 2600);
+          await sleep(7500);
+          await Promise.all([a, b]);
+        },
       },
       // tap one box in each column (the row the line starts in, so the boxes sit beside the line)
       2: {
         prep: tdWaitStart,
         pad: { phone: 130, desktop: 200 },
-        act: async (page) => {
-          for (const c of [0, 1, 2]) { await tdPick(page, c, 0); await sleep(1700); }
-          await sleep(1200);
+        act: async (page, info) => {
+          const m = marks(page, info);
+          const rings = [];
+          for (const c of [0, 1, 2]) {
+            await tdMark(page, c, 0, `pick${c}`);
+            await tdPick(page, c, 0);
+            rings.push(await m.add({ kind: "ring", target: `[data-htp="pick${c}"]`, pad: 3 }));
+            if (c === 0) rings.push(await m.add({ kind: "label", target: `[data-htp="pick0"]`, text: "Your pick", side: "above", gap: 12 }));
+            await sleep(c === 0 ? 1900 : 1500);
+            if (c === 0) await m.remove(rings.pop());
+          }
+          await sleep(900);
+          for (const id of rings) await m.remove(id);
+          await sleep(250);
         },
       },
       // a column locks: the picks turn into locked chips
       3: {
-        prep: async (page) => { await tdWaitStart(page); await tdPick(page, 0, 0); await tdUntil(page, 13); },
+        prep: async (page) => { await tdWaitStart(page); await tdMark(page, 0, 0, "pick0"); await tdPick(page, 0, 0); await tdUntil(page, 13); },
         pad: { phone: 130, desktop: 200 },
-        act: async (page) => { await tdPick(page, 1, 0); await tdUntil(page, 24); },
+        act: async (page, info) => {
+          const m = marks(page, info);
+          await tdMark(page, 1, 0, "pick1");
+          await tdPick(page, 1, 0);
+          const hidden = m.at(200, tag('[data-htp="pick1"]', "Hidden", "above", { ring: "rect", pad: 3, gap: 12 }), 2000);
+          await tdUntil(page, 20);
+          const locks = m.at(0, tag('[data-htp="pick0"]', "Locks in", "above", { ring: "rect", pad: 3, gap: 12 }), 2400);
+          await tdUntil(page, 24);
+          await Promise.all([hidden, locks]);
+        },
       },
       // the line runs through your box: 100 points on the score
       4: {
-        prep: async (page, { seed }) => { await tdWaitStart(page); await tdPickAt(page, 0, 35, seed); await tdMark(page, 0, await tdBand(35, seed)); await tdUntil(page, 30); },
+        prep: async (page, { seed }) => { await tdWaitStart(page); await tdPickAt(page, 0, 35, seed); await tdMark(page, 0, await tdBand(35, seed), "pick"); await tdUntil(page, 30); },
         focus: ['[data-htp="pick"]'],
         pad: { phone: 150, desktop: 200 },
         camera: {
@@ -644,11 +924,29 @@ const GAMES = {
           ],
         },
         maxSecs: 11,
-        act: async (page) => { await tdUntil(page, 42); },
+        act: async (page, info) => {
+          const m = marks(page, info);
+          const box = m.at(200, tag('[data-htp="pick"]', "Your box", "above", { ring: "rect", pad: 4, gap: 12 }), 2400);
+          await tdUntil(page, 38);
+          const points = m.at(0, { kind: "label", target: ".tg-score|first", text: "+100", side: "below", gap: 14, emerald: true }, 2200);
+          await tdUntil(page, 42);
+          await Promise.all([box, points]);
+        },
         poster: 0.8,
       },
       // the Match result screen on fixtures (a Practice game has no Pot)
-      5: { route: "/design/result?case=trading-duel-won&dev=demo", focus: RESULT_FOCUS, pad: RESULT_PAD, prep: () => sleep(1500), act: async () => { await sleep(5000); } },
+      5: {
+        route: "/design/result?case=trading-duel-won&dev=demo",
+        focus: RESULT_FOCUS,
+        pad: RESULT_PAD,
+        prep: () => sleep(1500),
+        act: async (page, info) => {
+          const m = marks(page, info);
+          const l = m.at(900, { kind: "label", target: ".mr-amount", text: "More points wins", side: "below", gap: 14 }, 2800);
+          await sleep(5000);
+          await l;
+        },
+      },
     },
   },
   vanguard: {
@@ -665,7 +963,13 @@ const GAMES = {
             { focus: [".vg-piece.it"], pad: { phone: 20, desktop: 10 }, at: 0.85 },
           ],
         },
-        act: async () => { await sleep(7500); },
+        act: async (page, info) => {
+          const m = marks(page, info);
+          const mine = m.at(300, tag(".vg-piece.us", "Your army", "above", { ring: "rect", pad: 5, gap: 14 }), 2600);
+          const theirs = m.at(4600, tag(".vg-piece.it", "Hidden enemy", "below", { ring: "rect", pad: 5, gap: 14 }), 2800);
+          await sleep(7500);
+          await Promise.all([mine, theirs]);
+        },
       },
       // the ring round your name runs down while you pick a move; then the view widens and the bot answers
       2: {
@@ -680,24 +984,53 @@ const GAMES = {
             { focus: [".vg-board"], pad: 0, band: VG_WHOLE_BOARD, at: 0.88 },
           ],
         },
-        act: async (page) => {
-          await sleep(5200);
+        act: async (page, info) => {
+          const m = marks(page, info);
+          const clock = await m.add(tag(".vg-plate.us .vg-ava", "10 s", "above", { gap: 12 }).at(-1));
+          const ring = await m.add({ kind: "ring", target: ".vg-plate.us .vg-ava", shape: "circle", pad: 4 });
+          await sleep(4300);
+          await m.remove(clock);
+          await m.remove(ring);
+          await sleep(300);
+          const before = await vgPositions(page);
           const mv = await vgSelect(page);
-          if (mv) await mv.mark.click({ force: true, timeout: 1500 }).catch(() => {});
-          await sleep(900);
+          if (mv) {
+            const to = await mv.mark.boundingBox();
+            const arrow = await m.add({ kind: "arrow", target: ".vg-piece.us.sel", to: { x: to.x, y: to.y, w: to.width, h: to.height } });
+            await sleep(900);
+            await mv.mark.click({ force: true, timeout: 1500 }).catch(() => {});
+            await sleep(300);
+            await m.remove(arrow);
+          }
+          await sleep(500);
           await waitFor(page, () => document.querySelector(".vg-turn")?.textContent?.includes("Your turn"), 8000).catch(() => {});
-          await sleep(600);
+          if (await vgTagMoved(page, before)) await m.show(tag('[data-htp="bot"]', "Bot moves", "below", { ring: "circle", pad: 4, gap: 12 }), 1700);
+          else await sleep(600);
         },
       },
       // a high rank attacks a lower one, known from the seeded setup: the clash flips the loser face up and ours stays
       3: {
         prep: async (page, { seed }) => { page.__win = await vgUntilWin(page, seed); if (!page.__win) throw new Error("no winning attack reached"); },
         // the attacker is still selected from prep: attack at once, before the turn clock runs out
-        act: async (page) => {
+        act: async (page, info) => {
+          const m = marks(page, info);
           const enemies = (await vgEnemies(page)).length;
-          await sleep(700);
+          const mine = (await page.locator(".vg-piece.us.sel").first().getAttribute("aria-label").catch(() => "")).match(/^US (\d+|10) /)?.[1] ?? "";
+          const to = await page.__win.boundingBox();
+          const spot = { x: to.x, y: to.y, w: to.width, h: to.height };
+          const ring = await m.add(tag(".vg-piece.us.sel", mine ? `Your ${mine}` : "Your piece", "above", { ring: "circle", pad: 4, gap: 12 })[0]);
+          const label = await m.add({ kind: "label", target: ".vg-piece.us.sel", text: mine ? `Your ${mine}` : "Your piece", side: "above", gap: 12 });
+          await sleep(1100);
+          const arrow = await m.add({ kind: "arrow", target: ".vg-piece.us.sel", to: spot });
+          await sleep(500);
           await page.__win.click({ force: true, timeout: 1500 }).catch(() => {});
-          await sleep(4200);
+          await m.remove(arrow);
+          await m.remove(ring);
+          await m.remove(label);
+          await sleep(1300);
+          const lost = await page.evaluate(() => [...document.querySelectorAll(".vg-piece.it.gone")].map((e) => e.getAttribute("aria-label")?.match(/^Italian (\d+|B|F) /)?.[1]).filter(Boolean).at(-1) ?? null);
+          await m.show({ kind: "label", target: spot, text: lost ? `${lost} revealed` : "Lower rank", side: "above", gap: 12 }, 1300);
+          await m.show({ kind: "label", target: spot, text: mine ? `${mine} wins` : "You win", side: "below", gap: 12 }, 1300);
           return (await vgEnemies(page)).length === enemies - 1;
         },
         // close on the clash: the attacker and its target, with a few squares round them
@@ -715,18 +1048,30 @@ const GAMES = {
         camera: {
           keys: [
             { focus: ['[data-htp="eng"]'], pad: { phone: 90, desktop: 150 }, at: 0.2 },
-            { focus: [".vg-plate.us", ".vg-power"], pad: { phone: 40, desktop: 60 }, at: 0.36 },
-            { focus: [".vg-plate.us", ".vg-power"], pad: { phone: 40, desktop: 60 }, at: 0.47 },
-            { focus: ['[data-htp="eng"]'], pad: { phone: 90, desktop: 150 }, at: 0.62 },
+            { focus: [".vg-plate.us", ".vg-power"], pad: { phone: 40, desktop: 60 }, at: 0.34 },
+            { focus: [".vg-plate.us", ".vg-power"], pad: { phone: 40, desktop: 60 }, at: 0.49 },
+            { focus: ['[data-htp="eng"]'], pad: { phone: 90, desktop: 150 }, at: 0.64 },
           ],
         },
-        act: async (page) => {
+        act: async (page, info) => {
+          const m = marks(page, info);
+          const eb = await page.locator('[data-htp="eng"]').boundingBox();
           await vgTap(page, page.__eng);
+          const eng = await m.add({ kind: "ring", target: '[data-htp="eng"]', shape: "circle", pad: 5 });
+          const engLabel = await m.add({ kind: "label", target: '[data-htp="eng"]', text: "Engineer", side: "above", gap: 30 });
           await sleep(1700);
+          await m.remove(eng);
+          await m.remove(engLabel);
           await sleep(1300);
-          await sleep(900);
+          const power = await m.add({ kind: "ring", target: ".vg-power" });
+          const powerLabel = await m.add({ kind: "label", target: ".vg-power", text: "Blast", side: "above", gap: 12 });
+          await sleep(1400);
           await page.locator(".vg-power").first().click({ force: true, timeout: 1500 });
-          await sleep(4200);
+          await m.remove(power);
+          await m.remove(powerLabel);
+          await sleep(900);
+          await m.show({ kind: "label", target: { x: eb.x - eb.width, y: eb.y - eb.height, w: eb.width * 3, h: eb.height * 3 }, text: "Squares revealed", side: "above", gap: 14 }, 2200);
+          await sleep(1000);
         },
         reseed: true,
         poster: 0.85,
@@ -739,8 +1084,18 @@ const GAMES = {
         maxSecs: 10,
         // seed 41 deals a Recon with a clear straight run to the Truck (found by search over the seeded setups)
         seed: 41,
-        act: async (page, { seed }) => vgCaptureTruck(page, seed),
-        after: { route: "/design/result?case=vanguard-won&dev=demo", focus: RESULT_FOCUS, pad: RESULT_PAD, secs: 3200, speed: 1 },
+        act: async (page, info) => vgCaptureTruck(page, info.seed, 0, marks(page, info)),
+        after: {
+          route: "/design/result?case=vanguard-won&dev=demo",
+          focus: RESULT_FOCUS,
+          pad: RESULT_PAD,
+          secs: 3200,
+          speed: 1,
+          run: async (page, info) => {
+            const m = marks(page, info);
+            await m.at(700, { kind: "label", target: ".mr-amount", text: "Wins the Pot", side: "below", gap: 14 }, 2200);
+          },
+        },
         poster: 0.85,
       },
     },
@@ -826,6 +1181,7 @@ async function capture(ctx, page, set, dir, def, fn, info) {
       camera.push({ at: k.at, rect: await cropFor(page, forSet(k.focus, info.set), set, typeof pad === "number" ? pad : undefined, Array.isArray(k.band) ? k.band : k.band?.[info.set]) });
     }
   }
+  info.k = set.out[0] / Math.max(crop.w, ...(camera ?? []).map((c) => c.rect.w));
   mkdirSync(dir, { recursive: true });
   const frames = [];
   const writes = [];
@@ -854,6 +1210,7 @@ async function record(browser, game, step, setName, attempt, work) {
   const def = GAMES[game].steps[step];
   const seed = def.seed ?? SEED + (def.reseed ? attempt : 0);
   const ctx = await browser.newContext(set.context);
+  await ctx.addInitScript(OVERLAY_JS);
   // Mark every Game's first-Practice guide as seen, so the recording shows the game, not the guide.
   await ctx.addInitScript(() => {
     for (const g of ["block-puzzle", "holdem", "trading-duel", "vanguard"]) localStorage.setItem(`tesoro:how-to-play:${g}`, "1");
@@ -877,7 +1234,7 @@ async function record(browser, game, step, setName, attempt, work) {
     const next = await open(def.after.route);
     await sleep(def.after.settle ?? 1500);
     const def2 = { focus: def.after.focus, pad: def.after.pad, tail: 200, camera: def.after.camera };
-    const seg = await capture(ctx, next, set, `${base}-b`, def2, async () => { await sleep(def.after.secs ?? 3500); }, info);
+    const seg = await capture(ctx, next, set, `${base}-b`, def2, async () => { await Promise.all([sleep(def.after.secs ?? 3500), def.after.run?.(next, info)]); }, info);
     seg.speed = def.after.speed ?? 1;
     seg.poster = def.after.poster;
     segments.push(seg);
