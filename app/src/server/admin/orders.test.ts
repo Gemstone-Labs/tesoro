@@ -10,7 +10,7 @@ import { decodeOrder } from "@/lib/chain/instant-order";
 import { SIM_SOL_MINT } from "@/lib/chain/native";
 import { newNonce, signedMessage } from "@/lib/chain/signed-request";
 import { DemoHttpError, type AuthEnv } from "../request-auth";
-import { buildOrdersReply, handleOrders, type OrdersDeps, type OrdersRaw } from "./orders";
+import { buildOrdersReply, decodePosition, decodeSource, handleOrders, type OrdersDeps, type OrdersRaw } from "./orders";
 
 const coder = new BorshAccountsCoder(coreIdl as unknown as Idl);
 const key = () => Keypair.generate().publicKey;
@@ -20,12 +20,16 @@ const source = key();
 const position = key();
 const owner = key();
 
-const srcState = { bump: 1, inner: { position: bytes(position), owner: bytes(key()), index: 0, horizonMonths: 3, unitNum: new BN("10000000000000"), unitDen: new BN(150_000_000), issued: new BN(1000), returned: new BN(0), redeemed: new BN(0), yieldUnits: new BN(0), redeemedUnits: new BN(0) } };
-const posState = (over: object = {}) => ({
-  bump: 1,
-  positionId: Array(32).fill(2),
-  inner: { owner: bytes(key()), sourceChain: { solana: {} }, sourceAsset: bytes(SIM_SOL_MINT), decimals: 9, principal: new BN(2_000_000_000), rateBps: 500, status: { locked: {} }, advances: 1, openAdvance: null, lastSeq: new BN(0), cumulativeYield: new BN(0), freeYield: new BN(0), freeYieldClaimed: new BN(0), openedAt: new BN(NOW), appliedNet: new BN(0), custodyShares: new BN(0), yieldFeeBps: 2000, stakeRateOpen: new BN(0), heldShares: new BN(0), freeShares: new BN(0), paidShares: new BN(0), poolBps: 0, stakeRateHigh: new BN(0), ...over },
-});
+// Fixtures are account bytes from the real coder (the IDL's own names), read by the same decoders the chain read uses.
+const encoded = async (name: string, value: object) => Buffer.from(await coder.encode(name, value));
+const srcState = async () =>
+  decodeSource(await encoded("SourceState", { bump: 1, inner: { position: bytes(position), owner: bytes(key()), index: 0, horizon_months: 3, unit_num: new BN("10000000000000"), unit_den: new BN(150_000_000), issued: new BN(1000), returned: new BN(0), redeemed: new BN(0), yield_units: new BN(0), redeemed_units: new BN(0), due_at: new BN(0), yield_fee_bps: 2000, pool_bps: 0, fee_units: new BN(0), pool_units: new BN(0) } }));
+const posState = async (over: object = {}) =>
+  decodePosition(await encoded("PositionState", {
+    bump: 1,
+    position_id: Array(32).fill(2),
+    inner: { owner: bytes(key()), source_chain: { Solana: {} }, source_asset: bytes(SIM_SOL_MINT), decimals: 9, principal: new BN(2_000_000_000), rate_bps: 500, status: { Locked: {} }, advances: 1, open_advance: null, last_seq: new BN(0), cumulative_yield: new BN(0), free_yield: new BN(0), free_yield_claimed: new BN(0), opened_at: new BN(NOW), applied_net: new BN(0), custody_shares: new BN(0), yield_fee_bps: 2000, stake_rate_open: new BN(0), held_shares: new BN(0), free_shares: new BN(0), paid_shares: new BN(0), pool_bps: 0, stake_rate_high: new BN(0), ...over },
+  }));
 
 async function order(amount: bigint, over: Record<string, unknown> = {}) {
   const line = new Uint8Array(144);
@@ -42,8 +46,8 @@ async function raw(over: Partial<OrdersRaw> & { amount?: bigint; spendable?: big
   const spendable = over.spendable ?? 10n ** 12n;
   return {
     orders: [o],
-    sources: new Map([[source.toBase58(), srcState]]),
-    positions: new Map([[position.toBase58(), posState()]]),
+    sources: new Map([[source.toBase58(), await srcState()]]),
+    positions: new Map([[position.toBase58(), await posState()]]),
     books: new Map([[bookPda(source).toBase58(), book]]),
     pool: { baseRate: 1_000_000_000n, baseTs: 0, apyBps: 700, speedup: 4380 },
     stakeRate: null,
@@ -51,6 +55,21 @@ async function raw(over: Partial<OrdersRaw> & { amount?: bigint; spendable?: big
     ...over,
   };
 }
+
+describe("order account decoders", () => {
+  it("read a Position and a Source as the real coder returns them", async () => {
+    const p = await posState({ open_advance: 2, source_chain: { HyperEvm: {} }, status: { Unlocked: {} }, stake_rate_open: new BN(7) });
+    expect(p).toMatchObject({ chain: "hyperEvm", locked: false, openAdvance: 2, principal: 2_000_000_000n, rateBps: 500, stakeRateOpen: 7n, openedAt: NOW });
+    expect((await posState()).asset.equals(SIM_SOL_MINT)).toBe(true);
+    expect(await srcState()).toMatchObject({ index: 0, unitNum: 10_000_000_000_000n, unitDen: 150_000_000n });
+    expect((await srcState()).position.equals(position)).toBe(true);
+  });
+
+  it("refuse data that is not the account", async () => {
+    expect(() => decodePosition(Buffer.alloc(243))).toThrow();
+    expect(() => decodeSource(Buffer.alloc(64))).toThrow();
+  });
+});
 
 describe("open orders for the admin", () => {
   it("lists an order with what is left, what is ready and how much of it the route can buy now", async () => {
@@ -70,7 +89,7 @@ describe("open orders for the admin", () => {
 
   it("counts the yield the clock has landed as ready, which the fill redeems to the seller first", async () => {
     const r = await raw();
-    r.positions.set(position.toBase58(), posState({ openAdvance: 0 }));
+    r.positions.set(position.toBase58(), await posState({ open_advance: 0 }));
     const reply = buildOrdersReply(r, NOW + 60);
     expect(reply.orders[0].ready).toBeGreaterThan(0);
     expect(reply.orders[0].maxFill).toBe(1000 - reply.orders[0].ready);
@@ -78,7 +97,7 @@ describe("open orders for the admin", () => {
 
   it("marks an EVM order as the bridge's: no fill from here", async () => {
     const r = await raw();
-    r.positions.set(position.toBase58(), posState({ sourceChain: { ethereum: {} } }));
+    r.positions.set(position.toBase58(), await posState({ source_chain: { Ethereum: {} } }));
     expect(buildOrdersReply(r, NOW).orders[0]).toMatchObject({ kind: "reported", asset: "ETH", maxFill: 0 });
   });
 

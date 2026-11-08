@@ -24,7 +24,56 @@ type Info = AccountInfo<Buffer> | null;
 const coder = new BorshAccountsCoder(coreIdl as unknown as Idl);
 const key = (b: number[] | Uint8Array) => new PublicKey(Uint8Array.from(b));
 const big = (n: { toString(): string }) => BigInt(n.toString());
-const enumKey = (o: object) => Object.keys(o)[0];
+
+/** The `Position` fields the orders page uses, read once from the coder's output (IDL names: snake_case fields, PascalCase enum variants). */
+export interface PositionView {
+  chain: "solana" | "ethereum" | "hyperEvm";
+  asset: PublicKey;
+  principal: bigint;
+  rateBps: number;
+  locked: boolean;
+  openAdvance: number | null;
+  openedAt: number;
+  appliedNet: bigint;
+  stakeRateOpen: bigint;
+  stakeRateHigh: bigint;
+}
+
+/** The `Source` fields the orders page uses. */
+export interface SourceView {
+  position: PublicKey;
+  index: number;
+  unitNum: bigint;
+  unitDen: bigint;
+}
+
+const CHAINS = { Solana: "solana", Ethereum: "ethereum", HyperEvm: "hyperEvm" } as const;
+const variant = (o: object) => Object.keys(o)[0];
+
+/** Decodes a `PositionState` account (either live size); throws on data that is not one. */
+export function decodePosition(data: Buffer): PositionView {
+  const p = coder.decode("PositionState", positionBytes(data)).inner;
+  const chain = CHAINS[variant(p.source_chain) as keyof typeof CHAINS];
+  if (!chain) throw new Error(`Unknown source chain ${variant(p.source_chain)}`);
+  return {
+    chain,
+    asset: key(p.source_asset),
+    principal: big(p.principal),
+    rateBps: p.rate_bps,
+    locked: variant(p.status) === "Locked",
+    openAdvance: p.open_advance ?? null,
+    openedAt: Number(big(p.opened_at)),
+    appliedNet: big(p.applied_net),
+    stakeRateOpen: big(p.stake_rate_open),
+    stakeRateHigh: big(p.stake_rate_high),
+  };
+}
+
+/** Decodes a `SourceState` account; throws on data that is not one. */
+export function decodeSource(data: Buffer): SourceView {
+  const s = coder.decode("SourceState", data).inner;
+  return { position: key(s.position), index: s.index, unitNum: big(s.unit_num), unitDen: big(s.unit_den) };
+}
 
 export interface RouteJson {
   treasuryShares: string;
@@ -77,33 +126,31 @@ const routeJson = (r: RouteView | null): RouteJson | null =>
 /** Everything the build needs, read in two rounds. */
 export interface OrdersRaw {
   orders: InstantOrder[];
-  /** Decoded `SourceState` / `PositionState` by address, and raw Source book accounts. */
-  sources: Map<string, any>;
-  positions: Map<string, any>;
+  /** Decoded Sources and Positions by address, and raw Source book accounts. */
+  sources: Map<string, SourceView>;
+  positions: Map<string, PositionView>;
   books: Map<string, Buffer>;
   pool: PoolParams | null;
   stakeRate: bigint | null;
   routes: { native: RouteView | null; stake: RouteView | null };
 }
 
-const decodeOr = (name: string, info: Info) => {
+const decodeOr = <T>(decode: (data: Buffer) => T, info: Info): T | null => {
   try {
-    return info ? coder.decode(name, name === "PositionState" ? positionBytes(info.data) : info.data) : null;
+    return info ? decode(info.data) : null;
   } catch {
     return null;
   }
 };
 
 /** The book as an order's Source stands now: the open Advance's coverage by the clock is landed first, as the fill does (`sync_in_books`). */
-function syncedBook(book: SourceBookView, pos: any, src: any, pool: PoolParams | null, stakeRate: bigint | null, nowSec: number): SourceBookView {
-  const p = pos.inner;
-  const native = enumKey(p.sourceChain) === "solana" && (key(p.sourceAsset).equals(SIM_SOL_MINT) || big(p.stakeRateOpen ?? 0) !== 0n);
-  if (!native || p.openAdvance !== src.inner.index || enumKey(p.status) !== "locked") return book;
-  const clock = clockOf({ principalLamports: big(p.principal), rateBps: p.rateBps, openedAt: Number(big(p.openedAt)), stakeRateOpen: big(p.stakeRateOpen ?? 0), stakeRateHigh: big(p.stakeRateHigh ?? 0) });
-  const stake = stakeRate ? { rateNow: stakeRate, atSec: nowSec, apyBps: p.rateBps } : undefined;
+function syncedBook(book: SourceBookView, pos: PositionView, src: SourceView, pool: PoolParams | null, stakeRate: bigint | null, nowSec: number): SourceBookView {
+  const native = pos.chain === "solana" && (pos.asset.equals(SIM_SOL_MINT) || pos.stakeRateOpen !== 0n);
+  if (!native || pos.openAdvance !== src.index || !pos.locked) return book;
+  const clock = clockOf({ principalLamports: pos.principal, rateBps: pos.rateBps, openedAt: pos.openedAt, stakeRateOpen: pos.stakeRateOpen, stakeRateHigh: pos.stakeRateHigh });
+  const stake = stakeRate ? { rateNow: stakeRate, atSec: nowSec, apyBps: pos.rateBps } : undefined;
   const net = positionAccrued(clock, pool?.speedup ?? 1, nowSec, stake);
-  const applied = big(p.appliedNet);
-  return syncPreview(book, net > applied ? net - applied : 0n, { unitNum: big(src.inner.unitNum), unitDen: big(src.inner.unitDen) });
+  return syncPreview(book, net > pos.appliedNet ? net - pos.appliedNet : 0n, { unitNum: src.unitNum, unitDen: src.unitDen });
 }
 
 export function buildOrdersReply(raw: OrdersRaw, nowSec: number): OrdersReply {
@@ -111,12 +158,12 @@ export function buildOrdersReply(raw: OrdersRaw, nowSec: number): OrdersReply {
   for (const o of raw.orders) {
     if (o.line.amount === 0n) continue;
     const src = raw.sources.get(o.source.toBase58());
-    const posKey = src ? key(src.inner.position).toBase58() : null;
+    const posKey = src ? src.position.toBase58() : null;
     const pos = posKey ? raw.positions.get(posKey) : null;
     if (!src || !pos) continue;
     const bookData = raw.books.get(bookPda(o.source).toBase58());
-    const chain = enumKey(pos.inner.sourceChain);
-    const kind: AdminOrder["kind"] = chain !== "solana" ? "reported" : big(pos.inner.stakeRateOpen ?? 0) !== 0n ? "stake" : "native";
+    const chain = pos.chain;
+    const kind: AdminOrder["kind"] = chain !== "solana" ? "reported" : pos.stakeRateOpen !== 0n ? "stake" : "native";
     let ready = 0n;
     let book: SourceBookView | null = null;
     try {
@@ -128,7 +175,7 @@ export function buildOrdersReply(raw: OrdersRaw, nowSec: number): OrdersReply {
     const readyCapped = ready < o.line.amount ? ready : o.line.amount;
     const route = kind === "native" ? raw.routes.native : kind === "stake" ? raw.routes.stake : null;
     const rate = kind === "native" && raw.pool ? { scale: RATE_SCALE, rate: rateAt(raw.pool) } : kind === "stake" && raw.stakeRate ? { scale: STAKE_RATE_SCALE, rate: raw.stakeRate } : null;
-    const unit = { unitNum: big(src.inner.unitNum), unitDen: big(src.inner.unitDen) };
+    const unit = { unitNum: src.unitNum, unitDen: src.unitDen };
     const fill = route && rate && book ? maxFill({ remaining: o.line.amount, ready: readyCapped, spendable: route.spendable, src: unit, rate }) : 0n;
     orders.push({
       address: o.address.toBase58(),
@@ -138,7 +185,7 @@ export function buildOrdersReply(raw: OrdersRaw, nowSec: number): OrdersReply {
       source: o.source.toBase58(),
       position: posKey!,
       kind,
-      stakeMint: kind === "stake" ? key(pos.inner.sourceAsset).toBase58() : null,
+      stakeMint: kind === "stake" ? pos.asset.toBase58() : null,
       asset: chain === "ethereum" ? "ETH" : chain === "hyperEvm" ? "HYPE" : "SOL",
       state: orderState(o, nowSec),
       requested: Number(o.requested),
@@ -184,16 +231,16 @@ export async function loadOrders(conn: Pick<Connection, "getProgramAccounts" | "
     batch(conn, sourceKeys.map(bookPda)),
     batch(conn, [POOL, nativeCustodyPda(), stakeCustody, JITOSOL.pool]),
   ]);
-  const sources = new Map<string, any>();
+  const sources = new Map<string, SourceView>();
   sourceKeys.forEach((k, i) => {
-    const s = decodeOr("SourceState", sourceInfos[i]);
+    const s = decodeOr(decodeSource, sourceInfos[i]);
     if (s) sources.set(k.toBase58(), s);
   });
-  const positionKeys = [...new Map([...sources.values()].map((s) => [key(s.inner.position).toBase58(), key(s.inner.position)])).values()];
+  const positionKeys = [...new Map([...sources.values()].map((s) => [s.position.toBase58(), s.position])).values()];
   const positionInfos = await batch(conn, positionKeys);
-  const positions = new Map<string, any>();
+  const positions = new Map<string, PositionView>();
   positionKeys.forEach((k, i) => {
-    const p = decodeOr("PositionState", positionInfos[i]);
+    const p = decodeOr(decodePosition, positionInfos[i]);
     if (p) positions.set(k.toBase58(), p);
   });
   const books = new Map<string, Buffer>();
