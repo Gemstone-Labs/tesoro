@@ -2,6 +2,7 @@ import { Keypair, PublicKey, VersionedTransaction } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { RAILCAR_PROGRAM_ID, checkDepartureIx, finalizeIx } from "@/games/railcar/chain";
+import { layoutOf, type IdlWithTypes } from "@/lib/chain/idl-layout";
 import { joinSeatIx, seatChunkIx, seatMarkPda, seatPagePda } from "@/lib/chain/many-seat";
 import { DEFAULT_LIMITS } from "./policy";
 import { CORE_ID, type Ix } from "./rules";
@@ -57,21 +58,29 @@ function setup() {
   return { sponsor, relayer, player, accounts, car };
 }
 
-/** The Player's seat in the car: their mark, and a page whose seat names them and (seat-key layout) their seat key. */
+/**
+ * The Player's seat in the car: their mark, and a page whose seat names them and their seat key, laid out by the IDL's
+ * types (many-seat.layouts.test.ts holds that layout to bytes core wrote). `seatKey` null: a page of another size
+ * (the 160-byte seats before seat keys), which names no key.
+ */
 function seat(s: ReturnType<typeof setup>, seatKey: PublicKey | null) {
   const account = accountPda(s.player.publicKey);
-  const mark = Buffer.alloc(216);
+  const idl = coreIdl as unknown as IdlWithTypes;
+  const [M, P, S] = [layoutOf(idl, "SeatMark"), layoutOf(idl, "SeatPage"), layoutOf(idl, "Seat")];
+  const mark = Buffer.alloc(8 + M.size);
   disc("SeatMark").copy(mark, 0);
-  mark[9] = 12;
+  mark[8 + M.at.seat] = 12;
+  s.car.toBuffer().copy(mark, 8 + M.at.match_key);
+  account.toBuffer().copy(mark, 8 + M.at.account);
   s.accounts.set(seatMarkPda(s.car, account).toBase58(), { owner: CORE_ID, data: mark });
-  const seatLen = seatKey ? 192 : 160;
-  const page = Buffer.alloc(8 + 72 + 10 * seatLen);
+  const page = Buffer.alloc(seatKey ? 8 + P.size : 8 + 72 + 10 * 160);
   disc("SeatPage").copy(page, 0);
-  page[73] = 1;
-  const at = 80 + 2 * seatLen;
-  page[at] = 1;
-  account.toBuffer().copy(page, at + 40);
-  if (seatKey) seatKey.toBuffer().copy(page, at + 160);
+  s.car.toBuffer().copy(page, 8 + P.at.match_key);
+  page[8 + P.at.index] = 1;
+  const at = 8 + P.at.seats + 2 * S.size;
+  page[at + S.at.state] = 1;
+  account.toBuffer().copy(page, at + S.at.player);
+  if (seatKey) seatKey.toBuffer().copy(page, at + S.at.signer);
   s.accounts.set(seatPagePda(s.car, 1).toBase58(), { owner: CORE_ID, data: page });
 }
 

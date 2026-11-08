@@ -2,7 +2,7 @@ import { BorshAccountsCoder, type Idl } from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { TESORO_CORE_ID } from "@/lib/chain/native";
-import { SEATS_PER_PAGE, seatMarkPda, seatPagePda } from "@/lib/chain/many-seat";
+import { SEATS_PER_PAGE, decodeSeatMark, decodeSeatPage, seatMarkPda, seatPagePda, type SeatMarkView, type SeatPageView } from "@/lib/chain/many-seat";
 
 const matchCoder = new BorshAccountsCoder(coreIdl as unknown as Idl);
 
@@ -43,23 +43,28 @@ const MANY_SEAT_DISC = Buffer.from((coreIdl as { accounts: { name: string; discr
 /** Whether the account is a many-seat car (Railcar's Match). */
 export const isManySeat = (a: MatchAccount): boolean => a.owner.equals(TESORO_CORE_ID) && Buffer.from(a.data.subarray(0, 8)).equals(MANY_SEAT_DISC);
 
-const PAGE_HEAD = 8 + 72;
-/** Where a seat's key sits in the seat-key layout (a 192-byte seat; `signer` after the 160 bytes of the first layout). */
-const SEAT_SIGNER_AT = 160;
-
 /**
  * Whether the car names `signer` as the seat key of `account`'s seat: the Account's seat mark gives the seat, its page the
- * seat's Player and key. A page of the first layout (160-byte seats, no key) names no seat key.
+ * seat's Player and key. Read with the app's one seat-page decoder.
  */
 export async function carNamesSeatKey(read: (k: PublicKey) => Promise<MatchAccount | null>, car: PublicKey, account: PublicKey, signer: PublicKey): Promise<boolean> {
-  const mark = await read(seatMarkPda(car, account));
-  if (!mark || !mark.owner.equals(TESORO_CORE_ID) || mark.data.length < 16) return false;
-  const seat = mark.data[9];
-  const page = await read(seatPagePda(car, Math.floor(seat / SEATS_PER_PAGE)));
-  if (!page || !page.owner.equals(TESORO_CORE_ID)) return false;
-  const seatLen = Math.floor((page.data.length - PAGE_HEAD) / SEATS_PER_PAGE);
-  if (seatLen < SEAT_SIGNER_AT + 32) return false;
-  const at = PAGE_HEAD + (seat % SEATS_PER_PAGE) * seatLen;
-  const d = Buffer.from(page.data);
-  return d[at] === 1 && new PublicKey(d.subarray(at + 40, at + 72)).equals(account) && new PublicKey(d.subarray(at + SEAT_SIGNER_AT, at + SEAT_SIGNER_AT + 32)).equals(signer);
+  const markInfo = await read(seatMarkPda(car, account));
+  if (!markInfo || !markInfo.owner.equals(TESORO_CORE_ID)) return false;
+  let mark: SeatMarkView;
+  try {
+    mark = decodeSeatMark(markInfo.data);
+  } catch {
+    return false;
+  }
+  if (!mark.matchKey.equals(car) || !mark.account.equals(account) || mark.returning) return false;
+  const pageInfo = await read(seatPagePda(car, Math.floor(mark.seat / SEATS_PER_PAGE)));
+  if (!pageInfo || !pageInfo.owner.equals(TESORO_CORE_ID)) return false;
+  let page: SeatPageView;
+  try {
+    page = decodeSeatPage(pageInfo.data);
+  } catch {
+    return false;
+  }
+  const seat = page.seats.find((s) => s.index === mark.seat);
+  return !!seat && page.matchKey.equals(car) && seat.seated && seat.player.equals(account) && seat.signer.equals(signer);
 }

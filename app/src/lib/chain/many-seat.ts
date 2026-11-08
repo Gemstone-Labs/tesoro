@@ -3,12 +3,15 @@ import { PublicKey, SystemProgram, type AccountMeta, type TransactionInstruction
 import { TESORO_CORE } from "./basket";
 import { coreIx, metaOf } from "./core-ix";
 import coreIdlJson from "./idl/tesoro_core.json";
+import { layoutOf, type IdlWithTypes } from "./idl-layout";
 import { matchOverflowPda } from "./overflow";
+
+const coreIdl = coreIdlJson as unknown as IdlWithTypes;
 
 /**
  * Many-seat Matches (tesoro_core `ledger/many_seat`, ADR 0015): the car record, its seat pages and seat marks, read in
- * place. Every field is a byte array on chain (alignment 1, no padding), so these decoders read offsets; a test holds
- * them to the IDL's layout. Pure: no network calls.
+ * place. Every field is a byte array on chain (alignment 1, no padding); the offsets come from the IDL's type layout
+ * (`idl-layout`), and many-seat.layouts.test.ts holds the decoders to bytes core's own Rust wrote. Pure: no network calls.
  */
 
 export const SEATS_PER_PAGE = 10;
@@ -96,66 +99,77 @@ export interface CarView {
 export const BOARDING_MARGIN_SECS = 60 * 60;
 export const boardingEnds = (car: Pick<CarView, "deadlineAbs">) => car.deadlineAbs - BOARDING_MARGIN_SECS;
 
-const INNER = 8 + 1 + 4 + 32;
-const RUN = INNER + 220;
-const PLACE_LEN = 77;
-const PLACES_AT = 92;
+const DISC = 8;
+const MATCH = layoutOf(coreIdl, "ManySeatMatch");
+const RECORD = layoutOf(coreIdl, "ManySeatRecord");
+const RUN_L = layoutOf(coreIdl, "SeatRun");
+const PLACE = layoutOf(coreIdl, "PlaceSlot");
+/** Where a car's record starts in its account, and its run. */
+const INNER = DISC + MATCH.at.inner;
+const RUN = INNER + RECORD.at.run;
 const MAX_PLACES = 10;
+/** Absolute offset of a `ManySeatRecord` field in a car's account (the keeper's sliced scan reads these). */
+export const carFieldAt = (field: string): number => {
+  if (!(field in RECORD.at)) throw new Error(`No ManySeatRecord field ${field}`);
+  return INNER + RECORD.at[field];
+};
 
 function decodeRun(d: Uint8Array, at: number): SeatRunView {
-  const phase = d[at + 1];
-  const nPlaces = Math.min(d[at + 2], MAX_PLACES);
+  const r = RUN_L.at;
+  const phase = d[at + r.phase];
+  const nPlaces = Math.min(d[at + r.n_places], MAX_PLACES);
   const places: PlaceView[] = [];
   for (let i = 0; i < nPlaces; i++) {
-    const p = at + PLACES_AT + i * PLACE_LEN;
-    places.push({ seat: d[p], shareBps: u16(d, p + 1), playerShareBps: u16(d, p + 3), won: u64(d, p + 5), player: key(d, p + 13), funder: key(d, p + 45) });
+    const p = at + r.places + i * PLACE.size;
+    places.push({ seat: d[p + PLACE.at.seat], shareBps: u16(d, p + PLACE.at.share_bps), playerShareBps: u16(d, p + PLACE.at.player_share_bps), won: u64(d, p + PLACE.at.won), player: key(d, p + PLACE.at.player), funder: key(d, p + PLACE.at.funder) });
   }
   return {
-    kind: d[at],
+    kind: d[at + r.kind],
     phase: phase === 0 ? "home" : phase === 1 ? "forfeits" : "done",
     nPlaces,
-    placeI: d[at + 3],
-    seatI: d[at + 4],
-    inSeat: d[at + 5] !== 0,
-    visited: d[at + 6],
-    feesCapped: d[at + 7] !== 0,
-    lineI: u32(d, at + 8),
-    seatLeft: u64(d, at + 12),
-    wonLeft: u64(d, at + 20),
-    playerLeft: u64(d, at + 28),
-    fees: [0, 1, 2].map((c) => u64(d, at + 36 + 8 * c)),
-    cutLeft: [0, 1, 2].map((c) => u64(d, at + 60 + 8 * c)),
-    chunks: u32(d, at + 84),
-    steps: u32(d, at + 88),
+    placeI: d[at + r.place_i],
+    seatI: d[at + r.seat_i],
+    inSeat: d[at + r.in_seat] !== 0,
+    visited: d[at + r.visited],
+    feesCapped: d[at + r.fees_capped] !== 0,
+    lineI: u32(d, at + r.line_i),
+    seatLeft: u64(d, at + r.seat_left),
+    wonLeft: u64(d, at + r.won_left),
+    playerLeft: u64(d, at + r.player_left),
+    fees: [0, 1, 2].map((c) => u64(d, at + r.fees + 8 * c)),
+    cutLeft: [0, 1, 2].map((c) => u64(d, at + r.cut_left + 8 * c)),
+    chunks: u32(d, at + r.chunks),
+    steps: u32(d, at + r.steps),
     places,
   };
 }
 
 export function decodeCar(address: PublicKey, data: Uint8Array): CarView {
-  const i = INNER;
+  if (data.length !== DISC + MATCH.size) throw new Error(`A car is ${DISC + MATCH.size} bytes, not ${data.length}`);
+  const f = (name: string) => carFieldAt(name);
   return {
     address,
-    payer: key(data, 13),
-    opener: key(data, i),
-    n: u64(data, i + 32),
-    game: key(data, i + 40),
-    settleAuthority: key(data, i + 72),
-    studioOwner: data[i + 196] ? key(data, i + 104) : null,
-    entry: u64(data, i + 144),
-    openedAt: i64(data, i + 152),
-    deadlineAbs: i64(data, i + 160),
-    minSince: i64(data, i + 168),
-    firstMinAt: i64(data, i + 176),
-    departedAt: i64(data, i + 184),
-    platformBps: u16(data, i + 192),
-    studioBps: u16(data, i + 194),
-    listed: data[i + 200] !== 0,
-    minSeats: data[i + 201],
-    maxSeats: data[i + 202],
-    seated: data[i + 203],
-    pages: data[i + 204],
-    stage: STAGES[data[i + 205]] ?? "closed",
-    refundAfter: i64(data, i + 212),
+    payer: key(data, DISC + MATCH.at.payer),
+    opener: key(data, f("opener")),
+    n: u64(data, f("n")),
+    game: key(data, f("game")),
+    settleAuthority: key(data, f("settle_authority")),
+    studioOwner: data[f("has_studio_owner")] ? key(data, f("studio_owner")) : null,
+    entry: u64(data, f("entry")),
+    openedAt: i64(data, f("opened_at")),
+    deadlineAbs: i64(data, f("deadline_abs")),
+    minSince: i64(data, f("min_since")),
+    firstMinAt: i64(data, f("first_min_at")),
+    departedAt: i64(data, f("departed_at")),
+    platformBps: u16(data, f("platform_bps")),
+    studioBps: u16(data, f("studio_bps")),
+    listed: data[f("listed")] !== 0,
+    minSeats: data[f("min_seats")],
+    maxSeats: data[f("max_seats")],
+    seated: data[f("seated")],
+    pages: data[f("pages")],
+    stage: STAGES[data[f("stage")]] ?? "closed",
+    refundAfter: i64(data, f("refund_after")),
     run: decodeRun(data, RUN),
   };
 }
@@ -175,8 +189,8 @@ export interface SeatView {
   player: PublicKey;
   funder: PublicKey;
   pot: PublicKey;
-  /** The seat key that plays this seat (seat-key layout, 192-byte seats); null in the first layout. */
-  signer: PublicKey | null;
+  /** The seat key that plays this seat (the Player's wallet when the join named none). */
+  signer: PublicKey;
 }
 
 export interface SeatPageView {
@@ -186,33 +200,35 @@ export interface SeatPageView {
   seats: SeatView[];
 }
 
-const PAGE_HEAD = 8 + 72;
-/** Where the seat-key layout keeps a seat's key: after the 160 bytes of the first layout. */
-const SEAT_SIGNER_AT = 160;
+const PAGE = layoutOf(coreIdl, "SeatPage");
+const SEAT = layoutOf(coreIdl, "Seat");
+/** Bytes of a seat page account. */
+export const SEAT_PAGE_LEN = DISC + PAGE.size;
 
-/** A seat page. The seat size is read from the account's length, so the seat-key layout (a signer added at the end) reads too. */
+/** A seat page. */
 export function decodeSeatPage(data: Uint8Array): SeatPageView {
-  const seatLen = Math.floor((data.length - PAGE_HEAD) / SEATS_PER_PAGE);
-  const index = data[73];
+  if (data.length !== SEAT_PAGE_LEN) throw new Error(`A seat page is ${SEAT_PAGE_LEN} bytes, not ${data.length}`);
+  const index = data[DISC + PAGE.at.index];
+  const s = SEAT.at;
   const seats: SeatView[] = [];
-  for (let s = 0; s < SEATS_PER_PAGE; s++) {
-    const at = PAGE_HEAD + s * seatLen;
+  for (let i = 0; i < SEATS_PER_PAGE; i++) {
+    const at = DISC + PAGE.at.seats + i * SEAT.size;
     seats.push({
-      index: index * SEATS_PER_PAGE + s,
-      seated: data[at] === 1,
-      shareBps: u16(data, at + 2),
-      placeBps: u16(data, at + 4),
-      place: data[at + 6],
-      potLines: u32(data, at + 8),
-      hold: u32(data, at + 12),
-      refund: u64(data, at + 32),
-      player: key(data, at + 40),
-      funder: key(data, at + 72),
-      pot: key(data, at + 104),
-      signer: seatLen >= SEAT_SIGNER_AT + 32 ? key(data, at + SEAT_SIGNER_AT) : null,
+      index: index * SEATS_PER_PAGE + i,
+      seated: data[at + s.state] === 1,
+      shareBps: u16(data, at + s.share_bps),
+      placeBps: u16(data, at + s.place_bps),
+      place: data[at + s.place],
+      potLines: u32(data, at + s.pot_lines),
+      hold: u32(data, at + s.hold),
+      refund: u64(data, at + s.refund),
+      player: key(data, at + s.player),
+      funder: key(data, at + s.funder),
+      pot: key(data, at + s.pot),
+      signer: key(data, at + s.signer),
     });
   }
-  return { matchKey: key(data, 8), payer: key(data, 40), index, seats };
+  return { matchKey: key(data, DISC + PAGE.at.match_key), payer: key(data, DISC + PAGE.at.payer), index, seats };
 }
 
 export interface SeatMarkView {
@@ -227,16 +243,20 @@ export interface SeatMarkView {
   pot: PublicKey;
 }
 
+const MARK = layoutOf(coreIdl, "SeatMark");
+
 export function decodeSeatMark(data: Uint8Array): SeatMarkView {
+  if (data.length !== DISC + MARK.size) throw new Error(`A seat mark is ${DISC + MARK.size} bytes, not ${data.length}`);
+  const m = (field: string) => DISC + MARK.at[field];
   return {
-    seat: data[9],
-    returning: data[10] !== 0,
-    hold: u32(data, 12),
-    matchKey: key(data, 16),
-    account: key(data, 48),
-    payer: key(data, 80),
-    funder: key(data, 152),
-    pot: key(data, 184),
+    seat: data[m("seat")],
+    returning: data[m("returning")] !== 0,
+    hold: u32(data, m("hold")),
+    matchKey: key(data, m("match_key")),
+    account: key(data, m("account")),
+    payer: key(data, m("payer")),
+    funder: key(data, m("funder")),
+    pot: key(data, m("pot")),
   };
 }
 
@@ -364,6 +384,10 @@ export function stepOffIx(a: StepOffArgs): TransactionInstruction {
   );
 }
 
+/** `return_stepped_off`: anyone; up to 8 more lines of a stepped-off seat go home (`mark` is the funder's, which carries them). */
+export const returnSteppedOffIx = (a: { caller: PublicKey; mark: PublicKey; markPayer: PublicKey; pot: PublicKey; potPayer: PublicKey; sponsor: boolean; remaining?: AccountMeta[] }): TransactionInstruction =>
+  coreIx("return_stepped_off", { caller: a.caller, seat_mark: a.mark, mark_payer: a.markPayer, pot: a.pot, pot_payer: a.potPayer, sponsor: a.sponsor ? sponsorKey : null }, { max_lines: MAX_RETURN_LINES }, a.remaining ?? []);
+
 /** `many_seat_chunk`: anyone; the remaining accounts are what `aheadOf` lists for the steps. */
 export const seatChunkIx = (caller: PublicKey, car: PublicKey, steps: number, remaining: AccountMeta[]): TransactionInstruction =>
   coreIx("many_seat_chunk", { caller, match_state: car, event_authority: coreEventAuthority, program: TESORO_CORE }, { max_steps: steps }, remaining);
@@ -404,6 +428,24 @@ export function closeSeatIx(a: CloseSeatArgs): TransactionInstruction {
     { seat: a.seat.index },
   );
 }
+
+/**
+ * `refund_many_seat_match`: anyone, once a Departed car's refund time has passed with no result; `caller` pays the receipt
+ * (returned when the receipt closes).
+ */
+export const refundCarIx = (caller: PublicKey, car: Pick<CarView, "address" | "game">): TransactionInstruction =>
+  coreIx("refund_many_seat_match", {
+    caller,
+    payer: caller,
+    game_record: coreKey(["game", car.game.toBuffer()]),
+    game_program: car.game,
+    program_data: programDataOf(car.game),
+    match_state: car.address,
+    receipt: coreKey(["settled", car.address.toBuffer()]),
+    system_program: SystemProgram.programId,
+    event_authority: coreEventAuthority,
+    program: TESORO_CORE,
+  });
 
 /** `close_many_seat_match`: a car with no seat left; remaining = every page in order, each followed by who paid it. */
 export const closeCarIx = (caller: PublicKey, car: Pick<CarView, "address" | "payer">, pages: SeatPageView[]): TransactionInstruction =>
