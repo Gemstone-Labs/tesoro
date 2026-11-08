@@ -55,8 +55,8 @@ const SEED = 3;
 const EDGE = 700;
 const PAGE_FILL = "0x070b10";
 const SETS = {
-  phone: { context: { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }, ratio: 4 / 5, out: [480, 600], pad: 8, band: [0, 0.6] },
-  desktop: { context: { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 }, ratio: 16 / 10, out: [960, 600], pad: 12, band: [0.12, 0.62] },
+  phone: { context: { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true }, ratio: 4 / 5, out: [480, 600], pad: 8, band: [0, 0.6] },
+  desktop: { context: { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 }, ratio: 16 / 10, out: [960, 600], pad: 12, band: [0.12, 0.62] },
 };
 
 const run = (file, args) => promisify(execFile)(file, args, { maxBuffer: 1 << 28 });
@@ -374,7 +374,7 @@ async function vgUntilBlast(page) {
 }
 
 /** Plays Recon runs, planned by search from the live board, until one takes the Supply Truck. Returns false when the plan cannot work. */
-async function vgCaptureTruck(page, seed, stopAt = 0, m = null) {
+async function vgCaptureTruck(page, seed, stopAt = 0, m = null, cam = null) {
   for (let turn = 0; turn < 5; turn++) {
     await vgMyTurn(page);
     await sleep(350);
@@ -399,23 +399,22 @@ async function vgCaptureTruck(page, seed, stopAt = 0, m = null) {
     console.log(`  truck: turn ${turn} truck ${truck.r},${truck.c} plan ${best.plan.turns} via ${best.plan.first.r},${best.plan.first.c}`);
     const runs = await vgTap(page, best.r.i);
     if (m && best.plan.turns === 1) {
-      // name the Recon and the Truck, then draw the run just before it happens
+      // 0.3 s: name the Recon (camera on it), then the Truck (camera pans), then the whole run, then the capture
       const tb = await page.locator('[data-htp="b"]').boundingBox();
-      const ids = [
-        await m.add({ kind: "ring", target: '[data-htp="a"]', shape: "circle", pad: 4 }),
-        await m.add({ kind: "label", target: '[data-htp="a"]', text: "Recon", side: "left", gap: 12 }),
-        await m.add({ kind: "ring", target: '[data-htp="b"]', shape: "circle", pad: 4 }),
-        await m.add({ kind: "label", target: '[data-htp="b"]', text: "Enemy Truck", side: "left", gap: 12 }),
-      ];
-      await sleep(1500);
-      for (const id of ids) await m.remove(id);
-      await sleep(250);
+      await m.show([{ kind: "ring", target: '[data-htp="a"]', shape: "circle", pad: 8 }, { kind: "label", target: '[data-htp="a"]', text: "Recon", side: "above", gap: 4 }], 1500);
+      await cam.to(1, 0.7);
+      await sleep(800);
+      await m.show([{ kind: "ring", target: '[data-htp="b"]', shape: "circle", pad: 8 }, { kind: "label", target: '[data-htp="b"]', text: "Enemy Truck", side: "below", gap: 4 }], 1500);
+      await cam.to(2, 0.7);
+      await sleep(800);
       const arrow = await m.add({ kind: "arrow", target: '[data-htp="a"]', to: '[data-htp="b"]' });
-      await sleep(700);
+      await sleep(900);
+      await cam.to(1, 0.8);
       await vgGo(page, runs, best.plan.first.r, best.plan.first.c);
       await m.remove(arrow);
-      await m.show({ kind: "label", target: { x: tb.x, y: tb.y, w: tb.width, h: tb.height }, text: "Truck captured", side: "left", gap: 12 }, 1300);
-      await sleep(1500);
+      await sleep(700);
+      await m.show({ kind: "label", target: { x: tb.x, y: tb.y, w: tb.width, h: tb.height }, text: "Truck captured", side: "below", gap: 4 }, 1400);
+      await sleep(900);
       return true;
     }
     await sleep(1000);
@@ -478,16 +477,19 @@ async function tdMark(page, c, k, name = "pick") {
 /**
  * Teaching marks drawn on top of the game while it records: rings, arrows and short labels, injected into the page so they sit on the
  * real elements (they follow pieces that move) and stay crisp. They are marks, not game UI: off-white strokes and text on a near-black
- * plate with cut corners, emerald only for points. Sizes are given in OUTPUT pixels and scaled by the crop, so a label reads at
- * `LABEL_PX` in the finished clip whatever the zoom.
+ * plate with cut corners, emerald only for points.
+ *
+ * Sizes are in OUTPUT pixels (the finished clip). The page knows the camera (`window.__htpCam`: the crop at each moment, from the
+ * camera keys), so a label is the same size in the clip whatever the zoom, and it stays inside the crop and the clear band.
+ * Label text is LABEL_PX output px tall (cap height about 0.7 of that): phone 40 px (28 px caps), desktop 46 px (32 px caps).
  */
-const LABEL_PX = 20;
+const LABEL_PX = { phone: 40, desktop: 46 };
 
 const OVERLAY_JS = `(() => {
   if (window.__htp) return;
-  const INK = "#EAEFEC", PLATE = "rgba(9,13,15,.85)", EMERALD = "#24D8A8", SHADOW = "rgba(9,13,15,.8)";
+  const INK = "#EAEFEC", PLATE = "rgba(9,13,15,.88)", EMERALD = "#24D8A8", SHADOW = "rgba(9,13,15,.85)";
   const items = new Map();
-  let root = null, svg = null, n = 0, u = 1, raf = 0;
+  let root = null, svg = null, n = 0, raf = 0;
   const font = () => getComputedStyle(document.body).fontFamily;
   const mount = () => {
     if (root) return;
@@ -498,6 +500,24 @@ const OVERLAY_JS = `(() => {
     svg.style.cssText = "position:absolute;inset:0;width:100%;height:100%;overflow:visible";
     root.appendChild(svg);
     document.documentElement.appendChild(root);
+  };
+  const smooth = (q) => q * q * (3 - 2 * q);
+  /** The crop (css px) and css px per output px at \`now\` ms into the take: the same smooth moves the encoder makes. */
+  const view = () => {
+    const c = window.__htpCam;
+    if (!c) return { u: 1, x0: 0, y0: 0, x1: innerWidth, y1: innerHeight, b0: 0, b1: innerHeight };
+    const t = (performance.now() - c.t0) / 1000;
+    const track = (get) => {
+      let v = get(c.keys[0]);
+      for (let i = 0; i + 1 < c.keys.length; i++) {
+        const dt = c.keys[i + 1].t - c.keys[i].t, dv = get(c.keys[i + 1]) - get(c.keys[i]);
+        if (dt <= 0.001 || Math.abs(dv) < 0.001) continue;
+        v += dv * smooth(Math.min(1, Math.max(0, (t - c.keys[i].t) / dt)));
+      }
+      return v;
+    };
+    const w = track((k) => k.w), cx = track((k) => k.cx), cy = track((k) => k.cy), h = w * c.out[1] / c.out[0];
+    return { u: w / c.out[0], x0: cx - w / 2, y0: cy - h / 2, x1: cx + w / 2, y1: cy + h / 2, b0: cy - h / 2 + c.band[0] * h, b1: cy - h / 2 + c.band[1] * h };
   };
   const rectOf = (t) => {
     if (t && typeof t === "object" && !Array.isArray(t)) return { l: t.x, t: t.y, r: t.x + t.w, b: t.y + t.h };
@@ -518,26 +538,17 @@ const OVERLAY_JS = `(() => {
     const el = document.createElement("div");
     el.style.cssText = "position:absolute;opacity:0;transform:scale(.92);transition:opacity .18s ease,transform .18s ease;transform-origin:center";
     if (s.kind === "label") {
-      const c = 8 * u, line = 2 * u;
-      el.style.clipPath = cut(c);
-      el.style.background = INK;
-      el.style.padding = line + "px";
       const inner = document.createElement("div");
       inner.textContent = s.text;
-      inner.style.cssText = "background:" + PLATE + ";clip-path:" + cut(c - line * 0.6) + ";color:" + (s.emerald ? EMERALD : INK) + ";font:800 " + (s.px * u) + "px/1.1 " + font() + ";letter-spacing:.01em;white-space:nowrap;padding:" + 6 * u + "px " + 12 * u + "px";
       el.appendChild(inner);
+      s.inner = inner;
     } else if (s.kind === "ring") {
-      const w = (s.stroke || 3) * u;
-      el.style.border = w + "px solid " + INK;
-      el.style.boxShadow = "0 0 0 " + 1.5 * u + "px " + SHADOW + ", inset 0 0 0 " + 1.5 * u + "px " + SHADOW;
-      el.style.borderRadius = s.shape === "circle" ? "50%" : 8 * u + "px";
       el.style.boxSizing = "border-box";
     } else if (s.kind === "arrow") {
       const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
       g.style.cssText = "opacity:0;transition:opacity .18s ease";
       const mk = (tag, attrs) => { const e = document.createElementNS("http://www.w3.org/2000/svg", tag); for (const k in attrs) e.setAttribute(k, attrs[k]); g.appendChild(e); return e; };
-      const w = 4 * u;
-      s.parts = { back: mk("line", { stroke: SHADOW, "stroke-width": w + 3 * u, "stroke-linecap": "round" }), line: mk("line", { stroke: INK, "stroke-width": w, "stroke-linecap": "round" }), headBack: mk("polygon", { fill: SHADOW, stroke: SHADOW, "stroke-width": 3 * u, "stroke-linejoin": "round" }), head: mk("polygon", { fill: INK }) };
+      s.parts = { back: mk("line", { stroke: SHADOW, "stroke-linecap": "round" }), line: mk("line", { stroke: INK, "stroke-linecap": "round" }), headBack: mk("polygon", { fill: SHADOW, stroke: SHADOW, "stroke-linejoin": "round" }), head: mk("polygon", { fill: INK }) };
       svg.appendChild(g);
       s.g = g;
       return null;
@@ -545,16 +556,28 @@ const OVERLAY_JS = `(() => {
     root.appendChild(el);
     return el;
   };
-  const place = (s) => {
+  const place = (s, v) => {
     const r = rectOf(s.target);
-    if (!r) { if (s.el) s.el.style.opacity = "0"; if (s.g) s.g.style.opacity = "0"; return; }
+    const u = v.u;
+    const visible = r && (r.r > v.x0 && r.l < v.x1 && r.b > v.y0 && r.t < v.y1);
+    if (!visible) { if (s.el) s.el.style.visibility = "hidden"; if (s.g) s.g.style.visibility = "hidden"; return; }
+    if (s.el) s.el.style.visibility = "visible";
+    if (s.g) s.g.style.visibility = "visible";
     if (s.kind === "ring") {
-      const pad = (s.pad ?? 5) * u;
-      let l = r.l - pad, t = r.t - pad, w = r.r - r.l + 2 * pad, h = r.b - r.t + 2 * pad;
-      if (s.shape === "circle") { const d = Math.max(w, h); l -= (d - w) / 2; t -= (d - h) / 2; w = h = d; }
-      Object.assign(s.el.style, { left: l + "px", top: t + "px", width: w + "px", height: h + "px" });
+      const w = (s.stroke || 4) * u, pad = (s.pad ?? 5) * u * (s.padCss ? 1 / u : 1);
+      let l = r.l - pad, t = r.t - pad, bw = r.r - r.l + 2 * pad, bh = r.b - r.t + 2 * pad;
+      if (s.shape === "circle") { const d = Math.max(bw, bh); l -= (d - bw) / 2; t -= (d - bh) / 2; bw = bh = d; }
+      s.el.style.border = w + "px solid " + INK;
+      s.el.style.boxShadow = "0 0 0 " + 2 * u + "px " + SHADOW + ", inset 0 0 0 " + 2 * u + "px " + SHADOW;
+      s.el.style.borderRadius = s.shape === "circle" ? "50%" : 10 * u + "px";
+      Object.assign(s.el.style, { left: l + "px", top: t + "px", width: bw + "px", height: bh + "px" });
     } else if (s.kind === "label") {
-      const w = s.el.offsetWidth, h = s.el.offsetHeight, gap = (s.gap ?? 10) * u;
+      const c = 14 * u, line = 4 * u;
+      s.el.style.clipPath = cut(c);
+      s.el.style.background = INK;
+      s.el.style.padding = line + "px";
+      s.inner.style.cssText = "background:" + PLATE + ";clip-path:" + cut(c - line * 0.6) + ";color:" + (s.emerald ? EMERALD : INK) + ";font:800 " + s.px * u + "px/1.1 " + font() + ";letter-spacing:.01em;white-space:nowrap;padding:" + 8 * u + "px " + 18 * u + "px";
+      const w = s.el.offsetWidth, h = s.el.offsetHeight, gap = (s.gap ?? 14) * u;
       let l = (r.l + r.r) / 2 - w / 2, t = (r.t + r.b) / 2 - h / 2;
       if (s.side === "above") t = r.t - h - gap;
       else if (s.side === "below") t = r.b + gap;
@@ -562,31 +585,32 @@ const OVERLAY_JS = `(() => {
       else if (s.side === "right") l = r.r + gap;
       l += (s.dx || 0) * u; t += (s.dy || 0) * u;
       const m = 6 * u;
-      l = Math.min(Math.max(l, m), innerWidth - w - m);
+      l = Math.min(Math.max(l, v.x0 + m), v.x1 - w - m);
+      t = Math.min(Math.max(t, v.b0 + m), v.b1 - h - m);
       Object.assign(s.el.style, { left: l + "px", top: t + "px" });
     } else if (s.kind === "arrow") {
       const q = rectOf(s.to);
       if (!q) return;
       const ax = (r.l + r.r) / 2, ay = (r.t + r.b) / 2, bx = (q.l + q.r) / 2, by = (q.t + q.b) / 2;
       const len = Math.hypot(bx - ax, by - ay) || 1, ux = (bx - ax) / len, uy = (by - ay) / len;
-      const start = (s.startGap ?? 18) * u, end = (s.endGap ?? 14) * u, head = 16 * u;
+      const start = (s.startGap ?? 24) * u, end = (s.endGap ?? 18) * u, head = 24 * u;
       const x1 = ax + ux * start, y1 = ay + uy * start, x2 = bx - ux * end, y2 = by - uy * end;
       const bxh = x2 - ux * head, byh = y2 - uy * head, px = -uy * head * 0.55, py = ux * head * 0.55;
-      const p = s.parts;
+      const p = s.parts, w = 5 * u;
+      p.back.setAttribute("stroke-width", w + 4 * u); p.line.setAttribute("stroke-width", w); p.headBack.setAttribute("stroke-width", 4 * u);
       for (const e of [p.back, p.line]) { e.setAttribute("x1", x1); e.setAttribute("y1", y1); e.setAttribute("x2", bxh); e.setAttribute("y2", byh); }
       const pts = x2 + "," + y2 + " " + (bxh + px) + "," + (byh + py) + " " + (bxh - px) + "," + (byh - py);
       p.head.setAttribute("points", pts); p.headBack.setAttribute("points", pts);
     }
   };
-  const tick = () => { for (const s of items.values()) place(s); raf = requestAnimationFrame(tick); };
+  const tick = () => { const v = view(); for (const s of items.values()) place(s, v); raf = requestAnimationFrame(tick); };
   window.__htp = {
-    add(spec, scale) {
+    add(spec) {
       mount();
-      u = scale;
       const s = { ...spec, id: ++n };
       s.el = make(s);
       items.set(s.id, s);
-      place(s);
+      place(s, view());
       if (!raf) raf = requestAnimationFrame(tick);
       requestAnimationFrame(() => requestAnimationFrame(() => { if (s.el) { s.el.style.opacity = "1"; s.el.style.transform = "scale(1)"; } if (s.g) s.g.style.opacity = "1"; }));
       return s.id;
@@ -603,14 +627,13 @@ const OVERLAY_JS = `(() => {
 })();`;
 
 /**
- * Marks for one take. `info.k` (output px per CSS px of the crop) sets their size. add() puts one up (it fades in over 180 ms) and
- * returns its id; remove() fades it out; show() does both around a hold of `ms` (at least 1.2 s to be read).
+ * Marks for one take. add() puts one up (it fades in over 180 ms) and returns its id; remove() fades it out; show() does both around a
+ * hold of `ms` (at least 1.2 s to be read); at() does that after a delay without holding up the play.
  */
 function marks(page, info) {
-  const u = 1 / (info.k ?? 1);
-  const px = (v) => v;
+  const px = LABEL_PX[info.set];
   return {
-    add: (spec) => page.evaluate(([s, scale]) => window.__htp.add(s, scale), [{ px: LABEL_PX, ...spec }, u]),
+    add: (spec) => page.evaluate((s) => window.__htp.add(s), { px, ...spec }),
     remove: (id) => page.evaluate((i) => window.__htp.remove(i), id),
     async show(spec, ms = 1600) {
       const ids = [];
@@ -628,7 +651,6 @@ function marks(page, info) {
       for (const id of ids) await this.remove(id);
     },
     clear: () => page.evaluate(() => window.__htp?.clear()),
-    px,
   };
 }
 
@@ -747,7 +769,7 @@ const GAMES = {
           await Promise.all([score, clock]);
         },
         focus: [".bp-score-n", '[role="timer"]', ".bp-board .bp-cell:nth-child(-n+16)"],
-        pad: { phone: 0, desktop: 100 },
+        pad: { phone: 45, desktop: 100 },
       },
       // the Match result screen on fixtures: the higher score takes the Pot minus Fees
       5: {
@@ -774,14 +796,14 @@ const GAMES = {
         pad: { phone: 100, desktop: 500 },
         camera: {
           keys: [
-            { focus: { phone: [".hd-plaque-text|first"], desktop: [".hd-plaque-text", ".hdx-pot"] }, pad: { phone: 100, desktop: 500 }, at: 0.15 },
-            { focus: { phone: [".hd-plaque-text|last"], desktop: [".hdx-pot", ".hdx-board", ".hd-cards|last"] }, pad: { phone: 100, desktop: 20 }, at: 0.85 },
+            { focus: { phone: [".hd-plaque-text|first"], desktop: [".hd-plaque-text", ".hdx-pot"] }, pad: { phone: 100, desktop: 500 }, sec: 1.0 },
+            { focus: { phone: [".hd-plaque-text|last"], desktop: [".hdx-pot", ".hdx-board", ".hd-cards|last"] }, pad: { phone: 100, desktop: 20 }, sec: 6.0 },
           ],
         },
         act: async (page, info) => {
           const m = marks(page, info);
-          const a = m.at(500, tag(".hd-stack|first", "Bot stack", "right", { ring: "rect", pad: 5, gap: 14 }), 2400);
-          const b = m.at(4400, tag(".hd-stack|last", "Your stack", "right", { ring: "rect", pad: 5, gap: 14 }), 2400);
+          const a = m.at(500, tag(".hd-stack|first", "Bot stack", "below", { ring: "rect", pad: 5, gap: 4 }), 2400);
+          const b = m.at(4400, tag(".hd-stack|last", "Your stack", "below", { ring: "rect", pad: 5, gap: 4 }), 2400);
           await sleep(7000);
           await Promise.all([a, b]);
         },
@@ -811,7 +833,7 @@ const GAMES = {
         pad: { phone: 60, desktop: 60 },
         act: async (page, info) => {
           const m = marks(page, info);
-          const clock = m.at(200, tag(".hdx-actions", "30 s to act", "below", { ring: "rect", pad: 4, gap: 12 }), 1900);
+          const clock = m.at(200, tag(".hdx-actions", "30 s to act", "above", { ring: "rect", pad: 4, gap: 6 }), 1900);
           const sizes = m.at(2300, tag(".hd-presets", "Raise size", "above", { gap: 12 }), 2400);
           for (const size of ["+400", "+600", "+200"]) {
             await page.locator(".hd-preset", { hasText: size }).first().click({ timeout: 2000 }).catch(() => {});
@@ -859,21 +881,23 @@ const GAMES = {
   "trading-duel": {
     focus: [".tg-head-dot"],
     steps: {
-      // the head start clock, then the live price line
+      // the head start clock, then the live price line with its trail drawn behind the dot
       1: {
-        prep: tdWaitStart,
-        pad: { phone: 130, desktop: 200 },
+        prep: async (page) => { await tdWaitStart(page); await tdUntil(page, 16); },
+        focus: { phone: [".tg-strip-clock", ".tg-head-dot"], desktop: [".tg-head-dot"] },
+        pad: { phone: 20, desktop: 60 },
         camera: {
           keys: [
-            { focus: { phone: [".tg-strip-clock"], desktop: [".tg-head-dot"] }, pad: { phone: 120, desktop: 200 }, at: 0.12 },
-            { focus: [".tg-head-dot"], pad: { phone: 130, desktop: 200 }, at: 0.7 },
+            { focus: { phone: [".tg-strip-clock", ".tg-head-dot"], desktop: [".tg-head-dot"] }, pad: { phone: 20, desktop: 60 }, sec: 0 },
+            { focus: { phone: [".tg-strip-clock", ".tg-head-dot"], desktop: [".tg-head-dot"] }, pad: { phone: 20, desktop: 60 }, sec: 2.4 },
+            { focus: [".tg-head-dot"], pad: { phone: 100, desktop: 60 }, sec: 3.4 },
           ],
         },
         act: async (page, info) => {
           const m = marks(page, info);
-          const a = m.at(300, { kind: "label", target: ".tg-strip-clock", text: "Head start", side: "below", gap: 14 }, 2200);
-          const b = m.at(4400, tag(".tg-head-dot", "Live price", "above", { ring: "circle", pad: 8, gap: 16 }), 2600);
-          await sleep(7500);
+          const a = m.at(300, { kind: "label", target: ".tg-strip-clock", text: "Head start", side: "below", gap: 10 }, 2200);
+          const b = m.at(3600, tag(".tg-head-dot", "Live price", "above", { ring: "circle", pad: 10, gap: 14 }), 3600);
+          await sleep(8000);
           await Promise.all([a, b]);
         },
       },
@@ -919,8 +943,8 @@ const GAMES = {
         pad: { phone: 150, desktop: 200 },
         camera: {
           keys: [
-            { focus: ['[data-htp="pick"]'], pad: { phone: 150, desktop: 200 }, at: 0.62 },
-            { focus: [".tg-scoreboard-in"], pad: { phone: 100, desktop: 200 }, at: 0.85 },
+            { focus: ['[data-htp="pick"]'], pad: { phone: 150, desktop: 200 }, sec: 7.7 },
+            { focus: [".tg-scoreboard-in"], pad: { phone: 100, desktop: 200 }, sec: 10.5 },
           ],
         },
         maxSecs: 11,
@@ -959,8 +983,8 @@ const GAMES = {
         pad: { phone: 20, desktop: 10 },
         camera: {
           keys: [
-            { focus: [".vg-piece.us"], pad: { phone: 20, desktop: 10 }, at: 0.2 },
-            { focus: [".vg-piece.it"], pad: { phone: 20, desktop: 10 }, at: 0.85 },
+            { focus: [".vg-piece.us"], pad: { phone: 20, desktop: 10 }, sec: 1.6 },
+            { focus: [".vg-piece.it"], pad: { phone: 20, desktop: 10 }, sec: 6.8 },
           ],
         },
         act: async (page, info) => {
@@ -978,10 +1002,10 @@ const GAMES = {
         pad: { phone: 60, desktop: 140 },
         camera: {
           keys: [
-            { focus: [".vg-plate.us .vg-ava"], pad: { phone: 60, desktop: 140 }, at: 0.4 },
-            { focus: [".vg-piece.us", ".vg-plate.us"], pad: { phone: 30, desktop: 60 }, at: 0.55 },
-            { focus: [".vg-piece.us", ".vg-plate.us"], pad: { phone: 30, desktop: 60 }, at: 0.68 },
-            { focus: [".vg-board"], pad: 0, band: VG_WHOLE_BOARD, at: 0.88 },
+            { focus: [".vg-plate.us .vg-ava"], pad: { phone: 60, desktop: 140 }, sec: 3.3 },
+            { focus: [".vg-piece.us", ".vg-plate.us"], pad: { phone: 30, desktop: 60 }, sec: 4.5 },
+            { focus: [".vg-piece.us", ".vg-plate.us"], pad: { phone: 30, desktop: 60 }, sec: 5.6 },
+            { focus: [".vg-board"], pad: 0, band: VG_WHOLE_BOARD, sec: 7.2 },
           ],
         },
         act: async (page, info) => {
@@ -1018,72 +1042,84 @@ const GAMES = {
           const mine = (await page.locator(".vg-piece.us.sel").first().getAttribute("aria-label").catch(() => "")).match(/^US (\d+|10) /)?.[1] ?? "";
           const to = await page.__win.boundingBox();
           const spot = { x: to.x, y: to.y, w: to.width, h: to.height };
-          const ring = await m.add(tag(".vg-piece.us.sel", mine ? `Your ${mine}` : "Your piece", "above", { ring: "circle", pad: 4, gap: 12 })[0]);
-          const label = await m.add({ kind: "label", target: ".vg-piece.us.sel", text: mine ? `Your ${mine}` : "Your piece", side: "above", gap: 12, px: 9 });
-          await sleep(1100);
+          const mine1 = mine ? `Your ${mine}` : "Your piece";
+          // close on your attacker, name it, draw the move
+          await info.cam.to(1, 0.6);
+          await sleep(700);
+          const ids = await Promise.all(tag(".vg-piece.us.sel", mine1, "above", { ring: "circle", pad: 8, gap: 4 }).map((x) => m.add(x)));
+          await sleep(1300);
           const arrow = await m.add({ kind: "arrow", target: ".vg-piece.us.sel", to: spot });
-          await sleep(500);
+          await sleep(700);
+          const ranks = () => page.evaluate(() => [...document.querySelectorAll(".vg-piece.it")].map((e) => e.getAttribute("aria-label")?.match(/^Italian (\d+|B|F) /)?.[1] ?? null));
+          const before = await ranks();
+          await info.cam.to(2, 0.45);
+          await sleep(350);
           await page.__win.click({ force: true, timeout: 1500 }).catch(() => {});
           await m.remove(arrow);
-          await m.remove(ring);
-          await m.remove(label);
-          await sleep(1300);
-          const lost = await page.evaluate(() => [...document.querySelectorAll(".vg-piece.it.gone")].map((e) => e.getAttribute("aria-label")?.match(/^Italian (\d+|B|F) /)?.[1]).filter(Boolean).at(-1) ?? null);
-          await m.show({ kind: "label", target: spot, text: lost ? `${lost} revealed` : "Lower rank", side: "below", gap: 8, px: 9 }, 1300);
-          await m.show({ kind: "label", target: spot, text: mine ? `${mine} wins` : "You win", side: "below", gap: 8, px: 9 }, 1300);
+          for (const id of ids) await m.remove(id);
+          // the clash: the camera is on the target square; the piece it hit turns face up, and its rank is named while it shows
+          let lost = null;
+          for (let i = 0; i < 20 && !lost; i++) {
+            const now = await ranks();
+            lost = now.find((r, k) => r && r !== before[k]) ?? null;
+            if (!lost) await sleep(50);
+          }
+          await m.show({ kind: "label", target: spot, text: lost ? `${lost} revealed` : "Lower rank", side: "above", gap: 4 }, 1400);
+          await m.show({ kind: "label", target: spot, text: mine ? `${mine} wins` : "You win", side: "below", gap: 4 }, 1400);
+          await info.cam.to(0, 0.8);
+          await sleep(900);
           return (await vgEnemies(page)).length === enemies - 1;
         },
-        // close on the clash: the attacker and its target, with a few squares round them
+        // wide, then in on the attacker (a piece is a quarter of the frame), then on the target square for the clash, then out
         focus: [".vg-piece.us.sel", ".vg-mark.atk"],
         pad: { phone: 95, desktop: 190 },
-        // wide for the setup, then in to about 3 squares across for the clash (each piece a quarter of the frame), then back out
         camera: {
-          keys: [
-            { focus: [".vg-piece.us.sel", ".vg-mark.atk"], pad: { phone: 95, desktop: 190 }, at: 0.0 },
-            { focus: [".vg-piece.us.sel", ".vg-mark.atk"], pad: { phone: 8, desktop: 0 }, at: 0.2 },
-            { focus: [".vg-piece.us.sel", ".vg-mark.atk"], pad: { phone: 8, desktop: 0 }, at: 0.78 },
-            { focus: [".vg-piece.us.sel", ".vg-mark.atk"], pad: { phone: 95, desktop: 190 }, at: 0.95 },
+          cues: [
+            { focus: [".vg-piece.us.sel", ".vg-mark.atk"], pad: { phone: 95, desktop: 190 } },
+            { focus: [".vg-piece.us.sel"], pad: { phone: 33, desktop: 8 } },
+            { focus: [".vg-mark.atk"], pad: { phone: 33, desktop: 8 } },
           ],
         },
-        speed: 0.75,
+        speed: 1,
         reseed: true,
-        poster: 0.75,
+        poster: 0.5,
       },
       // an Engineer walks up until enemy coins touch it; tapped, its preview squares show; the view drops to its Blast button, presses it, and returns
       4: {
         prep: async (page) => { page.__eng = await vgUntilBlast(page); if (page.__eng === null) throw new Error("no Engineer reached the enemy"); },
         focus: ['[data-htp="eng"]'],
-        pad: { phone: 90, desktop: 150 },
+        pad: { phone: 33, desktop: 8 },
         camera: {
-          keys: [
-            { focus: ['[data-htp="eng"]'], pad: { phone: 90, desktop: 150 }, at: 0.2 },
-            { focus: [".vg-plate.us", ".vg-power"], pad: { phone: 40, desktop: 60 }, at: 0.34 },
-            { focus: [".vg-plate.us", ".vg-power"], pad: { phone: 40, desktop: 60 }, at: 0.49 },
-            { focus: ['[data-htp="eng"]'], pad: { phone: 90, desktop: 150 }, at: 0.64 },
+          cues: [
+            { focus: ['[data-htp="eng"]'], pad: { phone: 33, desktop: 8 } },
+            { focus: [".vg-plate.us", ".vg-power"], pad: { phone: 40, desktop: 60 } },
           ],
         },
         act: async (page, info) => {
           const m = marks(page, info);
-          const eb = await page.locator('[data-htp="eng"]').boundingBox();
           await vgTap(page, page.__eng);
-          const eng = await m.add({ kind: "ring", target: '[data-htp="eng"]', shape: "circle", pad: 5 });
-          const engLabel = await m.add({ kind: "label", target: '[data-htp="eng"]', text: "Engineer", side: "above", gap: 30 });
-          await sleep(1700);
+          const eng = await m.add({ kind: "ring", target: '[data-htp="eng"]', shape: "circle", pad: 8 });
+          const engLabel = await m.add({ kind: "label", target: '[data-htp="eng"]', text: "Engineer", side: "above", gap: 4 });
+          await sleep(1900);
           await m.remove(eng);
           await m.remove(engLabel);
-          await sleep(1300);
-          const power = await m.add({ kind: "ring", target: ".vg-power" });
-          const powerLabel = await m.add({ kind: "label", target: ".vg-power", text: "Blast", side: "above", gap: 12 });
-          await sleep(1400);
+          await info.cam.to(1, 0.7);
+          await sleep(900);
+          const power = await m.add({ kind: "ring", target: ".vg-power", pad: 8 });
+          const powerLabel = await m.add({ kind: "label", target: ".vg-power", text: "Blast", side: "above", gap: 10 });
+          await sleep(1700);
           await page.locator(".vg-power").first().click({ force: true, timeout: 1500 });
           await m.remove(power);
           await m.remove(powerLabel);
+          await info.cam.to(0, 0.6);
+          await sleep(800);
+          const eb = await page.locator('[data-htp="eng"]').boundingBox().catch(() => null);
+          const area = eb ? { x: eb.x - eb.width, y: eb.y - eb.height, w: eb.width * 3, h: eb.height * 3 } : '[data-htp="eng"]';
+          await m.show({ kind: "label", target: area, text: "Revealed", side: "below", gap: -8 }, 2400);
           await sleep(900);
-          await m.show({ kind: "label", target: { x: eb.x - eb.width, y: eb.y - eb.height, w: eb.width * 3, h: eb.height * 3 }, text: "Squares revealed", side: "above", gap: 14 }, 2200);
-          await sleep(1000);
         },
         reseed: true,
-        poster: 0.85,
+        poster: 0.75,
       },
       // a Recon runs across the board and takes the Supply Truck (planned from the seeded setup); then the real result screen
       5: {
@@ -1091,9 +1127,16 @@ const GAMES = {
         focus: ['[data-htp]'],
         pad: { phone: 40, desktop: 80 },
         maxSecs: 10,
+        camera: {
+          cues: [
+            { focus: ['[data-htp="a"]'], pad: { phone: 33, desktop: 8 } },
+            { focus: ['[data-htp="b"]'], pad: { phone: 33, desktop: 8 } },
+            { focus: ['[data-htp]'], pad: { phone: 40, desktop: 80 } },
+          ],
+        },
         // seed 41 deals a Recon with a clear straight run to the Truck (found by search over the seeded setups)
         seed: 41,
-        act: async (page, info) => vgCaptureTruck(page, info.seed, 0, marks(page, info)),
+        act: async (page, info) => vgCaptureTruck(page, info.seed, 0, marks(page, info), info.cam),
         after: {
           route: "/design/result?case=vanguard-won&dev=demo",
           focus: RESULT_FOCUS,
@@ -1180,17 +1223,23 @@ const forSet = (v, name) => (v && !Array.isArray(v) && (v.phone || v.desktop) ? 
 async function capture(ctx, page, set, dir, def, fn, info) {
   const crop = await cropFor(page, forSet(def.focus, info.set), set, def.pad?.[info.set]);
   let camera = null;
-  if (def.camera) {
-    // { keys: [{ focus, pad, band?, at }] } (the crop at each fraction of the clip, held before the first and after the last),
-    // or the short form { from, to, span }
-    const keys = def.camera.keys ?? [{ ...def.camera.from, at: (def.camera.span ?? [0.05, 0.95])[0] }, { ...def.camera.to, at: (def.camera.span ?? [0.05, 0.95])[1] }];
-    camera = [];
-    for (const k of keys) {
+  let cues = null;
+  if (def.camera?.cues) {
+    // { cues: [{ focus, pad, band? }] }: the act moves the camera itself with info.cam.to(i, seconds); the first cue is the start
+    cues = [];
+    for (const k of def.camera.cues) {
       const pad = k.pad?.[info.set] ?? k.pad;
-      camera.push({ at: k.at, rect: await cropFor(page, forSet(k.focus, info.set), set, typeof pad === "number" ? pad : undefined, Array.isArray(k.band) ? k.band : k.band?.[info.set]) });
+      cues.push(await cropFor(page, forSet(k.focus, info.set), set, typeof pad === "number" ? pad : undefined, Array.isArray(k.band) ? k.band : k.band?.[info.set]));
+    }
+  } else if (def.camera) {
+    // { keys: [{ focus, pad, band?, sec }] }: the crop wanted `sec` seconds into the take (held before the first key and after the last)
+    camera = [];
+    for (const k of def.camera.keys) {
+      if (k.sec === undefined) throw new Error("camera keys need sec (seconds into the take)");
+      const pad = k.pad?.[info.set] ?? k.pad;
+      camera.push({ sec: k.sec, rect: await cropFor(page, forSet(k.focus, info.set), set, typeof pad === "number" ? pad : undefined, Array.isArray(k.band) ? k.band : k.band?.[info.set]) });
     }
   }
-  info.k = set.out[0] / Math.max(crop.w, ...(camera ?? []).map((c) => c.rect.w));
   mkdirSync(dir, { recursive: true });
   const frames = [];
   const writes = [];
@@ -1204,10 +1253,27 @@ async function capture(ctx, page, set, dir, def, fn, info) {
   const vp = set.context.viewport;
   const dsf = set.context.deviceScaleFactor;
   await cdp.send("Page.startScreencast", { format: "jpeg", quality: 92, maxWidth: vp.width * dsf, maxHeight: vp.height * dsf });
+  // the page learns the camera so its marks keep one size in the clip and stay inside the crop and the clear band
+  const keys = (cues ? [{ sec: 0, rect: cues[0] }] : camera ?? [{ sec: 0, rect: crop }]).map((k) => ({ t: k.sec, w: k.rect.w, cx: k.rect.x + k.rect.w / 2, cy: k.rect.y + k.rect.h / 2 }));
+  await page.evaluate((c) => { window.__htpCam = { ...c, t0: performance.now() }; }, { keys, out: set.out, band: set.band });
+  if (cues) {
+    info.cam = {
+      to: (i, dur = 0.7) => page.evaluate(([r, d]) => {
+        const c = window.__htpCam, now = (performance.now() - c.t0) / 1000, last = c.keys.at(-1);
+        c.keys.push({ ...last, t: now });
+        c.keys.push({ t: now + d, w: r.w, cx: r.x + r.w / 2, cy: r.y + r.h / 2 });
+      }, [cues[i], dur]),
+    };
+  }
   await sleep(300);
   const ok = await fn();
   await sleep(def.tail ?? 400);
   await cdp.send("Page.stopScreencast");
+  if (cues) {
+    // what the act did with the camera becomes the keys the encoder follows
+    const ran = await page.evaluate(() => window.__htpCam.keys);
+    camera = ran.map((k) => ({ sec: k.t, rect: { x: k.cx - k.w / 2, y: k.cy - (k.w * set.out[1]) / set.out[0] / 2, w: k.w, h: (k.w * set.out[1]) / set.out[0] } }));
+  }
   await Promise.all(writes);
   const rawFps = frames.length > 1 ? (frames.length - 1) / (frames.at(-1).t - frames[0].t) : 0;
   return { ok: ok !== false, frames, rawFps, crop, camera, dir, scale: frames.length ? jpgWidth(frames[0].file) / vp.width : dsf };
@@ -1267,7 +1333,8 @@ function frameFilter(seg, set, secs, vp) {
   if (!camera) {
     move = `crop=${even(crop.w * scale)}:${even(crop.h * scale)}:${Math.round(crop.x * scale)}:${Math.round((crop.y + EDGE) * scale)},scale=${ow}:${oh}:flags=lanczos`;
   } else {
-    const cs = camera.map((k) => ({ t: k.at * secs, w: k.rect.w, cx: k.rect.x + k.rect.w / 2, cy: k.rect.y + k.rect.h / 2 }));
+    const real = seg.frames.at(-1).t - seg.frames[0].t;
+    const cs = camera.map((k) => ({ t: k.sec * secs / real, w: k.rect.w, cx: k.rect.x + k.rect.w / 2, cy: k.rect.y + k.rect.h / 2 }));
     const track = (get) => {
       let expr = get(cs[0]).toFixed(3);
       for (let i = 0; i + 1 < cs.length; i++) {
