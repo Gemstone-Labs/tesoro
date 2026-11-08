@@ -30,21 +30,22 @@ describe("many-seat accounts written by tesoro_core", () => {
 
   it("the sponsor finds the seat key in that page through the Player's mark, and no other key", async () => {
     const car = keyOf(54);
-    const at = new Map([
-      [seatMarkPda(car, keyOf(56)).toBase58(), fx.seatMark],
-      [seatPagePda(car, 1).toBase58(), fx.seatPage],
-    ]);
-    const read = async (k: PublicKey) => {
-      const data = at.get(k.toBase58());
+    const read = (mark: Buffer) => async (k: PublicKey) => {
+      const data = k.equals(seatMarkPda(car, keyOf(56))) ? mark : k.equals(seatPagePda(car, 1)) ? fx.seatPage : null;
       return data ? { owner: TESORO_CORE, data } : null;
     };
-    expect(await carNamesSeatKey(read, car, keyOf(56), keyOf(58))).toBe(true);
-    expect(await carNamesSeatKey(read, car, keyOf(56), keyOf(57))).toBe(false);
-    expect(await carNamesSeatKey(read, car, keyOf(57), keyOf(58))).toBe(false);
+    expect(await carNamesSeatKey(read(fx.seatMark), car, keyOf(56), keyOf(58))).toBe(true);
+    expect(await carNamesSeatKey(read(fx.seatMark), car, keyOf(56), keyOf(57))).toBe(false);
+    expect(await carNamesSeatKey(read(fx.seatMark), car, keyOf(57), keyOf(58))).toBe(false);
+    // a seat stepped off no longer vouches for its key
+    expect(await carNamesSeatKey(read(fx.seatMarkReturning), car, keyOf(56), keyOf(58))).toBe(false);
   });
 
-  it("a seat mark: the seat, the lines on their way home, the funder and the Pot", () => {
-    const m = decodeSeatMark(fx.seatMark);
+  it("a seat mark: as the join leaves it, and as a step-off leaves it (the lines on their way home, the funder, the Pot)", () => {
+    const seated = decodeSeatMark(fx.seatMark);
+    expect([seated.seat, seated.returning, seated.hold]).toEqual([12, false, 0]);
+    expect([seated.matchKey, seated.account, seated.payer]).toEqual([keyOf(54), keyOf(56), keyOf(60)]);
+    const m = decodeSeatMark(fx.seatMarkReturning);
     expect([m.seat, m.returning, m.hold]).toEqual([12, true, 2]);
     expect([m.matchKey, m.account, m.payer, m.funder, m.pot]).toEqual([keyOf(54), keyOf(56), keyOf(60), keyOf(57), keyOf(59)]);
   });

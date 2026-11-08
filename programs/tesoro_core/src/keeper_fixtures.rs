@@ -301,15 +301,22 @@ fn keeper_fixtures_match_the_program() {
         )),
     ));
 
-    // The seat's mark, as a step-off leaves it while the lines go home.
+    // The seat's mark as the join leaves it, then as a step-off leaves it while the lines go home.
     let mut mark: SeatMark = bytemuck::Zeroable::zeroed();
     mark.bump = 251;
     mark.seat = 12;
-    mark.returning = 1;
-    mark.set_hold(2);
     mark.match_key = key(54);
     mark.account = key(56);
     mark.payer = key(60);
+    out.push((
+        "seatMark".into(),
+        hex(&with_disc(
+            SeatMark::DISCRIMINATOR,
+            bytemuck::bytes_of(&mark).to_vec(),
+        )),
+    ));
+    mark.returning = 1;
+    mark.set_hold(2);
     mark.match_seed = crate::ledger::lifecycle::MatchId {
         opener: key(50),
         n: 7,
@@ -318,7 +325,7 @@ fn keeper_fixtures_match_the_program() {
     mark.funder = key(57);
     mark.pot = key(59);
     out.push((
-        "seatMark".into(),
+        "seatMarkReturning".into(),
         hex(&with_disc(
             SeatMark::DISCRIMINATOR,
             bytemuck::bytes_of(&mark).to_vec(),
