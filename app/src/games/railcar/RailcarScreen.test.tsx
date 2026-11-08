@@ -71,7 +71,7 @@ describe("the Ride, in the same screen", () => {
 });
 
 describe("my secret Brake", () => {
-  const facts: BrakeFacts = { aboard: true, allBound: true, myBound: true, canSign: true, pressMs: null, pending: false, rideMs: 72_000 };
+  const facts: BrakeFacts = { aboard: true, allBound: true, myBound: true, canSign: true, walletCopied: true, pressMs: null, pending: false, rideMs: 72_000 };
   const button = (h: string) => text(h.match(/<div class="rc-brake[^"]*">.*?<\/div>/)?.[0] ?? "");
   const disabled = (h: string) => /<div class="rc-brake[^"]*"><button[^>]*disabled/.test(h);
 
@@ -84,6 +84,14 @@ describe("my secret Brake", () => {
     expect(button(at({ pressMs: 60_000 }))).toContain("Brake used");
     expect(button(at({ allBound: false }))).toContain("Brake soon");
     for (const o of [{ pending: true }, { pressMs: 69_000 }, { pressMs: 60_000 }, { allBound: false }]) expect(disabled(at(o))).toBe(true);
+  });
+
+  it("on the wallet route, until my wallet signed once this ride, the button asks for that and says why in plain words", () => {
+    const h = html(riding(), brakeState({ ...facts, walletCopied: false }));
+    expect(button(h)).toContain("Brake sign first");
+    expect(disabled(h)).toBe(false);
+    expect(text(h)).toContain("Sign once so your Brake stays secret on this device");
+    expect(text(html(riding(), brakeState(facts)))).not.toContain("Sign once");
   });
 
   it("while my Brake runs, only my screen slows the stage and shows the tag; another Player's screen is the same as before", () => {

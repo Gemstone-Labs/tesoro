@@ -18,7 +18,7 @@ export function bindTargets(t: Pick<TableView, "phase" | "seated" | "brakesBound
   return Array.from({ length: Math.min(n, t.seated) }, (_, k) => (mySeat + k) % t.seated);
 }
 
-export type BrakeStatus = "waiting" | "ready" | "sending" | "on" | "used";
+export type BrakeStatus = "waiting" | "sign" | "ready" | "sending" | "on" | "used";
 
 export interface BrakeFacts {
   aboard: boolean;
@@ -28,6 +28,8 @@ export interface BrakeFacts {
   myBound: boolean;
   /** This page can sign my ticks (the seat key the seat names). */
   canSign: boolean;
+  /** No first wallet transaction is left to make this ride: the seat-key route, or the wallet's early copy landed. */
+  walletCopied: boolean;
   /** Ride ms of my Brake, from my own Brake seat (or this page's memory of it); null before I Brake. */
   pressMs: number | null;
   /** Pressed here, waiting for the next tick to carry it. */
@@ -51,8 +53,21 @@ export function brakeState(f: BrakeFacts): BrakeState | null {
     return { status: activeMs > 0 ? "on" : "used", left: 0, activeMs };
   }
   if (f.pending) return { status: "sending", left: 0, activeMs: 0 };
-  return { status: f.allBound && f.myBound && f.canSign ? "ready" : "waiting", left: 1, activeMs: 0 };
+  if (!(f.allBound && f.myBound && f.canSign)) return { status: "waiting", left: 1, activeMs: 0 };
+  return { status: f.walletCopied ? "ready" : "sign", left: 1, activeMs: 0 };
 }
+
+/** Where this page is with the wallet's early copy this ride. */
+export type EarlyCopy = "none" | "asking" | "done" | "declined";
+
+/**
+ * The wallet's early copy (founder 2026-11-08). The first rollup transaction a wallet signs makes the rollup copy that wallet
+ * in a public transaction under its address. On the wallet route (`brakeRoute`) that would mark the moment of the Brake, so
+ * as the ride starts the page sends one wallet-signed `signal` (valid while the draw is asked for and while riding); the
+ * copy then says only that this Player rides without a seat key here. Asked once; after a declined prompt only the button
+ * asks again (`brakeState` "sign" until it lands).
+ */
+export const earlyCopyDue = (o: { route: "next-tick" | "wallet" | null; riding: boolean; aboard: boolean; copy: EarlyCopy }): boolean => o.route === "wallet" && o.riding && o.aboard && o.copy === "none";
 
 /** While the ride runs: an aboard Player whose seat is bound ticks (the Brake rides on it); anyone else signals. */
 export const pageSend = (f: { aboard: boolean; myBound: boolean; canSign: boolean }): "tick" | "signal" => (f.aboard && f.myBound && f.canSign ? "tick" : "signal");
