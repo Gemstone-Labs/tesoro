@@ -48,6 +48,10 @@ describe("accepted", () => {
     expect(p).toMatchObject({ names: ["match_chunk"], class: "exit" });
     expect(p.signers).toEqual([]);
   });
+  it("a chunk asks the compute an unsized worst case needs, not a million: the priority fee is charged on the limit", async () => {
+    // The planner sizes chunks to 125k; a page that cannot simulate sends the program's cap (12 steps, ~145k CU measured).
+    expect(plan([await chunkIx(relayer, key(), 60)]).cu).toBe(300_000);
+  });
   it("stages a fragmented entry with the Source books and pages required by the draw", async () => {
     const owner = accountOf(player);
     const ix = await coreIx("stage_entry", [32], { signer: player, owner, ticket: key() });

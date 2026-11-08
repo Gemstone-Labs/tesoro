@@ -118,7 +118,8 @@ export const ROWS: Readonly<Record<string, Row>> = {
   claim_spill: { class: "continue", relayer: [], cu: 300_000, extra: 40 },
   // Ticket 09c: moves the lines an overflow record holds into the owner's stores; the rent goes back to whoever paid it.
   claim_overflow: { class: "exit", relayer: [], cu: 400_000, extra: 12 },
-  match_chunk: { class: "exit", relayer: ["caller"], cu: 1_000_000, extra: 60 },
+  // The priority fee is charged on the limit: 300k covers an unsized chunk at the program cap (~145k CU measured).
+  match_chunk: { class: "exit", relayer: ["caller"], cu: 300_000, extra: 60 },
   // `extra`: the spills and counters, plus both funders' Protections when a refund gives their Entry Limit counts back.
   close_match: { class: "exit", relayer: ["caller", "match_payer", "pot_a_payer", "pot_b_payer"], cu: 300_000, extra: 6 },
   refund_match: { class: "exit", relayer: ["caller", "payer"], cu: 300_000, spend: () => ({ refundable: RECEIPT_RENT, sunk: 0n }) },
