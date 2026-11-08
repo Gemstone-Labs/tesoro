@@ -704,6 +704,11 @@ interface RideOpts {
   noImpact?: boolean;
   /** The finish goes through the sponsor as this rider's page sends it, vouched for by its seat key (not the relayer directly). */
   viaSponsor?: number;
+  /**
+   * Seconds the riders' Advances age before they board: a fee cut then syncs a Source with closed segments to record, into
+   * checkpoint pages its book has never had (devnet car 2, 2026-11-08: core refused the chunk with AccountMissing).
+   */
+  aged?: number;
 }
 
 /** A car boarded, departed and ridden through `jumps` (and, unless `noImpact`, its Impact): everything before the finish. */
@@ -718,6 +723,7 @@ async function rideToImpact(n: number, draw: Uint8Array, jumps: [number, number]
   for (const i of keyless) riders[i].seat = riders[i].kp;
   const backer = backed ? w.rider() : null;
   const backing = backed && backer ? w.backing(riders[backed.seat], backer, backed.shareBps) : undefined;
+  if (o.aged) w.setTime(w.now + o.aged);
 
   // Boarding: the first opens the car, the others join it, each in one wallet transaction.
   w.phase = "boarding";
@@ -1169,6 +1175,37 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     expect(steps.at(-1)).toBe("close-car");
     expect(c.w.info(c.match)).toBeNull();
     expect(c.w.info(carPda(c.carNo))).toBeNull();
+    expect(c.riders.map((p, i) => c.w.gemas(p, c.id) - c.before[i])).toEqual([350n, 630n, 578n, 813n, 0n]);
+  });
+
+  // ---- a fee cut from a Source whose book has no checkpoint page yet (devnet car 2, 2026-11-08) -------------------------
+
+  const AGED = 60 * 24 * 60 * 60;
+
+  it("the riders' Advances are two months old: the page creates the checkpoint pages the fee cut needs, then the worked example pays to the Gema", { timeout: 120_000 }, async () => {
+    const r = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, { aged: AGED });
+    expect(r.finishSteps).toContain("pages");
+    expect(r.finishSteps.indexOf("pages")).toBeLessThan(r.finishSteps.indexOf("chunk"));
+    expect(r.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
+    expect(r.studioFee).toBe(64n);
+    expect(r.walletSigs).toEqual({ boarding: 5 });
+  });
+
+  it("the same aged ride finished by Dee's page through the sponsor: her seat key vouches for the pages too", { timeout: 120_000 }, async () => {
+    const r = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, { aged: AGED, viaSponsor: DEE });
+    expect(r.finishSteps).toContain("pages");
+    expect(r.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
+    expect(r.walletSigs).toEqual({ boarding: 5 });
+  });
+
+  it("the same aged ride with every page gone: the keeper's sweep creates the pages and pays the worked example", { timeout: 120_000 }, async () => {
+    const c = await rideToImpact(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, { noImpact: true, aged: AGED });
+    const keeper = Keypair.generate();
+    c.w.svm.airdrop(keeper.publicKey, 100n * SOL);
+    c.w.setTime(c.w.now + 15 * 60);
+    const steps = await sweepUntilGone(c.w, c.match, c.carAcct.table, keeper);
+    expect(steps).toContain("pages");
+    expect(steps.at(-1)).toBe("close-car");
     expect(c.riders.map((p, i) => c.w.gemas(p, c.id) - c.before[i])).toEqual([350n, 630n, 578n, 813n, 0n]);
   });
 
