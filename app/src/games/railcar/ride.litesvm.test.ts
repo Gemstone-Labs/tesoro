@@ -742,21 +742,23 @@ interface RideOpts {
   viaSponsor?: number;
   /** The riders' Gemas come from native Locks (simSOL), whose yield the clock accrues, instead of reported Positions. */
   native?: boolean;
-  /**
-   * Seconds the riders' Advances age before they board. On a native Lock the yield accrued meanwhile lands when a fee is
-   * cut from its line, into checkpoint pages its book may never have had (devnet car 2, 2026-11-08: core refused the
-   * chunk with AccountMissing until someone created them).
-   */
+  /** Seconds the riders' Advances age before they board (on a native Lock the clock accrues yield meanwhile). */
   aged?: number;
+  /**
+   * Another car in a World that already rode one, with the same riders: a fee the first ride cut from a rider's line gave
+   * that Source holders in the fee classes, so the yield it earns since lands into their checkpoint pages, which its book
+   * has never had (devnet car 2, 2026-11-08: core refused the chunk with AccountMissing until someone created them).
+   */
+  again?: { world: World; riders: Person[] };
 }
 
 /** A car boarded, departed and ridden through `jumps` (and, unless `noImpact`, its Impact): everything before the finish. */
 async function rideToImpact(n: number, draw: Uint8Array, jumps: [number, number][], o: RideOpts = {}) {
   const backed = o.backed;
-  const w = await World.create({ setup: o.setup });
+  const w = o.again?.world ?? (await World.create({ setup: o.setup }));
+  if (o.native && !o.again) await w.nativeSetUp();
   // A backed rider has no Gemas of their own: their Backer's entry boards for them.
-  if (o.native) await w.nativeSetUp();
-  w.riders = Array.from({ length: n }, (_, i) => (i === backed?.seat ? w.person() : o.native ? w.nativeRider() : w.rider()));
+  w.riders = o.again?.riders ?? Array.from({ length: n }, (_, i) => (i === backed?.seat ? w.person() : o.native ? w.nativeRider() : w.rider()));
   const riders = w.riders;
   // A Player who boards without a seat key names the wallet as the seat's signer (core: "the wallet itself when it wants none").
   const keyless = new Set(o.noSeatKey ?? []);
@@ -840,7 +842,7 @@ async function rideToImpact(n: number, draw: Uint8Array, jumps: [number, number]
   return { ...ctx, over, shown, backedRow };
 }
 
-async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], o: RideOpts = {}): Promise<RideRun & { over: ReturnType<typeof decodeTable>; finishSteps: string[]; credits: number }> {
+async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], o: RideOpts = {}): Promise<RideRun & { over: ReturnType<typeof decodeTable>; finishSteps: string[]; credits: number; world: World }> {
   const { w, riders, backer, carNo, carAcct, match, id, before, backerBefore, studioBefore, table, over, shown, backedRow } = await rideToImpact(n, draw, jumps, o);
   if (!over) throw new Error("rideCar rides to the Impact");
   const sponsor = o.viaSponsor === undefined ? null : sponsorOn(w);
@@ -924,6 +926,7 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], o
     finishSteps: sent.sent,
     credits,
     setupRun: w.setupRun,
+    world: w,
   };
 }
 
@@ -1218,26 +1221,34 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     expect(c.riders.map((p, i) => c.w.gemas(p, c.id) - c.before[i])).toEqual([350n, 630n, 578n, 813n, 0n]);
   });
 
-  // ---- a fee cut from a Source whose book has no checkpoint page yet (devnet car 2, 2026-11-08) -------------------------
+  // ---- a fee cut that lands yield into checkpoint pages the Source's book never had (devnet car 2, 2026-11-08) ----------
 
-  /** A month of yield at devnet speed: it lands when the first fee is cut from a rider's line. */
-  const AGED = { native: true, aged: 10 * 60 } as const;
+  /**
+   * The worked example on native Locks, then a month of devnet yield, then the second car's riders are the same five: the
+   * second ride's fee is cut from Ana's Lock again, whose Studio and Leaderboard holders (the first ride's fees) need
+   * checkpoint pages for the yield it lands.
+   */
+  const SECOND = async (o: RideOpts = {}) => {
+    const first = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, { native: true });
+    expect(first.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
+    return { native: true, aged: 10 * 60, again: { world: first.world, riders: first.riders }, ...o } satisfies RideOpts;
+  };
 
-  it("the riders' native Locks earned a month of yield before boarding: the page's finish lands it and pays the worked example to the Gema", { timeout: 120_000 }, async () => {
-    const r = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, AGED);
+  it("a second car after a month of yield: the page's finish creates the checkpoint pages Ana's Lock needs and pays the worked example to the Gema", { timeout: 180_000 }, async () => {
+    const r = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, await SECOND());
     expect(r.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
     expect(r.studioFee).toBe(64n);
-    expect(r.walletSigs).toEqual({ boarding: 5 });
+    expect(r.walletSigs).toEqual({ boarding: 10 });
   });
 
-  it("the same ride finished by Dee's page through the sponsor, vouched for by her seat key alone", { timeout: 120_000 }, async () => {
-    const r = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, { ...AGED, viaSponsor: DEE });
+  it("the same second car finished by Dee's page through the sponsor, vouched for by her seat key alone", { timeout: 180_000 }, async () => {
+    const r = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, await SECOND({ viaSponsor: DEE }));
     expect(r.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
-    expect(r.walletSigs).toEqual({ boarding: 5 });
+    expect(r.walletSigs).toEqual({ boarding: 10 });
   });
 
-  it("the same ride with every page gone: the keeper's sweep finishes it and pays the worked example", { timeout: 120_000 }, async () => {
-    const c = await rideToImpact(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, { ...AGED, noImpact: true });
+  it("the same second car with every page gone: the keeper's sweep finishes it and pays the worked example", { timeout: 180_000 }, async () => {
+    const c = await rideToImpact(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, await SECOND({ noImpact: true }));
     const keeper = Keypair.generate();
     c.w.svm.airdrop(keeper.publicKey, 100n * SOL);
     c.w.setTime(c.w.now + 15 * 60);
