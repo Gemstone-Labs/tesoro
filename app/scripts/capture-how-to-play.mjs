@@ -223,9 +223,9 @@ async function tdBand(t, seed) {
 
 /** Seconds since the Practice game started, read from the clock on screen (2:29 means 1 s in). */
 const tdClock = (page) => page.evaluate(() => {
-  const t = [...document.querySelectorAll(".tg-bar *, .td *")].map((e) => e.children.length ? "" : e.textContent).find((s) => /^\d:\d\d$/.test(s?.trim()));
-  if (!t) return null;
-  const [m, s] = t.trim().split(":").map(Number);
+  const t = document.querySelector(".tg-strip-clock")?.textContent?.trim();
+  if (!t || !/^\d:\d\d$/.test(t)) return null;
+  const [m, s] = t.split(":").map(Number);
   return 150 - (m * 60 + s);
 });
 
@@ -381,7 +381,8 @@ const GAMES = {
         act: async (page) => { await tdUntil(page, 42); },
         poster: 0.8,
       },
-      5: { prep: tdWaitStart, act: async () => { await sleep(5000); } },
+      // the Match result screen on fixtures (a Practice game has no Pot)
+      5: { route: "/design/result?case=trading-duel-won&dev=demo", focus: ["main", ".match-result"], prep: () => sleep(1500), act: async () => { await sleep(5000); } },
     },
   },
   vanguard: {
@@ -427,16 +428,8 @@ const GAMES = {
         },
         focus: [".vg-board", ".vg-army.us", ".vg-power"],
       },
-      // closest real screen to a capture: your own Truck (F) selected, and Italy's roster still showing its Truck
-      5: {
-        prep: (page) => vgMyTurn(page),
-        act: async (page) => {
-          const truck = page.locator(".vg-piece.us", { hasText: /^F$/ }).first();
-          if (await truck.count()) await truck.click({ force: true, timeout: 1500 }).catch(() => {});
-          await sleep(4500);
-        },
-        focus: [".vg-board", ".vg-army.us"],
-      },
+      // the Match result screen on fixtures (Practice has no Pot)
+      5: { route: "/design/result?case=vanguard-won&dev=demo", focus: ["main", ".match-result"], prep: () => sleep(1500), act: async () => { await sleep(5000); } },
     },
   },
 };
