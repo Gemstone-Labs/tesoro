@@ -330,7 +330,7 @@ const GAMES = {
       1: { prep: () => sleep(500), focus: [".hd-plaque-text", ".hdx-pot", ".hdx-board"], act: async () => { await sleep(5500); } },
       2: {
         prep: () => sleep(500),
-        focus: [".hd-cards", ".hd-plaque-text|last", ".hdx-board"],
+        focus: [".hd-cards", ".hd-plaque-text|last", ".hdx-board", ".hdx-actions"],
         act: async (page) => {
           const pass = await hdWaitMyTurn(page);
           await sleep(1500);
@@ -342,6 +342,7 @@ const GAMES = {
       },
       3: { prep: (page) => hdWaitMyTurn(page), focus: [".hdx-actions", ".hd-plaque-text|last", ".hdx-board"], act: async () => { await sleep(5000); } },
       4: {
+        focus: [".hd-plaque-text", ".hd-cards", ".hdx-board", ".hdx-actions"],
         prep: (page) => hdUntilBoard(page, 4),
         act: async (page) => {
           const start = Date.now();
