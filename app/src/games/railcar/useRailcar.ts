@@ -35,11 +35,12 @@ import { ENTRY_GEMAS, RAILCAR_PROGRAM_ID, bindBrakeIx, brakeSeatPda, carPda, che
 import { backerSeatedIn, boardingEntry, type BoardingBacking } from "./boarding";
 import { stepOffFor } from "./step-off";
 import { finishRide } from "./finish";
-import { mayFinish, nextRideStep, queueChoice, signalIntervalMs, watchedRide } from "./flow";
+import { mayFinish, nextRideStep, pageIntervalMs, queueChoice, watchedRide } from "./flow";
 import type { RailcarWatch } from "./RailcarScreen";
 import { boardingSigner, brakeRoute, finishSender, joinSeatKey, jumpSigner } from "./signers";
 import type { RailcarBrake, RailcarOffer } from "./RailcarScreen";
 import { playTells } from "./tells";
+import { RideTicker } from "./ticker";
 import { railcarView, type FeeRates, type RailcarView } from "./view";
 
 /** Railcar's fee terms (Platform 2%, Studio 3%) and core's Leaderboard Fee (1%), until the screen reads them from the Game record. */
@@ -333,8 +334,9 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
     }
   }, [snap, now, me, meKey, seat, getToken]);
 
-  // Signals while the ride runs: open pages together send about 5 a second. An aboard Player's page ticks instead once
-  // its seat is bound and the seat key can sign; the Brake rides on the next tick.
+  // Signals while the ride runs: aboard Players' pages together send about 5 a second (pages of Players who are off add at most
+  // about 5 more). An aboard Player's page ticks instead once its seat is bound and the seat key can sign; the Brake rides on
+  // the next tick.
   const aboardN = snap?.rollup?.aboard ?? 0;
   const ride = snap?.car && snap.rollup && snap.rollup.carNo === snap.car.carNo ? snap.rollup : null;
   const riding = !!snap?.car && snap.mine && !!ride && (ride.phase === "riding" || ride.phase === "drawing");
@@ -350,33 +352,42 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   const sends = pageSend({ aboard: aboard && ride?.phase === "riding", myBound, canSign: !!tickKey });
   const carNo = ride?.carNo ?? null;
   const tableSeat = mySeat?.tableSeat ?? null;
+  // One ticker per ride (ticker.ts): it beats on a fixed cadence without waiting for confirms, and reads what to send (tick or
+  // signal, the Brake, the interval) at each beat, so a change of those never restarts it (a restart could resend its bytes).
+  const interval = pageIntervalMs({ aboard: aboardN, seated: ride?.seated ?? aboardN, mine: aboard ? "aboard" : "off" });
+  const beatFacts = useRef({ sends, tickKey, tableSeat, interval, refresh });
   useEffect(() => {
-    if (!riding || signalTable === null) return;
-    let stop = false;
-    let timer: ReturnType<typeof setTimeout>;
+    beatFacts.current = { sends, tickKey, tableSeat, interval, refresh };
+  });
+  useEffect(() => {
+    if (!riding || signalTable === null || carNo === null) return;
     const page = pageKey.current;
-    const beat = async () => {
-      const chain = getChain();
-      if (sends === "tick" && tickKey && carNo !== null && tableSeat !== null) {
-        const brake = pendingBrake.current;
-        await chain
-          .sendTee(tickKey, [tickIx(tickKey.publicKey, signalTable, carNo, tableSeat, brake)])
-          .then(() => {
-            if (brake) pendingBrake.current = false;
-          })
-          .catch(() => undefined);
-      } else {
-        await chain.sendTee(page, [signalIx(page.publicKey, signalTable)]).catch(() => undefined);
-      }
-      if (!stop) timer = setTimeout(beat, signalIntervalMs(aboardN));
-    };
-    // A random first wait spreads the pages' signals over the interval.
-    timer = setTimeout(beat, Math.random() * signalIntervalMs(aboardN));
-    return () => {
-      stop = true;
-      clearTimeout(timer);
-    };
-  }, [riding, signalTable, aboardN, sends, tickKey, carNo, tableSeat]);
+    const chain = getChain();
+    const ticker = new RideTicker(
+      {
+        blockhash: async () => (await (await chain.tee(page)).getLatestBlockhash()).blockhash,
+        send: async (signer, tx) => (await chain.tee(signer)).sendRawTransaction((await signer.signTransaction(tx)).serialize(), { skipPreflight: true }),
+        statuses: async (sigs) => (await (await chain.tee(page)).getSignatureStatuses(sigs)).value.map((st) => (st ? { err: st.err } : null)),
+      },
+      {
+        intervalMs: () => beatFacts.current.interval,
+        next: () => {
+          const f = beatFacts.current;
+          if (f.sends === "tick" && f.tickKey && f.tableSeat !== null) {
+            const brake = pendingBrake.current;
+            return { signer: f.tickKey, ixs: [tickIx(f.tickKey.publicKey, signalTable, carNo, f.tableSeat, brake)], brake };
+          }
+          return { signer: page, ixs: [signalIx(page.publicKey, signalTable)], brake: false };
+        },
+        onLanded: (beat) => {
+          if (beat.brake) pendingBrake.current = false;
+        },
+        // the ride is over on the rollup: read it now rather than at the next poll
+        onEnded: () => void beatFacts.current.refresh().catch(() => undefined),
+      },
+    );
+    return () => ticker.stop();
+  }, [riding, signalTable, carNo]);
 
   // While the draw is asked for (and until every seat is bound) the page binds its own Brake seat and the next ones.
   useEffect(() => {
