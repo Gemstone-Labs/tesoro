@@ -7,6 +7,12 @@
  *   NEXT_PUBLIC_DEV_WALLET=1 pnpm --filter @tesoro/app dev            # dev server, e.g. on port 3141
  *   BASE=http://localhost:3141 node scripts/capture-how-to-play.mjs
  *
+ * Record on a machine with a fast CPU (the laptop), never the CPU-only VPS: its headless Chromium painted 5 to 19 frames per
+ * second on Vanguard's board and the clips looked laggy. A production build of the app with the dev wallet switched on
+ * (`NEXT_PUBLIC_DEV_WALLET=1`, and the `NODE_ENV` check dropped from `lib/chain/config.ts` in that copy) loads far faster than
+ * `next dev` through an ssh tunnel; run the script with tsx (it imports the app's TypeScript rules).
+ * After encoding, every clip is checked for frames that differ from the one before: under MIN_FPS (20) per second the take
+ * is thrown away and recorded again, with a message that says whether the browser was too slow or the screen barely moved.
  * Needs playwright-core and ffmpeg (libx264, libvpx-vp9, libwebp) on the machine that records.
  * Env: PW=/path/to/playwright-core, CHROME=/path/to/chrome, FFMPEG=/path/to/ffmpeg, OUT=<output dir>,
  *      ONLY=<game>[:step][,...] (e.g. ONLY=vanguard:3 or ONLY=holdem,trading-duel:1), SETS=phone|desktop.
@@ -19,9 +25,11 @@
  * then `act` plays the moment itself while the screencast runs. A clip is 3 to 8 s (longer takes are sped up),
  * fades in and out so it loops cleanly, and is shrunk until each video is at most 300 KB.
  */
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { createRequire } from "node:module";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,6 +43,7 @@ const FFMPEG = process.env.FFMPEG ?? "ffmpeg";
 const MIN_SECS = 3;
 const MAX_SECS = 8;
 const MAX_KB = 300;
+const MIN_FPS = 20;
 const SEED = 3;
 
 const SETS = {
@@ -42,6 +51,7 @@ const SETS = {
   desktop: { context: { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 }, ratio: 16 / 10, out: [960, 600], pad: 12 },
 };
 
+const run = (file, args) => promisify(execFile)(file, args, { maxBuffer: 1 << 28 });
 const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
 const even = (n) => Math.round(n / 2) * 2;
 
@@ -53,12 +63,16 @@ async function centre(page, selector) {
   return box ? { x: box.x + box.width / 2, y: box.y + box.height / 2 } : null;
 }
 
-/** Drags with the mouse from one point to another in small steps, like a finger. */
-async function drag(page, from, to, steps = 14) {
+/** Drags with the mouse from one point to another at a steady pace, like a finger (about 0.7 s, in small timed steps). */
+async function drag(page, from, to, steps = 36) {
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
-  await page.mouse.move(from.x + (to.x - from.x) * 0.15, from.y + (to.y - from.y) * 0.15, { steps: 3 });
-  await page.mouse.move(to.x, to.y, { steps });
+  for (let i = 1; i <= steps; i++) {
+    const k = i / steps;
+    const e = k * k * (3 - 2 * k);
+    await page.mouse.move(from.x + (to.x - from.x) * e, from.y + (to.y - from.y) * e);
+    await sleep(18);
+  }
   await sleep(250);
   await page.mouse.up();
 }
@@ -248,6 +262,136 @@ async function vgUntilWin(page, seed) {
   return null;
 }
 
+// ---------------------------------------------------------------- Vanguard: reading the board and planning
+
+const WADI = (r, c) => (r === 4 || r === 5) && (c === 2 || c === 3 || c === 6 || c === 7);
+
+/** Every piece on the board now: { army, i (index among that army's pieces), r, c, rank (null while face down) }. */
+const vgBoard = (page) => page.evaluate(() => {
+  const at = (e) => {
+    const [c, r] = [...e.getAttribute("style").matchAll(/\* (-?[\d.]+)\)/g)].map((m) => Math.round(Number(m[1])));
+    return { r, c };
+  };
+  const read = (army, re) => [...document.querySelectorAll(`.vg-piece.${army}:not(.gone)`)].map((e, i) => ({ army, i, ...at(e), rank: e.getAttribute("aria-label").match(re)?.[1] ?? null }));
+  return [...read("us", /^US (\d+|B|F) /), ...read("it", /^Italian (\d+|B|F) /)];
+});
+
+/** Taps our piece `i`, then returns the marked squares as [{ n, r, c, atk }]. */
+async function vgTap(page, i) {
+  await page.locator(".vg-piece.us:not(.gone)").nth(i).click({ force: true, timeout: 1500 });
+  await sleep(250);
+  return page.evaluate(() => [...document.querySelectorAll(".vg-mark")].map((e, n) => {
+    const [, row, col] = e.getAttribute("aria-label").match(/row (\d+), column (\d+)/);
+    return { n, r: 10 - Number(row), c: Number(col) - 1, atk: e.classList.contains("atk") };
+  }));
+}
+
+/** Taps the mark on square (r, c) of the piece that is selected now. */
+const vgGo = (page, marks, r, c) => page.locator(".vg-mark").nth(marks.find((m) => m.r === r && m.c === c).n).click({ force: true, timeout: 1500 });
+
+/** Squares a Recon can land on or attack from `from` in one run (straight lines, stopped by the first piece, the wadis block). */
+function reconMoves(from, occ) {
+  const out = [];
+  for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    for (let k = 1; k < 10; k++) {
+      const r = from.r + dr * k;
+      const c = from.c + dc * k;
+      if (r < 0 || r > 9 || c < 0 || c > 9 || WADI(r, c)) break;
+      const o = occ.get(`${r},${c}`);
+      if (o === "us") break;
+      out.push({ r, c, atk: o === "it" });
+      if (o) break;
+    }
+  }
+  return out;
+}
+
+/** The fewest Recon runs from `from` to capture the Truck at `truck` (a run that ends on it), by search; returns { turns, first }. */
+function truckPlan(from, truck, occ) {
+  const goal = `${truck.r},${truck.c}`;
+  let frontier = [{ ...from, first: null }];
+  const seen = new Set([`${from.r},${from.c}`]);
+  for (let turns = 1; turns <= 4; turns++) {
+    const next = [];
+    for (const s of frontier) {
+      for (const m of reconMoves(s, occ)) {
+        const key = `${m.r},${m.c}`;
+        const first = s.first ?? m;
+        if (key === goal) return { turns, first };
+        if (m.atk || seen.has(key)) continue;
+        seen.add(key);
+        next.push({ r: m.r, c: m.c, first });
+      }
+    }
+    frontier = next;
+  }
+  return null;
+}
+
+/** The Truck's square: the Italian piece the seeded setup made the Truck (pieces keep their order in the page). Null once it is gone. */
+async function vgTruckSquare(page, seed) {
+  const rules = await import("../src/games/vanguard/rules.ts");
+  const index = rules.newGame(rules.seeded(seed), 0).pieces.filter((p) => p.army === "it").findIndex((p) => p.rank === "F");
+  return page.evaluate((i) => {
+    const e = document.querySelectorAll(".vg-piece.it")[i];
+    if (!e || e.classList.contains("gone")) return null;
+    const [c, r] = [...e.getAttribute("style").matchAll(/\* (-?[\d.]+)\)/g)].map((m) => Math.round(Number(m[1])));
+    return { r, c };
+  }, index);
+}
+
+/** Walks an Engineer up the board, unrecorded, until two or more coins touch it. Marks it, and returns its index among our pieces. */
+async function vgUntilBlast(page) {
+  for (let turn = 0; turn < 16; turn++) {
+    await vgMyTurn(page);
+    await sleep(100);
+    const board = await vgBoard(page);
+    const engineers = board.filter((p) => p.army === "us" && p.rank === "3").sort((a, b) => a.r - b.r);
+    if (!engineers.length) return null;
+    const e = engineers[0];
+    const touching = board.filter((p) => p.army === "it" && Math.max(Math.abs(p.r - e.r), Math.abs(p.c - e.c)) <= 1).length;
+    if (touching >= 2) {
+      await page.evaluate((i) => document.querySelectorAll(".vg-piece.us:not(.gone)")[i].setAttribute("data-htp", "eng"), e.i);
+      return e.i;
+    }
+    const marks = await vgTap(page, e.i);
+    const steps = marks.filter((m) => !m.atk).sort((a, b) => a.r - b.r);
+    if (!steps.length) return null;
+    await vgGo(page, marks, steps[0].r, steps[0].c);
+    await sleep(500);
+  }
+  return null;
+}
+
+/** Plays Recon runs, planned by search from the live board, until one takes the Supply Truck. Returns false when the plan cannot work. */
+async function vgCaptureTruck(page, seed, stopAt = 0) {
+  for (let turn = 0; turn < 5; turn++) {
+    await vgMyTurn(page);
+    await sleep(350);
+    const board = await vgBoard(page);
+    const occ = new Map(board.map((p) => [`${p.r},${p.c}`, p.army]));
+    const truck = await vgTruckSquare(page, seed);
+    if (!truck) { console.log("  truck: unknown square"); return false; }
+    let best = null;
+    for (const r of board.filter((p) => p.army === "us" && p.rank === "2")) {
+      const plan = truckPlan(r, truck, occ);
+      if (plan && (!best || plan.turns < best.plan.turns)) best = { r, plan };
+    }
+    if (!best) { console.log(`  truck: no Recon plan to ${truck.r},${truck.c} on turn ${turn}`); return false; }
+    if (stopAt && best.plan.turns <= stopAt) return true;
+    console.log(`  truck: turn ${turn} truck ${truck.r},${truck.c} plan ${best.plan.turns} via ${best.plan.first.r},${best.plan.first.c}`);
+    const marks = await vgTap(page, best.r.i);
+    await sleep(1000);
+    await vgGo(page, marks, best.plan.first.r, best.plan.first.c);
+    await sleep(1000);
+    if (best.plan.turns === 1) {
+      await sleep(2800);
+      return true;
+    }
+  }
+  return false;
+}
+
 // ---------------------------------------------------------------- Trading Duel (simulated price)
 
 let tdPath = null;
@@ -316,16 +460,27 @@ async function tdPickAt(page, c, at, seed) {
   return tdPick(page, c, k);
 }
 
+/** The real Match result screen on fixtures: the whole page on a phone, the hero picture on desktop (no sidebar). */
+const RESULT_FOCUS = { phone: ["main"], desktop: [".mr-art"] };
+
 const GAMES = {
   "block-puzzle": {
     focus: [".bp-board", ".bp-slot"],
     steps: {
-      // the real Match screen on a fixed Seed: both Players get the same pieces at the same time
+      // the real Match screen on a fixed Seed: you play the same pieces your opponent gets, with the line saying so under them
       1: {
         route: "/design/play?dev=demo",
-        focus: [".bpx-status", ".bp-slot"],
+        focus: [".bp-slot", ".bpx-status"],
+        pad: { phone: 150, desktop: 400 },
         prep: (page) => page.waitForSelector(".bp-board"),
-        act: async () => { await sleep(5500); },
+        act: async (page) => {
+          for (let n = 0; n < 2; n++) {
+            const move = bpBest(await bpRead(page));
+            if (!move) break;
+            await bpPlace(page, move);
+          }
+          await sleep(600);
+        },
       },
       2: {
         prep: bpWaitPlaying,
@@ -342,11 +497,11 @@ const GAMES = {
         act: async (page) => {
           if (!page.__move) return false;
           await bpPlace(page, page.__move);
-          await sleep(1800);
+          await sleep(2200);
         },
         poster: 0.7,
       },
-      // Practice has no opponent: the closest real screen is your own score and the clock while you play
+      // Practice has no opponent: the closest real screen is your own score and the clock counting while you play
       4: {
         prep: bpWaitPlaying,
         act: async (page) => {
@@ -356,91 +511,151 @@ const GAMES = {
             await bpPlace(page, move);
           }
         },
-        focus: [".bp-board", ".bp-slot", '[role="timer"]', ".bp-score-n"],
+        focus: ['[role="timer"]', ".bp-score-n"],
+        pad: { phone: 120, desktop: 400 },
       },
       // the Match result screen on fixtures: the higher score takes the Pot minus Fees
       5: {
         route: "/design/result?case=won&dev=demo",
-        focus: ["main", ".match-result"],
+        focus: RESULT_FOCUS,
         prep: () => sleep(1500),
         act: async () => { await sleep(5000); },
       },
     },
   },
   holdem: {
-    // both seats, the pot and the community cards
-    focus: [".hd-plaque-text", ".hd-cards", ".hdx-pot", ".hdx-board"],
+    focus: [".hd-plaque-text", ".hdx-pot", ".hdx-board"],
     steps: {
-      1: { prep: () => sleep(500), focus: [".hd-plaque-text", ".hdx-pot", ".hdx-board"], act: async () => { await sleep(5500); } },
-      2: {
+      // both stacks: the camera goes from the Bot's down to yours (the whole table on desktop, closing in)
+      1: {
         prep: () => sleep(500),
-        focus: [".hd-cards", ".hd-plaque-text|last", ".hdx-board", ".hdx-actions"],
-        act: async (page) => {
-          const pass = await hdWaitMyTurn(page);
-          await sleep(1500);
-          await pass.click();
-          await waitFor(page, () => document.querySelectorAll(".hdx-board .hd-card:not(.empty)").length >= 3, 20000).catch(() => {});
-          await sleep(2200);
+        focus: { phone: [".hd-plaque-text|first"], desktop: [".hd-plaque-text", ".hdx-pot"] },
+        pad: { phone: 170, desktop: 500 },
+        camera: {
+          from: { focus: { phone: [".hd-plaque-text|first"], desktop: [".hd-plaque-text", ".hdx-pot"] }, pad: { phone: 170, desktop: 500 } },
+          to: { focus: { phone: [".hd-plaque-text|last"], desktop: [".hd-plaque-text", ".hdx-pot"] }, pad: { phone: 170, desktop: 70 } },
+          span: [0.15, 0.85],
         },
-        speed: 1.3,
+        act: async () => { await sleep(7000); },
       },
-      3: { prep: (page) => hdWaitMyTurn(page), focus: [".hdx-actions", ".hd-plaque-text|last", ".hdx-board"], act: async () => { await sleep(5000); } },
+      // your two cards, then the shared cards dealt after you call; the Bot's two stay face down
+      2: {
+        prep: (page) => hdWaitMyTurn(page),
+        focus: [".hdx-board", ".hd-cards|last", ".hdx-pot"],
+        pad: { phone: 30, desktop: 170 },
+        act: async (page) => {
+          // call (the Bot may raise first) until the shared cards come down
+          const start = Date.now();
+          while ((await hdBoardCards(page)) < 3 && Date.now() - start < 14000) {
+            const pass = page.locator(".hdx-btn", { hasText: /^(Call|Check)/ });
+            if (await pass.isEnabled().catch(() => false)) { await sleep(1100); await pass.click().catch(() => {}); }
+            await sleep(400);
+          }
+          await sleep(3800);
+        },
+      },
+      // the four actions: pick two raise sizes, then call
+      3: {
+        prep: (page) => hdWaitMyTurn(page),
+        focus: [".hdx-actions", ".hd-cards|last", ".hdx-board"],
+        pad: { phone: 20, desktop: 500 },
+        act: async (page) => {
+          for (const size of ["+400", "+600", "+200"]) {
+            await page.locator(".hd-preset", { hasText: size }).first().click({ timeout: 2000 }).catch(() => {});
+            await sleep(1300);
+          }
+          await page.locator(".hdx-btn", { hasText: /^Call/ }).first().click({ timeout: 2000 }).catch(() => {});
+          await sleep(1800);
+        },
+      },
       4: {
-        focus: [".hd-plaque-text", ".hd-cards", ".hdx-board", ".hdx-actions"],
-        prep: (page) => hdUntilBoard(page, 4),
+        focus: [".hdx-pot", ".hdx-board", ".hd-cards|last"],
+        pad: { phone: 30, desktop: 170 },
+        maxSecs: 11,
+        prep: (page) => hdUntilBoard(page, 5),
         act: async (page) => {
           const start = Date.now();
           while (Date.now() - start < 22000) {
             const pass = page.locator(".hdx-btn", { hasText: /^(Call|Check)/ });
-            if (await pass.isEnabled().catch(() => false)) { await sleep(600); await pass.click().catch(() => {}); }
+            if (await pass.isEnabled().catch(() => false)) { await sleep(150); await pass.click().catch(() => {}); }
             const won = await page.getByText(/wins? [\d,]+ Chips/).evaluateAll((els) => els.some((e) => e.getBoundingClientRect().width > 100)).catch(() => false);
             if (won) break;
-            await sleep(400);
+            await sleep(250);
           }
-          await sleep(3500);
+          await sleep(3000);
         },
       },
       // the Match result screen on fixtures (a Practice game has no Pot)
-      5: { route: "/design/result?case=holdem-won&dev=demo", focus: ["main", ".match-result"], prep: () => sleep(1500), act: async () => { await sleep(5000); } },
+      5: { route: "/design/result?case=holdem-won&dev=demo", focus: RESULT_FOCUS, prep: () => sleep(1500), act: async () => { await sleep(5000); } },
     },
   },
   "trading-duel": {
     focus: [".tg-stage"],
     steps: {
-      1: { prep: tdWaitStart, act: async () => { await sleep(7000); } },
+      // the live price line over the head start, with the scores and clocks above it
+      1: {
+        prep: tdWaitStart,
+        focus: [".tg-strip-clock", ".tg-head-dot"],
+        pad: { phone: 100, desktop: 500 },
+        act: async () => { await sleep(7500); },
+      },
+      // tap one box in each column
       2: {
         prep: tdWaitStart,
+        focus: [".tg-head-dot"],
+        pad: { phone: 240, desktop: 500 },
         act: async (page, { seed }) => {
-          for (const [c, at] of [[0, 35], [1, 45], [2, 55]]) { await tdPickAt(page, c, at, seed); await sleep(1600); }
+          for (const [c, at] of [[0, 35], [1, 45], [2, 55]]) { await tdPickAt(page, c, at, seed); await sleep(1700); }
           await sleep(1200);
         },
       },
+      // a column locks: the lock clock on top counts down and the picks turn into locked chips
       3: {
         prep: async (page, { seed }) => { await tdWaitStart(page); await tdPickAt(page, 0, 35, seed); await tdUntil(page, 13); },
+        focus: [".tg-head-dot"],
+        pad: { phone: 240, desktop: 500 },
         act: async (page, { seed }) => { await tdPickAt(page, 1, 45, seed); await tdUntil(page, 24); },
       },
+      // the line runs through your box: 100 points on the score
       4: {
-        prep: async (page, { seed }) => { await tdWaitStart(page); await tdPickAt(page, 0, 35, seed); await tdUntil(page, 27); },
+        prep: async (page, { seed }) => { await tdWaitStart(page); await tdPickAt(page, 0, 35, seed); await tdUntil(page, 30); },
+        focus: [".tg-head-dot"],
+        pad: { phone: 240, desktop: 500 },
+        camera: { from: { focus: [".tg-head-dot"], pad: { phone: 240, desktop: 500 } }, to: { focus: [".tg-scoreboard-in"], pad: { phone: 150, desktop: 500 } }, span: [0.62, 0.85] },
+        maxSecs: 11,
         act: async (page) => { await tdUntil(page, 42); },
         poster: 0.8,
       },
       // the Match result screen on fixtures (a Practice game has no Pot)
-      5: { route: "/design/result?case=trading-duel-won&dev=demo", focus: ["main", ".match-result"], prep: () => sleep(1500), act: async () => { await sleep(5000); } },
+      5: { route: "/design/result?case=trading-duel-won&dev=demo", focus: RESULT_FOCUS, prep: () => sleep(1500), act: async () => { await sleep(5000); } },
     },
   },
   vanguard: {
-    focus: [".vg-board", ".vg-army.us"],
+    focus: [".vg-board", ".vg-plate.us"],
     steps: {
-      // the setup is dealt: your army face up, Italy's face down; the roster strip counts what Italy has
-      1: { prep: () => sleep(300), act: async () => { await sleep(6500); } },
-      // the ring round your name runs down 10 s, then you move
+      // your 20 pieces face up, the enemy's coins face down: the camera starts on your ranks and slides up to their coins
+      1: {
+        prep: (page) => page.waitForSelector(".vg-board"),
+        focus: { phone: [".vg-piece.us", ".vg-plate.us"], desktop: [".vg-piece.us"] },
+        camera: {
+          from: { focus: { phone: [".vg-piece.us", ".vg-plate.us"], desktop: [".vg-piece.us"] }, pad: { phone: 6, desktop: 10 } },
+          to: { focus: { phone: [".vg-piece.it", ".vg-roster"], desktop: [".vg-piece.it"] }, pad: { phone: 6, desktop: 10 } },
+          span: [0.2, 0.85],
+        },
+        act: async () => { await sleep(7500); },
+      },
+      // the ring round your name runs down while you pick a move; then the bot answers
       2: {
         prep: (page) => vgMyTurn(page),
+        focus: [".vg-plate.us .vg-ava"],
+        camera: { from: { focus: [".vg-plate.us .vg-ava"], pad: { phone: 75, desktop: 220 } }, to: { focus: [".vg-board", ".vg-plate.us"], pad: { phone: 8, desktop: 12 } }, span: [0.42, 0.6] },
         act: async (page) => {
-          await sleep(4500);
+          await sleep(5200);
           const mv = await vgSelect(page);
           if (mv) await mv.mark.click({ force: true, timeout: 1500 }).catch(() => {});
-          await sleep(2200);
+          await sleep(900);
+          await waitFor(page, () => document.querySelector(".vg-turn")?.textContent?.includes("Your turn"), 8000).catch(() => {});
+          await sleep(600);
         },
       },
       // a high rank attacks a lower one, known from the seeded setup: the clash flips the loser face up and ours stays
@@ -458,26 +673,34 @@ const GAMES = {
         focus: [".vg-piece.us.sel", ".vg-mark.atk"],
         pad: { phone: 95, desktop: 190 },
         speed: 0.75,
-        tries: 3,
+        reseed: true,
         poster: 0.75,
       },
-      // tap a piece that has a power: its power button appears and what it will do is drawn
+      // an Engineer walks up until enemy coins touch it, is tapped (its Blast button and the squares it will show appear), then blasts
       4: {
-        prep: (page) => vgMyTurn(page),
+        prep: async (page) => { page.__eng = await vgUntilBlast(page); if (page.__eng === null) throw new Error("no Engineer reached the enemy"); },
+        focus: [".vg-board", ".vg-plate.us"],
+        camera: { from: { focus: [".vg-board", ".vg-plate.us"], pad: { phone: 6, desktop: 12 } }, to: { focus: ['[data-htp="eng"]'], pad: { phone: 85, desktop: 150 } }, span: [0.5, 0.72] },
         act: async (page) => {
-          const pieces = page.locator(".vg-piece.us:not([disabled])");
-          const n = await pieces.count();
-          for (let i = 0; i < n; i++) {
-            await pieces.nth(i).click({ force: true, timeout: 1500 }).catch(() => {});
-            await sleep(400);
-            if (await page.locator(".vg-power").count()) break;
-          }
-          await sleep(3500);
+          await vgTap(page, page.__eng);
+          await sleep(2200);
+          await page.locator(".vg-power").first().click({ force: true, timeout: 1500 });
+          await sleep(4200);
         },
-        focus: [".vg-board", ".vg-army.us", ".vg-power"],
+        reseed: true,
+        poster: 0.85,
       },
-      // the Match result screen on fixtures (Practice has no Pot)
-      5: { route: "/design/result?case=vanguard-won&dev=demo", focus: ["main", ".match-result"], prep: () => sleep(1500), act: async () => { await sleep(5000); } },
+      // a Recon runs across the board and takes the Supply Truck (planned from the seeded setup); then the real result screen
+      5: {
+        prep: async (page, { seed }) => { if (!(await vgCaptureTruck(page, seed, 2))) throw new Error("no Recon route to the Truck"); },
+        focus: [".vg-board", ".vg-plate.us"],
+        maxSecs: 10,
+        // seed 41 deals a Recon with a clear straight run to the Truck (found by search over the seeded setups)
+        seed: 41,
+        act: async (page, { seed }) => vgCaptureTruck(page, seed),
+        after: { route: "/design/result?case=vanguard-won&dev=demo", focus: RESULT_FOCUS, secs: 3200, speed: 1 },
+        poster: 0.85,
+      },
     },
   },
 };
@@ -490,16 +713,15 @@ const sets = (process.env.SETS ?? "phone,desktop").split(",");
 
 const HIDE_DEV_UI = "nextjs-portal, [data-nextjs-toast], [data-next-badge-root] { display: none !important; }";
 
-/** Crop rectangle in CSS px: the union of `focus`, padded, widened or heightened to the set's aspect ratio, kept inside the viewport. */
-async function cropFor(page, focus, set, padOverride) {
-  const vp = set.context.viewport;
+/** The union of `focus` on screen, in CSS px. */
+async function focusBox(page, focus) {
   const box = await page.evaluate((sels) => {
     let u = null;
     for (const spec of sels) {
       // "selector|last" keeps only the last match (the second seat at the table is yours)
       const [sel, pick] = spec.split("|");
       const all = [...document.querySelectorAll(sel)];
-      for (const e of pick === "last" ? all.slice(-1) : all) {
+      for (const e of pick === "last" ? all.slice(-1) : pick === "first" ? all.slice(0, 1) : all) {
         const r = e.getBoundingClientRect();
         if (r.width < 4 || r.height < 4) continue;
         u = u ? { l: Math.min(u.l, r.left), t: Math.min(u.t, r.top), r: Math.max(u.r, r.right), b: Math.max(u.b, r.bottom) } : { l: r.left, t: r.top, r: r.right, b: r.bottom };
@@ -508,6 +730,13 @@ async function cropFor(page, focus, set, padOverride) {
     return u;
   }, focus);
   if (!box) throw new Error(`focus not found: ${focus.join(", ")}`);
+  return box;
+}
+
+/** Crop rectangle in CSS px: the union of `focus`, padded, widened or heightened to the set's aspect ratio, kept inside the viewport. */
+async function cropFor(page, focus, set, padOverride) {
+  const vp = set.context.viewport;
+  const box = await focusBox(page, focus);
   const pad = padOverride ?? set.pad;
   let w = box.r - box.l + pad * 2;
   let h = box.b - box.t + pad * 2;
@@ -520,103 +749,214 @@ async function cropFor(page, focus, set, padOverride) {
   return { x, y, w, h };
 }
 
-const pngWidth = (file) => readFileSync(file).readUInt32BE(16);
+/** Width in px of a JPEG file, from its start-of-frame marker. */
+function jpgWidth(file) {
+  const b = readFileSync(file);
+  for (let i = 2; i < b.length - 9; ) {
+    if (b[i] !== 0xff) { i++; continue; }
+    const m = b[i + 1];
+    if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return b.readUInt16BE(i + 7);
+    i += 2 + b.readUInt16BE(i + 2);
+  }
+  throw new Error("not a JPEG");
+}
 
-async function record(browser, game, step, setName, attempt, work) {
-  const set = SETS[setName];
-  const def = GAMES[game].steps[step];
-  const seed = SEED + attempt;
-  const ctx = await browser.newContext(set.context);
-  // Mark every Game's first-Practice guide as seen, so the recording shows the game, not the guide.
-  await ctx.addInitScript(() => {
-    for (const g of ["block-puzzle", "holdem", "trading-duel", "vanguard"]) localStorage.setItem(`tesoro:how-to-play:${g}`, "1");
-  });
-  const page = await ctx.newPage();
-  page.on("pageerror", (e) => console.log(`  ${game}:${step}:${setName} pageerror: ${e.message}`));
-  await page.goto(def.route ? `${BASE}${def.route}` : `${BASE}/play/practice?game=${game}&dev=demo&seed=${seed}`, { waitUntil: "domcontentloaded" });
-  await page.addStyleTag({ content: HIDE_DEV_UI });
-  await sleep(2000);
-  const ctxInfo = { seed, set: setName };
-  await def.prep?.(page, ctxInfo);
-  const crop = await cropFor(page, def.focus ?? GAMES[game].focus, set, def.pad?.[setName]);
+/**
+ * Records `fn` as a screencast of `page` and returns a segment: the frames, the crop and, when `camera` is given
+ * ({ from: { focus, pad }, to: { focus, pad }, span: [a, b] } in fractions of the clip), a smooth move from one crop to another.
+ */
+const forSet = (v, name) => (v && !Array.isArray(v) && (v.phone || v.desktop) ? v[name] : v);
 
-  const dir = join(work, `${game}-${step}-${setName}-${attempt}`);
+async function capture(ctx, page, set, dir, def, fn, info) {
+  const crop = await cropFor(page, forSet(def.focus, info.set), set, def.pad?.[info.set]);
+  let camera = null;
+  if (def.camera) {
+    camera = {
+      from: await cropFor(page, forSet(def.camera.from.focus, info.set), set, def.camera.from.pad?.[info.set] ?? def.camera.from.pad),
+      to: await cropFor(page, forSet(def.camera.to.focus, info.set), set, def.camera.to.pad?.[info.set] ?? def.camera.to.pad),
+      span: def.camera.span ?? [0.05, 0.95],
+    };
+  }
   mkdirSync(dir, { recursive: true });
   const frames = [];
+  const writes = [];
   const cdp = await ctx.newCDPSession(page);
   cdp.on("Page.screencastFrame", (f) => {
-    const file = join(dir, `${String(frames.length).padStart(5, "0")}.png`);
-    writeFileSync(file, Buffer.from(f.data, "base64"));
+    const file = join(dir, `${String(frames.length).padStart(5, "0")}.jpg`);
+    writes.push(writeFile(file, Buffer.from(f.data, "base64")));
     frames.push({ file, t: f.metadata.timestamp });
     cdp.send("Page.screencastFrameAck", { sessionId: f.sessionId }).catch(() => {});
   });
   const vp = set.context.viewport;
   const dsf = set.context.deviceScaleFactor;
-  await cdp.send("Page.startScreencast", { format: "png", maxWidth: vp.width * dsf, maxHeight: vp.height * dsf });
+  await cdp.send("Page.startScreencast", { format: "jpeg", quality: 92, maxWidth: vp.width * dsf, maxHeight: vp.height * dsf });
   await sleep(300);
-  const ok = await def.act(page, ctxInfo);
+  const ok = await fn();
   await sleep(def.tail ?? 400);
   await cdp.send("Page.stopScreencast");
-  await ctx.close();
-  return { ok: ok !== false, frames, crop, dir, scale: frames.length ? pngWidth(frames[0].file) / vp.width : dsf };
+  await Promise.all(writes);
+  const rawFps = frames.length > 1 ? (frames.length - 1) / (frames.at(-1).t - frames[0].t) : 0;
+  return { ok: ok !== false, frames, rawFps, crop, camera, dir, scale: frames.length ? jpgWidth(frames[0].file) / vp.width : dsf };
 }
 
-function encode(game, step, setName, take) {
+/** One take: the prepared game, then the recorded act, then (optional) a second screen recorded after it (`after`). */
+async function record(browser, game, step, setName, attempt, work) {
   const set = SETS[setName];
   const def = GAMES[game].steps[step];
-  const { frames, crop, scale, dir } = take;
-  const real = frames.at(-1).t - frames[0].t;
-  const speed = Math.max(def.speed ?? 1, real / MAX_SECS);
-  const secs = real / speed;
-  const list = frames.map((f, i) => `file '${f.file}'\nduration ${(Math.max(0.001, frames[i + 1] ? frames[i + 1].t - f.t : 0.2) / speed).toFixed(4)}`);
-  list.push(`file '${frames.at(-1).file}'`);
-  const concat = join(dir, "frames.txt");
-  writeFileSync(concat, list.join("\n"));
+  const seed = def.seed ?? SEED + (def.reseed ? attempt : 0);
+  const ctx = await browser.newContext(set.context);
+  // Mark every Game's first-Practice guide as seen, so the recording shows the game, not the guide.
+  await ctx.addInitScript(() => {
+    for (const g of ["block-puzzle", "holdem", "trading-duel", "vanguard"]) localStorage.setItem(`tesoro:how-to-play:${g}`, "1");
+  });
+  const open = async (route) => {
+    const page = await ctx.newPage();
+    page.on("pageerror", (e) => console.log(`  ${game}:${step}:${setName} pageerror: ${e.message}`));
+    await page.goto(`${BASE}${route}`, { waitUntil: "domcontentloaded" });
+    await page.addStyleTag({ content: HIDE_DEV_UI });
+    return page;
+  };
+  const page = await open(def.route ?? `/play/practice?game=${game}&dev=demo&seed=${seed}`);
+  await sleep(2000);
+  const info = { seed, set: setName };
+  await def.prep?.(page, info);
+  const base = join(work, `${game}-${step}-${setName}-${attempt}`);
+  const segments = [];
+  const def1 = { ...def, focus: def.focus ?? GAMES[game].focus };
+  segments.push(await capture(ctx, page, set, `${base}-a`, def1, () => def.act(page, info), info));
+  if (def.after && segments[0].ok) {
+    const next = await open(def.after.route);
+    await sleep(def.after.settle ?? 1500);
+    const def2 = { focus: def.after.focus, pad: def.after.pad, tail: 200, camera: def.after.camera };
+    const seg = await capture(ctx, next, set, `${base}-b`, def2, async () => { await sleep(def.after.secs ?? 3500); }, info);
+    seg.speed = def.after.speed ?? 1;
+    seg.poster = def.after.poster;
+    segments.push(seg);
+  }
+  await ctx.close();
+  return { ok: segments.every((s) => s.ok), segments };
+}
+
+/** The ffmpeg filter that turns one full-viewport frame into the output frame: a fixed crop, or a camera move between two crops. */
+function frameFilter(seg, set, secs, vp) {
   const [ow, oh] = set.out;
-  const crp = `crop=${even(crop.w * scale)}:${even(crop.h * scale)}:${Math.round(crop.x * scale)}:${Math.round(crop.y * scale)},scale=${ow}:${oh}:flags=lanczos`;
-  const fade = `fade=t=in:st=0:d=0.25,fade=t=out:st=${Math.max(0, secs - 0.3).toFixed(2)}:d=0.25`;
+  const { crop, camera, scale } = seg;
+  if (!camera) {
+    return `crop=${even(crop.w * scale)}:${even(crop.h * scale)}:${Math.round(crop.x * scale)}:${Math.round(crop.y * scale)},scale=${ow}:${oh}:flags=lanczos`;
+  }
+  const [a, b] = camera.span.map((f) => f * secs);
+  const p = `clip((t-${a.toFixed(3)})/${(b - a).toFixed(3)},0,1)`;
+  const s = `(${p}*${p}*(3-2*${p}))`;
+  const lerp = (v0, v1) => `(${v0.toFixed(3)}+(${(v1 - v0).toFixed(3)})*${s})`;
+  const rw = lerp(camera.from.w, camera.to.w);
+  const cx = lerp(camera.from.x + camera.from.w / 2, camera.to.x + camera.to.w / 2);
+  const cy = lerp(camera.from.y + camera.from.h / 2, camera.to.y + camera.to.h / 2);
+  return [
+    `scale=w='trunc(${ow}*${vp.width}/${rw}/2)*2':h='trunc(${ow}*${vp.height}/${rw}/2)*2':eval=frame:flags=bicubic`,
+    `crop=${ow}:${oh}:x='(${cx})*${ow}/(${rw})-${ow / 2}':y='(${cy})*${ow}/(${rw})-${oh / 2}'`,
+  ].join(",");
+}
+
+/** Frames per second of a video that differ from the frame before them (decoded frames compared, so a repeated frame is not counted). */
+async function uniqueFps(file) {
+  const r = await run(FFMPEG, ["-hide_banner", "-loglevel", "error", "-i", file, "-an", "-f", "framemd5", "-"]);
+  const sums = r.stdout.split("\n").filter((l) => l && !l.startsWith("#")).map((l) => l.split(",").pop().trim());
+  const changed = sums.filter((m, i) => i > 0 && m !== sums[i - 1]).length;
+  return changed / (sums.length / 30);
+}
+
+async function encode(game, step, setName, take) {
+  const set = SETS[setName];
+  const def = GAMES[game].steps[step];
+  const vp = set.context.viewport;
+  const [ow, oh] = set.out;
   const dest = join(OUT, game);
   mkdirSync(dest, { recursive: true });
   const base = join(dest, `${step}-${setName}`);
-  const input = ["-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", concat, "-vf", `${crp},fps=30,${fade}`, "-an", "-pix_fmt", "yuv420p"];
+  const work = dirname(take.segments[0].dir);
+
+  // one speed-up for the whole clip, enough to fit MAX_SECS
+  const reals = take.segments.map((s) => s.frames.at(-1).t - s.frames[0].t);
+  const speeds = take.segments.map((s, i) => (i === 0 ? def.speed ?? 1 : s.speed ?? 1));
+  const total = reals.reduce((t, r, i) => t + r / speeds[i], 0);
+  const squeeze = Math.max(1, total / (def.maxSecs ?? MAX_SECS));
+  const secs = total / squeeze;
+
+  // each segment becomes a clean intermediate (crop, camera, 30 fps), then they are joined and faded together
+  const parts = [];
+  for (const [i, seg] of take.segments.entries()) {
+    const speed = speeds[i] * squeeze;
+    const segSecs = reals[i] / speed;
+    const list = seg.frames.map((f, k) => `file '${f.file}'\nduration ${(Math.max(0.001, seg.frames[k + 1] ? seg.frames[k + 1].t - f.t : 0.2) / speed).toFixed(4)}`);
+    list.push(`file '${seg.frames.at(-1).file}'`);
+    const concat = join(seg.dir, "frames.txt");
+    writeFileSync(concat, list.join("\n"));
+    const out = join(seg.dir, "part.mp4");
+    await run(FFMPEG, ["-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", concat, "-vf", `fps=30,${frameFilter(seg, set, segSecs, vp)}`, "-an", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-crf", "10", "-preset", "veryfast", out]);
+    parts.push({ out, segSecs });
+  }
+  const joined = join(work, `${game}-${step}-${setName}-joined.txt`);
+  writeFileSync(joined, parts.map((p) => `file '${p.out}'`).join("\n"));
+  const fade = `fade=t=in:st=0:d=0.25,fade=t=out:st=${Math.max(0, secs - 0.3).toFixed(2)}:d=0.25`;
+  const input = ["-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", joined, "-vf", `fps=30,${fade}`, "-an", "-pix_fmt", "yuv420p"];
   const sizes = {};
   for (const [ext, codec, crfs] of [
     ["webm", (crf) => ["-c:v", "libvpx-vp9", "-b:v", "0", "-crf", String(crf), "-row-mt", "1", "-deadline", "good", "-cpu-used", "2"], [32, 36, 40, 44, 48, 52]],
     ["mp4", (crf) => ["-c:v", "libx264", "-crf", String(crf), "-preset", "slow", "-movflags", "+faststart"], [24, 27, 30, 33, 37, 41]],
   ]) {
     for (const crf of crfs) {
-      execFileSync(FFMPEG, [...input, ...codec(crf), `${base}.${ext}`], { stdio: "inherit" });
+      await run(FFMPEG, [...input, ...codec(crf), `${base}.${ext}`]);
       sizes[ext] = Math.round(statSync(`${base}.${ext}`).size / 1024);
       if (sizes[ext] <= MAX_KB) break;
     }
   }
-  const at = frames[Math.min(frames.length - 1, Math.floor(frames.length * (def.poster ?? 0.6)))];
-  execFileSync(FFMPEG, ["-y", "-loglevel", "error", "-i", at.file, "-vf", crp, "-frames:v", "1", "-c:v", "libwebp", "-quality", "82", `${base}.webp`], { stdio: "inherit" });
+  // the poster: a frame from the segment that holds the point of the step
+  const posterSeg = take.segments.find((s) => s.poster !== undefined) ?? take.segments[0];
+  const posterAt = posterSeg.frames[Math.min(posterSeg.frames.length - 1, Math.floor(posterSeg.frames.length * (posterSeg.poster ?? def.poster ?? 0.6)))];
+  const posterFilter = frameFilter({ ...posterSeg, camera: null, crop: posterSeg.camera ? posterSeg.camera.to : posterSeg.crop }, set, secs, vp);
+  await run(FFMPEG, ["-y", "-loglevel", "error", "-i", posterAt.file, "-vf", posterFilter, "-frames:v", "1", "-c:v", "libwebp", "-quality", "82", `${base}.webp`]);
+
+  const fps = await uniqueFps(`${base}.mp4`);
   const warn = secs < MIN_SECS ? "  (SHORT)" : sizes.webm > MAX_KB || sizes.mp4 > MAX_KB ? "  (OVER SIZE)" : "";
-  console.log(`${game}/${step}-${setName}: ${ow}x${oh}, ${secs.toFixed(1)} s (x${speed.toFixed(2)}), webm ${sizes.webm} KB, mp4 ${sizes.mp4} KB${warn}`);
+  console.log(`${game}/${step}-${setName}: ${ow}x${oh}, ${secs.toFixed(1)} s (x${squeeze.toFixed(2)}), webm ${sizes.webm} KB, mp4 ${sizes.mp4} KB, ${fps.toFixed(1)} unique fps${warn}`);
+  if (fps < MIN_FPS) {
+    const slow = Math.min(...take.segments.map((s) => s.rawFps)) < MIN_FPS;
+    throw new Error(`only ${fps.toFixed(1)} unique frames per second (needs ${MIN_FPS}): ` + (slow
+      ? `the browser painted only ${Math.min(...take.segments.map((s) => s.rawFps)).toFixed(1)} frames per second while recording, so it is too slow here (record on a machine with a fast CPU or GPU, not the CPU-only VPS)`
+      : "the screen barely moves in this take (add motion, a camera move or a longer act)"));
+  }
 }
 
 const work = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), "htp-"));
-const browser = await chromium.launch({ executablePath: process.env.CHROME, args: ["--autoplay-policy=no-user-gesture-required"] });
+const launch = () => chromium.launch({ executablePath: process.env.CHROME, args: ["--autoplay-policy=no-user-gesture-required"] });
+let browser = await launch();
+/** The browser, started again if it died (the machine ran short of memory) while a take was recording. */
+async function alive() {
+  if (!browser.isConnected()) browser = await launch();
+  return browser;
+}
+let failed = 0;
 for (const game of Object.keys(GAMES)) {
   for (const step of [1, 2, 3, 4, 5]) {
     if (!wanted(game, step)) continue;
     // both sets play the same script at once
     await Promise.all(
       sets.map(async (setName) => {
-        for (let attempt = 0; attempt < (GAMES[game].steps[step].tries ?? 1); attempt++) {
+        const tries = GAMES[game].steps[step].tries ?? 3;
+        for (let attempt = 0; attempt < tries; attempt++) {
           try {
-            const take = await record(browser, game, step, setName, attempt, work);
-            if (!take.ok || take.frames.length < 4) {
+            const take = await record(await alive(), game, step, setName, attempt, work);
+            if (!take.ok || take.segments.some((s) => s.frames.length < 4)) {
               console.log(`${game}/${step}-${setName}: take ${attempt} discarded`);
               continue;
             }
-            encode(game, step, setName, take);
+            await encode(game, step, setName, take);
             return;
           } catch (e) {
             console.log(`${game}/${step}-${setName}: take ${attempt} failed: ${e.message.split("\n")[0]}`);
           }
         }
+        failed++;
         console.log(`${game}/${step}-${setName}: NO CLIP`);
       }),
     );
@@ -624,3 +964,4 @@ for (const game of Object.keys(GAMES)) {
 }
 await browser.close();
 if (!process.env.KEEP) rmSync(work, { recursive: true, force: true });
+if (failed) process.exit(1);
