@@ -86,6 +86,8 @@ import { railcarView } from "./view";
 import { finishRide } from "./finish";
 import { backerSeatedIn, boardingEntry, type BoardingBacking } from "./boarding";
 import { stepOffFor } from "./step-off";
+import { fuelPda, programConfigPda, railcarSetupPlan, readSetupFacts, setupProblems, type AccountReader, type SetupInput, type SetupStep } from "./setup";
+import { MAGICBLOCK } from "../../lib/cluster-settings";
 
 const ROOT = join(process.cwd(), "..");
 const SO_DIR = process.env.RAILCAR_SO_DIR ?? join(ROOT, "target/deploy");
@@ -229,16 +231,20 @@ class World {
   lastInner: InnerInstruction[] = [];
   lastUnits = 0;
 
-  static async create(): Promise<World> {
+  /** With `setup: "script"` Railcar is set up by the devnet setup script's plan instead of by hand (`setUpByScript`). */
+  static async create(o: { setup?: "script" } = {}): Promise<World> {
     const w = new World();
+    // On devnet one deployer key is both Railcar's upgrade authority and tesoro_core's admin.
+    if (o.setup === "script") w.ctl = w.admin;
     w.svm = await Svm.create();
     w.svm.addUpgradeable(CORE, readFileSync(join(SO_DIR, "tesoro_core.so")));
     w.svm.addUpgradeable(RAILCAR_PROGRAM_ID, readFileSync(join(SO_DIR, "railcar.so")));
     const noop = readFileSync(join(__dirname, "test-programs/noop.so"));
     for (const id of [MAGIC, PERMISSION_PROGRAM_ID, VRF]) w.svm.addProgram(id, noop);
+    if (o.setup === "script") w.svm.addProgram(DELEGATION_PROGRAM_ID, noop);
     for (const k of [w.admin, w.oracle, w.ctl, w.operator, w.relayer, w.pageKey]) w.svm.airdrop(k.publicKey, 1_000n * SOL);
     w.setTime(T0);
-    await w.setUp();
+    await w.setUp(o.setup);
     return w;
   }
 
@@ -309,7 +315,7 @@ class World {
 
   // ---- setup (as programs/railcar/tests/ride.rs `Env::new`) ------------------------------------------------------------
 
-  async setUp() {
+  async setUp(by?: "script") {
     const admin = this.admin;
     const platform = this.person();
     this.studio = this.person();
@@ -334,6 +340,7 @@ class World {
     while (end > 45 && data[end - 1] === 0) end--;
     const hash = createHash("sha256").update(data.subarray(45, end)).digest();
     this.svm.set(pd, { ...acct, data });
+    if (by === "script") return this.setUpByScript();
     const gameRecord = corePda("game", RAILCAR_PROGRAM_ID.toBuffer());
     const authority = PublicKey.findProgramAddressSync([Buffer.from("authority")], RAILCAR_PROGRAM_ID)[0];
     this.send(
@@ -346,20 +353,88 @@ class World {
 
     this.send([railcarIx("set_config", { authority: this.ctl.publicKey, config: configPda(), program_data: pd }, { operator: this.operator.publicKey, tables: 2 })], this.ctl);
     this.send([railcarIx("create_sponsor", { operator: this.operator.publicKey, config: configPda(), sponsor: PublicKey.findProgramAddressSync([Buffer.from("sponsor")], RAILCAR_PROGRAM_ID)[0] }, { lamports: SOL })], this.operator);
-    const vaultCoder = new BorshAccountsCoder(railcarIdl as unknown as Idl);
     for (const index of [0, 1]) {
       const table = tablePda(index);
       this.send([railcarIx("create_table", { operator: this.operator.publicKey, config: configPda(), table }, { index })], this.operator);
       // `init_vault` stand-in: the Vault exists, blank, and the Table says so.
-      const [vault, vbump] = PublicKey.findProgramAddressSync([Buffer.from("vault"), table.toBuffer()], RAILCAR_PROGRAM_ID);
-      const blank = await vaultCoder.encode("Vault", { version: 1, bump: vbump, table, car_no: new BN(0), ready: false, draw: new Array(32).fill(0), crash_ms: 0, screw_at_ms: 0, bolt_at_ms: 0, spark_at_ms: 0, false_screws: [0, 0, 0, 0], false_len: 0, slow_end_ms: 0, slow_total_ms: 0, press_count: 0, presses: new Array(101).fill(0), press_seat: new Array(101).fill(0), reserved: new Array(128).fill(0) });
-      this.svm.set(vault, { lamports: Number(SOL), data: blank, owner: RAILCAR_PROGRAM_ID, executable: false });
+      this.svm.set(vaultPda(table), { lamports: Number(SOL), data: await blankVault(table), owner: RAILCAR_PROGRAM_ID, executable: false });
       const t = this.get(table)!;
       const td = Buffer.from(t.data);
       td[8 + 15] = 1;
       this.svm.set(table, { ...t, data: td });
       this.committed.set(table.toBase58(), td);
     }
+  }
+
+  /** Accounts handed to the delegation program, by address: base sees them owned by it, holding their last commit. */
+  delegated = new Set<string>();
+  /** Every setup step the script's plan listed, with its status when it was sent. */
+  setupRun: { first: SetupStep[]; again: SetupStep[] } | null = null;
+
+  /**
+   * Railcar set up as `keeper/scripts/railcar-setup.ts --send` sets it up on devnet: the plan read from this chain, each step
+   * still to do sent with its own instructions and signer, then the plan read again. MagicBlock's programs are stand-ins
+   * (they accept anything), so after each of their steps the account is put where the real program leaves it:
+   * - the TEE whitelist: the `p-conf` account naming the TEE validator;
+   * - a delegation: base holds the account owned by the delegation program with its bytes as delegated, the rollup the
+   *   account as it was (Railcar's);
+   * - `init_vault`: the magic program's ephemeral account (an empty Railcar account of the Vault's size) exists before the
+   *   instruction runs, so Railcar's own code writes the Vault and marks the Table.
+   */
+  async setUpByScript() {
+    const input: SetupInput = {
+      upgradeAuthority: this.admin.publicKey,
+      admin: this.admin.publicKey,
+      operator: this.operator.publicKey,
+      validator: new PublicKey(MAGICBLOCK.teeValidator),
+      studioAccount: this.studio.account,
+      studioBps: 300,
+      tables: 2,
+      sponsorLamports: SOL,
+      fuelLamports: SOL / 10n,
+      fuel: 0,
+      listedDays: 365,
+      now: this.now,
+    };
+    const base: AccountReader = {
+      getMultipleAccountsInfo: async (keys) =>
+        keys.map((k) => {
+          const info = this.info(k);
+          if (!info || !this.delegated.has(k.toBase58())) return info;
+          return { ...info, owner: DELEGATION_PROGRAM_ID, data: Buffer.from(this.committed.get(k.toBase58()) ?? info.data) };
+        }),
+    };
+    const rollup: AccountReader = { getMultipleAccountsInfo: async (keys) => keys.map((k) => (this.delegated.has(k.toBase58()) ? this.info(k) : null)) };
+    const facts = await readSetupFacts(base, rollup, input);
+    expect(setupProblems(input, facts)).toEqual([]);
+    const first = railcarSetupPlan(input, facts);
+    const delegatedBy: Record<string, PublicKey> = { "delegate-sponsor": sponsorPdaOf(), "delegate-fuel-0": fuelPda(0), "delegate-table-0": tablePda(0), "delegate-table-1": tablePda(1) };
+    for (const s of first) {
+      if (s.status !== "to do") continue;
+      const signer = s.signer === "operator" ? this.operator : this.admin;
+      const target = delegatedBy[s.id];
+      const before = target ? this.get(target)! : null;
+      if (s.id.startsWith("init-vault-")) {
+        const table = tablePda(Number(s.id.slice("init-vault-".length)));
+        const size = (await blankVault(table)).length;
+        this.svm.set(vaultPda(table), { lamports: Number(rentOfBytes(size)), data: new Uint8Array(size), owner: RAILCAR_PROGRAM_ID, executable: false });
+      }
+      this.send([cu(s.cu), ...s.ixs], signer);
+      if (s.id === "tee-only") {
+        const data = Buffer.concat([Buffer.alloc(8), u32(1), new PublicKey(MAGICBLOCK.teeValidator).toBuffer()]);
+        this.svm.set(programConfigPda(), { lamports: 1_000_000, data, owner: DELEGATION_PROGRAM_ID, executable: false });
+      }
+      if (target && before) {
+        // Railcar gave the account to the delegation program; the real one would keep its bytes and lend it to the rollup.
+        expect(this.get(target)!.owner.equals(DELEGATION_PROGRAM_ID)).toBe(true);
+        this.svm.set(target, before);
+        this.delegated.add(target.toBase58());
+        this.committed.set(target.toBase58(), Buffer.from(before.data));
+      }
+    }
+    const again = railcarSetupPlan(input, await readSetupFacts(base, rollup, input));
+    this.setupRun = { first, again };
+    this.ensureSpill(this.studio, 64);
   }
 
   /** A Tesoro Account with no Gemas. */
@@ -564,6 +639,15 @@ function drawWhere(want: (r: ReturnType<typeof ride>) => boolean): Uint8Array {
   throw new Error("no draw found");
 }
 
+const sponsorPdaOf = () => PublicKey.findProgramAddressSync([Buffer.from("sponsor")], RAILCAR_PROGRAM_ID)[0];
+const rentOfBytes = (n: number) => BigInt(n + 128) * 6_960n;
+
+/** A Table's Vault as `init_vault` writes it: blank, for no car yet. */
+async function blankVault(table: PublicKey): Promise<Buffer> {
+  const bump = PublicKey.findProgramAddressSync([Buffer.from("vault"), table.toBuffer()], RAILCAR_PROGRAM_ID)[1];
+  return new BorshAccountsCoder(railcarIdl as unknown as Idl).encode("Vault", { version: 1, bump, table, car_no: new BN(0), ready: false, draw: new Array(32).fill(0), crash_ms: 0, screw_at_ms: 0, bolt_at_ms: 0, spark_at_ms: 0, false_screws: [0, 0, 0, 0], false_len: 0, slow_end_ms: 0, slow_total_ms: 0, press_count: 0, presses: new Array(101).fill(0), press_seat: new Array(101).fill(0), reserved: new Array(128).fill(0) });
+}
+
 /** A VRF output whose crash point is exactly `crashMs` (the crash falls as the first word grows; the rest is fixed). */
 function drawWithCrash(crashMs: number): Uint8Array {
   const at = (w0: bigint) => {
@@ -598,6 +682,7 @@ interface RideRun {
   history: { deltas: number[]; replay: RideReplay };
   finalizeUnits: number;
   revealUnits: number;
+  setupRun: World["setupRun"];
 }
 
 /**
@@ -609,6 +694,8 @@ interface RideRun {
 let rooms = 0;
 
 interface RideOpts {
+  /** Railcar set up by the devnet setup script's plan (`World.setUpByScript`). */
+  setup?: "script";
   brakes?: [number, number][];
   watch?: (w: World, at: { secs: number; table: PublicKey; riders: Person[] }) => void;
   backed?: { seat: number; shareBps: number };
@@ -622,7 +709,7 @@ interface RideOpts {
 /** A car boarded, departed and ridden through `jumps` (and, unless `noImpact`, its Impact): everything before the finish. */
 async function rideToImpact(n: number, draw: Uint8Array, jumps: [number, number][], o: RideOpts = {}) {
   const backed = o.backed;
-  const w = await World.create();
+  const w = await World.create({ setup: o.setup });
   // A backed rider has no Gemas of their own: their Backer's entry boards for them.
   w.riders = Array.from({ length: n }, (_, i) => (i === backed?.seat ? w.person() : w.rider()));
   const riders = w.riders;
@@ -790,6 +877,7 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], o
     revealUnits,
     finishSteps: sent.sent,
     credits,
+    setupRun: w.setupRun,
   };
 }
 
@@ -880,6 +968,27 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     expect(r.history.deltas).toEqual([-150, 130, 78, 313, -500]);
     expect(r.history.replay.differences).toEqual([]);
     expect(r.history.replay.seats.map((s) => s.gets)).toEqual(r.deltas);
+  });
+
+  it("the devnet setup script's steps set Railcar up from nothing, a re-run finds nothing to do, and the worked example rides on it", { timeout: 120_000 }, async () => {
+    const r = await rideCar(
+      5,
+      drawWhere((x) => x.crashMs >= 101_000),
+      [
+        [ANA, 25],
+        [CY, 95],
+        [BEN, 97],
+        [DEE, 99],
+      ],
+      { setup: "script" },
+    );
+    const run = r.setupRun!;
+    const ids = ["register-game", "list-game", "tee-only", "set-config", "create-sponsor", "create-fuel-0", "delegate-sponsor", "delegate-fuel-0", "create-table-0", "delegate-table-0", "create-table-1", "delegate-table-1", "init-vault-0", "init-vault-1"];
+    expect(run.first.map((s) => [s.id, s.status])).toEqual(ids.map((id) => [id, "to do"]));
+    expect(run.again.map((s) => [s.id, s.status])).toEqual(ids.map((id) => [id, "done"]));
+    expect(r.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
+    expect(r.studioFee).toBe(64n);
+    expect(r.history.replay.differences).toEqual([]);
   });
 
   it("a secret Brake (the spec's example): the wall moves from 52 s to 54.5 s; the Table and Ben's screen never change; Ana's Brake seat holds it", { timeout: 120_000 }, async () => {
