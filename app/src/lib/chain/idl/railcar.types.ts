@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/railcar.json`.
  */
 export type Railcar = {
-  "address": "DJkNxkAogb32VQm1TQMSVCbzHcaV3SDBy5kBmpqaNHxC",
+  "address": "ExpLHqvPEqbdEze5HaYWmnTsH9SXYa8jkXeuEvjRGzam",
   "metadata": {
     "name": "railcar",
     "version": "0.1.0",
@@ -276,7 +276,7 @@ export type Railcar = {
         },
         {
           "name": "gameProgram",
-          "address": "DJkNxkAogb32VQm1TQMSVCbzHcaV3SDBy5kBmpqaNHxC"
+          "address": "ExpLHqvPEqbdEze5HaYWmnTsH9SXYa8jkXeuEvjRGzam"
         },
         {
           "name": "programData"
@@ -809,7 +809,7 @@ export type Railcar = {
         },
         {
           "name": "ownerProgram",
-          "address": "DJkNxkAogb32VQm1TQMSVCbzHcaV3SDBy5kBmpqaNHxC"
+          "address": "ExpLHqvPEqbdEze5HaYWmnTsH9SXYa8jkXeuEvjRGzam"
         },
         {
           "name": "delegationProgram",
@@ -1023,7 +1023,7 @@ export type Railcar = {
         },
         {
           "name": "ownerProgram",
-          "address": "DJkNxkAogb32VQm1TQMSVCbzHcaV3SDBy5kBmpqaNHxC"
+          "address": "ExpLHqvPEqbdEze5HaYWmnTsH9SXYa8jkXeuEvjRGzam"
         },
         {
           "name": "delegationProgram",
@@ -1234,7 +1234,7 @@ export type Railcar = {
         },
         {
           "name": "ownerProgram",
-          "address": "DJkNxkAogb32VQm1TQMSVCbzHcaV3SDBy5kBmpqaNHxC"
+          "address": "ExpLHqvPEqbdEze5HaYWmnTsH9SXYa8jkXeuEvjRGzam"
         },
         {
           "name": "delegationProgram",
@@ -1554,7 +1554,7 @@ export type Railcar = {
         },
         {
           "name": "gameProgram",
-          "address": "DJkNxkAogb32VQm1TQMSVCbzHcaV3SDBy5kBmpqaNHxC"
+          "address": "ExpLHqvPEqbdEze5HaYWmnTsH9SXYa8jkXeuEvjRGzam"
         },
         {
           "name": "programData"
@@ -2151,7 +2151,7 @@ export type Railcar = {
         },
         {
           "name": "gameProgram",
-          "address": "DJkNxkAogb32VQm1TQMSVCbzHcaV3SDBy5kBmpqaNHxC"
+          "address": "ExpLHqvPEqbdEze5HaYWmnTsH9SXYa8jkXeuEvjRGzam"
         },
         {
           "name": "programData"
@@ -2779,7 +2779,7 @@ export type Railcar = {
         },
         {
           "name": "program",
-          "address": "DJkNxkAogb32VQm1TQMSVCbzHcaV3SDBy5kBmpqaNHxC"
+          "address": "ExpLHqvPEqbdEze5HaYWmnTsH9SXYa8jkXeuEvjRGzam"
         },
         {
           "name": "programData"

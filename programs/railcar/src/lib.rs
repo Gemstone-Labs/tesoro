@@ -57,8 +57,7 @@ use tesoro_core::{
 
 pub use state::*;
 
-// Placeholder: the real program keypair is an orchestrator hand-off (ticket 15).
-declare_id!("DJkNxkAogb32VQm1TQMSVCbzHcaV3SDBy5kBmpqaNHxC");
+declare_id!("ExpLHqvPEqbdEze5HaYWmnTsH9SXYa8jkXeuEvjRGzam");
 
 /// Identity of MagicBlock's TEE validator (devnet), as Block Burst pins it: the validator a
 /// delegation names is the only key that can commit state back.
