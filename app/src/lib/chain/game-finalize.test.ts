@@ -104,8 +104,18 @@ describe("refundWhenUntabled (ticket 58)", () => {
     expect(sendIt).not.toHaveBeenCalled();
   });
 
-  it("takes a refusal because the other page refunded first, or a table came, as done; anything else is thrown", async () => {
-    await expect(refundWhenUntabled(joined, (T + 300) * 1000, { current: 0 }, async () => Promise.reject(new Error("custom program error: NotUntabled")))).resolves.toBe(true);
-    await expect(refundWhenUntabled(joined, (T + 300) * 1000, { current: 0 }, async () => Promise.reject(new Error("network down")))).rejects.toThrow("network down");
+  it("takes a failure as a lost race at first (the next read shows the refund), and shows the third in a row", async () => {
+    const last = { current: 0 };
+    const failing = async () => Promise.reject(new Error('{"InstructionError":[2,{"Custom":6047}]}'));
+    const at = (i: number) => (T + 300) * 1000 + i * UNTABLED_GAP_MS;
+    await expect(refundWhenUntabled(joined, at(0), last, failing)).resolves.toBe(true);
+    await expect(refundWhenUntabled(joined, at(1), last, failing)).resolves.toBe(true);
+    await expect(refundWhenUntabled(joined, at(2), last, failing)).rejects.toThrow("6047");
+  });
+
+  it("starts counting again after a refund that went out", async () => {
+    const last = { current: 0, fails: 2 };
+    await refundWhenUntabled(joined, (T + 300) * 1000, last, async () => "sig");
+    expect(last.fails).toBe(0);
   });
 });

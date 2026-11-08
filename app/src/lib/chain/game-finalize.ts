@@ -59,27 +59,30 @@ export const refundUntabledFree = <P>(
 /** Least time between two tries of `refund_untabled` from one page. */
 export const UNTABLED_GAP_MS = 8_000;
 
-/** The refund was refused because the Match no longer qualifies: the other page or the sweep refunded it, or a table came. */
-const untabledRaced = (e: unknown) =>
-  /NotUntabled|already in use/i.test(String(e)) || (e instanceof SponsorError && (e.code === "would-fail" || e.code === "chain"));
+/** Failed tries in a row of `refund_untabled` from one page before the error is shown. */
+export const UNTABLED_FAILS_BEFORE_ERROR = 3;
 
 /**
  * Ticket 58: a joined Match still without a table `TABLE_WAIT_SECS` after the join is refunded by its Game, and any
- * participant's page sends it (`send`, which also runs the chunks). Resolves true when it tried this call; a refusal because
- * the Match moved on counts as done, anything else is thrown. `last` holds the time of the last try, per page.
+ * participant's page sends it (`send`, which also runs the chunks). Resolves true when it tried this call. A lost race (the
+ * other page or the sweep refunded first, or a table came) fails once and the next read no longer asks for the refund, so
+ * an error is thrown only after `UNTABLED_FAILS_BEFORE_ERROR` failures in a row; the decoded error name cannot be relied
+ * on (a Game's IDL may lag its program). `last` holds the time of the last try and the failures in a row, per page.
  */
 export async function refundWhenUntabled(
   m: { status: "open" | "active" | "settled" | "refunded"; sides: readonly unknown[]; deadline: number },
   nowMs: number,
-  last: { current: number },
+  last: { current: number; fails?: number },
   send: () => Promise<unknown>,
 ): Promise<boolean> {
   if (m.status !== "active" || isCancelling(m) || !untabledRefundDue(m.deadline, nowMs / 1000) || nowMs - last.current < UNTABLED_GAP_MS) return false;
   last.current = nowMs;
   try {
     await send();
+    last.fails = 0;
   } catch (e) {
-    if (!untabledRaced(e)) throw e;
+    last.fails = (last.fails ?? 0) + 1;
+    if (last.fails >= UNTABLED_FAILS_BEFORE_ERROR) throw e;
   }
   return true;
 }
