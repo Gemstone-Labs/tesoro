@@ -99,7 +99,7 @@ function Guide({ game, end, practiceHref, onClose }: Omit<HowToPlayProps, "open"
         </div>
       </div>
       <div className="htp-nav">
-        <Button onClick={() => go(i - 1)} disabled={i === 0} icon={<ChevronLeft aria-hidden="true" />}>Back</Button>
+        {i > 0 && !last && <Button onClick={() => go(i - 1)} icon={<ChevronLeft aria-hidden="true" />}>Back</Button>}
         {!last ? (
           <Button variant="light" onClick={() => go(i + 1)}>Next <ChevronRight aria-hidden="true" /></Button>
         ) : (

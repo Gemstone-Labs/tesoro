@@ -23,8 +23,10 @@ dialog.htp-sheet { max-width: 520px; }
 .htp-cap { position: absolute; z-index: 3; left: 0; right: 0; bottom: 0; display: grid; gap: 4px; padding: 72px 18px 18px; pointer-events: none;
   background: linear-gradient(180deg, rgba(6, 10, 16, 0) 0%, rgba(6, 10, 16, 0.82) 38%, rgba(6, 10, 16, 0.94) 100%); color: #fff; }
 .htp-count { font-size: var(--fs-14); font-weight: 700; color: rgba(255, 255, 255, 0.88); }
-.htp-title { font-size: clamp(26px, 6vw, 34px); font-weight: 900; letter-spacing: -0.01em; line-height: 1.05; }
+.htp-title { font-size: clamp(22px, 5.6vw, 34px); font-weight: 900; letter-spacing: -0.01em; line-height: 1.05; }
 .htp-line { font-size: var(--fs-16, 16px); line-height: 1.35; color: rgba(255, 255, 255, 0.92); }
 
 .htp-nav { display: flex; justify-content: space-between; gap: 10px; }
 .htp-nav > :last-child { margin-left: auto; }
+/* phones: the buttons share the row equally (g3) */
+@media (max-width: 639px) { .htp-nav > * { flex: 1 1 0; justify-content: center; } }
