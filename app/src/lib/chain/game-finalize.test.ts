@@ -6,7 +6,7 @@ const status = vi.fn();
 const send = vi.fn();
 vi.mock("./sponsor-client", async (orig) => ({ ...(await orig<typeof import("./sponsor-client")>()), sponsorStatus: () => status(), sponsoredSend: (...a: unknown[]) => send(...a) }));
 
-import { closeAssignmentFree, finalizeFree, refundUntabledFree } from "./game-finalize";
+import { UNTABLED_GAP_MS, closeAssignmentFree, finalizeFree, refundUntabledFree, refundWhenUntabled } from "./game-finalize";
 
 const relayer = Keypair.generate().publicKey;
 const signer = { publicKey: Keypair.generate().publicKey, signSerialized: async (b: Uint8Array) => b } as never;
@@ -73,5 +73,49 @@ describe("when the sponsor refuses", () => {
       await expect(finalizeFree(g, signer, getToken, {} as never)).rejects.toThrow();
       expect(g.finalize).not.toHaveBeenCalled();
     }
+  });
+});
+
+describe("refundWhenUntabled (ticket 58)", () => {
+  const T = 1_800_000_000;
+  // Joined at T: tesoro_core's deadline is the join plus an hour, the Game refunds after five minutes.
+  const joined = { status: "active" as const, sides: [{}, {}], deadline: T + 3_600 };
+
+  it("sends the refund once the table wait is over, not before", async () => {
+    const sendIt = vi.fn(async () => "sig");
+    const last = { current: 0 };
+    expect(await refundWhenUntabled(joined, (T + 299) * 1000, last, sendIt)).toBe(false);
+    expect(await refundWhenUntabled(joined, (T + 300) * 1000, last, sendIt)).toBe(true);
+    expect(sendIt).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits between tries", async () => {
+    const sendIt = vi.fn(async () => "sig");
+    const last = { current: 0 };
+    await refundWhenUntabled(joined, (T + 300) * 1000, last, sendIt);
+    await refundWhenUntabled(joined, (T + 300) * 1000 + UNTABLED_GAP_MS - 1, last, sendIt);
+    await refundWhenUntabled(joined, (T + 300) * 1000 + UNTABLED_GAP_MS, last, sendIt);
+    expect(sendIt).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves a Match nobody joined alone (the opener cancelled it)", async () => {
+    const sendIt = vi.fn(async () => "sig");
+    expect(await refundWhenUntabled({ ...joined, sides: [{}] }, (T + 900) * 1000, { current: 0 }, sendIt)).toBe(false);
+    expect(sendIt).not.toHaveBeenCalled();
+  });
+
+  it("takes a failure as a lost race at first (the next read shows the refund), and shows the third in a row", async () => {
+    const last = { current: 0 };
+    const failing = async () => Promise.reject(new Error('{"InstructionError":[2,{"Custom":6047}]}'));
+    const at = (i: number) => (T + 300) * 1000 + i * UNTABLED_GAP_MS;
+    await expect(refundWhenUntabled(joined, at(0), last, failing)).resolves.toBe(true);
+    await expect(refundWhenUntabled(joined, at(1), last, failing)).resolves.toBe(true);
+    await expect(refundWhenUntabled(joined, at(2), last, failing)).rejects.toThrow("6047");
+  });
+
+  it("starts counting again after a refund that went out", async () => {
+    const last = { current: 0, fails: 2 };
+    await refundWhenUntabled(joined, (T + 300) * 1000, last, async () => "sig");
+    expect(last.fails).toBe(0);
   });
 });

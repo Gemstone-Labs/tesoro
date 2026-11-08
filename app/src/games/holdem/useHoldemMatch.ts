@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from "@/lib/auth/context";
-import { finalizeFree } from "@/lib/chain/game-finalize";
+import { finalizeFree, refundUntabledFree, refundWhenUntabled } from "@/lib/chain/game-finalize";
 import { finalizeAndFinishFree, finishMatchFree } from "@/lib/chain/finish-match-client";
 import { createFinisher } from "@/lib/chain/finish-match";
 import { closedWhileSeen } from "@/lib/chain/closed-while-seen";
@@ -10,7 +10,7 @@ import { accountOfSigner, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getHoldem } from "@/lib/chain/client";
 import { matchAddressOf } from "@/lib/chain/match-id";
 import { matchProgress } from "@/lib/chain/match-progress";
-import { setupNote } from "@/lib/chain/match-status";
+import { UNBEGUN_NOTE, setupNote } from "@/lib/chain/match-status";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import {
   NO_WINNER,
@@ -122,6 +122,7 @@ export function useHoldemMatch(id: string | null, signer: ChainSigner | null, on
   const settledSeen = useRef(false);
   const finalRead = useRef(false);
   const assignRef = useRef<Assignment | null>(null);
+  const untabledTry = useRef(0);
   const failures = useRef(0);
 
   const mk = useMemo(() => (id === null ? null : matchAddressOf(id)), [id]);
@@ -233,7 +234,12 @@ export function useHoldemMatch(id: string | null, signer: ChainSigner | null, on
     // The joiner does the steps either Player may do; the opener steps in if that stalls.
     const late = now() - activeSince.current >= (seat === 1 ? 0 : 12_000);
     const a = await hd.readAssignment(mk!);
-    if (!a) return setStage("setup", setupNote(m));
+    if (!a) {
+      setStage("setup", setupNote(m));
+      // Joined, and no table in five minutes: the Game refunds it, from either Player's page (ticket 58).
+      await refundWhenUntabled(m, Date.now(), untabledTry, () => finalizeAndFinishFree(signer, () => tokenRef.current(), mk, () => refundUntabledFree(hd, signer, () => tokenRef.current(), mk)));
+      return;
+    }
     assignRef.current = a;
     const t = await hd.readTable(p, a);
     if (!t) return setStage("setup", "Setting up the Match");
@@ -247,7 +253,8 @@ export function useHoldemMatch(id: string | null, signer: ChainSigner | null, on
     // The previous Match settled and the table is not reset yet: begin_match resets it once it may (30 s after the
     // result), so an early or failed try is quietly repeated on the next read.
     if (atNextEpoch(a, t)) {
-      setStage("setup", startNote(t.tablePhase === TABLE_PHASE.over));
+      // After the start window it can no longer begin there: the refund comes once the table moves past its epoch (ticket 59).
+      setStage("setup", nowS > a.startDeadline ? UNBEGUN_NOTE : startNote(t.tablePhase === TABLE_PHASE.over));
       if (late && nowS <= a.startDeadline) await hd.beginMatch(p, a, t).catch(() => undefined);
       return;
     }

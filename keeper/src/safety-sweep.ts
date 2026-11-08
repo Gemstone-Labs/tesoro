@@ -10,7 +10,9 @@ import { discriminatorOf } from "./lists.ts";
  *  - `finalize`: an Active Match whose result base's committed table already holds, 10 minutes after the sweep first saw it
  *    committed: `finalize`, then the chunks, then `close_match`;
  *  - `finish`: a Settling, Refunding or Closed Match, 10 minutes after the sweep first saw it: the chunks, then `close_match`;
- *  - `refund`: an Open Match a Backer funded that nobody joined, once its deadline has passed: `refund_match`.
+ *  - `refund`: an Open Match a Backer funded that nobody joined, once its deadline has passed: `refund_match`;
+ *  - `untabled`: a joined Match that got no table in its Game's table wait (5 minutes): the Game's `refund_untabled`, then the
+ *    chunks (ticket 58). No grace: the Players' pages had the same five minutes.
  * Every send is idempotent, so a page that did the step first costs nothing. A Match the sweep tried once and finds in the
  * same state on the next sweep is stuck: it raises an alert and is not retried.
  */
@@ -89,6 +91,8 @@ export interface Seen {
   lastTryAt?: number;
   /** An alert was raised for it; it is retried once an hour so it can recover, and the alert clears when it moves. */
   alerted?: boolean;
+  /** The case it was found in when that is not the stage's own (an Active Match refunded untabled). */
+  case?: Case;
 }
 
 export interface SweepState {
@@ -159,9 +163,18 @@ export interface SweepDeps {
   /** The chunks, then `close_match`, as far as they go. Throws when a step fails with the Match unmoved. */
   finish(address: PublicKey): Promise<void>;
   refund(head: Head): Promise<void>;
+  /**
+   * Why an Active Match with no committed result is waiting, read after `committed` said no: `untabled` (no Assignment, and
+   * its Game's table wait is over: `refundUntabled` refunds it, ticket 58), `unbegun` (its Assignment's start window closed
+   * before it began: the refund comes once the table moves past its epoch, so it is asked about every 5 minutes instead of
+   * backed off, ticket 59), or null.
+   */
+  waiting?(head: Head): Promise<"untabled" | "unbegun" | null>;
+  /** The Game's `refund_untabled`. */
+  refundUntabled?(head: Head): Promise<void>;
 }
 
-export type Case = "finalize" | "finish" | "refund";
+export type Case = "finalize" | "finish" | "refund" | "untabled";
 
 export interface Candidate {
   address: PublicKey;
@@ -250,7 +263,8 @@ export async function safetySweep(deps: SweepDeps, store: SweepStore, opts: { no
     const id = label(head.address);
     if (dbIds && !dbIds.has(id)) report.dbMisses.push(id);
     let seen = state.seen[id] && { ...state.seen[id] };
-    if (kind === "finalize" && !seen) {
+    // An untabled refund that did not land yet is looked at afresh: a table may have come since.
+    if (kind === "finalize" && (!seen || seen.case === "untabled")) {
       const quietKey = `${head.stage}:${head.deadline}`;
       const q = state.quiet?.[id]?.key === quietKey ? state.quiet[id] : undefined;
       // Past the Match deadline there is no waiting: no result on the Table means a refund, which anyone may send.
@@ -268,18 +282,30 @@ export async function safetySweep(deps: SweepDeps, store: SweepStore, opts: { no
       }
       if (!committed) {
         if (!pastDeadline) {
-          const asked = (q?.asked ?? 0) + 1;
-          next.quiet![id] = { key: quietKey, asked, next: now + QUIET_BACKOFF_SECS[Math.min(asked, QUIET_BACKOFF_SECS.length) - 1] };
-          continue;
-        }
-        kind = "refund";
+          let why: "untabled" | "unbegun" | null = null;
+          try {
+            why = deps.waiting ? await deps.waiting(head) : null;
+          } catch (e) {
+            log("sweep", id, `ERROR reading why it waits: ${String((e as Error).message ?? e).split("\n")[0].slice(0, 200)}`);
+          }
+          if (why !== "untabled") {
+            const asked = (q?.asked ?? 0) + 1;
+            const wait = why === "unbegun" ? QUIET_BACKOFF_SECS[0] : QUIET_BACKOFF_SECS[Math.min(asked, QUIET_BACKOFF_SECS.length) - 1];
+            next.quiet![id] = { key: quietKey, asked, next: now + wait };
+            delete next.seen[id];
+            continue;
+          }
+          kind = "untabled";
+        } else kind = "refund";
       }
     }
     seen ??= { since: now };
+    if (kind === "untabled") seen.case = "untabled";
+    else delete seen.case;
     next.seen[id] = seen;
 
     const ageSecs = now - seen.since;
-    const ready = kind === "refund" || ageSecs >= GRACE_SECS;
+    const ready = kind === "refund" || kind === "untabled" || ageSecs >= GRACE_SECS;
     const candidate: Candidate = { address: head.address, case: kind, ageSecs, action: ready ? "send" : "wait" };
     report.candidates.push(candidate);
     if (!ready) continue;
@@ -327,7 +353,11 @@ export async function safetySweep(deps: SweepDeps, store: SweepStore, opts: { no
     seen.lastTryAt = now;
     try {
       if (kind === "refund") await deps.refund(head);
-      else {
+      else if (kind === "untabled") {
+        if (!deps.refundUntabled) throw new Error("no refund_untabled sender");
+        await deps.refundUntabled(head);
+        await deps.finish(head.address);
+      } else {
         if (kind === "finalize") await deps.finalize(head);
         await deps.finish(head.address);
       }

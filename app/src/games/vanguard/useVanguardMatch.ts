@@ -4,7 +4,7 @@ import { atAssignedEpoch } from "@/lib/chain/table-epoch";
 import { atNextEpoch, startNote } from "@/lib/chain/table-clean";
 
 import { useAuth } from "@/lib/auth/context";
-import { finalizeFree } from "@/lib/chain/game-finalize";
+import { finalizeFree, refundUntabledFree, refundWhenUntabled } from "@/lib/chain/game-finalize";
 import { finalizeAndFinishFree, finishMatchFree } from "@/lib/chain/finish-match-client";
 import { createFinisher } from "@/lib/chain/finish-match";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -12,7 +12,7 @@ import { accountOfSigner, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getVanguard } from "@/lib/chain/client";
 import { matchAddressOf } from "@/lib/chain/match-id";
 import { matchProgress } from "@/lib/chain/match-progress";
-import { setupNote } from "@/lib/chain/match-status";
+import { UNBEGUN_NOTE, setupNote } from "@/lib/chain/match-status";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { commitPhase, isCommitPending, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
 import { plainError } from "@/lib/errors";
@@ -135,6 +135,7 @@ export function useVanguardMatch(id: string | null, signer: ChainSigner | null, 
   const contributedAt = useRef(0);
   const lastVrf = useRef(0);
   const assignRef = useRef<Assignment | null>(null);
+  const untabledTry = useRef(0);
   const [assignment, setAssignment] = useState<Assignment | null>(null);
   const lastClaim = useRef(0);
   const lastResolve = useRef(0);
@@ -268,7 +269,12 @@ export function useVanguardMatch(id: string | null, signer: ChainSigner | null, 
     // The joiner does the steps either Player may do; the opener steps in if that stalls.
     const late = now() - activeSince.current >= (seat === 1 ? 0 : OPENER_LATE_MS);
     const a = await vg.readAssignment(mk!);
-    if (!a) return setStage("setup", setupNote(m));
+    if (!a) {
+      setStage("setup", setupNote(m));
+      // Joined, and no table in five minutes: the Game refunds it, from either Player's page (ticket 58).
+      await refundWhenUntabled(m, Date.now(), untabledTry, () => finalizeAndFinishFree(signer, () => tokenRef.current(), mk, () => refundUntabledFree(vg, signer, () => tokenRef.current(), mk)));
+      return;
+    }
     if (assignRef.current?.address.toBase58() !== a.address.toBase58()) {
       assignRef.current = a;
       setAssignment(a);
@@ -284,7 +290,8 @@ export function useVanguardMatch(id: string | null, signer: ChainSigner | null, 
     // The previous Match settled and the table is not reset yet: begin_match resets it once it may (30 s after the
     // result), so an early or failed try is quietly repeated on the next read.
     if (atNextEpoch(a, t)) {
-      setStage("setup", startNote(t.phase === TABLE_PHASE.over));
+      // After the start window it can no longer begin there: the refund comes once the table moves past its epoch (ticket 59).
+      setStage("setup", nowS > a.startDeadline ? UNBEGUN_NOTE : startNote(t.phase === TABLE_PHASE.over));
       if (late && nowS <= a.startDeadline) await vg.beginMatch(p, a, t).catch(() => undefined);
       return;
     }

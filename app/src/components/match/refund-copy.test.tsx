@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { CANCELLING_NOTE } from "@/lib/chain/match-status";
+import { CANCELLING_NOTE, UNBEGUN_NOTE } from "@/lib/chain/match-status";
 import { MatchResult, type MatchResultProps } from "./MatchResult";
 import { MatchStage } from "./MatchStage";
 
@@ -26,5 +26,14 @@ describe("cancelling stage", () => {
     expect(html).toContain("Cancelling");
     expect(html).toContain("500 Gemas are on their way back");
     expect(html).not.toMatch(/opponent found|Waiting for a table|No table opened/i);
+  });
+});
+
+describe("an assigned Match that never started (ticket 59)", () => {
+  it("says so and when the entry comes back, not 'Get ready'", () => {
+    const html = renderToStaticMarkup(<MatchStage game="holdem" kind="setup" step={UNBEGUN_NOTE} entry={500} pot={990} me="Me" opponent="Opp" deadline={Math.floor(Date.now() / 1000) + 86_400} />);
+    expect(html).toContain("The Match never started");
+    expect(html).toContain("after this table’s next Match");
+    expect(html).not.toContain("Get ready");
   });
 });
