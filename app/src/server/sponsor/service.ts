@@ -36,6 +36,7 @@ import { ChainTransactionFailed } from "./chain-send";
 import { completionEffects, completionInput, holdSeeds, recoverCompletions, type CompletionChain, type HoldSeed } from "./completion";
 import { releaseClosedHolds, type ClosureReads } from "./closure";
 import { assetOfIndex } from "@/games/trading-duel/chain";
+import { RIDE_STEP_NAMES } from "@/games/railcar/finish-steps";
 import { countersPda } from "@/lib/chain/basket";
 import { decodeTicketHead, type TicketFacts } from "@/lib/chain/pot-store";
 import { offerPda } from "@/lib/chain/backing-ix";
@@ -60,20 +61,16 @@ export type BuildAuth = { kind: "wallet" } | { kind: "token" } | { kind: "seat";
 /** What a token-only request may build: the entry and the growth that travels with it. */
 const ENTRY_NAMES = new Set(["open_match", "join_match", "open_ticket", "stage_entry", "grow_store_sponsored", "join_many_seat_match", "open_car", "check_departure"]);
 /** What a seat key may ask for: a Game's finish steps and the Match's own finish, never a move of value. */
-const SEAT_STEP_NAMES = new Set([
+/** What a seat key may ask the sponsor for (by instruction name). */
+export const SEAT_STEP_NAMES: ReadonlySet<string> = new Set([
   "finalize",
   "refund_untabled",
   "close_assignment",
   "match_chunk",
   "close_match",
   "refund_match",
-  // A many-seat car's finish (Railcar): the departure, the chunks, room for a winner, the closes and the late refund.
-  "check_departure",
-  "many_seat_chunk",
-  "reserve_many_seat_room",
-  "close_many_seat",
-  "close_many_seat_match",
-  "refund_many_seat_match",
+  // What a Railcar page sends after boarding: the departure and every finish step (games/railcar/finish-steps.ts).
+  ...RIDE_STEP_NAMES,
 ]);
 const JOIN_SEAT_AT = (coreIdl as unknown as { instructions: { name: string; accounts: { name: string }[] }[] }).instructions.find((i) => i.name === "join_match")!.accounts.findIndex((a) => a.name === "seat_signer");
 
