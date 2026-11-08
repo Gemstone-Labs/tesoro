@@ -129,10 +129,13 @@ async function bpWaitPlaying(page) {
 async function bpUntilClear(page) {
   for (let n = 0; n < 24; n++) {
     await page.waitForSelector(".bp-slot:not(:disabled):not(.used)", { timeout: 8000 }).catch(() => {});
-    const move = bpBest(await bpRead(page));
+    const state = await bpRead(page);
+    const move = bpBest(state);
     if (!move) return;
     if (move.cleared > 0) return move;
-    await bpPlace(page, move);
+    // build up along the top rows so the clear happens high in the frame, clear of the caption
+    const next = bpBest(state, true);
+    await bpPlace(page, next ?? move);
   }
 }
 
