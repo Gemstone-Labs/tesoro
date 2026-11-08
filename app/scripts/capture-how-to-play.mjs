@@ -2,47 +2,46 @@
  * Records the "How to play" guide clips from the real Practice screens (dev fixtures, no chain):
  * public/art/how-to-play/<game>/<n>-<phone|desktop>.{webm,mp4,webp}, for every step of the four Games.
  * Phone set: 390 px wide phone layout, cropped to portrait 4:5. Desktop set: 1440x900 desktop layout, cropped to 16:10.
- * Both sets play the same script. Re-run whenever a game's UI or the step list changes:
+ * Both sets play the same script. Re-run whenever a game's UI or the step list changes.
  *
- *   NEXT_PUBLIC_DEV_WALLET=1 pnpm --filter @tesoro/app dev            # dev server, e.g. on port 3141
- *   BASE=http://localhost:3141 node scripts/capture-how-to-play.mjs
+ * HOW IT RECORDS (60 fps). The screen is recorded, not the browser's screencast (which delivers an animation as one or two changed
+ * frames, so cards and chips teleport). `htp-screen.mjs` makes a hidden Hyprland output and starts a kiosk Chromium on it with the
+ * GPU compositing the page; `wf-recorder` records that output at 60 fps. The camera is a CSS transform on the page root, eased in the
+ * page, and the clip is a fixed crop of the screen. A magenta cover marks the start and the end of each take in the video.
  *
- * Record on a machine with a fast CPU (the laptop), never the CPU-only VPS: its headless Chromium painted 5 to 19 frames per
- * second on Vanguard's board and the clips looked laggy. A production build of the app with the dev wallet switched on
- * (`NEXT_PUBLIC_DEV_WALLET=1`, and the `NODE_ENV` check dropped from `lib/chain/config.ts` in that copy) loads far faster than
- * `next dev` through an ssh tunnel; run the script with tsx (it imports the app's TypeScript rules).
- * After encoding, every clip is checked for frames that differ from the one before: under MIN_FPS (20) per second the take
- * is thrown away and recorded again, with a message that says whether the browser was too slow or the screen barely moved.
- * Needs playwright-core and ffmpeg (libx264, libvpx-vp9, libwebp) on the machine that records.
- * Env: PW=/path/to/playwright-core, CHROME=/path/to/chrome, FFMPEG=/path/to/ffmpeg, OUT=<output dir>,
- *      ONLY=<game>[:step][,...] (e.g. ONLY=vanguard:3 or ONLY=holdem,trading-duel:1), SETS=phone|desktop.
+ *   # the app: a production build of this worktree with the dev wallet on, served where BASE can reach it
+ *   #   (`NEXT_PUBLIC_DEV_WALLET=1`, and the `NODE_ENV` check dropped from `lib/chain/config.ts` in that copy)
+ *   BASE=http://localhost:3178 PW=<playwright-core dir> WFR=<wf-recorder> tsx scripts/capture-how-to-play.mjs
+ *
+ * Run it with tsx (it imports the app's TypeScript rules). Needs Hyprland, wf-recorder, Chromium, playwright-core and ffmpeg
+ * (libx264, libvpx-vp9, libwebp). It never touches the person's own windows or workspaces and removes its output when done.
+ * Env: PW, CHROME, FFMPEG, WFR, OUT=<output dir>, ONLY=<game>[:step][,...] (e.g. ONLY=vanguard:3 or ONLY=holdem,trading-duel:1),
+ *      SETS=phone|desktop, NO_PLAYBACK_CHECK=1, KEEP=1.
  *
  * Practice is seeded so a re-run plays the same: `?seed=<n>` fixes Block Burst pieces, Hold'em shuffles and bot,
- * the Vanguard setup and bot, and the Trading Duel price path. Seeds are read only in dev builds
- * (NEXT_PUBLIC_DEV_WALLET=1, `lib/practice-seed.ts`). Trading Duel runs in real time (a whole game is 150 s).
+ * the Vanguard setup and bot, and the Trading Duel price path. Seeds are read only in dev builds. Trading Duel runs in real time.
  *
  * Every clip is recorded from its own fresh game: `prep` plays up to the moment the step is about, unrecorded,
- * then `act` plays the moment itself while the screencast runs. A clip is 3 to 8 s (longer takes are sped up),
- * fades in and out so it loops cleanly, and is shrunk until each video is at most 300 KB.
+ * then `act` plays the moment itself while the screen is recorded. Each clip fades in and out so it loops cleanly, is encoded at
+ * 60 fps as limited-range BT.709 yuv420p, and is shrunk until each video is at most 300 KB. After encoding, a clip is thrown away
+ * and recorded again if it has under MIN_FPS unique frames per second or fails the motion-continuity check (motion-continuity.mjs).
  */
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
-import { createRequire } from "node:module";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { OUTPUT, SCREENS, screenDown, screenEnv, screenUp } from "./htp-screen.mjs";
+import { MAX_SHARE, continuity, frameDiffs } from "./motion-continuity.mjs";
 
-const require = createRequire(import.meta.url);
-const { chromium } = require(process.env.PW ?? "playwright-core");
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = resolve(process.env.OUT ?? join(HERE, "../public/art/how-to-play"));
 const BASE = process.env.BASE ?? "http://localhost:3141";
 const FFMPEG = process.env.FFMPEG ?? "ffmpeg";
 const FFPROBE = process.env.FFPROBE ?? FFMPEG.replace(/ffmpeg$/, "ffprobe");
 const MIN_SECS = 3;
-const MAX_SECS = 8;
+const MAX_SECS = 12;
 const MAX_KB = 300;
 const MIN_FPS = 20;
 const SEED = 3;
@@ -71,16 +70,22 @@ async function centre(page, selector) {
   return box ? { x: box.x + box.width / 2, y: box.y + box.height / 2 } : null;
 }
 
-/** Drags with the mouse from one point to another at a steady pace, like a finger (about 0.7 s, in small timed steps). */
-async function drag(page, from, to, steps = 36) {
+/**
+ * Drags with the mouse from one point to another at a steady pace, like a finger (about 0.8 s). The pointer moves are sent on a
+ * 60 Hz clock without waiting for each reply (a reply takes 10 to 20 ms, which would halve the rate), so the piece moves on every frame.
+ */
+async function drag(page, from, to, steps = 48) {
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
+  const t0 = performance.now();
+  const sent = [];
   for (let i = 1; i <= steps; i++) {
     const k = i / steps;
     const e = k * k * (3 - 2 * k);
-    await page.mouse.move(from.x + (to.x - from.x) * e, from.y + (to.y - from.y) * e);
-    await sleep(18);
+    const at = t0 + (i * 1000) / 60;
+    sent.push(new Promise((ok) => setTimeout(() => page.mouse.move(from.x + (to.x - from.x) * e, from.y + (to.y - from.y) * e).then(ok, ok), Math.max(0, at - performance.now()))));
   }
+  await Promise.all(sent);
   await sleep(250);
   await page.mouse.up();
 }
@@ -129,6 +134,15 @@ function bpBest({ occ, pieces }, top = false) {
     }
   }
   return best;
+}
+
+/** The board cells (indexes) of the row or column that `move` completes. */
+function bpLine({ occ }, move) {
+  const next = occ.slice();
+  for (const [dx, dy] of move.piece.cells) next[(move.y + dy) * 8 + move.x + dx] = true;
+  for (let r = 0; r < 8; r++) if (next.slice(r * 8, r * 8 + 8).every(Boolean) && !occ.slice(r * 8, r * 8 + 8).every(Boolean)) return Array.from({ length: 8 }, (_, c) => r * 8 + c);
+  for (let c = 0; c < 8; c++) if (next.filter((_, i) => i % 8 === c).every(Boolean) && !occ.filter((_, i) => i % 8 === c).every(Boolean)) return Array.from({ length: 8 }, (_, r) => r * 8 + c);
+  return [];
 }
 
 /** Drags the piece onto the board so its top-left cell lands on (x, y). Returns once the piece is used. */
@@ -374,7 +388,7 @@ async function vgUntilBlast(page) {
 }
 
 /** Plays Recon runs, planned by search from the live board, until one takes the Supply Truck. Returns false when the plan cannot work. */
-async function vgCaptureTruck(page, seed, stopAt = 0, m = null, cam = null) {
+async function vgCaptureTruck(page, seed, stopAt = 0, m = null, cam = null, look = null) {
   for (let turn = 0; turn < 5; turn++) {
     await vgMyTurn(page);
     await sleep(350);
@@ -414,7 +428,12 @@ async function vgCaptureTruck(page, seed, stopAt = 0, m = null, cam = null) {
       await m.remove(arrow);
       await sleep(700);
       await m.show({ kind: "label", target: { x: tb.x, y: tb.y, w: tb.width, h: tb.height }, text: "Truck captured", side: "below", gap: 4 }, 1400);
-      await sleep(900);
+      // the game's own ending: its "You won" dialog
+      await cam.to(2, 0.8);
+      for (let i = 0; i < 40 && !(await page.locator(".vg-end").count()); i++) await sleep(250);
+      if (!(await page.locator(".vg-end").count())) return false;
+      await look([".vg-end"], { phone: 30, desktop: 60 }, 0.8);
+      await sleep(3000);
       return true;
     }
     await sleep(1000);
@@ -472,16 +491,17 @@ async function tdMark(page, c, k, name = "pick") {
   await page.evaluate(([col, band, id]) => [...document.querySelectorAll(".tg-cell")].find((e) => e.dataset.cell === `${col}_${band}`)?.setAttribute("data-htp", id), [c, k, name]);
 }
 
-// ---------------------------------------------------------------- teaching marks (callouts)
+// ---------------------------------------------------------------- teaching marks (callouts) and the in-page camera
 
 /**
- * Teaching marks drawn on top of the game while it records: rings, arrows and short labels, injected into the page so they sit on the
- * real elements (they follow pieces that move) and stay crisp. They are marks, not game UI: off-white strokes and text on a near-black
- * plate with cut corners, emerald only for points.
+ * The page records itself: the clip is a fixed crop of the screen (C), and the camera is a CSS transform on the page root, eased by the
+ * browser's frame loop, so a pan or zoom renders at 60 fps with sub-pixel precision. `__htp.camera.set(rect)` and `.go(rect, seconds)`
+ * take a rect in unzoomed page pixels (what the clip should show); the transform that fits that rect into C is derived from it.
  *
- * Sizes are in OUTPUT pixels (the finished clip). The page knows the camera (`window.__htpCam`: the crop at each moment, from the
- * camera keys), so a label is the same size in the clip whatever the zoom, and it stays inside the crop and the clear band.
- * Label text is LABEL_PX output px tall (cap height about 0.7 of that): phone 40 px (28 px caps), desktop 46 px (32 px caps).
+ * Marks (rings, arrows, labels) are drawn in screen pixels, on a layer that cancels the page transform, so they stay one size in the
+ * finished clip whatever the zoom, sit on the real elements (positions come from their live bounding boxes) and stay inside C and
+ * the clear band. They are off-white strokes and text on a near-black plate with cut corners, emerald only for points.
+ * Label text is LABEL_PX output px tall (cap height about 0.7 of that).
  */
 const LABEL_PX = { phone: 40, desktop: 46 };
 
@@ -489,35 +509,45 @@ const OVERLAY_JS = `(() => {
   if (window.__htp) return;
   const INK = "#EAEFEC", PLATE = "rgba(9,13,15,.88)", EMERALD = "#24D8A8", SHADOW = "rgba(9,13,15,.85)";
   const items = new Map();
-  let root = null, svg = null, n = 0, raf = 0;
+  let root = null, svg = null, cover = null, n = 0, raf = 0;
+  const cfg = { C: { x: 0, y: 0, w: innerWidth, h: innerHeight }, out: [480, 600], band: [0, 0.6] };
+  const cam = { s: 1, tx: 0, ty: 0, seg: null };
   const font = () => getComputedStyle(document.body).fontFamily;
+  const smoother = (q) => q * q * q * (q * (q * 6 - 15) + 10);
+  let html = null;
   const mount = () => {
     if (root) return;
+    html = document.documentElement;
+    html.style.transformOrigin = "0 0";
+    html.style.willChange = "transform";
+    html.style.background = "#070b10";
     root = document.createElement("div");
     root.setAttribute("aria-hidden", "true");
-    root.style.cssText = "position:fixed;inset:0;z-index:2147483647;pointer-events:none;overflow:hidden";
+    root.style.cssText = "position:absolute;left:0;top:0;width:0;height:0;overflow:visible;z-index:2147483647;pointer-events:none;transform-origin:0 0";
     svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.style.cssText = "position:absolute;inset:0;width:100%;height:100%;overflow:visible";
+    svg.style.cssText = "position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible";
     root.appendChild(svg);
-    document.documentElement.appendChild(root);
+    cover = document.createElement("div");
+    cover.style.cssText = "position:absolute;left:-5000px;top:-5000px;width:20000px;height:20000px;background:#ff00ff;display:none";
+    root.appendChild(cover);
+    html.appendChild(root);
   };
-  const smooth = (q) => q * q * (3 - 2 * q);
-  /** The crop (css px) and css px per output px at \`now\` ms into the take: the same smooth moves the encoder makes. */
-  const view = () => {
-    const c = window.__htpCam;
-    if (!c) return { u: 1, x0: 0, y0: 0, x1: innerWidth, y1: innerHeight, b0: 0, b1: innerHeight };
-    const t = (performance.now() - c.t0) / 1000;
-    const track = (get) => {
-      let v = get(c.keys[0]);
-      for (let i = 0; i + 1 < c.keys.length; i++) {
-        const dt = c.keys[i + 1].t - c.keys[i].t, dv = get(c.keys[i + 1]) - get(c.keys[i]);
-        if (dt <= 0.001 || Math.abs(dv) < 0.001) continue;
-        v += dv * smooth(Math.min(1, Math.max(0, (t - c.keys[i].t) / dt)));
-      }
-      return v;
-    };
-    const w = track((k) => k.w), cx = track((k) => k.cx), cy = track((k) => k.cy), h = w * c.out[1] / c.out[0];
-    return { u: w / c.out[0], x0: cx - w / 2, y0: cy - h / 2, x1: cx + w / 2, y1: cy + h / 2, b0: cy - h / 2 + c.band[0] * h, b1: cy - h / 2 + c.band[1] * h };
+  /** A view rect (unzoomed page px) as the camera state that fits it into C. */
+  const stateOf = (r) => { const s = cfg.C.w / r.w; return { s, tx: cfg.C.x - r.x * s, ty: cfg.C.y - r.y * s }; };
+  const viewOf = (st) => ({ x: (cfg.C.x - st.tx) / st.s, y: (cfg.C.y - st.ty) / st.s, w: cfg.C.w / st.s });
+  const apply = () => {
+    html.style.transform = "matrix(" + cam.s + ",0,0," + cam.s + "," + cam.tx + "," + cam.ty + ")";
+    root.style.transform = "matrix(" + 1 / cam.s + ",0,0," + 1 / cam.s + "," + -cam.tx / cam.s + "," + -cam.ty / cam.s + ")";
+  };
+  const step = () => {
+    if (cam.seg) {
+      const q = Math.min(1, (performance.now() - cam.seg.t0) / cam.seg.ms);
+      const e = smoother(q), a = cam.seg.from, b = cam.seg.to;
+      const v = { x: a.x + (b.x - a.x) * e, y: a.y + (b.y - a.y) * e, w: a.w + (b.w - a.w) * e };
+      Object.assign(cam, stateOf({ x: v.x, y: v.y, w: v.w }));
+      if (q >= 1) cam.seg = null;
+      apply();
+    }
   };
   const rectOf = (t) => {
     if (t && typeof t === "object" && !Array.isArray(t)) return { l: t.x, t: t.y, r: t.x + t.w, b: t.y + t.h };
@@ -556,15 +586,15 @@ const OVERLAY_JS = `(() => {
     root.appendChild(el);
     return el;
   };
-  const place = (s, v) => {
+  const place = (s) => {
+    const C = cfg.C, u = C.w / cfg.out[0];
     const r = rectOf(s.target);
-    const u = v.u;
-    const visible = r && (r.r > v.x0 && r.l < v.x1 && r.b > v.y0 && r.t < v.y1);
+    const visible = r && r.r > C.x && r.l < C.x + C.w && r.b > C.y && r.t < C.y + C.h;
     if (!visible) { if (s.el) s.el.style.visibility = "hidden"; if (s.g) s.g.style.visibility = "hidden"; return; }
     if (s.el) s.el.style.visibility = "visible";
     if (s.g) s.g.style.visibility = "visible";
     if (s.kind === "ring") {
-      const w = (s.stroke || 4) * u, pad = (s.pad ?? 5) * u * (s.padCss ? 1 / u : 1);
+      const w = (s.stroke || 4) * u, pad = (s.pad ?? 5) * u;
       let l = r.l - pad, t = r.t - pad, bw = r.r - r.l + 2 * pad, bh = r.b - r.t + 2 * pad;
       if (s.shape === "circle") { const d = Math.max(bw, bh); l -= (d - bw) / 2; t -= (d - bh) / 2; bw = bh = d; }
       s.el.style.border = w + "px solid " + INK;
@@ -584,9 +614,9 @@ const OVERLAY_JS = `(() => {
       else if (s.side === "left") l = r.l - w - gap;
       else if (s.side === "right") l = r.r + gap;
       l += (s.dx || 0) * u; t += (s.dy || 0) * u;
-      const m = 6 * u;
-      l = Math.min(Math.max(l, v.x0 + m), v.x1 - w - m);
-      t = Math.min(Math.max(t, v.b0 + m), v.b1 - h - m);
+      const m = 6 * u, b0 = C.y + cfg.band[0] * C.h, b1 = C.y + cfg.band[1] * C.h;
+      l = Math.min(Math.max(l, C.x + m), C.x + C.w - w - m);
+      t = Math.min(Math.max(t, b0 + m), b1 - h - m);
       Object.assign(s.el.style, { left: l + "px", top: t + "px" });
     } else if (s.kind === "arrow") {
       const q = rectOf(s.to);
@@ -603,15 +633,26 @@ const OVERLAY_JS = `(() => {
       p.head.setAttribute("points", pts); p.headBack.setAttribute("points", pts);
     }
   };
-  const tick = () => { const v = view(); for (const s of items.values()) place(s, v); raf = requestAnimationFrame(tick); };
+  const stamps = [];
+  const tick = (now) => { stamps.push(now); step(); for (const s of items.values()) place(s); raf = requestAnimationFrame(tick); };
   window.__htp = {
+    /** Sets the crop C (screen px), the output size and the clear band, and starts the frame loop. */
+    init(c) { Object.assign(cfg, c); mount(); Object.assign(cam, { s: 1, tx: 0, ty: 0, seg: null }); apply(); if (!raf) raf = requestAnimationFrame(tick); },
+    camera: {
+      set(r) { Object.assign(cam, stateOf(r), { seg: null }); apply(); },
+      go(r, secs) { cam.seg = { from: viewOf(cam), to: r, t0: performance.now(), ms: Math.max(1, secs * 1000) }; },
+    },
+    /** Seconds between the page's own frames since reset: shows whether the browser kept 60 fps while recording. */
+    frames(reset) { const d = stamps.slice(1).map((v, i) => v - stamps[i]); if (reset) stamps.length = 0; return d; },
+    /** A screen-pixel box {l,t,r,b} as unzoomed page pixels (undoes the camera), so crops can be planned mid-take. */
+    unproject(r) { return { l: (r.l - cam.tx) / cam.s, t: (r.t - cam.ty) / cam.s, r: (r.r - cam.tx) / cam.s, b: (r.b - cam.ty) / cam.s }; },
+    cover(on) { cover.style.display = on ? "block" : "none"; },
     add(spec) {
       mount();
       const s = { ...spec, id: ++n };
       s.el = make(s);
       items.set(s.id, s);
-      place(s, view());
-      if (!raf) raf = requestAnimationFrame(tick);
+      place(s);
       requestAnimationFrame(() => requestAnimationFrame(() => { if (s.el) { s.el.style.opacity = "1"; s.el.style.transform = "scale(1)"; } if (s.g) s.g.style.opacity = "1"; }));
       return s.id;
     },
@@ -682,10 +723,6 @@ async function tdPickAt(page, c, at, seed) {
   return tdPick(page, c, k);
 }
 
-/** The real Match result screen on fixtures: the "You won" words and the amount, on both layouts. */
-const RESULT_FOCUS = [".mr-word", ".mr-amount"];
-const RESULT_PAD = { phone: 50, desktop: 70 };
-
 /** Vanguard camera helper: the whole board, with the top of the board below the progress bars and the foot under the words. */
 const VG_WHOLE_BOARD = { phone: [0.02, 0.74], desktop: [0.12, 0.98] };
 
@@ -720,10 +757,9 @@ const GAMES = {
           const m = marks(page, info);
           await m.show(tag(".bp-slot", "Same pieces", "above", { ring: "rect", pad: 6, gap: 16 }), 1900);
           for (let n = 0; n < 2; n++) {
-            const state = await bpRead(page);
-            const move = bpBest(state);
-            if (!move) { console.log("  bp1: no move", JSON.stringify(state.pieces.map((p) => p.cells.length))); break; }
-            await bpPlace(page, move, m);
+            const move = bpBest(await bpRead(page));
+            if (!move) break;
+            await bpPlace(page, move);
           }
           await sleep(600);
         },
@@ -736,52 +772,78 @@ const GAMES = {
           for (let n = 0; n < 3; n++) {
             const move = bpBest(await bpRead(page));
             if (!move) break;
-            await bpPlace(page, move, m);
+            await bpPlace(page, move);
           }
           await first;
         },
       },
+      // the piece that completes a line: the line it will complete is marked before the drag
       3: {
-        prep: async (page) => { await bpWaitPlaying(page); page.__move = await bpUntilClear(page); },
+        prep: async (page) => {
+          await bpWaitPlaying(page);
+          page.__move = await bpUntilClear(page);
+          if (!page.__move) return;
+          page.__line = bpLine(await bpRead(page), page.__move);
+          await page.evaluate((cells) => cells.forEach((i) => document.querySelectorAll(".bp-board .bp-cell")[i]?.setAttribute("data-htp", "line")), page.__line);
+        },
+        focus: ['[data-htp="line"]', ".bp-slot"],
+        pad: { phone: 20, desktop: 60 },
         act: async (page, info) => {
-          if (!page.__move) return false;
+          if (!page.__move || !page.__line?.length) return false;
           const m = marks(page, info);
-          const mv = page.__move;
-          const row = [`.bp-board .bp-cell:nth-child(${mv.y * 8 + 1})`, `.bp-board .bp-cell:nth-child(${mv.y * 8 + 8})`];
-          await m.show(tag(row, "Fill the line", "above", { ring: "rect", pad: 4, gap: 12 }), 1700);
-          await bpPlace(page, mv, m);
-          await m.show({ kind: "label", target: row, text: "Full line", side: "above", gap: 12 }, 1700);
+          await m.show(tag('[data-htp="line"]', "Fill the line", "above", { ring: "rect", pad: 4, gap: 12 }), 1700);
+          await bpPlace(page, page.__move);
+          await sleep(2200);
         },
         poster: 0.7,
       },
       // Practice has no opponent: the closest real screen is your own score and the clock counting while you play
       4: {
-        prep: bpWaitPlaying,
+        prep: async (page) => { await bpWaitPlaying(page); page.__move = await bpUntilClear(page); },
         act: async (page, info) => {
           const m = marks(page, info);
-          const score = m.at(300, tag(".bp-score-n", "Score", "right", { ring: "rect", pad: 4, gap: 12 }), 2400);
-          const clock = m.at(3200, tag('[role="timer"]', "Clock", "right", { ring: "circle", pad: 3, gap: 12 }), 2200);
-          for (let n = 0; n < 4; n++) {
-            const move = bpBest(await bpRead(page), true);
+          const score = m.at(200, tag(".bp-score-n", "Score", "below", { gap: 10 }), 3200);
+          const clock = m.at(3600, tag('[role="timer"]', "Clock", "below", { gap: 10 }), 2400);
+          if (page.__move) await bpPlace(page, page.__move);
+          for (let n = 0; n < 3; n++) {
+            const move = bpBest(await bpRead(page));
             if (!move) break;
             await bpPlace(page, move);
           }
           await Promise.all([score, clock]);
         },
-        focus: [".bp-score-n", '[role="timer"]', ".bp-board .bp-cell:nth-child(-n+16)"],
-        pad: { phone: 45, desktop: 100 },
+        focus: [".bp-score-n", '[role="timer"]'],
+        pad: { phone: 30, desktop: 90 },
       },
-      // the Match result screen on fixtures: the higher score takes the Pot minus Fees
+      // the game's own ending: play on until the clock runs out, then the final score
       5: {
-        route: "/design/result?case=won&dev=demo",
-        focus: RESULT_FOCUS,
-        pad: RESULT_PAD,
-        prep: () => sleep(1500),
+        prep: async (page) => {
+          await bpWaitPlaying(page);
+          const start = Date.now();
+          while (Date.now() - start < 110000) {
+            const left = await page.evaluate(() => document.querySelector('[role="timer"] .mono, [role="timer"]')?.textContent?.match(/(\d+):(\d+)/)?.slice(1).map(Number) ?? null);
+            if (!left || left[0] * 60 + left[1] <= 9) break;
+            if (await page.locator(".bp-overlay").count()) throw new Error("the game ended before the last seconds");
+            const move = bpBest(await bpRead(page));
+            if (!move) break;
+            await bpPlace(page, move);
+          }
+        },
+        focus: { phone: [".bp-board", '[role="timer"]'], desktop: [".bp-board", '[role="timer"]'] },
+        pad: { phone: 0, desktop: 0 },
+        // the Time's up dialog blurs the board behind it: render lighter so the GPU keeps 60 fps
+        dsf: { phone: 1, desktop: 1 },
         act: async (page, info) => {
-          const m = marks(page, info);
-          const l = m.at(900, { kind: "label", target: ".mr-amount", text: "Higher score wins", side: "below", gap: 14 }, 2800);
-          await sleep(5000);
-          await l;
+          let placed = 0;
+          const start = Date.now();
+          while (!(await page.locator(".bp-overlay").count()) && Date.now() - start < 20000) {
+            const move = placed < 2 ? bpBest(await bpRead(page)) : null;
+            if (move) { await bpPlace(page, move); placed++; }
+            else await sleep(300);
+          }
+          await page.waitForSelector(".bp-overlay", { timeout: 5000 });
+          await info.look([".bp-final"], { phone: 60, desktop: 120 }, 0.8);
+          await sleep(3200);
         },
       },
     },
@@ -802,10 +864,9 @@ const GAMES = {
         },
         act: async (page, info) => {
           const m = marks(page, info);
-          const a = m.at(500, tag(".hd-stack|first", "Bot stack", "below", { ring: "rect", pad: 5, gap: 4 }), 2400);
           const b = m.at(4400, tag(".hd-stack|last", "Your stack", "below", { ring: "rect", pad: 5, gap: 4 }), 2400);
           await sleep(7000);
-          await Promise.all([a, b]);
+          await b;
         },
       },
       // your two cards, then the shared cards dealt after you call; the Bot's two stay face down
@@ -863,17 +924,25 @@ const GAMES = {
           await best;
         },
       },
-      // the Match result screen on fixtures (a Practice game has no Pot)
+      // the game's own ending: all-in on a fresh hand; when the Bot calls, the cards turn over and a stack goes to zero
       5: {
-        route: "/design/result?case=holdem-won&dev=demo",
-        focus: RESULT_FOCUS,
-        pad: RESULT_PAD,
-        prep: () => sleep(1500),
-        act: async (page, info) => {
-          const m = marks(page, info);
-          const l = m.at(900, { kind: "label", target: ".mr-amount", text: "Last stack wins", side: "below", gap: 14 }, 2800);
-          await sleep(5000);
-          await l;
+        prep: (page) => hdWaitMyTurn(page),
+        reseed: true,
+        tries: 6,
+        pad: { phone: 20, desktop: 40 },
+        maxSecs: 14,
+        act: async (page) => {
+          await page.locator(".hd-preset", { hasText: "All-in" }).first().click({ timeout: 3000 });
+          await sleep(900);
+          await page.locator(".hdx-btn").nth(2).click({ timeout: 3000 });
+          const start = Date.now();
+          while (!(await page.locator('[aria-label="Match over"]').count()) && Date.now() - start < 30000) {
+            const pass = page.locator(".hdx-btn", { hasText: /^(Call|Check)/ });
+            if (await pass.isEnabled().catch(() => false)) await pass.click().catch(() => {});
+            await sleep(300);
+          }
+          if (!(await page.locator('[aria-label="Match over"]').count())) return false;
+          await sleep(3500);
         },
       },
     },
@@ -958,17 +1027,27 @@ const GAMES = {
         },
         poster: 0.8,
       },
-      // the Match result screen on fixtures (a Practice game has no Pot)
+      // the game's own ending: pick through the game, then the last column locks and the final scores show
       5: {
-        route: "/design/result?case=trading-duel-won&dev=demo",
-        focus: RESULT_FOCUS,
-        pad: RESULT_PAD,
-        prep: () => sleep(1500),
+        prep: async (page, { seed }) => {
+          await tdWaitStart(page);
+          let next = 0;
+          while ((await tdClock(page)) < 137) {
+            const now = (await tdClock(page)) ?? 0;
+            // a column is picked once it is on screen: pick the next one every few seconds, on the band the line will cross
+            if (next < 12 && now >= next * 10 - 5) { await tdPickAt(page, next, 35 + next * 10, seed).catch(() => {}); next++; }
+            await sleep(500);
+          }
+        },
+        focus: [".tg-scoreboard-in", ".tg-head-dot"],
+        pad: { phone: 20, desktop: 120 },
+        maxSecs: 16,
         act: async (page, info) => {
-          const m = marks(page, info);
-          const l = m.at(900, { kind: "label", target: ".mr-amount", text: "More points wins", side: "below", gap: 14 }, 2800);
-          await sleep(5000);
-          await l;
+          const start = Date.now();
+          while (!(await page.locator('[aria-label="Game over"]').count()) && Date.now() - start < 40000) await sleep(300);
+          if (!(await page.locator('[aria-label="Game over"]').count())) return false;
+          await info.look([".tg-end-panel"], { phone: 30, desktop: 60 }, 0.8);
+          await sleep(3500);
         },
       },
     },
@@ -1046,7 +1125,7 @@ const GAMES = {
           // close on your attacker, name it, draw the move
           await info.cam.to(1, 0.6);
           await sleep(700);
-          const ids = await Promise.all(tag(".vg-piece.us.sel", mine1, "above", { ring: "circle", pad: 8, gap: 4 }).map((x) => m.add(x)));
+          const ids = await Promise.all(tag(".vg-piece.us.sel", mine1, "above", { gap: 4 }).map((x) => m.add(x)));
           await sleep(1300);
           const arrow = await m.add({ kind: "arrow", target: ".vg-piece.us.sel", to: spot });
           await sleep(700);
@@ -1098,10 +1177,8 @@ const GAMES = {
         act: async (page, info) => {
           const m = marks(page, info);
           await vgTap(page, page.__eng);
-          const eng = await m.add({ kind: "ring", target: '[data-htp="eng"]', shape: "circle", pad: 8 });
           const engLabel = await m.add({ kind: "label", target: '[data-htp="eng"]', text: "Engineer", side: "above", gap: 4 });
           await sleep(1900);
-          await m.remove(eng);
           await m.remove(engLabel);
           await info.cam.to(1, 0.7);
           await sleep(900);
@@ -1126,7 +1203,7 @@ const GAMES = {
         prep: async (page, { seed }) => { if (!(await vgCaptureTruck(page, seed, 2))) throw new Error("no Recon route to the Truck"); },
         focus: ['[data-htp]'],
         pad: { phone: 40, desktop: 80 },
-        maxSecs: 10,
+        maxSecs: 16,
         camera: {
           cues: [
             { focus: ['[data-htp="a"]'], pad: { phone: 33, desktop: 8 } },
@@ -1136,18 +1213,7 @@ const GAMES = {
         },
         // seed 41 deals a Recon with a clear straight run to the Truck (found by search over the seeded setups)
         seed: 41,
-        act: async (page, info) => vgCaptureTruck(page, info.seed, 0, marks(page, info), info.cam),
-        after: {
-          route: "/design/result?case=vanguard-won&dev=demo",
-          focus: RESULT_FOCUS,
-          pad: RESULT_PAD,
-          secs: 3200,
-          speed: 1,
-          run: async (page, info) => {
-            const m = marks(page, info);
-            await m.at(700, { kind: "label", target: ".mr-amount", text: "Wins the Pot", side: "below", gap: 14 }, 2200);
-          },
-        },
+        act: async (page, info) => vgCaptureTruck(page, info.seed, 0, marks(page, info), info.cam, info.look),
         poster: 0.85,
       },
     },
@@ -1161,6 +1227,7 @@ const wanted = (game, step) => !only.length || only.some(([g, n]) => g === game 
 const sets = (process.env.SETS ?? "phone,desktop").split(",");
 
 const HIDE_DEV_UI = "nextjs-portal, [data-nextjs-toast], [data-next-badge-root] { display: none !important; }";
+const WFR = process.env.WFR ?? "wf-recorder";
 
 /** The union of `focus` on screen, in CSS px. */
 async function focusBox(page, focus) {
@@ -1176,16 +1243,16 @@ async function focusBox(page, focus) {
         u = u ? { l: Math.min(u.l, r.left), t: Math.min(u.t, r.top), r: Math.max(u.r, r.right), b: Math.max(u.b, r.bottom) } : { l: r.left, t: r.top, r: r.right, b: r.bottom };
       }
     }
-    return u;
+    return u && window.__htp ? window.__htp.unproject(u) : u;
   }, focus);
   if (!box) throw new Error(`focus not found: ${focus.join(", ")}`);
   return box;
 }
 
 /**
- * Crop rectangle in CSS px: the union of `focus`, padded, then sized to the set's aspect ratio so that it fits the clear band
+ * The view rect (unzoomed page px): the union of `focus`, padded, then sized to the set's aspect ratio so that it fits the clear band
  * of the clip, and centred on the band's middle (not the frame's). It stays inside the viewport sideways; it may reach EDGE px past
- * the page's top or bottom (the encoder fills that).
+ * the page's top or bottom (the page background fills that).
  */
 async function cropFor(page, focus, set, padOverride, bandOverride) {
   const vp = set.context.viewport;
@@ -1202,163 +1269,111 @@ async function cropFor(page, focus, set, padOverride, bandOverride) {
   return { x, y, w, h };
 }
 
-/** Width in px of a JPEG file, from its start-of-frame marker. */
-function jpgWidth(file) {
-  const b = readFileSync(file);
-  for (let i = 2; i < b.length - 9; ) {
-    if (b[i] !== 0xff) { i++; continue; }
-    const m = b[i + 1];
-    if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return b.readUInt16BE(i + 7);
-    i += 2 + b.readUInt16BE(i + 2);
-  }
-  throw new Error("not a JPEG");
-}
-
-/**
- * Records `fn` as a screencast of `page` and returns a segment: the frames, the crop and, when `camera` is given
- * ({ from: { focus, pad }, to: { focus, pad }, span: [a, b] } in fractions of the clip), a smooth move from one crop to another.
- */
 const forSet = (v, name) => (v && !Array.isArray(v) && (v.phone || v.desktop) ? v[name] : v);
 
-async function capture(ctx, page, set, dir, def, fn, info) {
-  const crop = await cropFor(page, forSet(def.focus, info.set), set, def.pad?.[info.set]);
-  let camera = null;
-  let cues = null;
-  if (def.camera?.cues) {
-    // { cues: [{ focus, pad, band? }] }: the act moves the camera itself with info.cam.to(i, seconds); the first cue is the start
-    cues = [];
-    for (const k of def.camera.cues) {
-      const pad = k.pad?.[info.set] ?? k.pad;
-      cues.push(await cropFor(page, forSet(k.focus, info.set), set, typeof pad === "number" ? pad : undefined, Array.isArray(k.band) ? k.band : k.band?.[info.set]));
-    }
-  } else if (def.camera) {
-    // { keys: [{ focus, pad, band?, sec }] }: the crop wanted `sec` seconds into the take (held before the first key and after the last)
-    camera = [];
-    for (const k of def.camera.keys) {
-      if (k.sec === undefined) throw new Error("camera keys need sec (seconds into the take)");
-      const pad = k.pad?.[info.set] ?? k.pad;
-      camera.push({ sec: k.sec, rect: await cropFor(page, forSet(k.focus, info.set), set, typeof pad === "number" ? pad : undefined, Array.isArray(k.band) ? k.band : k.band?.[info.set]) });
-    }
-  }
-  mkdirSync(dir, { recursive: true });
-  const frames = [];
-  const writes = [];
-  const cdp = await ctx.newCDPSession(page);
-  cdp.on("Page.screencastFrame", (f) => {
-    const file = join(dir, `${String(frames.length).padStart(5, "0")}.jpg`);
-    writes.push(writeFile(file, Buffer.from(f.data, "base64")));
-    frames.push({ file, t: f.metadata.timestamp });
-    cdp.send("Page.screencastFrameAck", { sessionId: f.sessionId }).catch(() => {});
-  });
-  const vp = set.context.viewport;
-  const dsf = set.context.deviceScaleFactor;
-  await cdp.send("Page.startScreencast", { format: "jpeg", quality: 92, maxWidth: vp.width * dsf, maxHeight: vp.height * dsf });
-  // the page learns the camera so its marks keep one size in the clip and stay inside the crop and the clear band
-  const keys = (cues ? [{ sec: 0, rect: cues[0] }] : camera ?? [{ sec: 0, rect: crop }]).map((k) => ({ t: k.sec, w: k.rect.w, cx: k.rect.x + k.rect.w / 2, cy: k.rect.y + k.rect.h / 2 }));
-  await page.evaluate((c) => { window.__htpCam = { ...c, t0: performance.now() }; }, { keys, out: set.out, band: set.band });
-  if (cues) {
-    info.cam = {
-      to: (i, dur = 0.7) => page.evaluate(([r, d]) => {
-        const c = window.__htpCam, now = (performance.now() - c.t0) / 1000, last = c.keys.at(-1);
-        c.keys.push({ ...last, t: now });
-        c.keys.push({ t: now + d, w: r.w, cx: r.x + r.w / 2, cy: r.y + r.h / 2 });
-      }, [cues[i], dur]),
-    };
-  }
-  await sleep(300);
-  const ok = await fn();
-  await sleep(def.tail ?? 400);
-  await cdp.send("Page.stopScreencast");
-  if (cues) {
-    // what the act did with the camera becomes the keys the encoder follows
-    const ran = await page.evaluate(() => window.__htpCam.keys);
-    camera = ran.map((k) => ({ sec: k.t, rect: { x: k.cx - k.w / 2, y: k.cy - (k.w * set.out[1]) / set.out[0] / 2, w: k.w, h: (k.w * set.out[1]) / set.out[0] } }));
-  }
-  await Promise.all(writes);
-  const rawFps = frames.length > 1 ? (frames.length - 1) / (frames.at(-1).t - frames[0].t) : 0;
-  return { ok: ok !== false, frames, rawFps, crop, camera, dir, scale: frames.length ? jpgWidth(frames[0].file) / vp.width : dsf };
-}
+/** The part of the screen the clip is cut from, in CSS px: the top 4:5 of a phone screen, the whole desktop screen. */
+const cropOf = (set) => ({ x: 0, y: 0, w: set.context.viewport.width, h: set.context.viewport.width / set.ratio });
 
-/** One take: the prepared game, then the recorded act, then (optional) a second screen recorded after it (`after`). */
-async function record(browser, game, step, setName, attempt, work) {
+/** The screen encoder: the GPU's H.264 when there is one (the CPU is busy rendering the page), else x264 ultrafast. */
+const ENCODER = process.env.HTP_ENCODER ?? "x264";
+const startRecorder = (file) => {
+  const enc = ENCODER === "vaapi" ? ["-c", "h264_vaapi", "-d", "/dev/dri/renderD128", "-p", "qp=16"] : ["-c", "libx264", "-p", "crf=16", "-p", "preset=ultrafast"];
+  const proc = spawn(WFR, ["-o", OUTPUT, "-D", "-r", "60", ...enc, "-f", file, "-y"], { env: screenEnv(), stdio: ["ignore", "ignore", "pipe"] });
+  const done = new Promise((ok) => proc.on("exit", ok));
+  let err = "";
+  proc.stderr.on("data", (d) => (err += d));
+  return { proc, done, err: () => err };
+};
+
+/** One take: bring the game to the moment (unrecorded), cover the screen, start recording, uncover, play, cover, stop. */
+async function record(page, game, step, setName, attempt, work) {
   const set = SETS[setName];
   const def = GAMES[game].steps[step];
   const seed = def.seed ?? SEED + (def.reseed ? attempt : 0);
-  const ctx = await browser.newContext(set.context);
-  await ctx.addInitScript(OVERLAY_JS);
-  // Mark every Game's first-Practice guide as seen, so the recording shows the game, not the guide.
-  await ctx.addInitScript(() => {
-    for (const g of ["block-puzzle", "holdem", "trading-duel", "vanguard"]) localStorage.setItem(`tesoro:how-to-play:${g}`, "1");
-  });
-  const open = async (route) => {
-    const page = await ctx.newPage();
-    page.on("pageerror", (e) => console.log(`  ${game}:${step}:${setName} pageerror: ${e.message}`));
-    await page.goto(`${BASE}${route}`, { waitUntil: "domcontentloaded" });
-    await page.addStyleTag({ content: HIDE_DEV_UI });
-    return page;
-  };
-  const page = await open(def.route ?? `/play/practice?game=${game}&dev=demo&seed=${seed}`);
+  page.on("pageerror", (e) => console.log(`  ${game}:${step}:${setName} pageerror: ${e.message}`));
+  await page.goto(`${BASE}${def.route ?? `/play/practice?game=${game}&dev=demo&seed=${seed}`}`, { waitUntil: "domcontentloaded" });
+  await page.addStyleTag({ content: HIDE_DEV_UI });
   await sleep(2000);
+  // a lighter device scale factor for clips whose game draws heavy effects (blurred dialogs): the GPU keeps 60 fps, and the clip is
+  // only 480 or 960 px wide anyway. The window stays the same size; only its top-left part is drawn.
+  const dsf = def.dsf?.[setName] ?? SCREENS[setName].dsf;
+  const sc = SCREENS[setName];
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Emulation.setDeviceMetricsOverride", { width: sc.css[0], height: sc.css[1], deviceScaleFactor: dsf, mobile: false });
+  await sleep(400);
+  const C = cropOf(set);
+  await page.evaluate((c) => window.__htp.init(c), { C, out: set.out, band: set.band });
   const info = { seed, set: setName };
   await def.prep?.(page, info);
-  const base = join(work, `${game}-${step}-${setName}-${attempt}`);
-  const segments = [];
-  const def1 = { ...def, focus: def.focus ?? GAMES[game].focus };
-  segments.push(await capture(ctx, page, set, `${base}-a`, def1, () => def.act(page, info), info));
-  if (def.after && segments[0].ok) {
-    const next = await open(def.after.route);
-    await sleep(def.after.settle ?? 1500);
-    const def2 = { focus: def.after.focus, pad: def.after.pad, tail: 200, camera: def.after.camera };
-    const seg = await capture(ctx, next, set, `${base}-b`, def2, async () => { await Promise.all([sleep(def.after.secs ?? 3500), def.after.run?.(next, info)]); }, info);
-    seg.speed = def.after.speed ?? 1;
-    seg.poster = def.after.poster;
-    segments.push(seg);
+
+  // the camera: rects (unzoomed page px) for the start, the keys and the cues
+  const focus = def.focus ?? GAMES[game].focus;
+  const first = await cropFor(page, forSet(def.camera?.cues?.[0]?.focus ?? def.camera?.keys?.[0]?.focus ?? focus, setName), set, (def.camera?.cues?.[0] ?? def.camera?.keys?.[0] ?? def).pad?.[setName] ?? (def.camera?.cues?.[0] ?? def.camera?.keys?.[0] ?? def).pad, (def.camera?.cues?.[0] ?? def.camera?.keys?.[0])?.band?.[setName] ?? undefined);
+  const rectFor = async (k) => {
+    const pad = k.pad?.[setName] ?? k.pad;
+    return cropFor(page, forSet(k.focus, setName), set, typeof pad === "number" ? pad : undefined, Array.isArray(k.band) ? k.band : k.band?.[setName]);
+  };
+  const cues = def.camera?.cues ? await Promise.all(def.camera.cues.map(rectFor)) : null;
+  const keys = def.camera?.keys ? await Promise.all(def.camera.keys.map(async (k) => ({ sec: k.sec, rect: await rectFor(k) }))) : null;
+  const start = cues?.[0] ?? keys?.[0]?.rect ?? first;
+  if (cues) {
+    info.cam = { to: (i, dur = 0.7) => page.evaluate(([r, d]) => window.__htp.camera.go(r, d), [cues[i], dur]) };
   }
-  await ctx.close();
-  return { ok: segments.every((s) => s.ok), segments };
+  // look at something that only exists later (a dialog): the crop is planned now, from where it is now
+  info.look = async (focusSpec, pad, dur = 0.7) => {
+    const r = await cropFor(page, forSet(focusSpec, setName), set, pad?.[setName] ?? pad);
+    await page.evaluate(([rect, d]) => window.__htp.camera.go(rect, d), [r, dur]);
+  };
+
+  // record: cover (a magenta screen marks the start and the end of the take in the video), start, uncover
+  await page.evaluate((r) => { window.__htp.camera.set(r); window.__htp.cover(true); }, start);
+  await sleep(400);
+  const vfr = join(work, `${game}-${step}-${setName}-${attempt}.mp4`);
+  const rec = startRecorder(vfr);
+  await sleep(1200);
+  await page.evaluate(() => { window.__htp.frames(true); window.__htp.cover(false); });
+  const timers = [];
+  if (keys) {
+    keys.slice(0, -1).forEach((k, i) => {
+      if (JSON.stringify(k.rect) === JSON.stringify(keys[i + 1].rect)) return;
+      timers.push(setTimeout(() => page.evaluate(([r, d]) => window.__htp.camera.go(r, d), [keys[i + 1].rect, keys[i + 1].sec - k.sec]).catch(() => {}), k.sec * 1000));
+    });
+  }
+  const ok = await def.act(page, info);
+  await sleep(def.tail ?? 400);
+  timers.forEach(clearTimeout);
+  const gaps = await page.evaluate(() => window.__htp.frames());
+  const slow = gaps.filter((g) => g > 25).length;
+  console.log(`  ${game}/${step}-${setName}: browser frames ${gaps.length + 1}, over 25 ms: ${slow}, worst ${Math.max(...gaps).toFixed(0)} ms`);
+  await page.evaluate(() => { window.__htp.clear(); window.__htp.cover(true); });
+  await sleep(500);
+  rec.proc.kill("SIGINT");
+  await rec.done;
+  if (!existsSync(vfr)) throw new Error(`wf-recorder wrote nothing: ${rec.err().slice(0, 200)}`);
+  return { ok: ok !== false, vfr, dsf };
 }
 
-/**
- * The ffmpeg filter that turns one full-viewport frame into the output frame: a fixed crop, or a camera move between two crops.
- * The frame is first padded top and bottom by EDGE px so a crop may reach past the page. The screencast frames are JPEG (full range,
- * BT.601): the last step converts them to limited-range BT.709 yuv420p, the only kind every browser plays.
- */
-function frameFilter(seg, set, secs, vp) {
-  const [ow, oh] = set.out;
-  const { crop, camera, scale } = seg;
-  const padPx = Math.round(EDGE * scale);
-  const pad = `pad=iw:ih+${2 * padPx}:0:${padPx}:color=${PAGE_FILL}`;
-  const fullH = vp.height + 2 * EDGE;
-  let move;
-  if (!camera) {
-    move = `crop=${even(crop.w * scale)}:${even(crop.h * scale)}:${Math.round(crop.x * scale)}:${Math.round((crop.y + EDGE) * scale)},scale=${ow}:${oh}:flags=lanczos`;
-  } else {
-    const real = seg.frames.at(-1).t - seg.frames[0].t;
-    const cs = camera.map((k) => ({ t: k.sec * secs / real, w: k.rect.w, cx: k.rect.x + k.rect.w / 2, cy: k.rect.y + k.rect.h / 2 }));
-    const track = (get) => {
-      let expr = get(cs[0]).toFixed(3);
-      for (let i = 0; i + 1 < cs.length; i++) {
-        const dt = cs[i + 1].t - cs[i].t;
-        const dv = get(cs[i + 1]) - get(cs[i]);
-        if (dt <= 0.001 || Math.abs(dv) < 0.001) continue;
-        const q = `clip((t-${cs[i].t.toFixed(3)})/${dt.toFixed(3)},0,1)`;
-        expr += `+(${dv.toFixed(3)})*(${q}*${q}*(3-2*${q}))`;
-      }
-      return `(${expr})`;
-    };
-    const rw = track((c) => c.w);
-    const cx = track((c) => c.cx);
-    const cy = track((c) => c.cy);
-    move = [
-      `scale=w='trunc(${ow}*${vp.width}/${rw}/2)*2':h='trunc(${ow}*${fullH}/${rw}/2)*2':eval=frame:flags=bicubic`,
-      `crop=${ow}:${oh}:x='${cx}*${ow}/${rw}-${ow / 2}':y='(${cy}+${EDGE})*${ow}/${rw}-${oh / 2}'`,
-    ].join(",");
-  }
-  return `${pad},${move},${LIMITED}`;
+/** Frame numbers (at 60 fps) where the take starts and ends: the first frame that is not the magenta cover, and the next magenta one. */
+async function takeRange(vfr, set, dsf) {
+  const C = cropOf(set);
+  const { stdout } = await promisify(execFile)(FFMPEG, ["-v", "error", "-i", vfr, "-vf", `fps=60,crop=${even(C.w * dsf)}:${even(C.h * dsf)}:0:0,scale=4:4:flags=area,format=rgb24`, "-f", "rawvideo", "-"], { encoding: "buffer", maxBuffer: 1 << 28 });
+  const size = 4 * 4 * 3;
+  const n = Math.floor(stdout.length / size);
+  const magenta = (f) => {
+    let r = 0, g = 0, b = 0;
+    for (let i = 0; i < 16; i++) { r += stdout[f * size + i * 3]; g += stdout[f * size + i * 3 + 1]; b += stdout[f * size + i * 3 + 2]; }
+    return r / 16 > 200 && g / 16 < 70 && b / 16 > 200;
+  };
+  let a = 0;
+  while (a < n && magenta(a)) a++;
+  let b = a;
+  while (b < n && !magenta(b)) b++;
+  if (a >= n || b - a < 60) throw new Error(`no take found in the screen recording (frames ${a}..${b} of ${n})`);
+  return { a, b, n };
 }
 
-/** JPEG frames are full range; browsers only play limited-range BT.709 yuv420p (full-range files fail with MEDIA_ERR_DECODE). */
-const LIMITED = "scale=in_range=pc:out_range=tv:in_color_matrix=bt601:out_color_matrix=bt709,format=yuv420p";
+/** JPEG-free: the screen recording is limited-range yuv420p from swscale (BT.601 matrix); the clip is limited-range BT.709, the only kind every browser plays. */
+const LIMITED = "scale=in_range=tv:out_range=tv:in_color_matrix=bt601:out_color_matrix=bt709,format=yuv420p";
 const COLOUR_TAGS = ["-color_range", "tv", "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709"];
 
 /** Frames per second of a video that differ from the frame before them (decoded frames compared, so a repeated frame is not counted). */
@@ -1366,30 +1381,22 @@ async function uniqueFps(file) {
   const r = await run(FFMPEG, ["-hide_banner", "-loglevel", "error", "-i", file, "-an", "-f", "framemd5", "-"]);
   const sums = r.stdout.split("\n").filter((l) => l && !l.startsWith("#")).map((l) => l.split(",").pop().trim());
   const changed = sums.filter((m, i) => i > 0 && m !== sums[i - 1]).length;
-  return changed / (sums.length / 30);
+  return changed / (sums.length / 60);
 }
-
-/** Every video written this run, checked in a real browser window at the end. */
-const written = [];
 
 /** The colour format browsers decode: yuv420p, limited range. Anything else fails to play in a normal browser. */
 async function assertPlayable(file) {
   const out = await run(FFPROBE, ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=pix_fmt,color_range", "-of", "csv=p=0", file]);
   const [pix, range] = out.stdout.trim().split(",");
   if (pix !== "yuv420p" || range !== "tv") {
-    throw new Error(`${file} is ${pix}/${range}, not yuv420p/tv: browsers cannot decode full-range video (fix the colour conversion in frameFilter and the encoder tags)`);
+    throw new Error(`${file} is ${pix}/${range}, not yuv420p/tv: browsers cannot decode full-range video (fix the colour conversion in LIMITED and the encoder tags)`);
   }
 }
 
-/**
- * Plays every video written this run in a HEADED Chromium window (a headless one decodes files that real browsers refuse):
- * currentTime must pass 1 s within 5 s and the element must report no error. Returns the files that did not play.
- */
-async function playbackCheck(files) {
-  const headed = await chromium.launch({ executablePath: process.env.CHROME, headless: false, args: ["--autoplay-policy=no-user-gesture-required"] });
+/** Every video written this run, played in the recording Chromium (headed, on the hidden screen): currentTime must pass 1 s within 5 s with no error. */
+async function playbackCheck(page, files) {
   const failures = [];
   for (const file of files) {
-    const page = await headed.newPage();
     try {
       await page.goto(`file://${file}`);
       const r = await page.evaluate(async () => {
@@ -1405,50 +1412,34 @@ async function playbackCheck(files) {
     } catch (e) {
       failures.push(`${file}: ${e.message.split("\n")[0]}`);
     }
-    await page.close();
   }
-  await headed.close();
   return failures;
 }
 
-async function encode(game, step, setName, take) {
+const written = [];
+
+async function encode(game, step, setName, take, work) {
   const set = SETS[setName];
   const def = GAMES[game].steps[step];
-  const vp = set.context.viewport;
+  const dsf = SCREENS[setName].dsf; // the screen's pixels per CSS px (an emulated lower scale factor is stretched to fill the same window)
   const [ow, oh] = set.out;
   const dest = join(OUT, game);
   mkdirSync(dest, { recursive: true });
   const base = join(dest, `${step}-${setName}`);
-  const work = dirname(take.segments[0].dir);
+  const { a, b } = await takeRange(take.vfr, set, dsf);
 
-  // one speed-up for the whole clip, enough to fit MAX_SECS
-  const reals = take.segments.map((s) => s.frames.at(-1).t - s.frames[0].t);
-  const speeds = take.segments.map((s, i) => (i === 0 ? def.speed ?? 1 : s.speed ?? 1));
-  const total = reals.reduce((t, r, i) => t + r / speeds[i], 0);
-  const squeeze = Math.max(1, total / (def.maxSecs ?? MAX_SECS));
-  const secs = total / squeeze;
-
-  // each segment becomes a clean intermediate (crop, camera, 30 fps), then they are joined and faded together
-  const parts = [];
-  for (const [i, seg] of take.segments.entries()) {
-    const speed = speeds[i] * squeeze;
-    const segSecs = reals[i] / speed;
-    const list = seg.frames.map((f, k) => `file '${f.file}'\nduration ${(Math.max(0.001, seg.frames[k + 1] ? seg.frames[k + 1].t - f.t : 0.2) / speed).toFixed(4)}`);
-    list.push(`file '${seg.frames.at(-1).file}'`);
-    const concat = join(seg.dir, "frames.txt");
-    writeFileSync(concat, list.join("\n"));
-    const out = join(seg.dir, "part.mp4");
-    await run(FFMPEG, ["-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", concat, "-vf", `fps=30,${frameFilter(seg, set, segSecs, vp)}`, "-an", "-pix_fmt", "yuv420p", ...COLOUR_TAGS, "-c:v", "libx264", "-crf", "10", "-preset", "veryfast", out]);
-    parts.push({ out, segSecs });
-  }
-  const joined = join(work, `${game}-${step}-${setName}-joined.txt`);
-  writeFileSync(joined, parts.map((p) => `file '${p.out}'`).join("\n"));
+  const real = (b - a) / 60;
+  const speed = Math.max(def.speed ?? 1, real / (def.maxSecs ?? MAX_SECS));
+  const secs = real / speed;
+  const C = cropOf(set);
+  const cropPx = `crop=${even(C.w * dsf)}:${even(C.h * dsf)}:0:0`;
   const fade = `fade=t=in:st=0:d=0.25,fade=t=out:st=${Math.max(0, secs - 0.3).toFixed(2)}:d=0.25`;
-  const input = ["-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", joined, "-vf", `fps=30,${fade}`, "-an", "-pix_fmt", "yuv420p", ...COLOUR_TAGS];
+  const vf = `fps=60,trim=start_frame=${a}:end_frame=${b},setpts=(PTS-STARTPTS)/${speed.toFixed(4)},fps=60,${cropPx},scale=${ow}:${oh}:flags=lanczos,${fade},${LIMITED}`;
+  const input = ["-y", "-loglevel", "error", "-i", take.vfr, "-vf", vf, "-r", "60", "-an", "-pix_fmt", "yuv420p", ...COLOUR_TAGS];
   const sizes = {};
   for (const [ext, codec, crfs] of [
-    ["webm", (crf) => ["-c:v", "libvpx-vp9", "-b:v", "0", "-crf", String(crf), "-row-mt", "1", "-deadline", "good", "-cpu-used", "2"], [32, 36, 40, 44, 48, 52]],
-    ["mp4", (crf) => ["-c:v", "libx264", "-crf", String(crf), "-preset", "slow", "-movflags", "+faststart"], [24, 27, 30, 33, 37, 41]],
+    ["webm", (crf) => ["-c:v", "libvpx-vp9", "-b:v", "0", "-crf", String(crf), "-row-mt", "1", "-deadline", "good", "-cpu-used", "2"], [34, 38, 42, 46, 50, 54, 58, 62]],
+    ["mp4", (crf) => ["-c:v", "libx264", "-crf", String(crf), "-preset", "slow", "-movflags", "+faststart"], [24, 27, 30, 33, 37, 41, 45]],
   ]) {
     for (const crf of crfs) {
       await run(FFMPEG, [...input, ...codec(crf), `${base}.${ext}`]);
@@ -1456,64 +1447,60 @@ async function encode(game, step, setName, take) {
       if (sizes[ext] <= MAX_KB) break;
     }
   }
-  // the poster: a frame from the segment that holds the point of the step
-  const posterSeg = take.segments.find((s) => s.poster !== undefined) ?? take.segments[0];
-  const posterAt = posterSeg.frames[Math.min(posterSeg.frames.length - 1, Math.floor(posterSeg.frames.length * (posterSeg.poster ?? def.poster ?? 0.6)))];
-  const posterFilter = frameFilter({ ...posterSeg, camera: null, crop: posterSeg.camera ? posterSeg.camera.at(-1).rect : posterSeg.crop }, set, secs, vp).replace(LIMITED, "scale=in_range=pc:out_range=tv,format=yuv420p");
-  await run(FFMPEG, ["-y", "-loglevel", "error", "-i", posterAt.file, "-vf", posterFilter, "-frames:v", "1", "-c:v", "libwebp", "-quality", "82", `${base}.webp`]);
+  // the poster: a frame from the clip (fraction `poster` of the way through)
+  const at = (a + (b - a) * (def.poster ?? 0.6)) / 60;
+  await run(FFMPEG, ["-y", "-loglevel", "error", "-ss", at.toFixed(3), "-i", take.vfr, "-vf", `${cropPx},scale=${ow}:${oh}:flags=lanczos,scale=in_range=tv:out_range=tv,format=yuv420p`, "-frames:v", "1", "-c:v", "libwebp", "-quality", "82", `${base}.webp`]);
 
   for (const ext of ["webm", "mp4"]) await assertPlayable(`${base}.${ext}`);
   written.push(`${base}.webm`, `${base}.mp4`);
   const fps = await uniqueFps(`${base}.mp4`);
+  const smooth = await frameDiffs(`${base}.mp4`).then(continuity);
   const warn = secs < MIN_SECS ? "  (SHORT)" : sizes.webm > MAX_KB || sizes.mp4 > MAX_KB ? "  (OVER SIZE)" : "";
-  console.log(`${game}/${step}-${setName}: ${ow}x${oh}, ${secs.toFixed(1)} s (x${squeeze.toFixed(2)}), webm ${sizes.webm} KB, mp4 ${sizes.mp4} KB, ${fps.toFixed(1)} unique fps${warn}`);
-  if (fps < MIN_FPS) {
-    const slow = Math.min(...take.segments.map((s) => s.rawFps)) < MIN_FPS;
-    throw new Error(`only ${fps.toFixed(1)} unique frames per second (needs ${MIN_FPS}): ` + (slow
-      ? `the browser painted only ${Math.min(...take.segments.map((s) => s.rawFps)).toFixed(1)} frames per second while recording, so it is too slow here (record on a machine with a fast CPU or GPU, not the CPU-only VPS)`
-      : "the screen barely moves in this take (add motion, a camera move or a longer act)"));
+  console.log(`${game}/${step}-${setName}: ${ow}x${oh}, ${secs.toFixed(1)} s (x${speed.toFixed(2)}), webm ${sizes.webm} KB, mp4 ${sizes.mp4} KB, ${fps.toFixed(1)} unique fps, still-in-motion ${(smooth.share * 100).toFixed(1)}%${warn}`);
+  if (fps < MIN_FPS) throw new Error(`only ${fps.toFixed(1)} unique frames per second (needs ${MIN_FPS}): the screen barely moves in this take (add motion, a camera move or a longer act)`);
+  if (smooth.share >= MAX_SHARE) {
+    throw new Error(`${(smooth.share * 100).toFixed(0)}% of the frame pairs inside movements are still: animations teleport (the machine was too busy to render 60 fps: close other work, or lower the encoder load)`);
   }
 }
 
 const work = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), "htp-"));
-const launch = () => chromium.launch({ executablePath: process.env.CHROME, args: ["--autoplay-policy=no-user-gesture-required"] });
-let browser = await launch();
-/** The browser, started again if it died (the machine ran short of memory) while a take was recording. */
-async function alive() {
-  if (!browser.isConnected()) browser = await launch();
-  return browser;
-}
 let failed = 0;
-for (const game of Object.keys(GAMES)) {
-  for (const step of [1, 2, 3, 4, 5]) {
-    if (!wanted(game, step)) continue;
-    // both sets play the same script at once
-    await Promise.all(
-      sets.map(async (setName) => {
+for (const setName of sets) {
+  const screen = await screenUp(setName);
+  try {
+    await screen.ctx.addInitScript(OVERLAY_JS);
+    // Mark every Game's first-Practice guide as seen, so the recording shows the game, not the guide.
+    await screen.ctx.addInitScript(() => {
+      for (const g of ["block-puzzle", "holdem", "trading-duel", "vanguard"]) localStorage.setItem(`tesoro:how-to-play:${g}`, "1");
+    });
+    for (const game of Object.keys(GAMES)) {
+      for (const step of [1, 2, 3, 4, 5]) {
+        if (!wanted(game, step)) continue;
         const tries = GAMES[game].steps[step].tries ?? 3;
-        for (let attempt = 0; attempt < tries; attempt++) {
+        let done = false;
+        for (let attempt = 0; attempt < tries && !done; attempt++) {
+          let take = null;
           try {
-            const take = await record(await alive(), game, step, setName, attempt, work);
-            if (!take.ok || take.segments.some((s) => s.frames.length < 4)) {
-              console.log(`${game}/${step}-${setName}: take ${attempt} discarded`);
-              continue;
-            }
-            await encode(game, step, setName, take);
-            return;
+            take = await record(screen.page, game, step, setName, attempt, work);
+            if (!take.ok) { console.log(`${game}/${step}-${setName}: take ${attempt} discarded`); continue; }
+            await encode(game, step, setName, take, work);
+            done = true;
           } catch (e) {
             console.log(`${game}/${step}-${setName}: take ${attempt} failed: ${e.message.split("\n")[0]}`);
+          } finally {
+            if (take?.vfr && !process.env.KEEP) rmSync(take.vfr, { force: true });
           }
         }
-        failed++;
-        console.log(`${game}/${step}-${setName}: NO CLIP`);
-      }),
-    );
+        if (!done) { failed++; console.log(`${game}/${step}-${setName}: NO CLIP`); }
+      }
+    }
+    const unplayable = process.env.NO_PLAYBACK_CHECK ? [] : await playbackCheck(screen.page, written.filter((f) => f.includes(`-${setName}.`)));
+    console.log(`playback check (${setName}, headed Chromium): ${written.filter((f) => f.includes(`-${setName}.`)).length - unplayable.length}/${written.filter((f) => f.includes(`-${setName}.`)).length} videos play`);
+    for (const f of unplayable) console.log(`  DOES NOT PLAY ${f}`);
+    failed += unplayable.length;
+  } finally {
+    await screenDown();
   }
 }
-await browser.close();
-const unplayable = process.env.NO_PLAYBACK_CHECK ? [] : await playbackCheck(written);
-console.log(`playback check (headed Chromium): ${written.length - unplayable.length}/${written.length} videos play`);
-for (const f of unplayable) console.log(`  DOES NOT PLAY ${f}`);
-failed += unplayable.length;
 if (!process.env.KEEP) rmSync(work, { recursive: true, force: true });
 if (failed) process.exit(1);
