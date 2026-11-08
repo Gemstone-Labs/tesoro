@@ -22,6 +22,24 @@ The metadata-only inventory (`collect --metadata-only`, followed by `check --inv
 
 Regression commands: `cargo test -p tesoro_core --lib predeploy_layouts -- --nocapture` writes/reads both the historical 178-byte and current 327-byte custody fixtures in LiteSVM; `python3 scripts/test-predeploy-size-check.py` exercises mismatch, unknown discriminator, dynamic capacity and version refusals. Preserve the LiteSVM fixture rows and use them in the Python test as described by its skip message.
 
+## Railcar W3 core and Railcar on devnet (2026-11-08)
+
+The founder approved it on 2026-11-08 (Railcar decisions Q33/Q33a): core and Railcar ship together, staging first, and main only after the founder validates on staging. Staging and production share devnet programs and prod Supabase, so main first got a compatibility patch, e6a5f1a5 (Offers at 174 and 191 B, the Protections on cancel_offer / expire_offer / close_match), which works on both cores. The VPS keeper is on e6a5f1a5 (599/599 tests).
+
+| Step | Value |
+|---|---|
+| Build | `feat/railcar-03-11-2026` fb2364ba (the .so files are from 8f86f128; fb2364ba only regenerated the IDL and fixtures). The full check passed (pid-final, pid-recheck). |
+| `tesoro_core` extend | +200,000 B (data 3,336,120 → 3,536,120) |
+| `tesoro_core` upgrade | slot 519982839, `4NKQdHji…pTaUuD`; dump == ELF sha 4c7965c2…; rollback `~/.cache/tesoro-tmp/deploy-2026-11-08/rollback-tesoro_core-before-w3.so` |
+| Railcar deploy (new) | `ExpLHqvPEqbdEze5HaYWmnTsH9SXYa8jkXeuEvjRGzam` (the founder made the keypair), slot 519983000, `4GZ96BuL…yggG4kr`; dump == ELF sha f0447eb1…; 923,216 B |
+| Games | not upgraded: built from main and from int they differ in 3 bytes of panic-location line numbers only |
+| `grow-offers.ts --send` | 6 Offers 174 → 191 B, `5JhRK6i5…fZc6eh`; a re-run finds none |
+| Supabase | `0027_railcar_history.sql` applied to prod in one transaction (204 history rows kept) |
+| Account-size preflight (run after the upgrade; it should have run before) | `--program tesoro_core`: 922 current accounts ok; 36 fail, all predating W3 and unchanged by it: 23 PairState 51 B (current 115 B), 5 MatchState 776 B (current 840), 8 TicketHead 440 B (v1). They are legacy devnet accounts, to retire per the 2026-10-25 policy; an old PairState can still break a rematch of that pair, on main too. The script doesn't know Railcar yet (add it). Report: VPS `~/builds/rc-wt/account-size-preflight-2026-11-08.json`. |
+| Deployer | 30.03 → 24.30 SOL (faucet top-up first) |
+
+Still to do: the Railcar setup (Game listing, config, sponsor, fuel, Tables, vault), the staging push, and the live ride checks (ticket 15).
+
 ## Ticket 55: Positions gain `stake_rate_high` (launch-rules upgrade, not deployed)
 
 The tesoro_core change grows `PositionState` from 235 to 243 bytes. The new program cannot read a 235-byte Position until
