@@ -298,40 +298,56 @@ export async function acceptOffer(signer: ChainSigner, request: PublicKey, offer
   return chain.sendBase(signer, [ix]);
 }
 
-/** The Backer withdraws an Offer that has not started a Match; the reservation is released. */
+/**
+ * The Backer withdraws an Offer that has not started a Match; the reservation is released. The Backer's Protections
+ * trail, writable: the W3 core gives the Offer's Entry Limit count back there, and the current core ignores them.
+ */
 export function cancelOfferIx(owner: PublicKey, offer: PublicKey, acceptedRequest: PublicKey | null) {
   const backerAccount = BlockPuzzleChain.coreAccount(owner);
-  return coreIx("cancel_offer", {
-    backerAuthority: owner,
-    backerAccount,
-    basket: basketPda(backerAccount),
-    spill: spillPda(backerAccount),
-    counters: countersPda(backerAccount),
-    offer,
-    // An accepted Offer hands its Request back to Open, so the Request comes with the call.
-    request: acceptedRequest ?? undefined,
-  });
+  return coreIx(
+    "cancel_offer",
+    {
+      backerAuthority: owner,
+      backerAccount,
+      basket: basketPda(backerAccount),
+      spill: spillPda(backerAccount),
+      counters: countersPda(backerAccount),
+      offer,
+      // An accepted Offer hands its Request back to Open, so the Request comes with the call.
+      request: acceptedRequest ?? undefined,
+    },
+    {},
+    [{ pubkey: protectionsPda(backerAccount), isSigner: false, isWritable: true }],
+  );
 }
 
 export async function cancelOffer(signer: ChainSigner, offer: ChainOffer) {
   return getChain().sendBase(signer, [cancelOfferIx(signer.publicKey, offer.address, offer.status === "accepted" ? new PublicKey(offer.request) : null)]);
 }
 
-/** Anyone releases the reservation of an Offer nobody accepted, or nobody used, within 24h. */
-export async function expireOffer(signer: ChainSigner, offer: ChainOffer) {
-  const chain = getChain();
+/**
+ * Anyone releases the reservation of an Offer nobody accepted, or nobody used, within 24h. The Backer's Protections go
+ * writable: the W3 core gives the Offer's Entry Limit count back there, where this IDL still marks them read-only.
+ */
+export function expireOfferIx(caller: PublicKey, offer: ChainOffer) {
   const backerAccount = new PublicKey(offer.backer);
+  const backerProtections = protectionsPda(backerAccount);
   const ix = coreIx("expire_offer", {
-    caller: signer.publicKey,
+    caller,
     backerAccount,
     basket: basketPda(backerAccount),
     spill: spillPda(backerAccount),
     counters: countersPda(backerAccount),
     offer: offer.address,
     request: offer.status === "accepted" ? new PublicKey(offer.request) : undefined,
-    backerProtections: undefined,
+    backerProtections,
   });
-  return chain.sendBase(signer, [ix]);
+  for (const m of ix.keys) if (m.pubkey.equals(backerProtections)) m.isWritable = true;
+  return ix;
+}
+
+export async function expireOffer(signer: ChainSigner, offer: ChainOffer) {
+  return getChain().sendBase(signer, [expireOfferIx(signer.publicKey, offer)]);
 }
 
 // ---- entering a Match under a Backing --------------------------------------------------------

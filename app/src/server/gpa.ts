@@ -2,7 +2,7 @@ import { PublicKey } from "@solana/web3.js";
 import { utils } from "@coral-xyz/anchor";
 import coreIdl from "../lib/chain/idl/tesoro_core.json";
 import { OVERFLOW_DISC, OVERFLOW_OWNER_AT } from "../lib/chain/overflow";
-import { CURRENT_SIZE } from "../lib/chain/account-sizes";
+import { CURRENT_SIZE, OFFER_SIZES } from "../lib/chain/account-sizes";
 import { gpaRpc } from "../lib/chain/rpc-config";
 import { WindowLimiter } from "./rate-limit";
 
@@ -59,7 +59,7 @@ export class GpaUpstreamError extends Error {
   }
 }
 
-/** Accepts allowlisted discriminator/owner queries and the exact current Match/Offer layout sizes; all share one cache per discriminator. */
+/** Accepts allowlisted discriminator/owner queries and the exact current Match/Offer layout sizes (`OFFER_SIZES`); all share one cache per discriminator. */
 export function parseQuery(params: URLSearchParams): GpaQuery {
   for (const k of params.keys()) if (k !== "program" && k !== "filter") throw new GpaInputError("Unsupported list query.");
   if (params.getAll("program").length !== 1 || params.get("program") !== CORE) throw new GpaInputError("Unsupported list query.");
@@ -67,13 +67,14 @@ export function parseQuery(params: URLSearchParams): GpaQuery {
   const shape = first?.startsWith("m:0:") ? SHAPES.get(first.slice(4)) : undefined;
   if (!shape) throw new GpaInputError("Unsupported list query.");
   const disc = first.slice(4);
-  const expectedSize = ({ MatchState: CURRENT_SIZE.matchState, OfferState: CURRENT_SIZE.offerState } as Record<string, number>)[shape.name];
+  const allowed = ({ MatchState: [CURRENT_SIZE.matchState], OfferState: OFFER_SIZES } as Record<string, readonly number[]>)[shape.name] ?? [];
   const sizes = filters.filter((f) => f.startsWith("s:"));
-  if (sizes.length > 1 || (sizes.length && sizes[0] !== `s:${expectedSize}`)) throw new GpaInputError("Unsupported list query.");
+  const asked = sizes.length ? allowed.find((n) => sizes[0] === `s:${n}`) : undefined;
+  if (sizes.length > 1 || (sizes.length && asked === undefined)) throw new GpaInputError("Unsupported list query.");
   const owners = filters.filter((f) => !f.startsWith("s:"));
   if (owners.length > 1) throw new GpaInputError("Unsupported list query.");
   const second = owners[0];
-  const size = sizes.length ? { size: expectedSize } : {};
+  const size = asked === undefined ? {} : { size: asked };
   if (second === undefined) return { program: CORE, disc, owner: null, ...size };
   const m = /^m:(\d+):([1-9A-HJ-NP-Za-km-z]{32,44})$/.exec(second);
   if (!m || shape.ownerOffset === null || Number(m[1]) !== shape.ownerOffset) throw new GpaInputError("Unsupported list query.");

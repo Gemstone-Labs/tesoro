@@ -5,6 +5,7 @@ import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { Budget, type Ctx } from "./act.ts";
 import { accountBytes, bookBytes, ixNameOf, potBytes, storeBytes, ticketBytes, zeroOf } from "./fixtures.ts";
 import { OVERFLOW_MATCH, POT_AT, basketOf, bookOf, ckptOf, countersOf, decodeStore, matchOverflowId, overflowAddress, spillOf } from "./kit.ts";
+import { protectionsPda } from "../../app/src/lib/chain/native.ts";
 import { loadIdl } from "./runtime.ts";
 import { CHUNK_CU_TARGET, closeRemaining, driveMatch, fullAccounts, planChunk, planSizedChunk, viewOf, type Deps, type MatchView } from "./settle.ts";
 import type { Info, Reader } from "./supply.ts";
@@ -21,14 +22,15 @@ const potB = k();
 const matchAddr = k();
 const payer = k();
 
-async function matchView(over: { stage?: object; sources?: PublicKey[]; cut?: bigint[]; room?: { account: PublicKey; left: number }[]; phases?: object[] } = {}): Promise<MatchView> {
+async function matchView(over: { stage?: object; sources?: PublicKey[]; cut?: bigint[]; room?: { account: PublicKey; left: number }[]; phases?: object[]; kind?: object; funderA?: PublicKey } = {}): Promise<MatchView> {
   const idl = core.idl as any;
   const run = zeroOf(idl, { defined: { name: "run" } });
+  if (over.kind) run.kind = over.kind;
   run.phases = [...(over.phases ?? [{ back: [0] }]), ...Array(4).fill({ back: [0] })].slice(0, 4);
   run.nPhases = (over.phases ?? [{ back: [0] }]).length;
   run.cutLeft = [[new anchor.BN(0), new anchor.BN(0), new anchor.BN(0)], (over.cut ?? [0n, 0n, 0n]).map((v) => new anchor.BN(v.toString()))];
   const bytes = await accountBytes(core, "MatchState", {
-    inner: { id: { opener: alice.toBytes(), n: new anchor.BN(7) }, a: { player: alice.toBytes(), funder: alice.toBytes() }, b: { player: bob.toBytes(), funder: bob.toBytes(), shareBps: 0 }, stage: over.stage ?? { settling: {} }, run },
+    inner: { id: { opener: alice.toBytes(), n: new anchor.BN(7) }, a: { player: alice.toBytes(), funder: (over.funderA ?? alice).toBytes() }, b: { player: bob.toBytes(), funder: bob.toBytes(), shareBps: 0 }, stage: over.stage ?? { settling: {} }, run },
     payer,
     pots: [potA, potB],
   });
@@ -145,6 +147,21 @@ describe("closing", () => {
     const view = await matchView({ stage: { closed: {} }, room: [{ account: studio, left: 2 }, { account: alice, left: 1 }] });
     const keys = closeRemaining(view).map((m) => m.pubkey.toBase58());
     assert.deepEqual(keys, [spillOf(studio), spillOf(alice), countersOf(alice), countersOf(bob)].map((x) => x.toBase58()));
+  });
+  // The W3 core gives an unplayed entry back to the Entry Limit it counted on, so it needs each funder's Protections; the
+  // current core skips them. A played Match (Win, Draw, No-show) counts its entries and passes none.
+  it("passes each funder's Protections, writable, when the entries came back unplayed", async () => {
+    const backer = k();
+    for (const kind of [{ cancelled: {} }, { abandoned: {} }, { gameUpgraded: {} }, { byGame: {} }]) {
+      const view = await matchView({ stage: { closed: {} }, kind, funderA: backer });
+      const metas = closeRemaining(view);
+      assert.deepEqual(metas.map((m) => m.pubkey.toBase58()), [countersOf(alice), countersOf(bob), protectionsPda(backer), protectionsPda(bob)].map((x) => x.toBase58()), Object.keys(kind)[0]);
+      assert.ok(metas.every((m) => m.isWritable && !m.isSigner));
+    }
+    for (const kind of [{ draw: {} }, { noShow: {} }]) {
+      const view = await matchView({ stage: { closed: {} }, kind, funderA: backer });
+      assert.equal(closeRemaining(view).length, 2, Object.keys(kind)[0]);
+    }
   });
 });
 
