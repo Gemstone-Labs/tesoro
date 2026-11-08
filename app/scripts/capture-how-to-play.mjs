@@ -190,17 +190,60 @@ async function vgSelect(page, { attack = false } = {}) {
   return null;
 }
 
-/** Moves forward turn after turn, unrecorded, until one of your pieces can attack. */
-async function vgUntilAttack(page) {
-  for (let turn = 0; turn < 12; turn++) {
+/** The Italian setup the seed deals (square "r,c" -> rank), from the app's own rules (needs tsx). */
+async function vgItalians(seed) {
+  const rules = await import("../src/games/vanguard/rules.ts");
+  return new Map(rules.newGame(rules.seeded(seed), 0).pieces.filter((p) => p.army === "it").map((p) => [`${p.r},${p.c}`, p.rank]));
+}
+
+/** Italian pieces on the board now: square "r,c" -> the rank shown on its label, or null while it is face down. */
+const vgEnemies = (page) => page.evaluate(() =>
+  [...document.querySelectorAll(".vg-piece.it:not(.gone)")].map((e) => {
+    const [c, r] = [...e.getAttribute("style").matchAll(/\* (-?[\d.]+)\)/g)].map((m) => Math.round(Number(m[1])));
+    return [`${r},${c}`, e.getAttribute("aria-label").match(/^Italian (\d+|B|F) /)?.[1] ?? null];
+  }));
+
+/** Keeps `known` (square -> rank) in step with the board: a piece that left one square and appeared on another took its rank along. */
+async function vgTrack(page, known) {
+  const now = new Map(await vgEnemies(page));
+  const left = [...known.keys()].filter((k) => !now.has(k));
+  const came = [...now.keys()].filter((k) => !known.has(k));
+  if (left.length === 1 && came.length === 1) { known.set(came[0], known.get(left[0])); known.delete(left[0]); }
+  else for (const k of left) known.delete(k);
+  for (const [k, rank] of now) if (rank) known.set(k, rank);
+}
+
+const vgNum = (r) => (/^\d+$/.test(r ?? "") ? Number(r) : null);
+
+/**
+ * Plays unrecorded turns with our highest pieces, walking toward an Italian piece we know is lower, until one of them
+ * has a marked attack on a lower rank (a sure win). Leaves that attacker selected and returns its attack mark.
+ */
+async function vgUntilWin(page, seed) {
+  const known = await vgItalians(seed);
+  for (let turn = 0; turn < 30; turn++) {
     await vgMyTurn(page);
     await sleep(100);
-    const atk = await vgSelect(page, { attack: true });
-    if (atk) return atk.index;
-    const mv = await vgSelect(page);
-    if (!mv) return false;
-    await mv.mark.click({ force: true, timeout: 1500 }).catch(() => {});
-    await sleep(1500);
+    await vgTrack(page, known);
+    const mine = await page.evaluate(() => [...document.querySelectorAll(".vg-piece.us:not([disabled]):not(.gone)")].map((e, i) => ({ i, rank: e.getAttribute("aria-label").match(/^US (\d+) /)?.[1] })).filter((p) => p.rank).sort((a, b) => b.rank - a.rank));
+    const pieces = page.locator(".vg-piece.us:not([disabled]):not(.gone)");
+    for (const { i, rank } of mine.filter((p) => Number(p.rank) >= 7 && Number(p.rank) < 10 || p.rank === "10").slice(0, 3)) {
+      await pieces.nth(i).click({ force: true, timeout: 800 }).catch(() => {});
+      await sleep(120);
+      const marks = await page.evaluate(() => [...document.querySelectorAll(".vg-mark")].map((e, n) => ({ n, atk: e.classList.contains("atk"), label: e.getAttribute("aria-label") })));
+      const at = (m) => { const [, row, col] = m.label.match(/row (\d+), column (\d+)/); return [10 - Number(row), Number(col) - 1]; };
+      const win = marks.find((m) => m.atk && vgNum(known.get(at(m).join(","))) !== null && vgNum(known.get(at(m).join(","))) < Number(rank));
+      if (win) return page.locator(".vg-mark").nth(win.n);
+      // else step toward the nearest lower Italian piece
+      const prey = [...known].filter(([, r]) => vgNum(r) !== null && vgNum(r) < Number(rank)).map(([k]) => k.split(",").map(Number));
+      const steps = marks.filter((m) => !m.atk).map((m) => ({ m, sq: at(m) }));
+      let best = null;
+      for (const st of steps) for (const q of prey) {
+        const d = Math.abs(st.sq[0] - q[0]) + Math.abs(st.sq[1] - q[1]);
+        if (!best || d < best.d) best = { ...st, d };
+      }
+      if (best) { await page.locator(".vg-mark").nth(best.m.n).click({ force: true, timeout: 1500 }).catch(() => {}); await sleep(1600); break; }
+    }
   }
   return null;
 }
@@ -400,17 +443,22 @@ const GAMES = {
           await sleep(2200);
         },
       },
+      // a high rank attacks a lower one, known from the seeded setup: the clash flips the loser face up and ours stays
       3: {
-        prep: async (page) => { page.__atk = await vgUntilAttack(page); if (page.__atk === null) throw new Error("no attack reached"); },
-        // the attacker is still selected from prep: click the enemy square at once, before the turn clock runs out
+        prep: async (page, { seed }) => { page.__win = await vgUntilWin(page, seed); if (!page.__win) throw new Error("no winning attack reached"); },
+        // the attacker is still selected from prep: attack at once, before the turn clock runs out
         act: async (page) => {
-          const mark = page.locator(".vg-mark.atk").first();
-          if (!(await mark.count())) await page.locator(".vg-piece.us:not([disabled])").nth(page.__atk).click({ force: true, timeout: 800 }).catch(() => {});
-          await sleep(500);
-          if (!(await mark.count())) return false;
-          await mark.click({ force: true, timeout: 1500 }).catch(() => {});
-          await sleep(3500);
+          const enemies = (await vgEnemies(page)).length;
+          await sleep(700);
+          await page.__win.click({ force: true, timeout: 1500 }).catch(() => {});
+          await sleep(4200);
+          return (await vgEnemies(page)).length === enemies - 1;
         },
+        // close on the clash: the attacker and its target, with a few squares round them
+        focus: [".vg-piece.us.sel", ".vg-mark.atk"],
+        pad: { phone: 95, desktop: 190 },
+        speed: 0.75,
+        tries: 3,
         poster: 0.75,
       },
       // tap a piece that has a power: its power button appears and what it will do is drawn
@@ -443,7 +491,7 @@ const sets = (process.env.SETS ?? "phone,desktop").split(",");
 const HIDE_DEV_UI = "nextjs-portal, [data-nextjs-toast], [data-next-badge-root] { display: none !important; }";
 
 /** Crop rectangle in CSS px: the union of `focus`, padded, widened or heightened to the set's aspect ratio, kept inside the viewport. */
-async function cropFor(page, focus, set) {
+async function cropFor(page, focus, set, padOverride) {
   const vp = set.context.viewport;
   const box = await page.evaluate((sels) => {
     let u = null;
@@ -460,8 +508,9 @@ async function cropFor(page, focus, set) {
     return u;
   }, focus);
   if (!box) throw new Error(`focus not found: ${focus.join(", ")}`);
-  let w = box.r - box.l + set.pad * 2;
-  let h = box.b - box.t + set.pad * 2;
+  const pad = padOverride ?? set.pad;
+  let w = box.r - box.l + pad * 2;
+  let h = box.b - box.t + pad * 2;
   if (w / h < set.ratio) w = h * set.ratio;
   else h = w / set.ratio;
   if (w > vp.width) [w, h] = [vp.width, vp.width / set.ratio];
@@ -489,7 +538,7 @@ async function record(browser, game, step, setName, attempt, work) {
   await sleep(2000);
   const ctxInfo = { seed, set: setName };
   await def.prep?.(page, ctxInfo);
-  const crop = await cropFor(page, def.focus ?? GAMES[game].focus, set);
+  const crop = await cropFor(page, def.focus ?? GAMES[game].focus, set, def.pad?.[setName]);
 
   const dir = join(work, `${game}-${step}-${setName}-${attempt}`);
   mkdirSync(dir, { recursive: true });
