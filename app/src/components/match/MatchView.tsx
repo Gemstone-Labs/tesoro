@@ -14,7 +14,7 @@ import { backerDelta, matchDelta, matchFee, seatResult } from "@/lib/chain/ledge
 import { resultOf } from "@/lib/chain/read";
 import { parseMatchKey } from "@/lib/chain/match-id";
 import { refundMatch } from "@/lib/chain/match-flow";
-import { CANCELLING_NOTE, delayedOf } from "@/lib/chain/match-status";
+import { CANCELLING_NOTE, UNBEGUN_NOTE, delayedOf, unbegunLine } from "@/lib/chain/match-status";
 import { useQueuePresence } from "@/lib/chain/usePresence";
 import { useNowSecs } from "@/lib/chain/useNowSecs";
 import { plainError } from "@/lib/errors";
@@ -150,6 +150,9 @@ export function MatchView({ matchId }: { matchId: string }) {
   } else if (stage === "table") {
     kind = "setup";
     words = { kicker: "Block Burst · opponent found", title: "Waiting for a table", line: needTableLine(m.deadline, nowSecs * 1000) };
+  } else if (stage === "setup" && view.note === UNBEGUN_NOTE) {
+    kind = "setup";
+    words = { kicker: "Block Burst · opponent found", title: "The Match never started", line: unbegunLine(m.deadline, nowSecs * 1000) };
   } else if (stage === "getReady") {
     kind = "setup";
     words = { title: readyIn === null ? "Get ready" : `Starting in ${readyIn}`, line: "Same pieces for you both, at the same time. Your 90 seconds start on zero." };

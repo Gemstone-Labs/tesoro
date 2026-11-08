@@ -1,6 +1,7 @@
 import { PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import type { ChainSigner } from "@/games/block-puzzle/chain";
 import type { GetToken } from "./demo-client";
+import { isCancelling, untabledRefundDue } from "./match-status";
 import { SponsorError, sponsorStatus, sponsoredSend } from "./sponsor-client";
 
 /**
@@ -54,6 +55,37 @@ export const refundUntabledFree = <P>(
   getToken: GetToken,
   match: PublicKey,
 ) => stepFree(signer, getToken, (caller) => game.refundUntabledIx(caller, match), () => game.refundUntabled((signer.fallbackPayer ?? signer) as unknown as P, match));
+
+/** Least time between two tries of `refund_untabled` from one page. */
+export const UNTABLED_GAP_MS = 8_000;
+
+/** Failed tries in a row of `refund_untabled` from one page before the error is shown. */
+export const UNTABLED_FAILS_BEFORE_ERROR = 3;
+
+/**
+ * Ticket 58: a joined Match still without a table `TABLE_WAIT_SECS` after the join is refunded by its Game, and any
+ * participant's page sends it (`send`, which also runs the chunks). Resolves true when it tried this call. A lost race (the
+ * other page or the sweep refunded first, or a table came) fails once and the next read no longer asks for the refund, so
+ * an error is thrown only after `UNTABLED_FAILS_BEFORE_ERROR` failures in a row; the decoded error name cannot be relied
+ * on (a Game's IDL may lag its program). `last` holds the time of the last try and the failures in a row, per page.
+ */
+export async function refundWhenUntabled(
+  m: { status: "open" | "active" | "settled" | "refunded"; sides: readonly unknown[]; deadline: number },
+  nowMs: number,
+  last: { current: number; fails?: number },
+  send: () => Promise<unknown>,
+): Promise<boolean> {
+  if (m.status !== "active" || isCancelling(m) || !untabledRefundDue(m.deadline, nowMs / 1000) || nowMs - last.current < UNTABLED_GAP_MS) return false;
+  last.current = nowMs;
+  try {
+    await send();
+    last.fails = 0;
+  } catch (e) {
+    last.fails = (last.fails ?? 0) + 1;
+    if (last.fails >= UNTABLED_FAILS_BEFORE_ERROR) throw e;
+  }
+  return true;
+}
 
 /** Closes a finished Match's Assignment (the Game's `close_assignment`); its rent goes back to the operator, not the caller. */
 export const closeAssignmentFree = <A, P>(

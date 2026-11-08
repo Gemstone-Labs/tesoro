@@ -8,7 +8,8 @@ import { VANGUARD_PROGRAM_ID } from "../../app/src/games/vanguard/chain.ts";
 import { canFinalizeTable as vanguardCanFinalize } from "../../app/src/games/vanguard/chain.ts";
 import { finishMatch, type FinishDeps, type Planned, type Progress } from "../../app/src/lib/chain/finish-match.ts";
 import { CHUNK_STEPS, CHUNK_UNITS, closeIx, connReader, loadMatch, missingCutPages, planSizedChunk, runOf, sourcesAhead, viewOf, type MatchView } from "../../app/src/lib/chain/settle-plan.ts";
-import { act, finalizeOrRaced, log, type Ctx } from "./act.ts";
+import { untabledRefundDue } from "../../app/src/lib/chain/match-status.ts";
+import { Raced, act, finalizeOrRaced, log, type Ctx } from "./act.ts";
 import { makeScanRpc, scanProgramAccounts, type ScanRpc } from "./credits.ts";
 import { CORE_ID, bookOf } from "./kit.ts";
 import { discriminatorOf } from "./lists.ts";
@@ -107,6 +108,27 @@ export function finishDeps(ctx: Ctx, subject: (address: PublicKey) => string): F
   };
 }
 
+/**
+ * Why an Active Match with no committed result waits (`SweepDeps.waiting`): `untabled` with no Assignment once the Game's
+ * table wait after the join is over (the same rule as the Players' pages), `unbegun` once its Assignment's start window closed.
+ * Base cannot tell a Match that never began from one still playing on a delegated table, so a long Match past its start
+ * window is also asked about every 5 minutes: two reads each time.
+ */
+export function waitingOf(a: { startDeadline: number } | null, deadline: number, nowS: number): "untabled" | "unbegun" | null {
+  if (!a) return untabledRefundDue(deadline, nowS) ? "untabled" : null;
+  return nowS > a.startDeadline ? "unbegun" : null;
+}
+
+/** Sends the Game's `refund_untabled`; a refusal for a Match that is no longer Active (a page or another run did it) is a lost race. */
+export async function untabledOrRaced<S>(chain: { refundUntabled(payer: S, match: PublicKey): Promise<string> }, signer: S, match: PublicKey, stillActive: () => Promise<boolean>): Promise<string> {
+  try {
+    return await chain.refundUntabled(signer, match);
+  } catch (e) {
+    if (!(await stillActive().catch(() => true))) throw new Raced("the Match was already refunded by another caller");
+    throw e;
+  }
+}
+
 /** Addresses per getMultipleAccounts call (the RPC limit is 100). */
 const READ_BATCH = 100;
 
@@ -149,6 +171,9 @@ export function realSweepDeps(ctx: Ctx, env: NodeJS.ProcessEnv = process.env): S
   const db = historyRpc(env);
   if (!db) log("sweep", "-", "no SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY: every run scans the chain");
 
+  // Assignments read by `committed` this run, so `waiting` does not read them again.
+  const assignments = new Map<string, { startDeadline: number } | null>();
+
   // The spend cap needs the balance before the first send, not on a run that sends nothing.
   let observed = false;
   const observeBalance = async () => {
@@ -172,6 +197,7 @@ export function realSweepDeps(ctx: Ctx, env: NodeJS.ProcessEnv = process.env): S
       const game = gameOf(ctx, head.game);
       if (!game) return false;
       const a = await game.chain.readAssignment(head.address);
+      assignments.set(head.address.toBase58(), a ?? null);
       // A failed read throws: the sweep must not read it as "no result" and refund a Match whose result is committed.
       const base = a ? await game.chain.readTableOnBase(a) : null;
       return !!a && !!base && game.canFinalize(base, a, ctx.now);
@@ -196,6 +222,22 @@ export function realSweepDeps(ctx: Ctx, env: NodeJS.ProcessEnv = process.env): S
       await observeBalance();
       const result = await finishMatch(finisher, address);
       if (result.stalled && result.stalled !== "step-limit") throw new Error(`stalled: ${result.stalled}`);
+    },
+    waiting: async (head) => {
+      const game = gameOf(ctx, head.game);
+      if (!game || !head.joined) return null;
+      const id = head.address.toBase58();
+      const a = assignments.has(id) ? assignments.get(id)! : await game.chain.readAssignment(head.address);
+      return waitingOf(a ?? null, head.deadline, ctx.now);
+    },
+    refundUntabled: async (head) => {
+      await observeBalance();
+      const game = gameOf(ctx, head.game);
+      if (!game) throw new Error(`unknown game ${head.game.toBase58()}`);
+      const stillActive = async () => (await fetchView(ctx, head.address))?.stage === "active";
+      const r = await act(ctx, "sweep", subject(head.address), "refund_untabled (joined, no table within the Game's table wait)", () => untabledOrRaced(game.chain, ctx.hsigner, head.address, stillActive));
+      if (r.detail === "budget") throw new Deferred("hourly spend cap reached");
+      if (!r.ok && r.detail !== "raced") throw new Error(r.detail);
     },
     refund: async (head) => {
       await observeBalance();

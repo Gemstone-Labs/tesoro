@@ -2,7 +2,7 @@
 
 import { atNextEpoch, startNote } from "@/lib/chain/table-clean";
 import { useAuth } from "@/lib/auth/context";
-import { finalizeFree } from "@/lib/chain/game-finalize";
+import { finalizeFree, refundUntabledFree, refundWhenUntabled } from "@/lib/chain/game-finalize";
 import { finalizeAndFinishFree, finishMatchFree } from "@/lib/chain/finish-match-client";
 import { createFinisher } from "@/lib/chain/finish-match";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -10,7 +10,7 @@ import { accountOfSigner, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getTradingDuel } from "@/lib/chain/client";
 import { matchAddressOf } from "@/lib/chain/match-id";
 import { matchProgress } from "@/lib/chain/match-progress";
-import { setupNote } from "@/lib/chain/match-status";
+import { UNBEGUN_NOTE, setupNote } from "@/lib/chain/match-status";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { closedWhileSeen } from "@/lib/chain/closed-while-seen";
 import { ASSETS, DRAW, PHASE, STATUS, assetOfIndex, canFinalizeTable, slotOf, decodeDuel, type Assignment, type Asset, type Book, type Duel, type PlayerSigner } from "./chain";
@@ -110,6 +110,7 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
   const stage = useRef<Stage>("loading");
   const seatRef = useRef<0 | 1 | null>(null);
   const assignRef = useRef<Assignment | null>(null);
+  const untabledTry = useRef(0);
   const shownDuel = useRef("");
   const shownBook = useRef("");
   const activeSince = useRef(0);
@@ -250,6 +251,8 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
     const a = await td.readAssignment(mk!);
     if (!a) {
       setStage("setup", setupNote(m));
+      // Joined, and no table in five minutes: the Game refunds it, from either Player's page (ticket 58).
+      await refundWhenUntabled(m, Date.now() + offsetRef.current, untabledTry, () => finalizeAndFinishFree(signer, () => tokenRef.current(), mk, () => refundUntabledFree(td, signer, () => tokenRef.current(), mk)));
       return;
     }
     assignRef.current = a;
@@ -259,7 +262,8 @@ export function useDuelMatch(id: string | null, signer: ChainSigner | null, onSe
     if (!d && atNextEpoch(a, t)) {
       // The previous Match settled and the table is not reset yet: begin_match resets it once it may (30 s after the
       // result), so an early or failed try is quietly repeated on the next read.
-      if ((Date.now() + offsetRef.current) / 1000 > a.startDeadline) return setStage("setup", "The Match was never started: the entries come back soon");
+      // After the start window it can no longer begin there: the refund comes once the table moves past its epoch (ticket 59).
+      if ((Date.now() + offsetRef.current) / 1000 > a.startDeadline) return setStage("setup", UNBEGUN_NOTE);
       setStage("setup", startNote(t.phase === PHASE.over));
       if (late) await td.beginMatch(p, a, t).catch(() => undefined);
       return;

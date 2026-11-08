@@ -1,6 +1,8 @@
+import { BN, BorshAccountsCoder, type Idl } from "@coral-xyz/anchor";
 import { Keypair } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
-import { listGameIx } from "./admin-listing";
+import { decodeListing, listGameIx } from "./admin-listing";
+import coreIdl from "./idl/tesoro_core.json";
 import { gameRecordPda, programDataPda } from "./game-record";
 import { CORE_PROGRAM_ID } from "./core-ix";
 
@@ -27,5 +29,23 @@ describe("list_game from the admin wallet", () => {
   });
   it("refuses a malformed hash", () => {
     expect(() => listGameIx(admin, program, 1, "xyz")).toThrow(/64 hex/);
+  });
+});
+
+describe("a GameRecord's listing", () => {
+  const coder = new BorshAccountsCoder(coreIdl as unknown as Idl);
+  const k = () => Keypair.generate().publicKey;
+  const record = (over: object) =>
+    coder.encode("GameRecord", {
+      bump: 1, game: k(), settle_authority: k(), studio_bps: 300, studio_recipient: k(), pending_at: new BN(0), pending_by: k(), pending_settle_authority: k(),
+      pending_studio_bps: 0, pending_studio_recipient: k(), listed_until: new BN(1_900_000_000), approved_slot: new BN(518_610_621), approved_hash: Array(32).fill(0xab), listing_epoch: 2, ...over,
+    });
+
+  it("reads the bytes the real coder writes", async () => {
+    expect(decodeListing(await record({}))).toEqual({ listedUntil: 1_900_000_000, approvedSlot: 518_610_621n, approvedHash: "ab".repeat(32) });
+  });
+
+  it("shows an all-zero hash as no approved build", async () => {
+    expect(decodeListing(await record({ approved_hash: Array(32).fill(0) })).approvedHash).toBeNull();
   });
 });

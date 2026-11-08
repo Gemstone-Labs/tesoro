@@ -70,6 +70,23 @@ describe("Hold'em Match startup", () => {
   });
 });
 
+describe("Hold'em, a joined Match no table was assigned to (ticket 58)", () => {
+  it("refunds it through the Game once the five-minute wait is over", async () => {
+    vi.useFakeTimers();
+    const refundUntabled = vi.fn().mockResolvedValue("refund-sig");
+    mocks.getHoldem.mockReturnValue({ readAssignment: vi.fn().mockResolvedValue(null), refundUntabled, refundUntabledIx: vi.fn() });
+    // Joined 301 s ago.
+    mocks.fetchMatch.mockResolvedValue({ status: "active", seat: 1, sides: [{}, {}], deadline: Date.now() / 1000 - 301 + 3_600 });
+    useHoldemMatch(`${key.toBase58()}-0`, { publicKey: key } as never);
+    for (const effect of mocks.effects) {
+      const cleanup = effect();
+      if (cleanup) cleanups.push(cleanup);
+    }
+    await vi.advanceTimersByTimeAsync(0);
+    expect(refundUntabled).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("Hold'em timeout claim", () => {
   async function liveTable(over: Record<string, unknown>) {
     vi.useFakeTimers();

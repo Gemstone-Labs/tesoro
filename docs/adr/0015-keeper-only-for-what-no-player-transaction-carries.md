@@ -11,7 +11,7 @@ The keeper ran 22 jobs in one 20-second loop plus a 1-second fast lane. Most pas
 1. **Keeper rule.** A step belongs in the keeper only if no Player transaction can carry it. A step a Player can carry goes into that Player's next transaction (join and Table assignment, finalize, `match_chunk`, `close_match`, `begin_match` that cleans its Table, the Lock that lands on Solana, Sponsor release, Hold'em timeout). A step nobody can carry runs on a schedule, and does one pass and exits.
 2. **What the keeper is.** Four scheduled runs plus a heartbeat, each a systemd timer under `keeper/deploy/`:
    - Season run (Monday, Wednesday, hourly retry): settle, redeem, harvest, batches, pools, record, pay;
-   - safety sweep (every 5 minutes): finishes a Match a Player left after 10 minutes, refunds a Backer-funded Match nobody joined;
+   - safety sweep (every 5 minutes): finishes a Match a Player left after 10 minutes, refunds a joined Match that got no table in 5 minutes (the pages send it first), refunds a Backer-funded Match nobody joined;
    - janitor (daily): closes spent tickets, receipts, pair records and Assignments, refreshes Listings;
    - table-pool repair (every 15 minutes): republishes each Table's live epoch to `table_pool`;
    - the open-Match cron (every 5 minutes, unit `tesoro-notify-cron`) calls the app's `/api/cron/notify`; it keeps the `open_match` table the safety sweep reads and mails no one.

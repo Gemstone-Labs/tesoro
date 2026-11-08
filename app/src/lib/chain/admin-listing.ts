@@ -23,9 +23,10 @@ export interface GameStanding {
 
 /** Decodes the listing fields of a GameRecord account. */
 export function decodeListing(data: Uint8Array): ChainListing {
-  const g = coder.decode("GameRecord", Buffer.from(data)) as { listedUntil: { toString(): string }; approvedSlot: { toString(): string }; approvedHash: number[] | Uint8Array };
-  const hash = Buffer.from(g.approvedHash).toString("hex");
-  return { listedUntil: Number(g.listedUntil.toString()), approvedSlot: BigInt(g.approvedSlot.toString()), approvedHash: /^0+$/.test(hash) ? null : hash };
+  // The coder names fields as the IDL does: snake_case.
+  const g = coder.decode("GameRecord", Buffer.from(data)) as { listed_until: { toString(): string }; approved_slot: { toString(): string }; approved_hash: number[] | Uint8Array };
+  const hash = Buffer.from(g.approved_hash).toString("hex");
+  return { listedUntil: Number(g.listed_until.toString()), approvedSlot: BigInt(g.approved_slot.toString()), approvedHash: /^0+$/.test(hash) ? null : hash };
 }
 
 export async function readStanding(program: PublicKey): Promise<GameStanding> {

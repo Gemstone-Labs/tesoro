@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CANCELLING_NOTE, NO_TABLE_NOTE, SETTLE_GRACE_SECS, TABLE_WAIT_SECS, delayedMatches, isCancelling, matchStanding, refundCopy, settleBy, setupNote, tableRefundBy, tableWaitLine } from "./match-status";
+import { CANCELLING_NOTE, NO_TABLE_NOTE, SETTLE_GRACE_SECS, TABLE_WAIT_SECS, delayedMatches, isCancelling, matchStanding, refundCopy, settleBy, setupNote, tableRefundBy, tableWaitLine, unbegunLine, untabledRefundDue } from "./match-status";
 
 const T = 1_000_000;
 const DAY = 24 * 3600;
@@ -115,6 +115,24 @@ describe("the wait for a table (ticket 35)", () => {
 
   it("falls back to the refund deadline when the Match already has a table", () => {
     expect(tableWaitLine(T + DAY, T * 1000)).toMatch(/your entry comes back by /);
+  });
+
+  // Ticket 58: the page said "on its way back" at five minutes and nothing sent the refund.
+  it("makes the refund due exactly when the line says it is on its way back", () => {
+    expect(untabledRefundDue(T + 3600, T + TABLE_WAIT_SECS - 1)).toBe(false);
+    expect(untabledRefundDue(T + 3600, T + TABLE_WAIT_SECS)).toBe(true);
+    expect(tableWaitLine(T + 3600, (T + TABLE_WAIT_SECS) * 1000)).toBe("No table opened in time. Your entry is on its way back.");
+  });
+
+  it("is never due once an Assignment pushed the deadline out, or with no deadline", () => {
+    expect(untabledRefundDue(T + DAY, T + 600)).toBe(false);
+    expect(untabledRefundDue(0, T + 600)).toBe(false);
+  });
+});
+
+describe("a Match assigned a table that never started (ticket 59)", () => {
+  it("says the entry comes back after the table's next Match, with the deadline as the latest", () => {
+    expect(unbegunLine(T + DAY, T * 1000)).toMatch(/^The Match never started\. Your entry comes back after this table’s next Match, or by .+ at the latest\.$/);
   });
 });
 
