@@ -8,13 +8,13 @@ import {
   CHUNK_STEPS,
   CHUNK_UNITS,
   closeIx,
-  compileTx,
   connReader,
   fits,
   loadMatch,
   missingCutPages,
   planSizedChunk,
   runOf,
+  simulatedUnits,
   sourcesAhead,
   viewOf,
   type MatchView,
@@ -69,15 +69,7 @@ async function sponsoredDeps(signer: ChainSigner, getToken: GetToken): Promise<F
           read,
           caller: relayer,
           fitsOne: (ix) => fits(relayer, [ix], opts),
-          simulate: async (ix: TransactionInstruction) => {
-            try {
-              const { blockhash } = await conn.getLatestBlockhash();
-              const res = (await conn.simulateTransaction(compileTx(relayer, blockhash, [ix], opts), { sigVerify: false })).value;
-              return res.unitsConsumed ?? null;
-            } catch {
-              return null;
-            }
-          },
+          simulate: (ix: TransactionInstruction) => simulatedUnits(conn, relayer, [ix], opts),
         },
         loaded,
       );
