@@ -4,7 +4,7 @@ import Image from "next/image";
 import { PlayerAvatar, PlayerName } from "@/components/account/Player";
 import { NO_CARD, NO_WINNER, SPLIT } from "./chain";
 import { PlayingCard } from "./cards";
-import type { HandLog, LogAct, LogRow } from "./handlog";
+import type { HandLog, LogAct, LogRow, PastHand } from "./handlog";
 import { bestHand, resultSummary } from "./reading";
 
 const chips = (n: bigint) => Number(n).toLocaleString("en-US");
@@ -88,17 +88,12 @@ function Outcome({ end, seat, players }: { end: NonNullable<HandLog["end"]>; sea
   );
 }
 
-/**
- * The hand log as a short story: each street with the cards it dealt, each action with who made it,
- * and the result at the end. `players` is indexed by seat; `hole` is this Player's two cards.
- */
-export function HandLogView({ log, seat, players, hole }: { log: HandLog; seat: 0 | 1; players: [LogPlayer, LogPlayer]; hole?: readonly number[] | null }) {
-  if (log.streets.length === 0) return <p className="meta">The hand log fills as the hand is played.</p>;
+/** One hand's streets, one block each, then how it ended. `live` while the hand is still being played. */
+function HandStreets({ hand, live, seat, players, hole }: { hand: PastHand; live: boolean; seat: 0 | 1; players: [LogPlayer, LogPlayer]; hole?: readonly number[] | null }) {
   const opp = (1 - seat) as 0 | 1;
   return (
-    <div className="hl">
-      <p className="hl-hand-no meta">Hand {log.hand}</p>
-      {log.streets.map((s, i) => {
+    <>
+      {hand.streets.map((s, i) => {
         const board = s.rows.find((r) => r.act === "board")?.cards;
         const first = i === 0 && hole && hole[0] !== NO_CARD;
         const acts = s.rows.filter((r) => r.act !== "board" && r.act !== "showdown");
@@ -121,12 +116,55 @@ export function HandLogView({ log, seat, players, hole }: { log: HandLog; seat: 
                 ))}
               </ol>
             ) : (
-              (log.done || i < log.streets.length - 1) && !s.rows.some((r) => r.act === "showdown") && <p className="hl-none meta">No bets</p>
+              (!live || i < hand.streets.length - 1) && !s.rows.some((r) => r.act === "showdown") && <p className="hl-none meta">No bets</p>
             )}
           </section>
         );
       })}
-      {log.end && <Outcome end={log.end} seat={seat} players={players} />}
+      {hand.end && <Outcome end={hand.end} seat={seat} players={players} />}
+    </>
+  );
+}
+
+/** A finished hand's one-line headline ("You win 300 Chips"), from how it ended. */
+function headline(end: PastHand["end"], seat: 0 | 1): string | null {
+  if (!end || end.result === NO_WINNER) return null;
+  return resultSummary(end, seat, null).title;
+}
+
+/**
+ * The hand log as a short story: each street with the cards it dealt, each action with who made it,
+ * and the result at the end. The hand being played comes first; finished hands follow, newest open.
+ * `players` is indexed by seat; `holes` holds this Player's two cards by hand number.
+ */
+export function HandLogView({ log, seat, players, holes }: { log: HandLog; seat: 0 | 1; players: [LogPlayer, LogPlayer]; holes: Readonly<Record<number, readonly number[]>> }) {
+  const current = log.streets.length > 0;
+  if (!current && log.past.length === 0) return <p className="meta">The hand log fills as the hand is played.</p>;
+  return (
+    <div className="hl">
+      {current && (
+        <>
+          <p className="hl-hand-no meta">Hand {log.hand}</p>
+          <HandStreets hand={log} live={!log.done} seat={seat} players={players} hole={holes[log.hand]} />
+        </>
+      )}
+      {log.past.length > 0 && <p className="hl-hand-no meta hl-earlier">Earlier hands</p>}
+      {log.past.map((h, i) => {
+        const title = headline(h.end, seat);
+        const won = h.end && (h.end.result === seat || h.end.result === SPLIT);
+        return (
+          <details key={h.hand} className="hl-past" open={i === 0 && !current}>
+            <summary>
+              <span className="hl-past-no">Hand {h.hand}</span>
+              {holes[h.hand] && <Cards cards={holes[h.hand]} />}
+              {title && <span className={`hl-past-result${won ? " won" : ""}`}>{title}</span>}
+            </summary>
+            <div className="hl-past-body">
+              <HandStreets hand={h} live={false} seat={seat} players={players} hole={holes[h.hand]} />
+            </div>
+          </details>
+        );
+      })}
     </div>
   );
 }
