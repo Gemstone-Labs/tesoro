@@ -196,7 +196,7 @@ export async function finishCar(e: SweepEnv, carNo: bigint | null): Promise<Swee
     },
     maxSends: 200,
   });
-  if (!result.done && result.waiting !== "cap") throw new Error(`stalled: ${result.waiting}`);
+  if (!result.done && result.waiting !== "cap") throw new Error(`stalled: ${result.waiting} after ${result.sent.join(", ") || "nothing"}`);
   if (no !== null)
     await skipIfPassedOver(e, no, async (x) => {
       await e.send(x);

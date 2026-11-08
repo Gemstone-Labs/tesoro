@@ -10,7 +10,7 @@ use anchor_lang::{system_program, AccountSerialize, Discriminator};
 
 #[derive(Accounts)]
 pub struct MigratePosition<'info> {
-    /// Pays the rent of the 17 new bytes.
+    /// Pays the rent of the 8 new bytes.
     #[account(mut)]
     pub admin: Signer<'info>,
     #[account(
@@ -115,7 +115,7 @@ fn grow_counters_account<'info>(
 /// field can change. A 33-byte account is left alone.
 #[derive(Accounts)]
 pub struct GrowCounters<'info> {
-    /// Pays the rent of the 17 new bytes.
+    /// Pays the rent of the 8 new bytes.
     #[account(mut)]
     pub payer: Signer<'info>,
     /// CHECK: owner, discriminator and length are checked in the handler.
@@ -136,7 +136,7 @@ pub(crate) fn grow_counters(ctx: Context<GrowCounters>) -> Result<()> {
 /// checked), so a script can list the Accounts and grow what is still short.
 #[derive(Accounts)]
 pub struct MigrateCounters<'info> {
-    /// Pays the rent of the 17 new bytes.
+    /// Pays the rent of the 8 new bytes.
     #[account(mut)]
     pub admin: Signer<'info>,
     #[account(

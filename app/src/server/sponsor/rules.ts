@@ -200,6 +200,8 @@ export const TX_SHAPES: readonly (readonly string[])[] = [
   // The beginner pack (`openAndAdvance`): open the Position and take its Advance in one transaction.
   ["open_native_position", "take_native_advance"],
   ["open_stake_position", "take_stake_advance"],
+  // A page's own seat closes with the car (after it, the page's seat key names no seat in the car to vouch for it).
+  ["close_many_seat", "close_many_seat_match"],
 ];
 
 /**
@@ -546,6 +548,9 @@ export function planCore(ixs: Ix[], relayer: PublicKey, inviteKey?: PublicKey, p
 
   if (!partOf && !TX_SHAPES.some((s) => s.length === names.length && s.every((n, i) => n === names[i])) && !isCleanupShape(names)) {
     throw new RuleError("bad-shape", `${names.join(" + ")} is not a transaction we pay for.`);
+  }
+  if (names.length === 2 && names[0] === "close_many_seat" && !named[0].get("match_state")?.equals(named[1].get("match_state") as PublicKey)) {
+    throw new RuleError("bad-shape", "The seat and the car closed together must be the same car's.");
   }
   if (names.length === 2 && names[0] === "open_ticket" && names[1] === "stage_entry") {
     const [open, stage] = named;

@@ -7,7 +7,7 @@ import { runOf, sourcesAhead } from "./chunks.ts";
 import { growStoreIx, initCkptPageIx } from "./core-ix.ts";
 import { shortKey } from "./env.ts";
 import { bookOf, matchAddress, matchLabel, type MatchRef } from "./kit.ts";
-import { fits, lookupTables, sendIxs, compile, type SendOpts } from "./send.ts";
+import { fits, lookupTables, sendIxs, type SendOpts } from "./send.ts";
 import { connReader, missingCutPages, type Reader } from "./supply.ts";
 
 export { viewOf, closeRemaining, closeIx, fullAccounts, CHUNK_CU_TARGET } from "../../app/src/lib/chain/settle-plan.ts";

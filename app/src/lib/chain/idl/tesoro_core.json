@@ -4973,7 +4973,7 @@
         {
           "name": "payer",
           "docs": [
-            "Pays the rent of the 8 new bytes."
+            "Pays the rent of the 17 new bytes."
           ],
           "writable": true,
           "signer": true

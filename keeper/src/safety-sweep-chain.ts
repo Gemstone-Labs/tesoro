@@ -20,7 +20,7 @@ import { Deferred, SLICE_LEN, anyHeadOf, carHeadAt, headOf, type Head, type Swee
 import { RAILCAR_PROGRAM_ID } from "../../app/src/games/railcar/chain.ts";
 import { decodeCar } from "../../app/src/lib/chain/many-seat.ts";
 import { finishCarOf, railcarRideStep, rideProgress } from "./railcar-sweep.ts";
-import { compile, fits, lookupTables, sendIxs } from "./send.ts";
+import { fits, lookupTables, sendIxs } from "./send.ts";
 
 /** The chain of each Game the sweep can finalize: its Assignment, base's committed copy of the Table, and `finalize`. */
 function gameOf(ctx: Ctx, game: PublicKey) {
