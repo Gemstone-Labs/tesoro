@@ -918,8 +918,9 @@ pub mod tesoro_core {
         instructions::migrate::grow_counters(ctx)
     }
 
-    /// Grows a 174-byte Offer to 182 bytes with `counted_in` zero (its count is not given back).
-    /// Anyone may call it and the caller pays the rent. A 182-byte one is left alone.
+    /// Grows a 174-byte Offer to 191 bytes with `counted_in` zero (its count is not given back)
+    /// and no `ticket_nonce`. Anyone may call it and the caller pays the rent. A 191-byte one is
+    /// left alone.
     pub fn grow_offer(ctx: Context<GrowOffer>) -> Result<()> {
         instructions::migrate::grow_offer(ctx)
     }

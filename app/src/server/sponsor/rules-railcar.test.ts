@@ -1,7 +1,7 @@
 import { Keypair, PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import { matchPda } from "@/lib/chain/basket";
-import { closeCarIx, joinSeatIx, reserveRoomIx, seatChunkIx, stepOffIx } from "@/lib/chain/many-seat";
+import { closeCarIx, closeSeatIx, joinSeatIx, reserveRoomIx, seatChunkIx, stepOffIx } from "@/lib/chain/many-seat";
 import { RAILCAR_PROGRAM_ID, checkDepartureIx, finalizeIx, openCarIx, revealRideIx } from "@/games/railcar/chain";
 import { MAX_ROOM_LINES, RECEIPT_RENT, planTransaction, type Ix } from "./rules";
 import { RAILCAR_ID } from "./rules-railcar";
@@ -106,6 +106,8 @@ describe("Railcar's finish on the relayer", () => {
     expect(p).toMatchObject({ kind: "game", names: ["finalize"], class: "exit", spend: { refundable: RECEIPT_RENT } });
     expect(p.obligations[0].equals(car.tesoroMatch)).toBe(true);
     refused([finalizeIx(key(), car, 1)], "bad-account");
+    // The relayer paid the sponsored open_car, so the Car's rent comes back to it.
+    expect(plan([finalizeIx(relayer, { ...car, payer: relayer }, 10)]).names).toEqual(["finalize"]);
     const eleven = finalizeIx(relayer, car, 10);
     eleven.keys.push({ pubkey: key(), isSigner: false, isWritable: true });
     refused([eleven], "bad-accounts");
@@ -139,8 +141,18 @@ describe("Railcar's finish on the relayer", () => {
     refused([bad], "bad-accounts");
   });
 
+  it("the last seat's close travels with the car's close (a page's own seat, which vouches for its seat key), for the same car only", () => {
+    const car = key();
+    const page = { index: 0, matchKey: car, payer: relayer, seats: [] };
+    const seat = { index: 3, seated: true, shareBps: 0, placeBps: 0, place: 1, potLines: 1, hold: 0, refund: 0n, player: account, funder: account, pot: key(), signer: key() };
+    const close = (of: PublicKey) => closeSeatIx({ caller: relayer, car: of, seat, markPayer: relayer, potPayer: relayer, sponsor: true });
+    expect(plan([close(car), closeCarIx(relayer, { address: car, payer: relayer }, [page])])).toMatchObject({ names: ["close_many_seat", "close_many_seat_match"], class: "exit" });
+    refused([close(key()), closeCarIx(relayer, { address: car, payer: relayer }, [page])], "bad-shape");
+    refused([closeCarIx(relayer, { address: car, payer: relayer }, [page]), close(car)], "bad-shape");
+  });
+
   it("a step-off is the Player's own (the Player signs), the relayer only paying and taking its rent back", () => {
-    const seat = { index: 3, seated: true, shareBps: 0, placeBps: 0, place: 0, potLines: 1, hold: 0, refund: 0n, player: account, funder: account, pot: key(), signer: null };
+    const seat = { index: 3, seated: true, shareBps: 0, placeBps: 0, place: 0, potLines: 1, hold: 0, refund: 0n, player: account, funder: account, pot: key(), signer: account };
     const p = plan([stepOffIx({ caller: player, car: key(), seat, markPayer: relayer, potPayer: relayer, sponsor: true })]);
     expect(p).toMatchObject({ names: ["step_off_many_seat_match"], class: "exit", playerSigns: true });
   });

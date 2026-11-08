@@ -6,10 +6,11 @@ import { fromWeb3JsKeypair, toWeb3JsPublicKey } from "@metaplex-foundation/umi-w
 import { EndpointProgram, UlnProgram } from "@layerzerolabs/lz-solana-sdk-v2/umi";
 import type { Ctx } from "./act.ts";
 import { simulateIxs } from "./tee.ts";
+import { TESORO_CORE } from "../../app/src/lib/chain/basket.ts";
 
 /** tesoro_bridge on Solana devnet and the tesoro_core it feeds. */
 export const BRIDGE = new PublicKey("5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ");
-export const CORE = new PublicKey("AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh");
+export const CORE = TESORO_CORE;
 export const EID_HOODI = 40449;
 export const EID_HYPEREVM = 40362;
 

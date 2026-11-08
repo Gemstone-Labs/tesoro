@@ -90,15 +90,18 @@ const nameOf = (ix: Ix): string | null => {
   return null;
 };
 
-/** Checks one Railcar instruction against its IDL layout; returns its accounts by name. */
-function checkRailcar(ix: Ix, name: string, relayer: PublicKey, relayerSlot: string | null, extra = 0): Map<string, PublicKey> {
+/**
+ * Checks one Railcar instruction against its IDL layout; returns its accounts by name. The relayer may be `relayerSlot`
+ * (where it calls or pays) and, besides, any of `receives` (where rent comes back to it).
+ */
+function checkRailcar(ix: Ix, name: string, relayer: PublicKey, relayerSlot: string | null, extra = 0, receives: readonly string[] = []): Map<string, PublicKey> {
   const accounts = layout(name);
   if (ix.keys.length < accounts.length || ix.keys.length > accounts.length + extra) throw new RuleError("bad-accounts", `${name} has the wrong number of accounts.`);
   const byName = new Map<string, PublicKey>();
   accounts.forEach((a, i) => {
     const k = ix.keys[i];
     if (k.isSigner !== !!a.signer || k.isWritable !== !!a.writable) throw new RuleError("bad-flags", `${name}: ${a.name} has the wrong signer or writable flag.`);
-    if (k.pubkey.equals(relayer) && a.name !== relayerSlot) throw new RuleError("relayer-in-accounts", `${name}: the relayer may not be ${a.name}.`);
+    if (k.pubkey.equals(relayer) && a.name !== relayerSlot && !receives.includes(a.name)) throw new RuleError("relayer-in-accounts", `${name}: the relayer may not be ${a.name}.`);
     const want = fixed(a.name);
     if (want && !k.pubkey.equals(want)) throw new RuleError("bad-account", `${name}: ${a.name} is not the expected address.`);
     byName.set(a.name, k.pubkey);
@@ -148,7 +151,8 @@ export function planRailcar(ixs: Ix[], relayer: PublicKey, player: PublicKey, is
     return { ...base(names), kind: "game", class: "exit", spend: { refundable: 0n, sunk: 0n }, cu: 200_000, obligations: [a.get("match_state")!] };
   }
   if (names.length === 1 && names[0] === "finalize") {
-    const a = checkRailcar(ixs[0], "finalize", relayer, "caller", MAX_PAGES);
+    // The Car's rent goes back to whoever paid it: the relayer, when it paid a sponsored open_car.
+    const a = checkRailcar(ixs[0], "finalize", relayer, "caller", MAX_PAGES, ["car_payer"]);
     const match = a.get("match_state")!;
     if (!a.get("receipt")!.equals(settledPda(match))) throw new RuleError("bad-account", "finalize: receipt is not the one for this Match.");
     // A Game step like the head-to-head Games' finalize: the relayer fronts the receipt's rent (`close_receipt` returns it).

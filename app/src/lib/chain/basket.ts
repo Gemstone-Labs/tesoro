@@ -9,8 +9,10 @@
  */
 
 import { PublicKey } from "@solana/web3.js";
+import coreIdl from "./idl/tesoro_core.json";
 
-export const TESORO_CORE = new PublicKey("AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh");
+/** tesoro_core's program id: the IDL the build generates names it (the one place it is written is the program's `declare_id!`). */
+export const TESORO_CORE = new PublicKey(coreIdl.address);
 
 export const DISC = 8;
 export const HEADER_LEN = 128;

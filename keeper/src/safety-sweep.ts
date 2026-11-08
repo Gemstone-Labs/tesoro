@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { PublicKey } from "@solana/web3.js";
 import { log } from "./act.ts";
+import { boardingEnds, carFieldAt } from "../../app/src/lib/chain/many-seat.ts";
 import { discriminatorOf } from "./lists.ts";
 
 /**
@@ -12,8 +13,8 @@ import { discriminatorOf } from "./lists.ts";
  *  - `finish`: a Settling, Refunding or Closed Match, 10 minutes after the sweep first saw it: the chunks, then `close_match`;
  *  - `refund`: an Open Match a Backer funded that nobody joined, once its deadline has passed: `refund_match`.
  * A many-seat Match (a Railcar car) is a fourth case and a second way into the first two:
- *  - `ride`: a car that left (or is due to leave) and whose ride nobody finished, `RIDE_TIMEOUT_SECS` after it left: the one
- *    step a Player's page would have sent (the Game's adapter picks it: start the ride, the signal that applies its Impact,
+ *  - `ride`: a car that left (or is due to leave) and whose ride nobody finished, `RIDE_TIMEOUT_SECS` after it left, or a
+ *    car still Boarding once core's boarding has ended (its seats step off home): the one step a Player's page would have sent (the Game's adapter picks it: start the ride, the signal that applies its Impact,
  *    the Table's commit, `finalize`, or core's refund once 24 h have passed), one per sweep;
  *  - `finish`: a car core is settling or has paid: its chunks, then each seat's close and the car's.
  * Every send is idempotent, so a page that did the step first costs nothing. A Match the sweep tried once and finds in the
@@ -67,27 +68,25 @@ export interface CarFacts {
 
 /** Core's stage byte of a car (`ledger::many_seat`), mapped onto the Match stages. */
 const CAR_STAGES: Record<number, Stage> = { 0: "open", 1: "active", 2: "closed", 3: "settling", 4: "refunding", 5: "closed" };
-/** `ManySeatMatch`: discriminator, bump, listing epoch, payer, then the record. */
-const CAR_INNER = 8 + 1 + 4 + 32;
 let carDiscriminator: Buffer | null = null;
 
 /** A car's head from a sliced scan row (its first `SLICE_LEN` bytes hold every field read here); null when the row is not a car. */
 export function carHeadAt(address: PublicKey, data: Buffer): Head | null {
   carDiscriminator ??= discriminatorOf("ManySeatMatch");
-  if (data.length < CAR_INNER + 220 || !data.subarray(0, 8).equals(carDiscriminator)) return null;
-  const b = data.subarray(CAR_INNER);
-  const stage = CAR_STAGES[b[205]];
+  if (data.length < carFieldAt("run") || !data.subarray(0, 8).equals(carDiscriminator)) return null;
+  const stage = CAR_STAGES[data[carFieldAt("stage")]];
   if (!stage) return null;
-  const at = (o: number) => Number(b.readBigInt64LE(o));
+  const at = (field: string) => Number(data.readBigInt64LE(carFieldAt(field)));
+  const game = carFieldAt("game");
   return {
     address,
-    game: new PublicKey(b.subarray(40, 72)),
+    game: new PublicKey(data.subarray(game, game + 32)),
     stage,
     joined: true,
     backed: false,
-    openedAt: at(152),
-    deadline: at(160),
-    car: { seated: b[203], minSeats: b[201], firstMinAt: at(176), departedAt: at(184), refundAfter: at(212) },
+    openedAt: at("opened_at"),
+    deadline: at("deadline_abs"),
+    car: { seated: data[carFieldAt("seated")], minSeats: data[carFieldAt("min_seats")], firstMinAt: at("first_min_at"), departedAt: at("departed_at"), refundAfter: at("refund_after") },
   };
 }
 
@@ -252,7 +251,8 @@ const label = (a: PublicKey) => a.toBase58();
 function caseOf(h: Head, now: number): Case | null {
   if (h.car) {
     const c = h.car;
-    if (h.stage === "open") return c.seated >= c.minSeats && c.firstMinAt > 0 && now - c.firstMinAt >= RIDE_TIMEOUT_SECS ? "ride" : null;
+    // Past core's boarding end nobody may join or depart the car: the ride step steps every seat off and closes it.
+    if (h.stage === "open") return now >= boardingEnds({ deadlineAbs: h.deadline }) || (c.seated >= c.minSeats && c.firstMinAt > 0 && now - c.firstMinAt >= RIDE_TIMEOUT_SECS) ? "ride" : null;
     if (h.stage === "active") return now - c.departedAt >= RIDE_TIMEOUT_SECS ? "ride" : null;
     return "finish";
   }

@@ -2,7 +2,8 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import { basketPda, spillPda } from "./basket";
 import { seatPagePda, type CarView, type PlaceView, type SeatRunView, type SeatView } from "./many-seat";
-import { aheadOf, chunkRemaining, creditsOf, roomNeeds, type SeatLines } from "./many-seat-plan";
+import { aheadOf, chunkRemaining, creditsOf, planSeatChunk, roomNeeds, type SeatLines } from "./many-seat-plan";
+import type { Core, Reader } from "./settle-plan";
 import { matchOverflowPda } from "./overflow";
 
 /**
@@ -28,7 +29,7 @@ const seat = (i: number, o: Partial<SeatView> = {}): SeatView => ({
   player: players[i],
   funder: players[i],
   pot: k(),
-  signer: null,
+  signer: players[i],
   ...o,
 });
 const seats = [seat(0, { refund: 350n }), seat(1, { place: 2, placeBps: 2500 }), seat(2, { place: 3, placeBps: 1500 }), seat(3, { place: 1, placeBps: 6000 }), seat(4)];
@@ -185,5 +186,24 @@ describe("before the forfeits move", () => {
     expect([ana, ben, cy, dee, studio].every((o) => has(basketPda(o)) && has(spillPda(o)))).toBe(true);
     expect(has(record)).toBe(true);
     expect(has(matchOverflowPda(ben, { opener: c.opener, n: c.n }))).toBe(false);
+  });
+});
+
+describe("a chunk that ends the run", () => {
+  // Core marks a run Paid only when a chunk takes one step past its last credit (`ManySeatRecord::chunk`).
+  const refunding = (o: Partial<SeatRunView> = {}) => car(run({ kind: 6, nPlaces: 0, places: [], wonLeft: 0n, fees: [0n, 0n, 0n], cutLeft: [0n, 0n, 0n], ...o }), { stage: "refunding" });
+  const plain = seats.map((s) => ({ ...s, refund: 0n, place: 0, placeBps: 0 }));
+  const loaded = (c: CarView) => ({ car: c, pages: [], seats: plain, lines: plain.map((_, i) => oneLine(i)), potPayers: [] });
+  const none: Reader = { many: async (keys) => keys.map(() => null) };
+  const core = {} as Core;
+
+  it("a run that ends inside the chunk asks one step past its last credit, so the same chunk marks the car Paid", async () => {
+    const p = await planSeatChunk(core, none, k(), loaded(refunding()), () => true);
+    expect(p!.ix.data[8]).toBe(6);
+  });
+
+  it("a run whose last credit went at the end of the last chunk still gets the one call that marks the car Paid", async () => {
+    const p = await planSeatChunk(core, none, k(), loaded(refunding({ visited: 5, seatI: 5 })), () => true);
+    expect(p!.ix.data[8]).toBe(1);
   });
 });

@@ -1,13 +1,13 @@
 import type { PublicKey } from "@solana/web3.js";
 import { noteError } from "./errors.ts";
 import { decodeMatchRecords, innerInstructionsOf, type MatchChunkRecord } from "../../app/src/server/history/events.ts";
-import { CHUNK_STEPS, CHUNK_UNITS, closeIx, fullAccounts, loadMatch, viewOf, planChunk as planChunkShared, planSizedChunk as planSizedChunkShared, type ChunkPlan, type Core, type Loaded, type MatchView } from "../../app/src/lib/chain/settle-plan.ts";
+import { CHUNK_STEPS, CHUNK_UNITS, closeIx, fullAccounts, loadMatch, viewOf, planChunk as planChunkShared, planSizedChunk as planSizedChunkShared, simulatedUnits, type ChunkPlan, type Core, type Loaded, type MatchView } from "../../app/src/lib/chain/settle-plan.ts";
 import { act, log, type Ctx } from "./act.ts";
 import { runOf, sourcesAhead } from "./chunks.ts";
 import { growStoreIx, initCkptPageIx } from "./core-ix.ts";
 import { shortKey } from "./env.ts";
 import { bookOf, matchAddress, matchLabel, type MatchRef } from "./kit.ts";
-import { fits, lookupTables, sendIxs, compile, type SendOpts } from "./send.ts";
+import { fits, lookupTables, sendIxs, type SendOpts } from "./send.ts";
 import { connReader, missingCutPages, type Reader } from "./supply.ts";
 
 export { viewOf, closeRemaining, closeIx, fullAccounts, CHUNK_CU_TARGET } from "../../app/src/lib/chain/settle-plan.ts";
@@ -51,17 +51,8 @@ export const realDeps = (ctx: Ctx): Deps => ({
   },
   report: (signature, ref) => chunkReport(ctx, signature, ref),
   tables: () => lookupTables(ctx.conn),
-  simulate: async (ixs, opts) => {
-    try {
-      const { blockhash } = await ctx.conn.getLatestBlockhash();
-      const tx = compile(ctx.payer.publicKey, blockhash, ixs, opts);
-      tx.sign([ctx.payer]);
-      const res = (await ctx.conn.simulateTransaction(tx, { sigVerify: false })).value;
-      return res.unitsConsumed ?? null;
-    } catch {
-      return null;
-    }
-  },
+  // A failed simulation is unknown, never a fit (the shared rule, `unitsOf`).
+  simulate: (ixs, opts) => simulatedUnits(ctx.conn, ctx.payer.publicKey, ixs, opts),
 });
 
 /** Plans the next chunk sized to the transaction and the compute target (see the shared planner). */

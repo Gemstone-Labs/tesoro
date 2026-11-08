@@ -50,7 +50,7 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-const seat = (i: number): SeatView => ({ index: i, seated: true, shareBps: 0, placeBps: 0, place: 0, potLines: 1, hold: 0, refund: 0n, player: key(), funder: key(), pot: key(), signer: null });
+const seat = (i: number): SeatView => ({ index: i, seated: true, shareBps: 0, placeBps: 0, place: 0, potLines: 1, hold: 0, refund: 0n, player: key(), funder: key(), pot: key(), signer: key() });
 
 /** The finish of an `n`-seat car as finish.ts sends it: finalize, room, every chunk, every seat close, the car's close. */
 function finishSteps(n: number, chunks: number): TransactionInstruction[][] {

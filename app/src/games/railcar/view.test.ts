@@ -12,7 +12,7 @@ const FEES = { platformBps: 200, studioBps: 300, leaderboardBps: 100 };
 
 const coreCar = (o: Partial<CarView> = {}): CarView =>
   ({ address: key(), payer: key(), opener: ana, n: 0n, game: key(), settleAuthority: key(), studioOwner: null, entry: 500n, openedAt: T0, deadlineAbs: T0 + 7 * 86_400, minSince: 0, firstMinAt: 0, departedAt: 0, platformBps: 200, studioBps: 300, listed: true, minSeats: 5, maxSeats: 100, seated: 5, pages: 1, stage: "boarding", refundAfter: 0, run: {} as CarView["run"], ...o }) as CarView;
-const seat = (i: number): SeatView => ({ index: i, seated: true, shareBps: 0, placeBps: 0, place: 0, potLines: 1, hold: 0, refund: 0n, player: players[i], funder: players[i], pot: key(), signer: null });
+const seat = (i: number): SeatView => ({ index: i, seated: true, shareBps: 0, placeBps: 0, place: 0, potLines: 1, hold: 0, refund: 0n, player: players[i], funder: players[i], pot: key(), signer: players[i] });
 const seats = players.map((_, i) => seat(i));
 
 const rideSeat = (i: number, order: number, jumpMs: number, refund = 0n): RideSeatView => ({ tableSeat: i, seat: i, order, jumpMs, refund, account: players[i], signer: PublicKey.default, brakeMs: null });

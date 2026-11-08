@@ -32,7 +32,8 @@ import { countingFor } from "@/lib/seat/signature-counter";
 import { browserStore } from "@/lib/storage";
 import { bindTargets, brakeState, pageSend, tellCues } from "./brake";
 import { ENTRY_GEMAS, RAILCAR_PROGRAM_ID, bindBrakeIx, brakeSeatPda, carPda, checkDepartureIx, commitTableIx, configPda, decodeBrakeSeat, decodeCarAccount, decodeConfig, decodeTable, jumpIx, openCarIx, signalIx, startRideIx, tablePda, tickIx, type BrakeSeatView, type RailcarConfigView, type TableView } from "./chain";
-import { backerSeatedIn, boardingEntry, stepOffFor, type BoardingBacking } from "./boarding";
+import { backerSeatedIn, boardingEntry, type BoardingBacking } from "./boarding";
+import { stepOffFor } from "./step-off";
 import { finishRide } from "./finish";
 import { mayFinish, nextRideStep, queueChoice, signalIntervalMs, watchedRide } from "./flow";
 import type { RailcarWatch } from "./RailcarScreen";
@@ -320,7 +321,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
       case "finalize":
       case "settle":
       case "close":
-        if (send && me && (!ride || mayFinish(ride, me) || step.kind !== "finalize")) run(() => finishFromPage(send, car, snap.base));
+        if (send && me && (!ride || mayFinish(ride, me) || step.kind !== "finalize")) run(() => finishFromPage(send, car, snap.base, me));
         return;
       case "done":
         if (meKey) remember(meKey, null);
@@ -562,7 +563,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
 }
 
 /** A share of the finish (finalize, room, chunks, closes) through the relayer, sized against the server's lookup tables. */
-async function finishFromPage(send: (ixs: TransactionInstruction[]) => Promise<string>, car: { carNo: bigint; match: PublicKey }, base: TableView | null): Promise<void> {
+async function finishFromPage(send: (ixs: TransactionInstruction[]) => Promise<string>, car: { carNo: bigint; match: PublicKey }, base: TableView | null, mine: PublicKey): Promise<void> {
   const status = await sponsorStatus();
   const conn = getChain().base;
   const relayer = new PublicKey(status.relayer);
@@ -575,8 +576,11 @@ async function finishFromPage(send: (ixs: TransactionInstruction[]) => Promise<s
     match: car.match,
     committed: async () => !!base && base.carNo === car.carNo && base.phase === "over",
     fits: (ix) => fits(relayer, [ix], { units: 1_000_000, tables }),
+    fitsTx: (ixs) => fits(relayer, ixs, { units: 1_000_000, tables }),
+    mine,
     simulate: (ix) => simulatedUnits(conn, relayer, [ix], { units: 1_000_000, tables }),
     send: (ixs) => send(ixs),
     maxSends: FINISH_PER_POLL,
+    now: Math.floor(Date.now() / 1000),
   });
 }

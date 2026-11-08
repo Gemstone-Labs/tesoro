@@ -7,7 +7,7 @@ import { TRADING_DUEL_PROGRAM_ID, canFinalizeTable as duelCanFinalize } from "..
 import { VANGUARD_PROGRAM_ID } from "../../app/src/games/vanguard/chain.ts";
 import { canFinalizeTable as vanguardCanFinalize } from "../../app/src/games/vanguard/chain.ts";
 import { finishMatch, type FinishDeps, type Planned, type Progress } from "../../app/src/lib/chain/finish-match.ts";
-import { CHUNK_STEPS, CHUNK_UNITS, closeIx, connReader, loadMatch, missingCutPages, planSizedChunk, runOf, sourcesAhead, viewOf, type MatchView } from "../../app/src/lib/chain/settle-plan.ts";
+import { CHUNK_STEPS, CHUNK_UNITS, closeIx, connReader, loadMatch, missingCutPages, planSizedChunk, runOf, simulatedUnits, sourcesAhead, viewOf, type MatchView } from "../../app/src/lib/chain/settle-plan.ts";
 import { act, finalizeOrRaced, log, type Ctx } from "./act.ts";
 import { makeScanRpc, scanProgramAccounts, type ScanRpc } from "./credits.ts";
 import { CORE_ID, bookOf } from "./kit.ts";
@@ -20,7 +20,7 @@ import { Deferred, SLICE_LEN, anyHeadOf, carHeadAt, headOf, type Head, type Swee
 import { RAILCAR_PROGRAM_ID } from "../../app/src/games/railcar/chain.ts";
 import { decodeCar } from "../../app/src/lib/chain/many-seat.ts";
 import { finishCarOf, railcarRideStep, rideProgress } from "./railcar-sweep.ts";
-import { compile, fits, lookupTables, sendIxs } from "./send.ts";
+import { fits, lookupTables, sendIxs } from "./send.ts";
 
 /** The chain of each Game the sweep can finalize: its Assignment, base's committed copy of the Table, and `finalize`. */
 function gameOf(ctx: Ctx, game: PublicKey) {
@@ -80,16 +80,7 @@ export function finishDeps(ctx: Ctx, subject: (address: PublicKey) => string): F
           read,
           caller,
           fitsOne: (ix) => fits(caller, [ix], opts),
-          simulate: async (ix: TransactionInstruction) => {
-            try {
-              const { blockhash } = await ctx.conn.getLatestBlockhash();
-              const tx = compile(caller, blockhash, [ix], opts);
-              tx.sign([ctx.payer]);
-              return (await ctx.conn.simulateTransaction(tx, { sigVerify: false })).value.unitsConsumed ?? null;
-            } catch {
-              return null;
-            }
-          },
+          simulate: (ix: TransactionInstruction) => simulatedUnits(ctx.conn, caller, [ix], opts),
         },
         loaded,
       );

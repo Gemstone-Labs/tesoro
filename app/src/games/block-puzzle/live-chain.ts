@@ -21,7 +21,7 @@
  * Privacy: `readOwnBoard` works only for the Player's own Board; every other read of a hidden account returns `null`
  * (indistinguishable from "does not exist"), never an RPC error. The Vault is not readable by anyone.
  */
-import { settledPda } from "../../lib/chain/basket";
+import { TESORO_CORE, settledPda } from "../../lib/chain/basket";
 import { u64 } from "../../lib/chain/native";
 import * as anchor from "@coral-xyz/anchor";
 import { ComputeBudgetProgram, Connection, Keypair, PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
@@ -38,7 +38,7 @@ import { beginSettled, receiptMetas } from "../../lib/chain/table-clean";
 export { keypairSigner, type PlayerSigner };
 
 export const BLOCK_BURST_PROGRAM_ID = new PublicKey("5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj");
-export const TESORO_CORE_PROGRAM_ID = new PublicKey("AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh");
+export const TESORO_CORE_PROGRAM_ID = TESORO_CORE;
 
 /** The browser base-layer connection, built only when a client is made without one (the keeper and server pass theirs). */
 export const defaultBaseConnection = () => new Connection(baseRpc(process.env.NEXT_PUBLIC_SOLANA_RPC), "confirmed");

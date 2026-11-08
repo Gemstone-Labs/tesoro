@@ -21,7 +21,7 @@
  * hidden account returns `null` (indistinguishable from "does not exist"), never an RPC error.
  */
 import type { Holdem } from "../../lib/chain/idl/holdem.types";
-import { settledPda } from "../../lib/chain/basket";
+import { TESORO_CORE, settledPda } from "../../lib/chain/basket";
 import { u64 } from "../../lib/chain/native";
 import * as anchor from "@coral-xyz/anchor";
 import {
@@ -46,7 +46,7 @@ import { baseRpc } from "../../lib/chain/rpc-config";
 import { beginSettled, receiptMetas } from "../../lib/chain/table-clean";
 
 export const HOLDEM_PROGRAM_ID = new PublicKey("CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE");
-export const TESORO_CORE_PROGRAM_ID = new PublicKey("AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh");
+export const TESORO_CORE_PROGRAM_ID = TESORO_CORE;
 
 /** The browser base-layer connection, built only when a client is made without one (the keeper and server pass theirs; mainnet has no default RPC). */
 export const defaultBaseConnection = () => new Connection(baseRpc(process.env.NEXT_PUBLIC_SOLANA_RPC), "confirmed");

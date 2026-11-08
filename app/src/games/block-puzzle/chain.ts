@@ -4,7 +4,7 @@
  */
 import { onlyCurrentLayouts } from "../../lib/chain/account-sizes";
 import { matchAddressOf } from "../../lib/chain/match-id";
-import { settledPda } from "../../lib/chain/basket";
+import { TESORO_CORE, settledPda } from "../../lib/chain/basket";
 import { protectionsPda } from "../../lib/chain/native";
 import { gameAccounts, gameRecordPda } from "../../lib/chain/game-record";
 import { checkLegacy } from "../../lib/chain/tx-size";
@@ -25,7 +25,7 @@ import { TxFailedError, TxUnconfirmedError, txOutcome, type TxOutcome } from "./
 
 export { TxFailedError, TxUnconfirmedError, type TxOutcome };
 
-export const TESORO_CORE_PROGRAM_ID = new PublicKey("AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh");
+export const TESORO_CORE_PROGRAM_ID = TESORO_CORE;
 export const BLOCK_PUZZLE_PROGRAM_ID = new PublicKey("5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj");
 export const TEE_RPC = MAGICBLOCK.teeRpc;
 export const TEE_WS = MAGICBLOCK.teeWs;

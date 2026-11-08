@@ -1,15 +1,12 @@
 /**
- * Boarding and stepping off a Railcar seat, as the page and the tests build them: whose Gemas the entry draws (the
- * Player's, or a Backer's under an accepted Offer), whether the Offer's Backer is already in the car, and the step-off
- * with the accounts its lines need to go home. Reads only; the hook sends.
+ * Boarding a Railcar seat, as the page and the tests build it: whose Gemas the entry draws (the Player's, or a Backer's
+ * under an accepted Offer) and whether the Offer's Backer is already in the car. The step-off is in step-off.ts. Reads
+ * only; the hook sends.
  */
-import type { AccountMeta, Connection, PublicKey, TransactionInstruction } from "@solana/web3.js";
-import { basketPda, spillPda, sponsorPda } from "../../lib/chain/basket";
+import type { Connection, PublicKey } from "@solana/web3.js";
 import { previewEntry, readEntryStores, type EntryPreview } from "../../lib/chain/entry";
-import { decodeSeatMark, seatMarkPda, stepOffIx, type SeatView } from "../../lib/chain/many-seat";
-import type { LoadedCar } from "../../lib/chain/many-seat-plan";
-import { decodeTicketHead } from "../../lib/chain/pot-store";
-import { supplySources, type Reader } from "../../lib/chain/settle-plan";
+import { seatMarkPda } from "../../lib/chain/many-seat";
+import type { Reader } from "../../lib/chain/settle-plan";
 import { ENTRY_GEMAS } from "./chain";
 
 /** An accepted Offer the Player boards with: the Backer's Account funds the entry, staged in the Offer's Backing Ticket. */
@@ -37,17 +34,3 @@ export async function backerSeatedIn(read: Reader, car: PublicKey, backer: Publi
   return !!mark;
 }
 
-type Core = Parameters<typeof supplySources>[0];
-
-/**
- * `step_off_many_seat_match` for a seat, with what its lines need to go home: the funder's stores (the Backer's for a
- * backed seat) and the books of the lines' Sources.
- */
-export async function stepOffFor(core: Core, read: Reader, a: { caller: PublicKey; loaded: LoadedCar; seat: SeatView }): Promise<TransactionInstruction> {
-  const car = a.loaded.car.address;
-  const [mark, pot, sponsor] = await read.many([seatMarkPda(car, a.seat.player), a.seat.pot, sponsorPda()]);
-  if (!mark || !pot) throw new Error("Your seat could not be read. Try again.");
-  const books = await supplySources(core, read, (a.loaded.lines[a.seat.index] ?? []).map((l) => ({ source: l.source, cut: false })));
-  const stores: AccountMeta[] = [basketPda(a.seat.funder), spillPda(a.seat.funder)].map((k) => ({ pubkey: k, isSigner: false, isWritable: true }));
-  return stepOffIx({ caller: a.caller, car, seat: a.seat, markPayer: decodeSeatMark(mark.data).payer, potPayer: decodeTicketHead(pot.data).payer, sponsor: !!sponsor, remaining: [...stores, ...books.metas] });
-}

@@ -202,7 +202,7 @@ describe("many-seat instructions name the accounts the program checks", () => {
   const spec = (name: string) => (idl as unknown as { instructions: { name: string; accounts: { name: string }[] }[] }).instructions.find((i) => i.name === name)!;
   const named = (ix: { keys: { pubkey: PublicKey; isWritable: boolean; isSigner: boolean }[] }, name: string) => Object.fromEntries(spec(name).accounts.map((a, i) => [a.name, ix.keys[i].pubkey.equals(TESORO_CORE) ? null : ix.keys[i].pubkey]));
   const car = key();
-  const seatOf = (o: Partial<SeatView>): SeatView => ({ index: 12, seated: true, shareBps: 0, placeBps: 0, place: 0, potLines: 1, hold: 0, refund: 0n, player: key(), funder: key(), pot: key(), signer: null, ...o });
+  const seatOf = (o: Partial<SeatView>): SeatView => ({ index: 12, seated: true, shareBps: 0, placeBps: 0, place: 0, potLines: 1, hold: 0, refund: 0n, player: key(), funder: key(), pot: key(), signer: key(), ...o });
 
   it("a backed seat's step-off and close pass the Backer's mark; an unbacked one does not", () => {
     const ana = key();

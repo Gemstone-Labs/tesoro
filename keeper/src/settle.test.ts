@@ -6,7 +6,7 @@ import { Budget, type Ctx } from "./act.ts";
 import { accountBytes, bookBytes, ixNameOf, potBytes, storeBytes, ticketBytes, zeroOf } from "./fixtures.ts";
 import { OVERFLOW_MATCH, POT_AT, basketOf, bookOf, ckptOf, countersOf, decodeStore, matchOverflowId, overflowAddress, spillOf } from "./kit.ts";
 import { loadIdl } from "./runtime.ts";
-import { CHUNK_CU_TARGET, closeRemaining, driveMatch, fullAccounts, planChunk, planSizedChunk, viewOf, type Deps, type MatchView } from "./settle.ts";
+import { CHUNK_CU_TARGET, closeRemaining, driveMatch, fullAccounts, planChunk, planSizedChunk, realDeps, viewOf, type Deps, type MatchView } from "./settle.ts";
 import type { Info, Reader } from "./supply.ts";
 
 const core = new anchor.Program(loadIdl("tesoro_core"), new anchor.AnchorProvider(new Connection("http://127.0.0.1:1"), new anchor.Wallet(Keypair.generate()), {}));
@@ -235,5 +235,18 @@ describe("driving a Match", () => {
     const { d, sent } = deps({ next: [], reports: [], accounts });
     assert.equal(await driveMatch(ctxOf(), await matchView({ stage: { active: {} } }), d), 0);
     assert.deepEqual(sent, []);
+  });
+});
+
+describe("sizing a chunk by simulation", () => {
+  it("a simulation that failed is unknown, never a fit, whatever units it reports", async () => {
+    const payer = Keypair.generate();
+    let result: { err: unknown; unitsConsumed?: number } = { err: { InstructionError: [1, { Custom: 6000 }] }, unitsConsumed: 4_200 };
+    const conn = { getLatestBlockhash: async () => ({ blockhash: "11111111111111111111111111111111", lastValidBlockHeight: 0 }), simulateTransaction: async () => ({ context: { slot: 0 }, value: result }) } as unknown as Connection;
+    const deps = realDeps({ conn, payer } as unknown as Ctx);
+    const ix = new anchor.web3.TransactionInstruction({ programId: Keypair.generate().publicKey, keys: [], data: Buffer.alloc(8) });
+    assert.equal(await deps.simulate!([ix], { units: 300_000 }), null);
+    result = { err: null, unitsConsumed: 98_000 };
+    assert.equal(await deps.simulate!([ix], { units: 300_000 }), 98_000);
   });
 });
