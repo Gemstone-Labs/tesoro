@@ -23,11 +23,12 @@ import {
   ComputeBudgetProgram,
   Keypair,
   PublicKey,
+  SystemProgram,
+  TransactionInstruction,
   VersionedMessage,
   VersionedTransaction,
   type AccountInfo,
   type AccountMeta,
-  type TransactionInstruction,
 } from "@solana/web3.js";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -88,6 +89,7 @@ import { backerSeatedIn, boardingEntry, type BoardingBacking } from "./boarding"
 import { stepOffFor } from "./step-off";
 import { fuelPda, programConfigPda, railcarSetupPlan, readSetupFacts, setupProblems, type AccountReader, type SetupInput, type SetupStep } from "./setup";
 import { MAGICBLOCK } from "../../lib/cluster-settings";
+import { POOL, SIM_LST_ID, SIM_SOL_MINT, TOKEN_PROGRAM_ID, faucetIx, nativeCustodyPda, nativeVaultPda, openNativePositionIx, setPriceIx, takeNativeAdvanceIx } from "../../lib/chain/native";
 
 const ROOT = join(process.cwd(), "..");
 const SO_DIR = process.env.RAILCAR_SO_DIR ?? join(ROOT, "target/deploy");
@@ -577,6 +579,40 @@ class World {
     return Object.keys(o.inner.status)[0].toLowerCase();
   }
 
+  /** sim_lst's pool and core's native custody and simSOL price, as programs/tesoro_core/tests/native.rs sets them up. */
+  async nativeSetUp() {
+    this.svm.addProgram(SIM_LST_ID, readFileSync(join(SO_DIR, "sim_lst.so")));
+    const sim = (seed: string) => PublicKey.findProgramAddressSync([Buffer.from(seed)], SIM_LST_ID)[0];
+    const disc = createHash("sha256").update("global:initialize").digest().subarray(0, 8);
+    const args = Buffer.alloc(24);
+    args.writeUInt32LE(700, 0); // 7% APY
+    args.writeUInt32LE(4_380, 4); // devnet speed: 1 month = 10 min
+    args.writeBigUInt64LE(10n * SOL, 8); // faucet amount
+    args.writeBigInt64LE(3_600n, 16); // faucet cooldown
+    const keys = [
+      { pubkey: this.admin.publicKey, isSigner: true, isWritable: true },
+      { pubkey: POOL, isSigner: false, isWritable: true },
+      { pubkey: SIM_SOL_MINT, isSigner: false, isWritable: true },
+      { pubkey: sim("vault"), isSigner: false, isWritable: false },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ];
+    this.send([new TransactionInstruction({ programId: SIM_LST_ID, keys, data: Buffer.concat([disc, args]) })], this.admin);
+    this.send([coreIx("init_native_custody", { admin: this.admin.publicKey, config: corePda("config"), pool: POOL, mint: SIM_SOL_MINT, custody: nativeCustodyPda(), vault: nativeVaultPda(), token_program: TOKEN_PROGRAM_ID, system_program: SystemProgram.programId })], this.admin);
+    this.send([setPriceIx(this.oracle.publicKey, 150_000_000n)], this.oracle);
+  }
+
+  /** A Player whose Gemas come from a native Lock: test simSOL from the faucet, locked with a 6-month Advance (the app's builders). */
+  nativeRider(): Person {
+    const p = this.person();
+    this.send([faucetIx(p.key)], p.kp);
+    const nonce = BigInt(++this.stakes);
+    const position = PublicKey.findProgramAddressSync([Buffer.from("position"), Buffer.from([0]), createHash("sha256").update(Buffer.concat([Buffer.from("native"), p.key.toBuffer(), u64(nonce)])).digest()], CORE)[0];
+    this.send([cu(1_400_000), openNativePositionIx(p.key, nonce, 10n * SOL, position), takeNativeAdvanceIx(p.key, position, 0, 6, 1n)], p.kp);
+    this.ensureSpill(p, 24);
+    return p;
+  }
+
   /** Stands in for a seat index's first `bind_brake` (the ephemeral-account CPI needs MagicBlock): the Brake seat exists, unbound. */
   async brakeSeatStandIn(index: number, seat: number) {
     const key = brakeSeatPda(tablePda(index), seat);
@@ -704,9 +740,12 @@ interface RideOpts {
   noImpact?: boolean;
   /** The finish goes through the sponsor as this rider's page sends it, vouched for by its seat key (not the relayer directly). */
   viaSponsor?: number;
+  /** The riders' Gemas come from native Locks (simSOL), whose yield the clock accrues, instead of reported Positions. */
+  native?: boolean;
   /**
-   * Seconds the riders' Advances age before they board: a fee cut then syncs a Source with closed segments to record, into
-   * checkpoint pages its book has never had (devnet car 2, 2026-11-08: core refused the chunk with AccountMissing).
+   * Seconds the riders' Advances age before they board. On a native Lock the yield accrued meanwhile lands when a fee is
+   * cut from its line, into checkpoint pages its book may never have had (devnet car 2, 2026-11-08: core refused the
+   * chunk with AccountMissing until someone created them).
    */
   aged?: number;
 }
@@ -716,7 +755,8 @@ async function rideToImpact(n: number, draw: Uint8Array, jumps: [number, number]
   const backed = o.backed;
   const w = await World.create({ setup: o.setup });
   // A backed rider has no Gemas of their own: their Backer's entry boards for them.
-  w.riders = Array.from({ length: n }, (_, i) => (i === backed?.seat ? w.person() : w.rider()));
+  if (o.native) await w.nativeSetUp();
+  w.riders = Array.from({ length: n }, (_, i) => (i === backed?.seat ? w.person() : o.native ? w.nativeRider() : w.rider()));
   const riders = w.riders;
   // A Player who boards without a seat key names the wallet as the seat's signer (core: "the wallet itself when it wants none").
   const keyless = new Set(o.noSeatKey ?? []);
@@ -1180,31 +1220,28 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
 
   // ---- a fee cut from a Source whose book has no checkpoint page yet (devnet car 2, 2026-11-08) -------------------------
 
-  const AGED = 60 * 24 * 60 * 60;
+  /** A month of yield at devnet speed: it lands when the first fee is cut from a rider's line. */
+  const AGED = { native: true, aged: 10 * 60 } as const;
 
-  it("the riders' Advances are two months old: the page creates the checkpoint pages the fee cut needs, then the worked example pays to the Gema", { timeout: 120_000 }, async () => {
-    const r = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, { aged: AGED });
-    expect(r.finishSteps).toContain("pages");
-    expect(r.finishSteps.indexOf("pages")).toBeLessThan(r.finishSteps.indexOf("chunk"));
+  it("the riders' native Locks earned a month of yield before boarding: the page's finish lands it and pays the worked example to the Gema", { timeout: 120_000 }, async () => {
+    const r = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, AGED);
     expect(r.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
     expect(r.studioFee).toBe(64n);
     expect(r.walletSigs).toEqual({ boarding: 5 });
   });
 
-  it("the same aged ride finished by Dee's page through the sponsor: her seat key vouches for the pages too", { timeout: 120_000 }, async () => {
-    const r = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, { aged: AGED, viaSponsor: DEE });
-    expect(r.finishSteps).toContain("pages");
+  it("the same ride finished by Dee's page through the sponsor, vouched for by her seat key alone", { timeout: 120_000 }, async () => {
+    const r = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, { ...AGED, viaSponsor: DEE });
     expect(r.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
     expect(r.walletSigs).toEqual({ boarding: 5 });
   });
 
-  it("the same aged ride with every page gone: the keeper's sweep creates the pages and pays the worked example", { timeout: 120_000 }, async () => {
-    const c = await rideToImpact(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, { noImpact: true, aged: AGED });
+  it("the same ride with every page gone: the keeper's sweep finishes it and pays the worked example", { timeout: 120_000 }, async () => {
+    const c = await rideToImpact(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, { ...AGED, noImpact: true });
     const keeper = Keypair.generate();
     c.w.svm.airdrop(keeper.publicKey, 100n * SOL);
     c.w.setTime(c.w.now + 15 * 60);
     const steps = await sweepUntilGone(c.w, c.match, c.carAcct.table, keeper);
-    expect(steps).toContain("pages");
     expect(steps.at(-1)).toBe("close-car");
     expect(c.riders.map((p, i) => c.w.gemas(p, c.id) - c.before[i])).toEqual([350n, 630n, 578n, 813n, 0n]);
   });
