@@ -792,7 +792,7 @@ const GAMES = {
         pad: { phone: 20, desktop: 40 },
         act: async (page, info) => {
           const m = marks(page, info);
-          const mine = m.at(300, tag(".hd-cards|last", "Your cards", "above", { ring: "rect", pad: 5, gap: 14 }), 1900);
+          const mine = m.at(300, tag(".hd-cards|last", "Your cards", "above", { ring: "rect", pad: 5, gap: 14 }), 3200);
           const start = Date.now();
           while ((await hdBoardCards(page)) < 3 && Date.now() - start < 14000) {
             const pass = page.locator(".hdx-btn", { hasText: /^(Call|Check)/ });
@@ -926,7 +926,7 @@ const GAMES = {
         maxSecs: 11,
         act: async (page, info) => {
           const m = marks(page, info);
-          const box = m.at(200, tag('[data-htp="pick"]', "Your box", "above", { ring: "rect", pad: 4, gap: 12 }), 2400);
+          const box = m.at(200, tag('[data-htp="pick"]', "Your box", "above", { ring: "rect", pad: 4, gap: 12 }), 4600);
           await tdUntil(page, 38);
           const points = m.at(0, { kind: "label", target: ".tg-score|first", text: "+100", side: "below", gap: 14, emerald: true }, 2200);
           await tdUntil(page, 42);
@@ -1019,7 +1019,7 @@ const GAMES = {
           const to = await page.__win.boundingBox();
           const spot = { x: to.x, y: to.y, w: to.width, h: to.height };
           const ring = await m.add(tag(".vg-piece.us.sel", mine ? `Your ${mine}` : "Your piece", "above", { ring: "circle", pad: 4, gap: 12 })[0]);
-          const label = await m.add({ kind: "label", target: ".vg-piece.us.sel", text: mine ? `Your ${mine}` : "Your piece", side: "above", gap: 12 });
+          const label = await m.add({ kind: "label", target: ".vg-piece.us.sel", text: mine ? `Your ${mine}` : "Your piece", side: "above", gap: 12, px: 9 });
           await sleep(1100);
           const arrow = await m.add({ kind: "arrow", target: ".vg-piece.us.sel", to: spot });
           await sleep(500);
@@ -1029,13 +1029,22 @@ const GAMES = {
           await m.remove(label);
           await sleep(1300);
           const lost = await page.evaluate(() => [...document.querySelectorAll(".vg-piece.it.gone")].map((e) => e.getAttribute("aria-label")?.match(/^Italian (\d+|B|F) /)?.[1]).filter(Boolean).at(-1) ?? null);
-          await m.show({ kind: "label", target: spot, text: lost ? `${lost} revealed` : "Lower rank", side: "above", gap: 12 }, 1300);
-          await m.show({ kind: "label", target: spot, text: mine ? `${mine} wins` : "You win", side: "below", gap: 12 }, 1300);
+          await m.show({ kind: "label", target: spot, text: lost ? `${lost} revealed` : "Lower rank", side: "below", gap: 8, px: 9 }, 1300);
+          await m.show({ kind: "label", target: spot, text: mine ? `${mine} wins` : "You win", side: "below", gap: 8, px: 9 }, 1300);
           return (await vgEnemies(page)).length === enemies - 1;
         },
         // close on the clash: the attacker and its target, with a few squares round them
         focus: [".vg-piece.us.sel", ".vg-mark.atk"],
         pad: { phone: 95, desktop: 190 },
+        // wide for the setup, then in to about 3 squares across for the clash (each piece a quarter of the frame), then back out
+        camera: {
+          keys: [
+            { focus: [".vg-piece.us.sel", ".vg-mark.atk"], pad: { phone: 95, desktop: 190 }, at: 0.0 },
+            { focus: [".vg-piece.us.sel", ".vg-mark.atk"], pad: { phone: 8, desktop: 0 }, at: 0.2 },
+            { focus: [".vg-piece.us.sel", ".vg-mark.atk"], pad: { phone: 8, desktop: 0 }, at: 0.78 },
+            { focus: [".vg-piece.us.sel", ".vg-mark.atk"], pad: { phone: 95, desktop: 190 }, at: 0.95 },
+          ],
+        },
         speed: 0.75,
         reseed: true,
         poster: 0.75,
