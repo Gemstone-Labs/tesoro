@@ -14,6 +14,7 @@ import { createHash } from "node:crypto";
 import { TESORO_CORE } from "../../lib/chain/basket";
 import { coreIx, coreIxName, idlIxBuilder } from "../../lib/chain/core-ix";
 import coreIdl from "../../lib/chain/idl/tesoro_core.json";
+import { rdU64, u64 } from "../../lib/chain/native";
 import railcarIdl from "../../lib/chain/idl/railcar.json";
 import { RAILCAR_PROGRAM_ID, authorityPda, configPda, decodeConfig, railcarIx, sponsorPda, tablePda, vaultPda } from "./chain";
 
@@ -72,8 +73,6 @@ const delegationAccounts = (account: PublicKey, name: string) => ({
  * one naming only the TEE validator.
  */
 export function whitelistValidatorIx(authority: PublicKey, validator: PublicKey, program = RAILCAR_PROGRAM_ID, insert = true): TransactionInstruction {
-  const disc = Buffer.alloc(8);
-  disc.writeBigUInt64LE(8n);
   return new TransactionInstruction({
     programId: DELEGATION_PROGRAM_ID,
     keys: [
@@ -85,7 +84,7 @@ export function whitelistValidatorIx(authority: PublicKey, validator: PublicKey,
       { pubkey: programConfigPda(program), isSigner: false, isWritable: true },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
-    data: Buffer.concat([disc, Buffer.from([insert ? 1 : 0])]),
+    data: Buffer.concat([u64(8n), Buffer.from([insert ? 1 : 0])]),
   });
 }
 
@@ -107,7 +106,7 @@ export function codeHash(programData: Uint8Array): Buffer {
 /** The upgrade authority and deploy slot in a ProgramData account. */
 export function programDataView(data: Uint8Array): { slot: bigint; authority: PublicKey | null } {
   const b = Buffer.from(data);
-  return { slot: b.readBigUInt64LE(4), authority: b[12] === 1 ? new PublicKey(b.subarray(13, 45)) : null };
+  return { slot: rdU64(b, 4), authority: b[12] === 1 ? new PublicKey(b.subarray(13, 45)) : null };
 }
 
 export const registerGameIx = (payer: PublicKey, control: PublicKey, studioAccount: PublicKey, studioBps: number) =>
