@@ -19,10 +19,11 @@ import "./railcar.css";
 export { clock };
 const g = (v: bigint) => Number(v);
 
-export const TELLS: { name: string; Icon: LucideIcon }[] = [
-  { name: "Screws", Icon: CircleMinus },
-  { name: "Panel", Icon: Hexagon },
-  { name: "Sparks", Icon: Zap },
+/** The Tells: the line icon (history) and the picked image (`public/art/final/railcar/tell-*.webp`) the chips show. */
+export const TELLS: { name: string; Icon: LucideIcon; art: string }[] = [
+  { name: "Screws", Icon: CircleMinus, art: "/art/final/railcar/tell-screws.webp" },
+  { name: "Panel", Icon: Hexagon, art: "/art/final/railcar/tell-panel.webp" },
+  { name: "Sparks", Icon: Zap, art: "/art/final/railcar/tell-sparks.webp" },
 ];
 
 export interface RailcarActions {
@@ -133,9 +134,10 @@ function RailcarBody({
               {clock(view.clockMs)}
             </p>
             <ol className="rc-tells" aria-label="Tells">
-              {TELLS.map(({ name, Icon }, i) => (
+              {TELLS.map(({ name, art }, i) => (
                 <li key={name} className={`cut cut-chip rc-tell${view.tell > i ? " on" : ""}`} aria-current={view.tell === i + 1 ? "step" : undefined}>
-                  <Icon aria-hidden="true" />
+                  {/* eslint-disable-next-line @next/next/no-img-element -- small picked image, 2x file */}
+                  <img src={art} alt="" width={34} height={34} draggable={false} />
                   {name}
                 </li>
               ))}

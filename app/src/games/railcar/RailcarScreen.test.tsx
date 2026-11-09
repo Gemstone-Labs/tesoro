@@ -108,6 +108,14 @@ describe("staging round 1: what the screen no longer says", () => {
   });
 });
 
+describe("the active Brake outline", () => {
+  it("is the cut edge (--edge), not a rectangular shadow the clip-path would cut off", () => {
+    const css = readFileSync(new URL("./railcar.css", import.meta.url), "utf8");
+    expect(css).toMatch(/\.rc-brake\.on \.btn \{ --edge: var\(--edge-em\)/);
+    expect(css).not.toMatch(/\.rc-brake[^{]*\{[^}]*box-shadow/);
+  });
+});
+
 describe("my secret Brake", () => {
   const facts: BrakeFacts = { aboard: true, allBound: true, myBound: true, canSign: true, walletCopied: true, pressMs: null, pending: false, rideMs: 72_000 };
   const button = (h: string) => text(h.match(/<div class="rc-brake[^"]*">.*?<\/div>/)?.[0] ?? "");

@@ -15,14 +15,14 @@ const WHEEL_Y = 305;
 /** The window the Player always sits in: the last seat, nearest the back of the car (the car rolls right, so the back is the left end). */
 export const MY_WINDOW = 0;
 
-/** Which rider each car window shows: the Player in the last seat at the back, the others aboard in seat order from the front. */
+/** Which rider each car window shows: the Player in the last seat at the back (the leftmost window), the others aboard in boarding order left to right after them. */
 export function windowRiders(riders: Rider[]): (Rider | null)[] {
   const out: (Rider | null)[] = Array(WINDOW_X.length).fill(null);
   const me = riders.find((r) => r.me);
   if (me) out[MY_WINDOW] = me;
   const others = riders.filter((r) => !r.me);
   let k = 0;
-  for (let w = WINDOW_X.length - 1; w >= 0 && k < others.length; w--) if (!out[w]) out[w] = others[k++];
+  for (let w = 0; w < WINDOW_X.length && k < others.length; w++) if (!out[w]) out[w] = others[k++];
   return out;
 }
 
@@ -34,9 +34,16 @@ export type DamageStage = (typeof DAMAGE_STAGES)[number];
  * Art hook for the Tells on the train: a transparent overlay per stage, the same size and frame as `car.webp` (1068 × 351), drawn
  * over the car in place of the basic visual. Leave a stage out to keep its basic visual.
  */
-export const DAMAGE_ART: Partial<Record<DamageStage, string>> = {};
-/** Art hook for the crash: an overlay drawn over the stage while the car hits the wall, in place of the basic flash and debris. */
-export const CRASH_ART: string | null = null;
+export const DAMAGE_ART: Partial<Record<DamageStage, string>> = {
+  screws: `${ART}/damage-screws.webp`,
+  panel: `${ART}/damage-panel.webp`,
+  sparks: `${ART}/damage-sparks.webp`,
+};
+/**
+ * Art hook for the crash: frames registered to the car (1068 x 351), played in order over the crash hold (flash, crumpled
+ * front with debris, smoke) in place of the basic flash and debris. An empty list keeps the basic visual.
+ */
+export const CRASH_ART: string[] = [1, 2, 3].map((i) => `${ART}/crash-f${i}.webp`);
 
 const reduced = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -113,15 +120,17 @@ export function RailcarStage({ aboard, moving, slow = false, tell = 0, crash = f
             {r && <PlayerAvatar account={r.account} size={56} />}
           </span>
         ))}
+        {/* the sparks fly from under the wheels: drawn before them */}
+        <CarDamage tell={tell} stages={["sparks"]} />
         {WHEEL_X.map((x) => (
           <span key={x} className="rc-wheel" style={{ left: `${(x / CAR_W) * 100}%`, top: `${(WHEEL_Y / CAR_H) * 100}%`, backgroundImage: `url(${ART}/wheel.webp)` }} />
         ))}
-        <CarDamage tell={tell} />
+        <CarDamage tell={tell} stages={["screws", "panel"]} />
         {leaps.map((l) => (
           <LeapOff key={l.id} leap={l} onDone={() => setLeaps((all) => all.filter((x) => x.id !== l.id))} />
         ))}
+        {crash && <CrashMoment />}
       </div>
-      {crash && <CrashMoment />}
     </div>
   );
 }
@@ -136,11 +145,11 @@ const PANEL = { x: 575, y: 208, w: 120, h: 36 };
  * the frame, a panel hanging loose, sparks at the wheels). `tell` is how many stages have fired (`view.tell`). Each stage is
  * one element in the car's frame, so the basic visual swaps for an image overlay through `DAMAGE_ART` without touching the rest.
  */
-export function CarDamage({ tell, art = DAMAGE_ART }: { tell: number; art?: Partial<Record<DamageStage, string>> }) {
+export function CarDamage({ tell, art = DAMAGE_ART, stages = DAMAGE_STAGES }: { tell: number; art?: Partial<Record<DamageStage, string>>; stages?: readonly DamageStage[] }) {
   return (
     <>
       {DAMAGE_STAGES.map((stage, i) => {
-        if (tell <= i) return null;
+        if (tell <= i || !stages.includes(stage)) return null;
         const overlay = art[stage];
         if (overlay) {
           return (
@@ -164,15 +173,18 @@ export function CarDamage({ tell, art = DAMAGE_ART }: { tell: number; art?: Part
 }
 
 /**
- * The crash: the car stops against the wall, the stage shakes, a flash and debris. Shown for `CRASH_MS` before the Result. The
- * picked art plugs in through `CRASH_ART` (an overlay over the whole stage); without it the basic flash and debris play.
+ * The crash: the car stops against the wall, the stage shakes, then the picked frames play in order over the car (flash,
+ * crumpled front with debris, smoke); `CRASH_ART` holds them. With no frames the basic flash and debris play. Reduced motion
+ * shows the middle frame only, faded in and out. Shown for `CRASH_MS` before the Result.
  */
-export function CrashMoment({ art = CRASH_ART }: { art?: string | null }) {
+export function CrashMoment({ art = CRASH_ART }: { art?: string[] }) {
   return (
     <div className="rc-crash" data-testid="rc-crash">
-      {art ? (
-        // eslint-disable-next-line @next/next/no-img-element -- art overlay, the stage's size
-        <img className="rc-crash-art" src={art} alt="" draggable={false} />
+      {art.length ? (
+        art.map((src, i) => (
+          // eslint-disable-next-line @next/next/no-img-element -- art frame, the car's size
+          <img key={src} className={`rc-crash-frame f${i + 1}${i === Math.floor(art.length / 2) ? " mid" : ""}`} data-frame={i + 1} src={src} alt="" draggable={false} />
+        ))
       ) : (
         <>
           <i className="rc-crash-flash" />
