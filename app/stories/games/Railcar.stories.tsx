@@ -4,6 +4,7 @@ import { isMuted, subscribeMuted } from "@/games/fx/sfx";
 import { brakeState, type BrakeFacts, type TellCue } from "@/games/railcar/brake";
 import { Button } from "@/components/ui";
 import { RailcarScreen, type RailcarBrake, type RailcarOffer, type RailcarWatch } from "@/games/railcar/RailcarScreen";
+import { RailcarStage } from "@/games/railcar/RailcarStage";
 import { RideHistory } from "@/games/railcar/RideHistory";
 import { playTells, railcarHaptics } from "@/games/railcar/tells";
 import * as fx from "@/games/railcar/fixtures";
@@ -85,6 +86,15 @@ function CrashCycle() {
   }, []);
   return <RailcarScreen view={over ? fx.workedResult() : withTell(fx.riding(), 3)} actions={actions} />;
 }
+
+/** The crash held on its impact (no timer): the car stopped, the shake, and the picked frames f1 flash, f2 crumpled front, f3 smoke play over the car in 1 s. */
+export const CrashImpact: StoryObj = {
+  render: () => (
+    <div className="rc" style={{ maxWidth: 640 }}>
+      <RailcarStage aboard={[]} moving={false} crash tell={3} />
+    </div>
+  ),
+};
 
 /** A Player watching a car they are not in. */
 export const RidingWatching = screen(fx.riding(null));

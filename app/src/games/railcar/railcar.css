@@ -26,10 +26,10 @@
 @keyframes rc-pulse { 50% { opacity: 0.35; } }
 .rc-clock { margin: 0; font: 800 44px / 1 var(--f-mono); letter-spacing: 0.02em; }
 .rc-tells { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; width: 100%; margin: 0; padding: 0; list-style: none; }
-.rc-tell { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 5px 4px; background: var(--raised); color: var(--fg-3); font: 700 var(--fs-12) / 1.2 var(--f-body); letter-spacing: 0.04em; text-transform: uppercase; transition: color 0.3s, background 0.3s; }
-.rc-tell svg { width: 16px; height: 16px; opacity: 0.5; }
+.rc-tell { display: flex; flex-direction: row; justify-content: center; align-items: center; gap: 6px; padding: 3px 6px; background: var(--raised); color: var(--fg-3); font: 700 var(--fs-12) / 1.2 var(--f-body); letter-spacing: 0.04em; text-transform: uppercase; transition: color 0.3s, background 0.3s; }
+.rc-tell img { flex: none; width: 34px; height: 34px; object-fit: contain; filter: grayscale(1); opacity: 0.4; transition: filter 0.3s, opacity 0.3s; }
 .rc-tell.on { background: var(--surface-2); color: var(--fg); --edge: var(--edge-2); }
-.rc-tell.on svg { opacity: 1; color: var(--warn); }
+.rc-tell.on img { filter: none; opacity: 1; }
 .rc-tell.on[aria-current="step"] { animation: rc-tell-pop 0.4s ease-out; }
 @keyframes rc-tell-pop { 50% { transform: scale(1.06); } }
 
@@ -78,7 +78,8 @@
 .rc-brake { flex: 0 0 112px; }
 .rc-brake .btn { min-height: 56px; flex-direction: column; gap: 0; }
 .rc-brake small { display: block; white-space: nowrap; font-size: var(--fs-11); color: var(--fg-2); }
-.rc-brake.on .btn { box-shadow: inset 0 0 0 2px var(--em); color: var(--em); }
+/* the active outline is the cut edge itself (it follows the bevels); a box-shadow is a rectangle the clip-path cuts off */
+.rc-brake.on .btn { --edge: var(--edge-em); color: var(--em); }
 .rc-brake.on small { color: var(--em); }
 .rc-brake-note { flex: 1 0 100%; margin: 0; font-size: var(--fs-12); color: var(--fg-2); }
 .rc-caption { flex-basis: 100%; margin: 0; text-align: center; color: var(--fg-2); font-size: var(--fs-13); display: inline-flex; justify-content: center; align-items: center; gap: 4px; }
@@ -163,6 +164,11 @@
 /* ——— The Tells on the train: each stays from the moment it fires. Art overlays (DAMAGE_ART) replace these basic visuals. ——— */
 .rc-dmg { position: absolute; inset: 0; pointer-events: none; }
 .rc-dmg-art { width: 100%; height: 100%; }
+.rc-dmg-art.rc-dmg-sparks { animation: rc-flick 0.16s steps(2, jump-none) infinite alternate; }
+.rc-dmg-art.rc-dmg-screws { transform-origin: 50% 60%; animation: rc-wobble 1.1s ease-in-out infinite alternate; }
+.rc-dmg-art.rc-dmg-panel { transform-origin: 50% 70%; animation: rc-wobble 1.4s ease-in-out infinite alternate-reverse; }
+@keyframes rc-flick { from { opacity: 1; translate: 0 0; } to { opacity: 0.78; translate: 1px 1px; } }
+@keyframes rc-wobble { from { rotate: -0.25deg; } to { rotate: 0.25deg; } }
 .rc-dmg-screws i { position: absolute; top: 55%; width: 1.1%; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #e8eef2, #7d8a93 70%); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5); translate: -50% -60%; rotate: 20deg; animation: rc-screw 0.45s cubic-bezier(0.2, 0.9, 0.3, 1) both; }
 .rc-dmg-screws i:nth-child(even) { translate: -50% -110%; rotate: -35deg; }
 @keyframes rc-screw { from { translate: -50% 0; opacity: 0; scale: 0.4; } 60% { opacity: 1; scale: 1.4; } }
@@ -177,11 +183,16 @@
 /* ——— The crash: the car stops against the wall, the stage shakes, a flash and debris, then the Result ——— */
 .rc-stage.crash { animation: rc-shake 0.5s linear 2 both; }
 @keyframes rc-shake { 0%, 100% { translate: 0 0; } 15% { translate: -7px 3px; } 30% { translate: 6px -4px; } 45% { translate: -5px -2px; } 60% { translate: 4px 3px; } 80% { translate: -2px 1px; } }
-.rc-crash { position: absolute; inset: 0; z-index: 5; pointer-events: none; overflow: hidden; }
-.rc-crash-art { width: 100%; height: 100%; object-fit: cover; animation: rc-crash-in 0.2s ease-out both; }
+.rc-crash { position: absolute; inset: 0; z-index: 5; pointer-events: none; }
+.rc-crash-frame { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; }
+.rc-crash-frame.f1 { animation: rc-f1 1s linear both; }
+.rc-crash-frame.f2 { animation: rc-f2 1s linear both; }
+.rc-crash-frame.f3 { animation: rc-f3 1s linear both; }
+@keyframes rc-f1 { 0% { opacity: 1; } 28% { opacity: 1; } 29%, 100% { opacity: 0; } }
+@keyframes rc-f2 { 0%, 28% { opacity: 0; } 29% { opacity: 1; } 62% { opacity: 1; } 63%, 100% { opacity: 0; } }
+@keyframes rc-f3 { 0%, 62% { opacity: 0; } 63% { opacity: 1; } 100% { opacity: 1; } }
 .rc-crash-flash { position: absolute; inset: 0; background: radial-gradient(60% 70% at 78% 55%, #fff 0%, rgba(255, 220, 160, 0.85) 35%, rgba(255, 140, 60, 0) 75%); animation: rc-flash 1s ease-out both; }
 @keyframes rc-flash { 0% { opacity: 0; } 12% { opacity: 1; } 100% { opacity: 0; } }
-@keyframes rc-crash-in { from { opacity: 0; } }
 .rc-crash-bit { position: absolute; left: 76%; top: 52%; width: 7px; height: 7px; background: #cfe3ee; clip-path: polygon(0 0, 100% 20%, 60% 100%); animation: rc-bit 0.9s cubic-bezier(0.1, 0.7, 0.4, 1) both; animation-delay: calc(var(--k) * 15ms); --a: calc(var(--k) * 51deg); }
 @keyframes rc-bit { from { transform: translate(0, 0) rotate(0); opacity: 1; } to { transform: translate(calc(cos(var(--a)) * 120px - 40px), calc(sin(var(--a)) * 80px + 60px)) rotate(540deg); opacity: 0; } }
 
@@ -191,6 +202,9 @@
   .rc-dmg i, .rc-dmg b { animation: none; }
   .rc-stage.crash { animation: none; }
   .rc-crash-bit { display: none; }
+  .rc-dmg-art { animation: none; }
+  .rc-crash-frame:not(.mid) { display: none; }
+  .rc-crash-frame.mid { animation: rc-fade 0.45s ease-out both; }
   .rc-crash-flash { animation: rc-fade 0.45s ease-out both; }
   @keyframes rc-fade { 0% { opacity: 0; } 40% { opacity: 0.7; } 100% { opacity: 0; } }
 }

@@ -19,8 +19,8 @@ export const art = {
   holdemTile: f("holdem-tile-2"),
   tradingDuelTile: f("trading-duel-tile-2"),
   vanguardTile: f("vanguard-tile-2"),
-  /** Railcar's tile: the round-2 railcar on its rails in the cave (art-source/railcar/round2), until Astra key art exists. */
-  railcarTile: f("railcar/tile"),
+  /** Railcar's tile: the railcar speeding toward you through the cave (art-source/railcar/round3/B1-b). A new file name, so the image cache drops the old one. */
+  railcarTile: f("railcar/tile-v2"),
   comingSoon: {
     "word-duel": f("coming-soon-word-duel"),
     "bubble-burst": f("coming-soon-bubble-burst"),

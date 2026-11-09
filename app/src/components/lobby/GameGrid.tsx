@@ -61,7 +61,7 @@ export function GameGrid() {
           return (
             <div key={g.key} className="game-cell">
               <Link href={g.href ?? `/play/${g.game}`} className="cut cut-frame tile game-tile" onPointerMove={tilt} onPointerLeave={untilt}>
-                <Image src={g.tile} alt="" fill sizes="(min-width: 1024px) 45vw, 50vw" loading={i < 2 ? "eager" : undefined} />
+                <Image src={g.tile} alt="" fill sizes="(min-width: 1024px) 45vw, 50vw" loading={i < 2 ? "eager" : undefined} style={g.focus ? { objectPosition: g.focus } : undefined} />
                 <span className="tile-shade" aria-hidden="true" />
                 <span className="tile-glare" aria-hidden="true" />
                 {waiting > 0 && (

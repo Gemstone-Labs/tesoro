@@ -1,8 +1,11 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { PLAYERS, boardingCountdown, riding } from "./fixtures";
-import { CarDamage, CrashMoment, DAMAGE_STAGES, MY_WINDOW, RailcarStage, windowRiders } from "./RailcarStage";
-import { RailcarScreen } from "./RailcarScreen";
+import { CarDamage, CRASH_ART, CrashMoment, DAMAGE_ART, DAMAGE_STAGES, MY_WINDOW, RailcarStage, windowRiders } from "./RailcarStage";
+import { RailcarScreen, TELLS } from "./RailcarScreen";
+import { art } from "@/lib/art";
 import type { Rider } from "./view";
 
 const rider = (i: number, me = false): Rider => ({ account: PLAYERS[i].toBase58(), seat: i + 1, me });
@@ -18,12 +21,14 @@ describe("who sits where in the car", () => {
     expect(MY_WINDOW).toBe(0);
   });
 
-  it("the others fill the windows from the front, in seat order", () => {
-    const w = windowRiders([rider(1), rider(2), rider(0, true)]);
-    expect(w[11]?.account).toBe(PLAYERS[1].toBase58());
-    expect(w[10]?.account).toBe(PLAYERS[2].toBase58());
+  it("the others fill the windows left to right in boarding order, after the Player's window", () => {
+    const w = windowRiders([rider(1), rider(2), rider(3), rider(0, true)]);
     expect(w[0]?.me).toBe(true);
-    expect(w.filter(Boolean)).toHaveLength(3);
+    expect([1, 2, 3].map((i) => w[i]?.account)).toEqual([1, 2, 3].map((i) => PLAYERS[i].toBase58()));
+    expect(w.slice(4).every((r) => r === null)).toBe(true);
+    // Practice riders (simulated) fill the same way
+    const sim = windowRiders([{ account: "practice:a", seat: 2, me: false, name: "Ana" }, { account: "practice:you", seat: 1, me: true }, { account: "practice:b", seat: 3, me: false, name: "Ben" }]);
+    expect(sim.map((r) => r?.account ?? null).slice(0, 4)).toEqual(["practice:you", "practice:a", "practice:b", null]);
   });
 
   it("in Boarding, the ride and Practice the same window", () => {
@@ -79,10 +84,48 @@ describe("the crash", () => {
     expect(renderToStaticMarkup(<RailcarStage aboard={[]} moving />)).not.toContain("rc-crash");
   });
 
-  it("picked art replaces the basic flash", () => {
-    const h = renderToStaticMarkup(<CrashMoment art="/art/final/railcar/crash.webp" />);
-    expect(h).toContain('src="/art/final/railcar/crash.webp"');
+  it("the picked frames play in order over the car, and replace the basic flash", () => {
+    const h = renderToStaticMarkup(<CrashMoment />);
+    const frames = [...h.matchAll(/data-frame="(\d)" src="([^"]+)"/g)].map((m) => [m[1], m[2]]);
+    expect(frames.map((f) => f[0])).toEqual(["1", "2", "3"]);
+    expect(frames.map((f) => f[1])).toEqual(CRASH_ART);
+    expect(CRASH_ART).toHaveLength(3);
     expect(h).not.toContain("rc-crash-flash");
-    expect(renderToStaticMarkup(<CrashMoment />)).toContain("rc-crash-flash");
+    expect(h).toMatch(/rc-crash-frame f2 mid/);
+    expect(renderToStaticMarkup(<CrashMoment art={[]} />)).toContain("rc-crash-flash");
+  });
+
+  it("the frames live in the car's box (registered to it), not the stage's", () => {
+    const h = renderToStaticMarkup(<RailcarStage aboard={[]} moving={false} crash />);
+    expect(h.indexOf("rc-car-art")).toBeLessThan(h.indexOf("rc-crash-frame"));
+    expect(h).toMatch(/<div class="rc-car">.*rc-crash-frame.*<\/div><\/div>$/s);
+  });
+});
+
+describe("the picked art is wired", () => {
+  it("every Tell stage has its overlay, and every file exists", () => {
+    for (const stage of DAMAGE_STAGES) expect(DAMAGE_ART[stage]).toMatch(new RegExp(`damage-${stage}\\.webp$`));
+    for (const url of [...Object.values(DAMAGE_ART), ...CRASH_ART, "/art/final/railcar/tile-v2.webp", ...TELLS.map((t) => t.art)]) expect(existsSync(join(process.cwd(), "public", url!)), url).toBe(true);
+  });
+
+  it("each fired Tell adds its overlay and they stack; the sparks sit behind the wheels", () => {
+    const h = renderToStaticMarkup(<RailcarStage aboard={[]} moving tell={3} />);
+    for (const s of DAMAGE_STAGES) expect(h).toContain(`damage-${s}.webp`);
+    const at = (cls: string) => h.indexOf(`class="${cls}`);
+    expect(at("rc-dmg rc-dmg-art rc-dmg-sparks")).toBeLessThan(at("rc-wheel"));
+    expect(at("rc-dmg rc-dmg-art rc-dmg-screws")).toBeGreaterThan(at("rc-wheel"));
+    expect(renderToStaticMarkup(<RailcarStage aboard={[]} moving tell={1} />)).not.toContain("damage-panel");
+  });
+
+  it("the Tell chips show the picked image: dimmed until fired, full colour after", () => {
+    const h = renderToStaticMarkup(<RailcarScreen view={riding()} />);
+    expect(h.match(/<img[^>]*tell-(screws|panel|sparks)\.webp/g)).toHaveLength(3);
+    expect(h).toMatch(/rc-tell on[^>]*>.*?tell-screws/s);
+    expect(h).toMatch(/<li class="cut cut-chip rc-tell"[^>]*>(?:(?!<\/li>).)*tell-panel/s);
+    expect(readFileSync(new URL("./railcar.css", import.meta.url), "utf8")).toMatch(/\.rc-tell img \{[^}]*grayscale\(1\)/);
+  });
+
+  it("the Play tile is the new file name, so the image cache lets go of the old one", () => {
+    expect(art.railcarTile).toBe("/art/final/railcar/tile-v2.webp");
   });
 });
