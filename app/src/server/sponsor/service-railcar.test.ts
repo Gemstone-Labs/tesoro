@@ -5,6 +5,8 @@ import { RAILCAR_PROGRAM_ID, checkDepartureIx, finalizeIx } from "@/games/railca
 import { layoutOf, type IdlWithTypes } from "@/lib/chain/idl-layout";
 import { joinSeatIx, seatChunkIx, seatMarkPda, seatPagePda } from "@/lib/chain/many-seat";
 import { initCkptPageIx } from "@/lib/chain/settle-plan";
+import { bookPda } from "@/lib/chain/basket";
+import { encodeBook, freshClass } from "@/lib/chain/basket-fixture";
 import { DEFAULT_LIMITS } from "./policy";
 import { CORE_ID, type Ix } from "./rules";
 import { Sponsor, accountPda, basketPda, type ChainReads, type WireIx } from "./service";
@@ -121,14 +123,22 @@ describe("Railcar on the sponsor", () => {
     await expect(old.sponsor.build(old.player.publicKey, wire([seatChunkIx(old.relayer.publicKey, old.car, 7, [])]), null, seatAuth(k, old.car))).rejects.toMatchObject({ code: "not-your-seat-key" });
   });
 
-  it("a seat key may ask for the checkpoint pages a chunk's fee cut needs: they name a book, not the car, and only the key the car names may ask", async () => {
+  it("a seat key may ask only for checkpoint pages the car's fee cuts will write: another key, or a book the car never cuts, is refused", async () => {
     const s = setup();
     const ana = key();
     seat(s, ana);
-    const pages = [initCkptPageIx(s.relayer.publicKey, key(), 1, 0), initCkptPageIx(s.relayer.publicKey, key(), 3, 0)];
+    // A valid book that could use these pages, of a Source no seat of this (boarding) car draws from.
+    const source = key();
+    const book = encodeBook([freshClass(), freshClass(), freshClass(), freshClass()]);
+    disc("SourceBookHead").copy(book, 0);
+    book[9] = 1;
+    source.toBuffer().copy(book, 16);
+    s.accounts.set(bookPda(source).toBase58(), { owner: CORE_ID, data: book });
+    const pages = [initCkptPageIx(s.relayer.publicKey, source, 1, 0), initCkptPageIx(s.relayer.publicKey, source, 3, 0)];
     await expect(s.sponsor.build(s.player.publicKey, wire(pages), null, seatAuth(key(), s.car))).rejects.toMatchObject({ code: "not-your-seat-key" });
-    // Ana's key passes; then the chain decides whether the pages are the book's and missing (here there is no book).
-    await expect(s.sponsor.build(s.player.publicKey, wire(pages), null, seatAuth(ana, s.car))).rejects.toThrow(/book is invalid/);
+    await expect(s.sponsor.build(s.player.publicKey, wire(pages), null, seatAuth(ana, s.car))).rejects.toMatchObject({ code: "not-this-match" });
+    // The wallet's own request for them keeps the wallet's rules (the book needs them).
+    await expect(s.sponsor.build(s.player.publicKey, wire(pages))).resolves.toMatchObject({ class: "exit" });
   });
 
   it("a seat key may not ask for an entry, and finalize is only for the car's riders", async () => {

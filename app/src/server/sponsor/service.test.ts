@@ -8,7 +8,8 @@ import { DEFAULT_LIMITS, type Limits } from "./policy";
 import { CORE_ID, PROTECTIONS_BYTES, type Ix } from "./rules";
 import { Sponsor, accountPda, basketPda, type ChainReads, type SponsorDeps, type WireIx } from "./service";
 import { MemoryUsageStore } from "./store";
-import { encodeBook, freshClass } from "@/lib/chain/basket-fixture";
+import { encodeBook, encodeStore, freshClass, lineOf } from "@/lib/chain/basket-fixture";
+import { initCkptPageIx } from "@/lib/chain/settle-plan";
 import { fp } from "@/lib/chain/book";
 import { bookPda, ckptPda, countersPda } from "@/lib/chain/basket";
 import { SIM_SOL_MINT, protectionsPda, sourcePda } from "@/lib/chain/native";
@@ -29,7 +30,7 @@ import { assignMatchIx } from "./assign-ix";
 import { joinMatchIx as joinMatchIxOf } from "@/lib/chain/entry";
 import { ComputeBudgetProgram, TransactionMessage } from "@solana/web3.js";
 import { GAME_IDS } from "@/lib/chain/games";
-import { STORE_HEADER, TICKET_HEAD, TICKET_VERSION } from "@/lib/chain/pot-store";
+import { POT_AT, STORE_HEADER, TICKET_HEAD, TICKET_VERSION } from "@/lib/chain/pot-store";
 import { stageEntryIx } from "@/lib/chain/ticket";
 import { offerPda } from "@/lib/chain/backing-ix";
 
@@ -393,7 +394,7 @@ describe("a Game's finalize with the relayer as caller (ticket 04)", () => {
       terms: { platformBps: 200, studioBps: 300, studioOwner: null, studioPriority: true }, entry: new BN(500), openedAt: new BN(1), deadline: new BN(2), deadlineAbs: new BN(3),
       a: party(a), b: b ? party(b) : null, potLines: [1, 1], stage: { open: {} }, run: null,
     };
-    return Buffer.from(await matchCoder.encode("matchState", { bump: 255, inner, listed: true, listingEpoch: 0, payer: key(), pots: [key(), key()], room: Array.from({ length: 5 }, () => ({ account: arr(PublicKey.default), left: 0 })) }));
+    return Buffer.from(await matchCoder.encode("matchState", { bump: 255, inner, listed: true, listingEpoch: 0, payer: key(), pots: o.pots ?? [key(), key()], room: Array.from({ length: 5 }, () => ({ account: arr(PublicKey.default), left: 0 })) }));
   };
   const finalizeIx = (s: ReturnType<typeof setup>, matchState: PublicKey) => gameStepIx(s.game, "finalize", matchState, s.relayer.publicKey);
   /** A Match the Player opened, held by the fake chain. */
@@ -1087,14 +1088,14 @@ describe("seat keys on the sponsor (ticket 10)", () => {
   const arr = (k: PublicKey) => Array.from(k.toBytes());
   type Side = { account: PublicKey; seat: PublicKey };
   /** A MatchState (through the real coder) whose sides name an Account and its seat key. */
-  const matchData = async (a: Side, b: Side | null, stage: object = { open: {} }, game: PublicKey = key()) => {
+  const matchData = async (a: Side, b: Side | null, stage: object = { open: {} }, game: PublicKey = key(), o: { run?: object; pots?: [PublicKey, PublicKey] } = {}) => {
     const party = (p: Side) => ({ player: arr(p.account), funder: arr(p.account), shareBps: 0, signer: arr(p.seat) });
     const inner = {
       id: { opener: arr(a.account), n: new BN(5) }, meta: { challenge: false, asset: 0, listed: true }, game: arr(game), settleAuthority: arr(key()), deploySlot: new BN(1),
       terms: { platformBps: 200, studioBps: 300, studioOwner: null, studioPriority: true }, entry: new BN(500), openedAt: new BN(1), deadline: new BN(2), deadlineAbs: new BN(3),
-      a: party(a), b: b ? party(b) : null, potLines: [1, 1], stage, run: null,
+      a: party(a), b: b ? party(b) : null, potLines: [1, 1], stage, run: o.run ?? null,
     };
-    return Buffer.from(await matchCoder.encode("matchState", { bump: 255, inner, listed: true, listingEpoch: 0, payer: key(), pots: [key(), key()], room: Array.from({ length: 5 }, () => ({ account: arr(PublicKey.default), left: 0 })) }));
+    return Buffer.from(await matchCoder.encode("matchState", { bump: 255, inner, listed: true, listingEpoch: 0, payer: key(), pots: o.pots ?? [key(), key()], room: Array.from({ length: 5 }, () => ({ account: arr(PublicKey.default), left: 0 })) }));
   };
   /** Ana (the setup's Player) is side A with seat key `ana`; Ben is side B with `ben`. */
   async function world(stage?: object) {
@@ -1155,6 +1156,54 @@ describe("seat keys on the sponsor (ticket 10)", () => {
     const joiner = setup();
     joiner.accounts.set(match.toBase58(), { owner: CORE_ID, data: await matchData({ account: key(), seat: key() }, { account: accountPda(joiner.player.publicKey), seat: ben }) });
     await expect(joiner.sponsor.build(joiner.player.publicKey, wire([refund]), null, seat(ben, match))).rejects.toMatchObject({ code: "not-your-seat-key" });
+  });
+
+  describe("checkpoint pages a seat key asks for", () => {
+    /** A valid book for `source` (every class fresh): its class 1 and 3 page 0 are pages a fee cut may write. */
+    const bookOf = (s: ReturnType<typeof setup>, source: PublicKey) => {
+      const book = encodeBook([freshClass(), freshClass(), freshClass(), freshClass()]);
+      book.set(Buffer.from(coreIdl.accounts.find((a) => a.name === "SourceBookHead")!.discriminator));
+      book[9] = 1;
+      book.set(source.toBytes(), 16);
+      s.accounts.set(bookPda(source).toBase58(), { owner: CORE_ID, data: book });
+    };
+    const pagesOf = (s: ReturnType<typeof setup>, source: PublicKey) => [1, 3].map((cls) => initCkptPageIx(s.relayer.publicKey, source, cls, 0));
+    /** Ana lost: the Match settles, and its first phase cuts the fees from her Pot's one line, drawn from `source`. */
+    async function settling(source: PublicKey) {
+      const s = setup();
+      const ana = key(), ben = key(), match = key(), potA = key();
+      const pot = Buffer.concat([Buffer.alloc(POT_AT), encodeStore([lineOf({ source, amount: 500n })]).subarray(8)]);
+      s.accounts.set(potA.toBase58(), { owner: CORE_ID, data: pot });
+      const win = { win: { winner: 1 } };
+      const run = {
+        kind: win, receipt: { id: { opener: arr(accountPda(s.player.publicKey)), n: new BN(5) }, kind: win, at: new BN(1) }, fees: [new BN(10), new BN(15), new BN(5)],
+        phases: [{ cuts: [0] }, { back: [1] }, { surplus: { from: 0, to: 1 } }, { back: [0] }], nPhases: 3, phaseI: 0, lineI: 0,
+        cutLeft: [[new BN(10), new BN(15), new BN(5)], [new BN(0), new BN(0), new BN(0)]], playerLeft: new BN(0), chunks: 0, steps: 0,
+      };
+      s.accounts.set(match.toBase58(), { owner: CORE_ID, data: await matchData({ account: accountPda(s.player.publicKey), seat: ana }, { account: key(), seat: ben }, { settling: {} }, key(), { run, pots: [potA, key()] }) });
+      return { s, ana, match };
+    }
+
+    it("builds the pages the Match's fee cut will write, from the Source of the loser's line", async () => {
+      const source = key();
+      const { s, ana, match } = await settling(source);
+      bookOf(s, source);
+      await expect(s.sponsor.build(s.player.publicKey, wire(pagesOf(s, source)), null, seat(ana, match))).resolves.toMatchObject({ class: "exit" });
+    });
+
+    it("refuses pages of a book the Match never cuts, though the book could use them, and pages of a Match with no run", async () => {
+      const source = key(), other = key();
+      const { s, ana, match } = await settling(source);
+      bookOf(s, source);
+      bookOf(s, other);
+      await expect(s.sponsor.build(s.player.publicKey, wire(pagesOf(s, other)), null, seat(ana, match))).rejects.toMatchObject({ code: "not-this-match" });
+      await expect(s.sponsor.build(s.player.publicKey, wire([...pagesOf(s, source), ...pagesOf(s, other)]), null, seat(ana, match))).rejects.toMatchObject({ code: "not-this-match" });
+      // The same pages through the wallet keep the wallet's own rules (the book needs them).
+      await expect(s.sponsor.build(s.player.publicKey, wire(pagesOf(s, other)))).resolves.toMatchObject({ class: "exit" });
+      const open = await world();
+      bookOf(open.s, source);
+      await expect(open.s.sponsor.build(open.s.player.publicKey, wire(pagesOf(open.s, source)), null, seat(open.ana, open.match))).rejects.toMatchObject({ code: "not-this-match" });
+    });
   });
 
   it("never builds what moves value or enters: a seat key gets wallet-only for the rest", async () => {

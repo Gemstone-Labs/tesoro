@@ -34,7 +34,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { CLASS_STUDIO, basketPda, countersPda, matchPda, spillPda } from "../../lib/chain/basket";
+import { CLASS_STUDIO, basketPda, bookPda, ckptPda, countersPda, matchPda, spillPda } from "../../lib/chain/basket";
 import { coreIx } from "../../lib/chain/core-ix";
 import { drawRemaining, freshPot, nextMatchOf, previewEntry, readEntryStores, readNextTicket } from "../../lib/chain/entry";
 import coreIdl from "../../lib/chain/idl/tesoro_core.json";
@@ -44,7 +44,7 @@ import { decodeCar, joinSeatIx, seatMarkPda } from "../../lib/chain/many-seat";
 import { loadCar } from "../../lib/chain/many-seat-plan";
 import { decodeStore } from "../../lib/chain/pot-store";
 import { OVERFLOW_STORE_AT, matchOverflowPda } from "../../lib/chain/overflow";
-import { CHUNK_CU_TARGET, fits, type Reader } from "../../lib/chain/settle-plan";
+import { CHUNK_CU_TARGET, fits, initCkptPageIx, type Reader } from "../../lib/chain/settle-plan";
 import { checkedV0, instructionName, messageSize, type TxSize } from "../../lib/chain/tx-size";
 import { backingTicketOf, nextStageIx, openBackingTicketIxs, type TicketView } from "../../lib/chain/ticket";
 import { Sponsor, sponsoredInstructions, type ChainReads } from "../../server/sponsor/service";
@@ -750,6 +750,8 @@ interface RideOpts {
    * has never had (devnet car 2, 2026-11-08: core refused the chunk with AccountMissing until someone created them).
    */
   again?: { world: World; riders: Person[] };
+  /** Called through the sponsor's page before the finish's own pages step (`viaSponsor` only). */
+  beforePages?: (at: { w: World; sponsor: Sponsor; finisher: Person; match: PublicKey; ixs: TransactionInstruction[] }) => Promise<void>;
 }
 
 /** A car boarded, departed and ridden through `jumps` (and, unless `noImpact`, its Impact): everything before the finish. */
@@ -874,6 +876,7 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], o
     send: async (ixs, step) => {
       const onBase = step === "finalize" || step === "reveal";
       if (sponsor && finisher) {
+        if (step === "pages" && o.beforePages) await o.beforePages({ w, sponsor, finisher, match, ixs });
         // As the page sends it: the seat key's scope, then the sponsor's rules against the chain as it is, then its send.
         await (onBase ? w.onBaseAsync(carAcct.table, () => pageSend(w, sponsor, finisher, match, ixs)) : pageSend(w, sponsor, finisher, match, ixs));
       } else {
@@ -1245,6 +1248,21 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     const r = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, await SECOND({ viaSponsor: DEE }));
     expect(r.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
     expect(r.walletSigs).toEqual({ boarding: 10 });
+  });
+
+  it("Dee's seat key cannot have the relayer pay for pages the car never cuts: a rider's Lock whose book could use them", { timeout: 180_000 }, async () => {
+    let refused = 0;
+    const beforePages: RideOpts["beforePages"] = async ({ w, sponsor, finisher, match, ixs }) => {
+      const cut = new Set(ixs.map((ix) => ix.keys[1].pubkey.toBase58()));
+      const l = (await loadCar(w.reader(), match))!;
+      const uncut = [...new Set(l.lines.flat().map((x) => x.source.toBase58()))].map((k) => new PublicKey(k)).find((src) => !cut.has(bookPda(src).toBase58()) && w.info(bookPda(src)) && !w.info(ckptPda(src, 1, 0)));
+      if (!uncut) throw new Error("no rider's Source is left uncut with a book and a missing page");
+      await expect(pageSend(w, sponsor, finisher, match, [initCkptPageIx(w.relayer.publicKey, uncut, 1, 0)])).rejects.toMatchObject({ code: "not-this-match" });
+      refused++;
+    };
+    const r = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, await SECOND({ viaSponsor: DEE, beforePages }));
+    expect(refused).toBeGreaterThan(0);
+    expect(r.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
   });
 
   it("the same second car with every page gone: the keeper's sweep finishes it and pays the worked example", { timeout: 180_000 }, async () => {
