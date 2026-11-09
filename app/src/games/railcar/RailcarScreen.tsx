@@ -7,7 +7,7 @@ import { PlayerAvatar, PlayerName } from "@/components/account/Player";
 import { Button, GemaAmount, GemaMark } from "@/components/ui";
 import { fmtGemas } from "@/lib/format";
 import { practiceHref } from "@/lib/game-params";
-import { GameMenu, type GameMenuItem } from "../fx";
+import { Arena, GameMenu, type GameMenuItem } from "../fx";
 import type { BrakeStatus } from "./brake";
 import { RailcarStage } from "./RailcarStage";
 import { railcarHaptics } from "./tells";
@@ -104,123 +104,127 @@ export function RailcarScreen({
   const riding = view.phase === "ride";
   const aboard = riding ? view.aboard : view.riders;
   const meAboard = riding ? view.me?.aboard === true : view.mySeat !== null;
+  // The window cover (never the browser's own full screen): a Player's ride covers from departure until the Result;
+  // Boarding and watching stay in the shell. The ⋯ menu's Full screen and F toggle the same cover in every phase.
   return (
-    <section className={`rc${riding ? " riding" : " boarding"}`} aria-label="Railcar">
-      <Header entry={view.entry} practice={practice} />
-      {riding ? (
-        <div className="rc-top" key="ride">
-          {watch && (
-            <span className="cut cut-chip rc-live">
-              <i aria-hidden="true" />
-              Live
-            </span>
-          )}
-          <p className="rc-clock mono" role="timer" aria-label={`Ride time ${clock(view.clockMs)}`}>
-            {clock(view.clockMs)}
-          </p>
-          <ol className="rc-tells" aria-label="Tells">
-            {TELLS.map(({ name, Icon }, i) => (
-              <li key={name} className={`cut cut-chip rc-tell${view.tell > i ? " on" : ""}`} aria-current={view.tell === i + 1 ? "step" : undefined}>
-                <Icon aria-hidden="true" />
-                {name}
-              </li>
-            ))}
-          </ol>
-        </div>
-      ) : (
-        <div className="rc-top" key="board">
-          <div className="cut cut-card rc-count">
-            {view.leavesInSec !== null ? (
-              <>
-                <span className="rc-count-label">Leaves in</span>
-                <span className="rc-count-big mono" role="timer">
-                  {clock(view.leavesInSec * 1000)}
-                </span>
-              </>
-            ) : (
-              <>
-                <span className="rc-count-label">Waiting for {view.minSeats} Players</span>
-                <span className="rc-count-sub">The countdown starts when {view.minSeats} have boarded</span>
-              </>
+    <Arena game="railcar" autoFull={riding && view.me !== null}>
+      <section className={`rc${riding ? " riding" : " boarding"}`} aria-label="Railcar">
+        <Header entry={view.entry} practice={practice} />
+        {riding ? (
+          <div className="rc-top" key="ride">
+            {watch && (
+              <span className="cut cut-chip rc-live">
+                <i aria-hidden="true" />
+                Live
+              </span>
             )}
+            <p className="rc-clock mono" role="timer" aria-label={`Ride time ${clock(view.clockMs)}`}>
+              {clock(view.clockMs)}
+            </p>
+            <ol className="rc-tells" aria-label="Tells">
+              {TELLS.map(({ name, Icon }, i) => (
+                <li key={name} className={`cut cut-chip rc-tell${view.tell > i ? " on" : ""}`} aria-current={view.tell === i + 1 ? "step" : undefined}>
+                  <Icon aria-hidden="true" />
+                  {name}
+                </li>
+              ))}
+            </ol>
           </div>
-          <p className="cut cut-chip rc-aboard-n">
-            <strong>{view.seated} aboard</strong> of {view.maxSeats} seats
-          </p>
-        </div>
-      )}
-      <div className="rc-stage-wrap">
-        <RailcarStage aboard={aboard} moving={riding} slow={riding && meAboard && !!brake && brake.activeMs > 0} />
-        {riding && brake && meAboard && brake.activeMs > 0 && (
-          <p className="cut cut-chip rc-brake-tag">
-            Your Brake <b className="mono">{Math.ceil(brake.activeMs / 1000)}s</b> · only you see this
-          </p>
-        )}
-      </div>
-      {riding && (
-        <div className="cut cut-card rc-stake">
-          <span>At stake</span>
-          <GemaAmount value={g(view.stake)} size="lg" />
-        </div>
-      )}
-      <Riders riders={aboard} label={riding ? `Aboard ${aboard.length}` : "Aboard"} note={riding ? "Names leave when they Jump" : undefined} />
-      {!riding && view.mySeat !== null && <p className="cut cut-card rc-seat">Your seat {view.mySeat}</p>}
-      <div className="rc-acts">
-        {riding && watch && !view.me ? (
-          <NextRide watch={watch} actions={actions} busy={busy} />
-        ) : riding ? (
-          view.me?.aboard ? (
-            <>
-              <Button variant="money" size="lg" block onClick={actions.onJump} disabled={!!busy}>
-                {busy === "jump" ? "Jumping…" : "Jump"}
-              </Button>
-              {brake && <BrakeButton brake={brake} />}
-              {brake && statusOf(brake) === "sign" && <p className="rc-brake-note">Sign once so your Brake stays secret on this device</p>}
-            </>
-          ) : view.me ? (
-            <p className="cut cut-card rc-jumped">
-              You jumped at <span className="mono">{clock(view.me.jumpMs)}</span> · at least
-              <GemaAmount value={g(view.me.back)} size="md" /> back{view.me.backer && <> to <PlayerName account={view.me.backer} /></>}
-            </p>
-          ) : null
-        ) : view.mySeat !== null ? (
-          <>
-            <Button size="lg" block onClick={actions.onStepOff} disabled={!!busy}>
-              {busy === "step-off" ? "Stepping off…" : "Step off"}
-            </Button>
-            <p className="rc-caption">
-              Full <GemaMark size={12} /> {fmtGemas(g(view.entry))} back{view.myBacker && <> to <PlayerName account={view.myBacker} /></>}
-            </p>
-          </>
         ) : (
-          <>
-            {offer && <BackedBy offer={offer} entry={view.entry} />}
-            <Button variant="money" size="lg" block onClick={actions.onBoard} disabled={!!busy || !actions.onBoard || !!offer?.blocked}>
-              {busy === "board" ? "Boarding…" : (
+          <div className="rc-top" key="board">
+            <div className="cut cut-card rc-count">
+              {view.leavesInSec !== null ? (
                 <>
-                  Board · <GemaMark size={16} /> {fmtGemas(g(view.entry))}
+                  <span className="rc-count-label">Leaves in</span>
+                  <span className="rc-count-big mono" role="timer">
+                    {clock(view.leavesInSec * 1000)}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="rc-count-label">Waiting for {view.minSeats} Players</span>
+                  <span className="rc-count-sub">The countdown starts when {view.minSeats} have boarded</span>
                 </>
               )}
-            </Button>
-            <p className="rc-caption">
-              {!actions.onBoard
-                ? "Sign in to board"
-                : offer
-                  ? offer.blocked ?? "Until it leaves you can step off: the full entry goes back to your Backer"
-                  : "Until it leaves you can step off and get your full entry back"}
+            </div>
+            <p className="cut cut-chip rc-aboard-n">
+              <strong>{view.seated} aboard</strong> of {view.maxSeats} seats
             </p>
-            <Button block href={practiceHref("railcar")} icon={<Dumbbell aria-hidden="true" />}>
-              Practice free
-            </Button>
-          </>
+          </div>
         )}
-      </div>
-      {error && (
-        <p className="rc-error" role="alert">
-          {error}
-        </p>
-      )}
-    </section>
+        <div className="rc-stage-wrap">
+          <RailcarStage aboard={aboard} moving={riding} slow={riding && meAboard && !!brake && brake.activeMs > 0} />
+          {riding && brake && meAboard && brake.activeMs > 0 && (
+            <p className="cut cut-chip rc-brake-tag">
+              Your Brake <b className="mono">{Math.ceil(brake.activeMs / 1000)}s</b> · only you see this
+            </p>
+          )}
+        </div>
+        {riding && (
+          <div className="cut cut-card rc-stake">
+            <span>At stake</span>
+            <GemaAmount value={g(view.stake)} size="lg" />
+          </div>
+        )}
+        <Riders riders={aboard} label={riding ? `Aboard ${aboard.length}` : "Aboard"} note={riding ? "Names leave when they Jump" : undefined} />
+        {!riding && view.mySeat !== null && <p className="cut cut-card rc-seat">Your seat {view.mySeat}</p>}
+        <div className="rc-acts">
+          {riding && watch && !view.me ? (
+            <NextRide watch={watch} actions={actions} busy={busy} />
+          ) : riding ? (
+            view.me?.aboard ? (
+              <>
+                <Button variant="money" size="lg" block onClick={actions.onJump} disabled={!!busy}>
+                  {busy === "jump" ? "Jumping…" : "Jump"}
+                </Button>
+                {brake && <BrakeButton brake={brake} />}
+                {brake && statusOf(brake) === "sign" && <p className="rc-brake-note">Sign once so your Brake stays secret on this device</p>}
+              </>
+            ) : view.me ? (
+              <p className="cut cut-card rc-jumped">
+                You jumped at <span className="mono">{clock(view.me.jumpMs)}</span> · at least
+                <GemaAmount value={g(view.me.back)} size="md" /> back{view.me.backer && <> to <PlayerName account={view.me.backer} /></>}
+              </p>
+            ) : null
+          ) : view.mySeat !== null ? (
+            <>
+              <Button size="lg" block onClick={actions.onStepOff} disabled={!!busy}>
+                {busy === "step-off" ? "Stepping off…" : "Step off"}
+              </Button>
+              <p className="rc-caption">
+                Full <GemaMark size={12} /> {fmtGemas(g(view.entry))} back{view.myBacker && <> to <PlayerName account={view.myBacker} /></>}
+              </p>
+            </>
+          ) : (
+            <>
+              {offer && <BackedBy offer={offer} entry={view.entry} />}
+              <Button variant="money" size="lg" block onClick={actions.onBoard} disabled={!!busy || !actions.onBoard || !!offer?.blocked}>
+                {busy === "board" ? "Boarding…" : (
+                  <>
+                    Board · <GemaMark size={16} /> {fmtGemas(g(view.entry))}
+                  </>
+                )}
+              </Button>
+              <p className="rc-caption">
+                {!actions.onBoard
+                  ? "Sign in to board"
+                  : offer
+                    ? offer.blocked ?? "Until it leaves you can step off: the full entry goes back to your Backer"
+                    : "Until it leaves you can step off and get your full entry back"}
+              </p>
+              <Button block href={practiceHref("railcar")} icon={<Dumbbell aria-hidden="true" />}>
+                Practice free
+              </Button>
+            </>
+          )}
+        </div>
+        {error && (
+          <p className="rc-error" role="alert">
+            {error}
+          </p>
+        )}
+      </section>
+    </Arena>
   );
 }
 

@@ -68,3 +68,18 @@ describe("Practice free, wherever Railcar is shown", () => {
     vi.doUnmock("@/lib/account");
   });
 });
+
+describe("the Practice page", () => {
+  it("covers the window from the start, in Railcar's Arena, like every Game's Practice", async () => {
+    vi.resetModules();
+    vi.stubEnv("NEXT_PUBLIC_SHOW_RAILCAR", "1");
+    const { default: Practice } = await import("@/app/(app)/play/practice/page");
+    const { Arena } = await import("@/games/fx");
+    const { RailcarPractice } = await import("./RailcarPractice");
+    const page = await Practice({ searchParams: Promise.resolve({ game: "railcar" }) } as Parameters<typeof Practice>[0]);
+    expect(page.type).toBe(Arena);
+    expect(page.props).toMatchObject({ game: "railcar", autoFull: true });
+    expect(page.props.children.type).toBe(RailcarPractice);
+    vi.unstubAllEnvs();
+  });
+});

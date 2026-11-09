@@ -5,7 +5,7 @@ import { art } from "@/lib/art";
 import { FxLayer } from "./burst";
 import { createCoverSession, isFullScreen, setFullScreen } from "./full-screen";
 
-export type ArenaGame = "block-puzzle" | "holdem" | "trading-duel" | "vanguard";
+export type ArenaGame = "block-puzzle" | "holdem" | "trading-duel" | "vanguard" | "railcar";
 const ArenaSession = createContext<(() => void) | null>(null);
 
 /**
