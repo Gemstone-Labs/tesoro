@@ -39,7 +39,7 @@ export const art = {
     vanguard: f("vanguard-hero"),
   },
   /** Dark backdrops for the play screens (Astra art for the edges of the Arena). */
-  arena: { "block-puzzle": f("arena/block-puzzle"), holdem: f("arena/holdem"), "trading-duel": f("arena/trading-duel-2"), vanguard: f("arena/vanguard") },
+  arena: { "block-puzzle": f("arena/block-puzzle"), holdem: f("arena/holdem"), "trading-duel": f("arena/trading-duel-2"), vanguard: f("arena/vanguard"), railcar: f("railcar/far") },
   /** Play Again thumbs reuse the square tiles (cropped by CSS). */
   thumb: {
     "block-puzzle": f("block-puzzle-tile"),
