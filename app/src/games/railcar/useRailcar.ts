@@ -40,10 +40,9 @@ import type { RailcarWatch } from "./RailcarScreen";
 import { boardingSigner, brakeRoute, finishSender, joinSeatKey, jumpSigner } from "./signers";
 import type { RailcarBrake, RailcarOffer } from "./RailcarScreen";
 import { playTells } from "./tells";
-import { railcarView, type FeeRates, type RailcarView } from "./view";
+import { RAILCAR_FEES } from "./payout";
+import { railcarView, type RailcarView } from "./view";
 
-/** Railcar's fee terms (Platform 2%, Studio 3%) and core's Leaderboard Fee (1%), until the screen reads them from the Game record. */
-const FEES: FeeRates = { platformBps: 200, studioBps: 300, leaderboardBps: 100 };
 /** Compute asked for when the Player pays the boarding themselves (the relayer's server sets its own). */
 const SELF_PAID_UNITS = 400_000;
 /** Finish steps one poll of one page sends; the next poll (or another page) carries on. */
@@ -553,7 +552,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   const myBacking = my && snap?.car && my.match === snap.car.match.toBase58() ? (my.backing ?? null) : null;
   const view =
     snap?.loaded && snap.car
-      ? railcarView({ me: meKey, core: snap.loaded.car, seats: snap.loaded.seats, table: snap.rollup && snap.rollup.carNo === snap.car.carNo ? snap.rollup : snap.base && snap.base.carNo === snap.car.carNo ? snap.base : null, fees: FEES, nowMs: now, myBacking, myBrakeMs: knownPress })
+      ? railcarView({ me: meKey, core: snap.loaded.car, seats: snap.loaded.seats, table: snap.rollup && snap.rollup.carNo === snap.car.carNo ? snap.rollup : snap.base && snap.base.carNo === snap.car.carNo ? snap.base : null, fees: RAILCAR_FEES, nowMs: now, myBacking, myBrakeMs: knownPress })
       : null;
   const watch: RailcarWatch | null = snap?.watching && !snap.mine ? { signedIn: !!wallet, nextSeated: snap.boarding ? snap.boarding.loaded.car.seated : null } : null;
   const blocked = offerProblem ? new BackingError(offerProblem).message : snap?.backerSeated ? "Your Backer is in this car: board the next one" : null;

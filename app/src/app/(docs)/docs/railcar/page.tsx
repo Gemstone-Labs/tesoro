@@ -140,6 +140,12 @@ export default function Page() {
         Railcar can be <Link href="/docs/backing">Backed</Link>. An Early-jump refund goes to the Backer. A Backer gets their entry back first on a paid place, then the rest is split
         by the Offer. If the Player is still aboard at Impact, the Backer loses the entry and no more. A Backer funds at most one seat per car.
       </p>
+
+      <H2 id="practice">Practice</H2>
+      <p>
+        <Link href="/play/practice?game=railcar">Practice free</Link> rides the same car with 9 simulated riders, on the same odds, Tells, Brake and refunds. It runs on your
+        device: no sign-in, nothing staked, nothing sent. The car leaves at once, and the Result shows what an entry of {g(ENTRY_GEMAS)} Gemas would have paid.
+      </p>
     </DocPage>
   );
 }
