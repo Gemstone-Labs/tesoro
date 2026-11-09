@@ -11,7 +11,7 @@ import type { TransactionInstruction } from "@solana/web3.js";
 import coreIdl from "../../lib/chain/idl/tesoro_core.json";
 import railcarIdl from "../../lib/chain/idl/railcar.json";
 
-export type FinishStep = "reveal" | "finalize" | "refund" | "room" | "chunk" | "close-seat" | "close-car" | "close-ride";
+export type FinishStep = "reveal" | "finalize" | "refund" | "room" | "pages" | "chunk" | "close-seat" | "close-car" | "close-ride";
 export type RideStepName = FinishStep | "depart";
 
 type Program = "core" | "railcar";
@@ -23,6 +23,8 @@ export const RIDE_STEP_IXS: Record<RideStepName, readonly { program: Program; na
   finalize: [{ program: "railcar", name: "finalize" }],
   refund: [{ program: "core", name: "refund_many_seat_match" }],
   room: [{ program: "core", name: "reserve_many_seat_room" }],
+  // the checkpoint pages a chunk's fee cut needs (the sponsor checks each is the book's and missing)
+  pages: [{ program: "core", name: "init_ckpt_page" }],
   chunk: [{ program: "core", name: "many_seat_chunk" }],
   "close-seat": [{ program: "core", name: "close_many_seat" }],
   // the car's close, with the sending page's own seat close in the same transaction

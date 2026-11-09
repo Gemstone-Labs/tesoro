@@ -4,6 +4,7 @@ import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { RAILCAR_PROGRAM_ID, checkDepartureIx, finalizeIx } from "@/games/railcar/chain";
 import { layoutOf, type IdlWithTypes } from "@/lib/chain/idl-layout";
 import { joinSeatIx, seatChunkIx, seatMarkPda, seatPagePda } from "@/lib/chain/many-seat";
+import { initCkptPageIx } from "@/lib/chain/settle-plan";
 import { DEFAULT_LIMITS } from "./policy";
 import { CORE_ID, type Ix } from "./rules";
 import { Sponsor, accountPda, basketPda, type ChainReads, type WireIx } from "./service";
@@ -118,6 +119,16 @@ describe("Railcar on the sponsor", () => {
     const k = key();
     seat(old, null);
     await expect(old.sponsor.build(old.player.publicKey, wire([seatChunkIx(old.relayer.publicKey, old.car, 7, [])]), null, seatAuth(k, old.car))).rejects.toMatchObject({ code: "not-your-seat-key" });
+  });
+
+  it("a seat key may ask for the checkpoint pages a chunk's fee cut needs: they name a book, not the car, and only the key the car names may ask", async () => {
+    const s = setup();
+    const ana = key();
+    seat(s, ana);
+    const pages = [initCkptPageIx(s.relayer.publicKey, key(), 1, 0), initCkptPageIx(s.relayer.publicKey, key(), 3, 0)];
+    await expect(s.sponsor.build(s.player.publicKey, wire(pages), null, seatAuth(key(), s.car))).rejects.toMatchObject({ code: "not-your-seat-key" });
+    // Ana's key passes; then the chain decides whether the pages are the book's and missing (here there is no book).
+    await expect(s.sponsor.build(s.player.publicKey, wire(pages), null, seatAuth(ana, s.car))).rejects.toThrow(/book is invalid/);
   });
 
   it("a seat key may not ask for an entry, and finalize is only for the car's riders", async () => {

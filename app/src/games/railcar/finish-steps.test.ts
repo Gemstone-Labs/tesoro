@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import coreIdl from "../../lib/chain/idl/tesoro_core.json";
 import railcarIdl from "../../lib/chain/idl/railcar.json";
 import { closeCarIx, closeSeatIx, refundCarIx, reserveRoomIx, seatChunkIx, type SeatView } from "../../lib/chain/many-seat";
+import { initCkptPageIx } from "../../lib/chain/settle-plan";
 import { isSeatStep } from "../../lib/seat/seat-scope";
 import { SEAT_STEP_NAMES } from "../../server/sponsor/service";
 import { RAILCAR_PROGRAM_ID, checkDepartureIx, closeRailcarCarIx, finalizeIx, revealRideIx } from "./chain";
@@ -24,6 +25,7 @@ const built: Record<RideStepName, TransactionInstruction[]> = {
   finalize: [finalizeIx(caller, ride, 1)],
   refund: [refundCarIx(caller, car)],
   room: [reserveRoomIx(caller, car, key(), 4)],
+  pages: [initCkptPageIx(caller, key(), 1, 0), initCkptPageIx(caller, key(), 3, 0)],
   chunk: [seatChunkIx(caller, car.address, 7, [])],
   "close-seat": [closeSeatIx({ caller, car: car.address, seat, markPayer: key(), potPayer: key(), sponsor: true })],
   "close-car": [closeSeatIx({ caller, car: car.address, seat, markPayer: key(), potPayer: key(), sponsor: true }), closeCarIx(caller, car, [])],

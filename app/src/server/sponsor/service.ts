@@ -521,7 +521,9 @@ export class Sponsor {
       if (plan.names.includes("check_departure") && !plan.names.includes("join_many_seat_match")) throw new DemoHttpError(403, "wallet-only", "This needs your wallet.");
     } else if (auth.kind === "seat") {
       if (!plan.names.every((n) => SEAT_STEP_NAMES.has(n))) throw new DemoHttpError(403, "wallet-only", "This needs your wallet.");
-      if (!ixs.some((i) => i.keys.some((k) => k.pubkey.equals(auth.match)))) throw new DemoHttpError(400, "bad-request", "The request names another Match than the transaction.");
+      // Checkpoint pages name a Source's book, not the Match: the chain proves each is missing and needed (`verifyCkptPages`).
+      const pagesOnly = plan.names.every((n) => n === "init_ckpt_page");
+      if (!pagesOnly && !ixs.some((i) => i.keys.some((k) => k.pubkey.equals(auth.match)))) throw new DemoHttpError(400, "bad-request", "The request names another Match than the transaction.");
       const match = await this.d.chain.account(auth.match);
       // A many-seat car names each seat's key in the seat (read through the Player's seat mark); a head-to-head Match on its sides.
       const named =

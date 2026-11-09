@@ -1,5 +1,6 @@
 import { AddressLookupTableAccount, ComputeBudgetProgram, PublicKey, VersionedTransaction, type AccountInfo, type AccountMeta, type Connection, type TransactionInstruction } from "@solana/web3.js";
 import { bookPda, ckptPda, TESORO_CORE } from "./basket";
+import { coreIx } from "./core-ix";
 import { matchOverflowPda } from "./overflow";
 import { POT_AT, decodeStore, decodeTicketHead, slack, type Store } from "./pot-store";
 import { positionBytes } from "./position-size";
@@ -238,6 +239,22 @@ export async function missingCutPages(read: Reader, ahead: Ahead[]): Promise<{ s
   });
   const pages = await read.many(candidates.map((c) => c.address));
   return candidates.filter((_, i) => !pages[i]);
+}
+
+/** The most checkpoint pages one transaction creates (the sponsor's cap, `MAX_PAGES` in server/sponsor/rules-bridge.ts). */
+export const MAX_PAGES_PER_TX = 6;
+
+/** `init_ckpt_page`: the payer creates the next page of a class's checkpoint records (only the page being filled, or the next). */
+export const initCkptPageIx = (payer: PublicKey, source: PublicKey, classId: number, pageNo: number) =>
+  coreIx("init_ckpt_page", { payer, book: bookPda(source), page: ckptPda(source, classId, pageNo) }, { class: classId, page_no: pageNo });
+
+/**
+ * The step before a chunk whose fee cut lands a Source's yield: `init_ckpt_page` for the pages that landing can write and
+ * nobody created yet (a chunk cannot create them, core refuses it with AccountMissing), one transaction's worth; `payer`
+ * pays their rent. Empty when none is missing. Head-to-head and Railcar finishes send it the same way.
+ */
+export async function cutPageIxs(read: Reader, payer: PublicKey, ahead: Ahead[]): Promise<TransactionInstruction[]> {
+  return (await missingCutPages(read, ahead)).slice(0, MAX_PAGES_PER_TX).map((p) => initCkptPageIx(payer, p.source, p.cls, p.pageNo));
 }
 
 const dedupe = (metas: AccountMeta[]): AccountMeta[] => {

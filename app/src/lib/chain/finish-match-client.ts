@@ -9,9 +9,9 @@ import {
   CHUNK_UNITS,
   closeIx,
   connReader,
+  cutPageIxs,
   fits,
   loadMatch,
-  missingCutPages,
   planSizedChunk,
   runOf,
   simulatedUnits,
@@ -19,11 +19,7 @@ import {
   viewOf,
   type MatchView,
 } from "./settle-plan";
-import { initCkptPageIx } from "./redeem";
 import { SponsorError, sponsorStatus, sponsoredSend } from "./sponsor-client";
-
-/** The most checkpoint pages the sponsor creates in one transaction. */
-const MAX_PAGES_PER_TX = 6;
 
 const progressOf = (v: MatchView): Progress => {
   const run = runOf(v.inner.run);
@@ -60,8 +56,8 @@ async function sponsoredDeps(signer: ChainSigner, getToken: GetToken): Promise<F
       if (view.stage === "closed") return { kind: "close", ix: await closeIx(core, read, relayer, loaded) };
       const run = runOf(view.inner.run);
       if (!loaded.stores[0] || !run) return { kind: "stalled", reason: "no-run" };
-      const pages = await missingCutPages(read, sourcesAhead(run, loaded.stores, CHUNK_STEPS));
-      if (pages.length) return { kind: "pages", ixs: pages.slice(0, MAX_PAGES_PER_TX).map((p) => initCkptPageIx(relayer, p.source, p.cls, p.pageNo)) };
+      const pages = await cutPageIxs(read, relayer, sourcesAhead(run, loaded.stores, CHUNK_STEPS));
+      if (pages.length) return { kind: "pages", ixs: pages };
       const opts = { units: CHUNK_UNITS, tables };
       const plan = await planSizedChunk(
         {
