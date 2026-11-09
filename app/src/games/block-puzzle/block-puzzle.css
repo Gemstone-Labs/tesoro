@@ -192,6 +192,7 @@
 
 /* ——— Run moments: start card, last 10 seconds, game over ——— */
 .bp-over { justify-items: center; text-align: center; }
+.bp-over-wait { display: inline-flex; align-items: center; gap: 8px; }
 
 .bpx-ring.low span { color: var(--warn); }
 /* The solid rim stays visible throughout the halo's opacity-only pulse. */
