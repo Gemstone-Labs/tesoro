@@ -14,7 +14,8 @@ import { openEntry, joinEntry } from "./entry-flow";
 import { readEntryStores, relayerKey, type BackingRef } from "./entry";
 import { entryError } from "./entry-errors";
 import type { StagedEntry } from "./ticket";
-import { matchKeyOf } from "./match-id";
+import { matchAddressOf, matchKeyOf } from "./match-id";
+import { finishMatchFree } from "./finish-match-client";
 import { mergeQueue, queueEntry, type Entered, type Merged, type QueueDeps } from "./queue";
 import { fetchAccountState, fetchMatch, listLiveMatchIds, listQueueMatchIds, type AccountSnapshot, type ChainMatch } from "./read";
 import { filterByLease, freshLeases } from "./presence";
@@ -148,6 +149,10 @@ function plainQueueDeps(signer: ChainSigner, me: PublicKey, getToken: GetToken, 
     join: (key) => joinEntry({ ...common, key }),
     open: () => openEntry({ ...common, challenge: false, asset: matchAsset(game, asset) }),
     refund: (id) => refundMatch(signer, id, getToken),
+    finish: async (id) => {
+      const address = matchAddressOf(id);
+      if (address) await finishMatchFree(signer, getToken, address);
+    },
     onStep,
   };
 }

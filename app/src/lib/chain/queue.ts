@@ -156,6 +156,8 @@ export async function queueEntry(d: QueueDeps): Promise<Entered> {
 export interface MergeDeps extends QueueDeps {
   /** Cancels the Player's own unjoined Match (opener refund). The Match then refunds in steps: it stays unfinished until they are done. */
   refund(id: string): Promise<unknown>;
+  /** Sends those steps (the chunks and the close), so the entry is free again before the join draws. Best effort: the sweep is the fallback. */
+  finish?(id: string): Promise<unknown>;
   /** Called once a move is certain, just before the refund (the page then shows that it is moving). */
   onMove?(): void;
   /** Waits `ms` (tests make it instant). */
@@ -184,7 +186,7 @@ async function olderCandidate(d: QueueDeps, mine: ChainMatch): Promise<string | 
   return null;
 }
 
-/** How long a refunded Player keeps trying to join: the entry comes back in keeper steps and a just-opened Match may not be joinable for a few seconds. */
+/** How long a refunded Player keeps trying to join: the entry comes back once the refund's chunks land, and a just-opened Match may not be joinable for a few seconds. */
 const REFUND_WAIT_MS = 90_000;
 const REFUND_POLL_MS = 2_000;
 
@@ -194,7 +196,7 @@ const REFUND_POLL_MS = 2_000;
  * waiting Matches ever moves, so the two can never move at once and the older one stays put.
  *
  * Order: refund first, then join (through `queueEntry`), never join then refund. `refund_match` closes the Match to joiners
- * at once (it is Refunding, the entry comes back in keeper steps), so from that instant the Player cannot be seated in
+ * at once (it is Refunding; `finish` then pays the entry back in chunks), so from that instant the Player cannot be seated in
  * two Matches, whereas joining first would leave a window in which a third Player can take the abandoned seat. The join
  * does not wait for the entry to come back: it draws on the Player's other Gemas, and when that fails it retries for up to
  * 90 s (the entry returns, a just-opened Match becomes joinable). A refund that fails because someone just joined leaves the Player where they are.
@@ -214,6 +216,8 @@ export async function mergeQueue(d: MergeDeps, mine: ChainMatch): Promise<Merged
     // Failed and still waiting (or paired meanwhile): stay. Only a refund that took effect moves on.
     if (r === "failed" && (now === null || now.status === "open" || now.opponent !== null)) return { moved: false };
   }
+  // Pay the refunded entry back now: no keeper does it any more, and the join below may need those Gemas (ticket 61).
+  await d.finish?.(mine.id).catch(() => undefined);
   // The Match being refunded still counts as unfinished until it closes: it is not the Match this Player is in.
   const next: QueueDeps = { ...d, unfinished: async () => (await d.unfinished()).filter((m) => m.id !== mine.id) };
   const pause = d.pause ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
