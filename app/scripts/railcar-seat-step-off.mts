@@ -110,6 +110,13 @@ const me: PublicKey = accountPda(kp.publicKey);
 const status = await sponsorStatus();
 const relayer = new PublicKey(status.relayer);
 log(`code ${here}; relayer ${relayer.toBase58()} (sponsor ${status.paused ? "PAUSED" : "on"}); wallet ${name} ${kp.publicKey.toBase58()}`);
+// The relayer core's SponsorState names (devnet G7zD…cTYP): the step-off's signers must be exactly it and the seat key.
+const { sponsorPda } = req("../../lib/chain/basket");
+const sponsorInfo = await chain.base.getAccountInfo(sponsorPda(), "confirmed");
+const { BorshAccountsCoder } = req("@coral-xyz/anchor");
+const named: PublicKey | null = sponsorInfo ? new PublicKey(new BorshAccountsCoder(req("../../lib/chain/idl/tesoro_core.json")).decode("SponsorState", sponsorInfo.data).relayer) : null;
+log(`on-chain SponsorState relayer ${named?.toBase58() ?? "none"}`);
+if (!dry && (!named || !named.equals(relayer))) fail(`the route's relayer ${relayer.toBase58()} is not the one the SponsorState names (${named?.toBase58()})`);
 if (status.paused && !dry) fail("the sponsor reports itself paused: TESORO_RELAYER_KEYPAIR must be the relayer the on-chain SponsorState names");
 
 // The car boarding now, read as the page reads it.
@@ -179,8 +186,9 @@ for (let i = 0; i < 20 && !tx; i++) {
 if (!tx) fail(`step-off ${sig} not found`);
 const msg = tx!.transaction.message;
 const signers = msg.staticAccountKeys.slice(0, msg.header.numRequiredSignatures).map((k: PublicKey) => k.toBase58());
-const want = [relayer.toBase58(), seat.publicKey.toBase58()];
+const want = [named!.toBase58(), seat.publicKey.toBase58()];
 const mark = await chain.base.getAccountInfo(seatMarkPda(match, me), "confirmed");
+log(`step-off ${sig} signers: ${signers.join(", ")}`);
 log(`step-off ${sig}: err ${JSON.stringify(tx!.meta?.err ?? null)}, signers ${signers.map((k: string) => (k === want[0] ? "relayer" : k === want[1] ? "seat key" : k === kp.publicKey.toBase58() ? "WALLET" : k)).join(", ")}; basket ${before} -> ${await basket()} Gemas; seat mark ${mark ? "still there" : "closed"}; wallet signatures in the step-off 0 (boarding ${signs.n})`);
 if (tx!.meta?.err) fail("the step-off failed on chain");
 if (signers.length !== 2 || !want.every((k) => signers.includes(k))) fail(`signers are not exactly the relayer and the seat key: ${signers.join(", ")}`);
