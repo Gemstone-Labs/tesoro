@@ -49,10 +49,8 @@ const SEED = 3;
 /**
  * The guide lays its words over the foot of the clip (about 38% of it) and, on desktop, its progress bars over the top (about 10%).
  * `band` is the part of the frame that stays clear: phone 0-60%, desktop 12-62%. A crop puts what the step is about in that band.
- * The crop may reach past the page's bottom or top edge: those rows are filled with the page's dark background (PAGE_FILL).
  */
 const EDGE = 700;
-const PAGE_FILL = "0x070b10";
 const SETS = {
   phone: { context: { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true }, ratio: 4 / 5, out: [480, 600], pad: 8, band: [0, 0.6] },
   desktop: { context: { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 }, ratio: 16 / 10, out: [960, 600], pad: 12, band: [0.12, 0.62] },
@@ -1468,7 +1466,7 @@ async function playbackCheck(page, files) {
 
 const written = [];
 
-async function encode(game, step, setName, take, work) {
+async function encode(game, step, setName, take) {
   const set = SETS[setName];
   const def = GAMES[game].steps[step];
   const dsf = SCREENS[setName].dsf; // the screen's pixels per CSS px (an emulated lower scale factor is stretched to fill the same window)
@@ -1534,7 +1532,7 @@ for (const setName of sets) {
           try {
             take = await record(screen.page, game, step, setName, attempt, work);
             if (!take.ok) { console.log(`${game}/${step}-${setName}: take ${attempt} discarded`); continue; }
-            await encode(game, step, setName, take, work);
+            await encode(game, step, setName, take);
             done = true;
           } catch (e) {
             console.log(`${game}/${step}-${setName}: take ${attempt} failed: ${e.message.split("\n")[0]}`);
