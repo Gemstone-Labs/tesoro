@@ -137,7 +137,7 @@ function RailcarBody({
               {TELLS.map(({ name, art }, i) => (
                 <li key={name} className={`cut cut-chip rc-tell${view.tell > i ? " on" : ""}`} aria-current={view.tell === i + 1 ? "step" : undefined}>
                   {/* eslint-disable-next-line @next/next/no-img-element -- small picked image, 2x file */}
-                  <img src={art} alt="" width={26} height={26} draggable={false} />
+                  <img src={art} alt="" width={34} height={34} draggable={false} />
                   {name}
                 </li>
               ))}

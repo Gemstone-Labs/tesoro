@@ -26,8 +26,8 @@
 @keyframes rc-pulse { 50% { opacity: 0.35; } }
 .rc-clock { margin: 0; font: 800 44px / 1 var(--f-mono); letter-spacing: 0.02em; }
 .rc-tells { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; width: 100%; margin: 0; padding: 0; list-style: none; }
-.rc-tell { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 5px 4px; background: var(--raised); color: var(--fg-3); font: 700 var(--fs-12) / 1.2 var(--f-body); letter-spacing: 0.04em; text-transform: uppercase; transition: color 0.3s, background 0.3s; }
-.rc-tell img { width: 26px; height: 26px; object-fit: contain; filter: grayscale(1); opacity: 0.4; transition: filter 0.3s, opacity 0.3s; }
+.rc-tell { display: flex; flex-direction: row; justify-content: center; align-items: center; gap: 6px; padding: 3px 6px; background: var(--raised); color: var(--fg-3); font: 700 var(--fs-12) / 1.2 var(--f-body); letter-spacing: 0.04em; text-transform: uppercase; transition: color 0.3s, background 0.3s; }
+.rc-tell img { flex: none; width: 34px; height: 34px; object-fit: contain; filter: grayscale(1); opacity: 0.4; transition: filter 0.3s, opacity 0.3s; }
 .rc-tell.on { background: var(--surface-2); color: var(--fg); --edge: var(--edge-2); }
 .rc-tell.on img { filter: none; opacity: 1; }
 .rc-tell.on[aria-current="step"] { animation: rc-tell-pop 0.4s ease-out; }
