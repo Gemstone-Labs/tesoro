@@ -31,6 +31,8 @@ import { TxTooLarge, checkedV0 } from "@/lib/chain/tx-size";
 import { admissionFits, admit, checkOnboarding, exitFits, exitsBlocked, rentExitFits, onboardingAlertDue, onboardUserOf, recordCycle, recordFailure, takeOnboarding, type Balance, type Limits } from "./policy";
 import { CORE_ID, PRIORITY_MICROLAMPORTS, PROTECTIONS_BYTES, RECEIPT_RENT, SETTLEMENT_RECEIPT_BYTES, RuleError, SIGNATURE_LAMPORTS, planTransaction, type Ix, type Plan } from "./rules";
 import { EXIT_ATA_WINDOW_MS, verifyCkptPages, verifyExitSetup } from "./exit-setup";
+import { matchCutPages } from "@/lib/chain/match-cut-pages";
+import type { Reader } from "@/lib/chain/settle-plan";
 import type { UsageStore } from "./store";
 import { ChainTransactionFailed } from "./chain-send";
 import { completionEffects, completionInput, holdSeeds, recoverCompletions, type CompletionChain, type HoldSeed } from "./completion";
@@ -521,7 +523,7 @@ export class Sponsor {
       if (plan.names.includes("check_departure") && !plan.names.includes("join_many_seat_match")) throw new DemoHttpError(403, "wallet-only", "This needs your wallet.");
     } else if (auth.kind === "seat") {
       if (!plan.names.every((n) => SEAT_STEP_NAMES.has(n))) throw new DemoHttpError(403, "wallet-only", "This needs your wallet.");
-      // Checkpoint pages name a Source's book, not the Match: the chain proves each is missing and needed (`verifyCkptPages`).
+      // Checkpoint pages name a Source's book, not the Match: each must be one this Match's fee cuts will write (below).
       const pagesOnly = plan.names.every((n) => n === "init_ckpt_page");
       if (!pagesOnly && !ixs.some((i) => i.keys.some((k) => k.pubkey.equals(auth.match)))) throw new DemoHttpError(400, "bad-request", "The request names another Match than the transaction.");
       const match = await this.d.chain.account(auth.match);
@@ -532,8 +534,20 @@ export class Sponsor {
           : // A cancel is the opener's, and only while the Match is Open; the seat key of the other side cannot send it.
             matchNamesSeatKey(match, accountPda(player), auth.signer, plan.names.includes("refund_match"));
       if (!named) throw new DemoHttpError(403, "not-your-seat-key", "That key is not this Player's key for the Match.");
+      if (pagesOnly) {
+        const needed = new Set((await matchCutPages(this.reader, auth.match)).map((k) => k.toBase58()));
+        if (!(plan.pages ?? []).every((p) => needed.has(p.page.toBase58()))) throw new DemoHttpError(403, "not-this-match", "This Match's settlement does not need those checkpoint pages.");
+      }
     }
   }
+
+  /** The chain reads as the shared planners take them. */
+  private readonly reader: Reader = {
+    many: (keys) => Promise.all(keys.map(async (k) => {
+      const a = await this.d.chain.account(k);
+      return a && { owner: a.owner, data: Buffer.from(a.data), lamports: 0, executable: false, rentEpoch: 0 };
+    })),
+  };
 
   /** The `assign_match` for the Match a join enters, or null (no free table, an unreadable Match, a Game we do not assign): the join then goes alone, flagged `table` so the page asks for the table once it confirms. */
   private async assignJoin(join: NonNullable<ReturnType<typeof joinOf>>, holder: string, who: string): Promise<Assignment | "busy" | "own" | null> {
