@@ -35,7 +35,7 @@ import { backerSeatedIn, boardingEntry, type BoardingBacking } from "./boarding"
 import { stepOffFor } from "./step-off";
 import { sendStepOff } from "./step-off-send";
 import { finishRide } from "./finish";
-import { mayFinish, nextRideStep, pageIntervalMs, queueChoice, watchedRide } from "./flow";
+import { mayFinish, nextRideStep, pageIntervalMs, queueChoice, rememberedCarGone, watchedRide } from "./flow";
 import type { RailcarWatch } from "./RailcarScreen";
 import { boardingSigner, brakeRoute, finishSender, joinSeatKey, jumpSigner } from "./signers";
 import type { RailcarBrake, RailcarOffer } from "./RailcarScreen";
@@ -103,9 +103,21 @@ interface Snapshot {
   mine: boolean;
   /** The Offer's Backer holds a mark in the car shown (core would refuse the backed join there). */
   backerSeated: boolean;
+  /** The car this page remembered is gone (closed, or boarding without the Player): the page forgets it. */
+  forgot: boolean;
 }
 
-async function readSnapshot(read: Reader, tee: () => Promise<Connection | null>, me: PublicKey | null, my: MyCar | null, backer: PublicKey | null): Promise<Snapshot> {
+export async function readSnapshot(read: Reader, tee: () => Promise<Connection | null>, me: PublicKey | null, remembered: MyCar | null, backer: PublicKey | null): Promise<Snapshot> {
+  // A remembered car that is closed, or still boarding without a seat of the Player's, must not stand in for the car boarding now.
+  let my = remembered;
+  let forgot = false;
+  if (my) {
+    const l = await loadCar(read, new PublicKey(my.match));
+    if (rememberedCarGone(l?.car ?? null, l?.seats ?? [], me)) {
+      my = null;
+      forgot = true;
+    }
+  }
   const [cfgInfo] = await read.many([configPda()]);
   const config = cfgInfo ? decodeConfig(cfgInfo.data) : null;
   let car: Snapshot["car"] = my ? { carNo: BigInt(my.carNo), table: my.table, match: new PublicKey(my.match) } : null;
@@ -131,7 +143,7 @@ async function readSnapshot(read: Reader, tee: () => Promise<Connection | null>,
       watching = true;
     }
   }
-  if (!car) return { config, car: null, loaded: null, boarding, watching, rollup: null, base: null, previousFrozen: false, mine: false, backerSeated: false };
+  if (!car) return { config, car: null, loaded: null, boarding, watching, rollup: null, base: null, previousFrozen: false, mine: false, backerSeated: false, forgot };
   const loaded = boarding && boarding.carNo === car.carNo ? boarding.loaded : await loadCar(read, car.match);
   const mine = !!me && !!loaded?.seats.some((s) => s.seated && s.player.equals(me));
   // The Backer's mark is checked in the car the Queue boards, which a watched ride is not.
@@ -147,7 +159,7 @@ async function readSnapshot(read: Reader, tee: () => Promise<Connection | null>,
     rollup = info ? decodeTable(info.data) : null;
     if (rollup && rollup.carNo !== car.carNo && rollup.phase === "over") previousFrozen = !!(await read.many([settledPda(rollup.tesoroMatch)]))[0];
   }
-  return { config, car, loaded, boarding, watching, rollup, base, previousFrozen, mine, backerSeated };
+  return { config, car, loaded, boarding, watching, rollup, base, previousFrozen, mine, backerSeated, forgot };
 }
 
 export interface RailcarPage {
@@ -263,6 +275,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   const refresh = useCallback(async () => {
     read.current ??= connReader(getChain().base);
     const s = await readSnapshot(read.current, tee, me, meKey ? recall(meKey) : null, backerKey ? new PublicKey(backerKey) : null);
+    if (s.forgot && meKey) remember(meKey, null);
     setSnap(s);
     return s;
   }, [me, meKey, tee, backerKey]);
@@ -325,6 +338,12 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
           stepping.current = false;
         });
     };
+    // A closed car clears the page's memory of it, whoever's seat it was.
+    if (step.kind === "done") {
+      if (meKey) remember(meKey, null);
+      if (seat) void seatKeys().release(seat.seatMatchKey);
+      return;
+    }
     if (!snap.mine) return;
     switch (step.kind) {
       case "depart":
@@ -340,10 +359,6 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
       case "settle":
       case "close":
         if (send && me && (!ride || mayFinish(ride, me) || step.kind !== "finalize")) run(() => finishFromPage(send, car, snap.base, me));
-        return;
-      case "done":
-        if (meKey) remember(meKey, null);
-        if (seat) void seatKeys().release(seat.seatMatchKey);
         return;
       default:
         // finalize-previous: the previous car's riders (or the keeper's sweep) finalize it; this page waits.

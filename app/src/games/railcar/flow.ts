@@ -4,7 +4,7 @@
  * these say.
  */
 import type { PublicKey } from "@solana/web3.js";
-import { boardingEnds, joinPage, type CarView, type SeatPageView } from "../../lib/chain/many-seat";
+import { boardingEnds, joinPage, type CarView, type SeatPageView, type SeatView } from "../../lib/chain/many-seat";
 import { COUNTDOWN_SECS, NO_SEAT, type RailcarConfigView, type TableView } from "./chain";
 
 export type QueueChoice =
@@ -134,4 +134,16 @@ export const RESULT_LINGER_SECS = 60;
 export function watchedRide(tables: TableView[], now: number): TableView | null {
   const shown = tables.filter((t) => t.phase === "riding" || t.phase === "drawing" || (t.phase === "over" && now - t.overAt < RESULT_LINGER_SECS));
   return shown.reduce<TableView | null>((best, t) => (!best || t.carNo > best.carNo ? t : best), null);
+}
+
+/**
+ * A page remembers the car its Player boarded (so the Result stays after the seat closes). The memory is gone, and must never
+ * hide the car now boarding, when that car no longer exists or is closed, or is still boarding and the Player holds no seat in
+ * it (stepped off, refunded and closed, or boarded from another device and left). A car in any later stage stays: it is the
+ * Player's ride, settling or paid, whose Result they still see.
+ */
+export function rememberedCarGone(core: CarView | null, seats: SeatView[], me: PublicKey | null): boolean {
+  if (!core || core.stage === "closed") return true;
+  if (core.stage === "boarding") return !me || !seats.some((s) => s.seated && s.player.equals(me));
+  return false;
 }
