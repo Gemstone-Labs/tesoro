@@ -56,6 +56,16 @@ describe("Railcar docs page", () => {
   });
 });
 
+describe("where Railcar is not shown (Production)", () => {
+  it("the rulebook is a 404", async () => {
+    vi.resetModules();
+    vi.stubEnv("NEXT_PUBLIC_SHOW_RAILCAR", "");
+    const { default: Hidden } = await import("./page");
+    expect(() => Hidden()).toThrow(expect.objectContaining({ digest: expect.stringContaining("NEXT_HTTP_ERROR_FALLBACK;404") }));
+    vi.unstubAllEnvs();
+  });
+});
+
 describe("Risks, Terms and Help carry the Railcar lines", () => {
   it("Risks says the crash point is random, Brakes are secret and there is no automatic Jump", () => {
     const t = text(<Risks />);
