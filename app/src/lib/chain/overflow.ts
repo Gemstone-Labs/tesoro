@@ -1,6 +1,6 @@
 import "./polyfill";
 import { PublicKey, type TransactionInstruction } from "@solana/web3.js";
-import { BASKET_VERSION, DISC, TESORO_CORE, basketPda, decodeStore, matchPda, spillPda } from "./basket";
+import { BASKET_VERSION, DISC, TESORO_CORE, basketPda, decodeStore, matchPda, spillPda, type Line } from "./basket";
 import { coreIx, metaOf } from "./core-ix";
 
 /**
@@ -42,6 +42,8 @@ export interface WaitingRecord {
   match: PublicKey | null;
   gemas: bigint;
   lines: number;
+  /** The lines themselves: a claim that merges one into a line the owner holds reads both lines' checkpoint pages. */
+  storeLines: Line[];
   /** The Sources of the lines: a claim that merges into a line the owner holds needs their books. */
   sources: PublicKey[];
 }
@@ -65,6 +67,7 @@ export function decodeOverflowRecord(address: PublicKey, data: Uint8Array): Wait
       match: data[DISC + 32] === OVERFLOW_KINDS.match ? matchPda(new PublicKey(data.slice(DISC + 33, DISC + 65)), new DataView(data.buffer, data.byteOffset + DISC + 65, 8).getBigUint64(0, true)) : null,
       gemas: store.lines.reduce((t, l) => t + l.amount, 0n),
       lines: store.lines.length,
+      storeLines: store.lines,
       sources: [...new Map(store.lines.map((l) => [l.source.toBase58(), l.source])).values()],
     };
   } catch {
