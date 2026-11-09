@@ -169,7 +169,7 @@ function RailcarBody({
           </div>
         )}
         <div className="rc-stage-wrap">
-          <RailcarStage aboard={aboard} moving={riding && !crash} slow={riding && meAboard && !!brake && brake.activeMs > 0} tell={riding ? view.tell : 0} crash={crash} />
+          <RailcarStage aboard={aboard} moving={riding && !crash} slow={riding && meAboard && !!brake && brake.activeMs > 0} tell={riding ? view.tell : 0} rideMs={riding ? view.clockMs : 0} crash={crash} />
           {riding && brake && meAboard && brake.activeMs > 0 && (
             <p className="cut cut-chip rc-brake-tag">
               Your Brake <b className="mono">{Math.ceil(brake.activeMs / 1000)}s</b> · only you see this

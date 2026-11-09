@@ -50,10 +50,10 @@ interface Leap {
 /**
  * The side-view railcar in the cave. Still while Boarding; `moving` starts it rolling right (the cave scrolls left)
  * without remounting, so Boarding turns into the Ride in place. Players who leave `aboard` leap off their window.
- * `slow` halves the scroll (the Player's own Brake, ticket 11); nothing else on screen shows speed. `tell` is how many Tell stages
+ * The car gets faster with `rideMs` (the ride clock; see `roll.ts`); `slow` halves the speed (the Player's own Brake, ticket 11); nothing else on screen shows speed. `tell` is how many Tell stages
  * have fired: each changes the car itself (see `CarDamage`). `crash` stops the car and plays the impact (see `CrashMoment`).
  */
-export function RailcarStage({ aboard, moving, slow = false, tell = 0, crash = false }: { aboard: Rider[]; moving: boolean; slow?: boolean; tell?: number; crash?: boolean }) {
+export function RailcarStage({ aboard, moving, slow = false, tell = 0, crash = false, rideMs = 0 }: { aboard: Rider[]; moving: boolean; slow?: boolean; tell?: number; crash?: boolean; rideMs?: number }) {
   const root = useRef<HTMLDivElement>(null);
   const windows = windowRiders(aboard);
   const [leaps, setLeaps] = useState<Leap[]>([]);
@@ -74,16 +74,21 @@ export function RailcarStage({ aboard, moving, slow = false, tell = 0, crash = f
   // a Brake starting or ending changes the next frame's speed and never restarts the drawing.
   const roll = useRef(newRoll());
   const slowNow = useRef(slow);
+  // The ride clock as the page last read it, and when: frames count on from it so the speed climbs smoothly between reads.
+  const clock = useRef({ rideMs, at: 0 });
   useEffect(() => {
     slowNow.current = slow;
   });
+  useEffect(() => {
+    clock.current = { rideMs, at: performance.now() };
+  }, [rideMs]);
   useEffect(() => {
     const el = root.current;
     if (!el || !moving || reduced()) return;
     roll.current = { ...roll.current, t: null };
     let raf = 0;
     const tick = (t: number) => {
-      const r = (roll.current = rollFrame(roll.current, t, slowNow.current));
+      const r = (roll.current = rollFrame(roll.current, t, slowNow.current, clock.current.rideMs + Math.max(0, t - clock.current.at)));
       el.style.setProperty("--rc-far", `${r.far}px`);
       el.style.setProperty("--rc-mid", `${r.mid}px`);
       el.style.setProperty("--rc-trk", `${r.trk}px`);
