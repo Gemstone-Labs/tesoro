@@ -1,9 +1,9 @@
-import { Keypair, PublicKey, VersionedTransaction } from "@solana/web3.js";
+import { Keypair, PublicKey, VersionedMessage, VersionedTransaction } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { RAILCAR_PROGRAM_ID, checkDepartureIx, finalizeIx } from "@/games/railcar/chain";
 import { layoutOf, type IdlWithTypes } from "@/lib/chain/idl-layout";
-import { joinSeatIx, seatChunkIx, seatMarkPda, seatPagePda } from "@/lib/chain/many-seat";
+import { joinSeatIx, seatChunkIx, seatMarkPda, seatPagePda, stepOffIx, type SeatView } from "@/lib/chain/many-seat";
 import { initCkptPageIx } from "@/lib/chain/settle-plan";
 import { bookPda } from "@/lib/chain/basket";
 import { encodeBook, freshClass } from "@/lib/chain/basket-fixture";
@@ -151,5 +151,56 @@ describe("Railcar on the sponsor", () => {
     stranger.accounts.set(s.car.toBase58(), s.accounts.get(s.car.toBase58())!);
     const fin = finalizeIx(stranger.relayer.publicKey, { carNo: 3n, table: 1, tesoroMatch: s.car, payer: key() }, 2);
     await expect(stranger.sponsor.build(stranger.player.publicKey, wire([fin]))).rejects.toMatchObject({ code: "not-your-match" });
+  });
+
+  // ---- stepping off with the seat key (seat-keys spec, user story 9: no wallet signature) ---------------------------------
+
+  /** The Player's seat 12 (`seat`) as the step-off reads it, in car `car`. */
+  const mySeat = (s: ReturnType<typeof setup>, signer: PublicKey): SeatView => {
+    const account = accountPda(s.player.publicKey);
+    return { index: 12, seated: true, shareBps: 0, placeBps: 0, place: 0, potLines: 1, hold: 0, refund: 0n, player: account, funder: account, pot: key(), signer };
+  };
+  const stepOff = (s: ReturnType<typeof setup>, caller: PublicKey, also: PublicKey[] = []) =>
+    stepOffIx({ caller, car: s.car, seat: mySeat(s, caller), markPayer: s.relayer.publicKey, potPayer: s.relayer.publicKey, sponsor: false, remaining: also.map((pubkey) => ({ pubkey, isSigner: false, isWritable: false })) });
+
+  it("the seat key steps off its own seat: the relayer pays, the wallet signs nothing", async () => {
+    const s = setup();
+    const ana = Keypair.generate();
+    seat(s, ana.publicKey);
+    const built = await s.sponsor.build(s.player.publicKey, wire([stepOff(s, ana.publicKey)]), null, seatAuth(ana.publicKey, s.car));
+    expect(built).toMatchObject({ class: "exit" });
+    // the signers the transaction asks for: the relayer (fee) and the seat key, never the wallet
+    const msg = VersionedMessage.deserialize(Buffer.from(built.message, "base64"));
+    const signers = msg.staticAccountKeys.slice(0, msg.header.numRequiredSignatures).map((k) => k.toBase58());
+    expect(signers.sort()).toEqual([s.relayer.publicKey.toBase58(), ana.publicKey.toBase58()].sort());
+  });
+
+  it("refuses a step-off by another seat's key, by a key of another car, and by a stranger", async () => {
+    const s = setup();
+    const ana = key();
+    seat(s, ana);
+    // another seat's key: the car does not name it in this Player's seat
+    const other = key();
+    await expect(s.sponsor.build(s.player.publicKey, wire([stepOff(s, other)]), null, seatAuth(other, s.car))).rejects.toMatchObject({ code: "not-your-seat-key" });
+    // a key another car names for this Player, asking for this car's step-off
+    const b = setup();
+    const bKey = key();
+    const carB = key();
+    for (const [k, v] of b.accounts) s.accounts.set(k, v);
+    s.accounts.set(carB.toBase58(), s.accounts.get(s.car.toBase58())!);
+    const sB = { ...s, car: carB };
+    seat(sB, bKey);
+    await expect(s.sponsor.build(s.player.publicKey, wire([stepOff(s, bKey)]), null, seatAuth(bKey, carB))).rejects.toMatchObject({ code: "bad-request" });
+    // ...even when the transaction names car B somewhere
+    await expect(s.sponsor.build(s.player.publicKey, wire([stepOff(s, bKey, [carB])]), null, seatAuth(bKey, carB))).rejects.toMatchObject({ code: "not-this-match" });
+    // a stranger: a key the car never named, on a request in this Player's name
+    const stranger = key();
+    await expect(s.sponsor.build(s.player.publicKey, wire([stepOff(s, stranger)]), null, seatAuth(stranger, s.car))).rejects.toMatchObject({ code: "not-your-seat-key" });
+  });
+
+  it("the wallet's own step-off still builds (the page's fallback without a seat key on this device)", async () => {
+    const s = setup();
+    seat(s, key());
+    await expect(s.sponsor.build(s.player.publicKey, wire([stepOff(s, s.player.publicKey)]))).resolves.toMatchObject({ class: "exit" });
   });
 });

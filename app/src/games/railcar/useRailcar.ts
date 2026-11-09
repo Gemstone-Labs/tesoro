@@ -33,6 +33,7 @@ import { bindTargets, brakeState, earlyCopyDue, pageSend, tellCues, type EarlyCo
 import { ENTRY_GEMAS, RAILCAR_PROGRAM_ID, bindBrakeIx, brakeSeatPda, carPda, checkDepartureIx, commitTableIx, configPda, decodeBrakeSeat, decodeCarAccount, decodeConfig, decodeTable, jumpIx, openCarIx, signalIx, startRideIx, tablePda, tickIx, type BrakeSeatView, type RailcarConfigView, type TableView } from "./chain";
 import { backerSeatedIn, boardingEntry, type BoardingBacking } from "./boarding";
 import { stepOffFor } from "./step-off";
+import { sendStepOff } from "./step-off-send";
 import { finishRide } from "./finish";
 import { mayFinish, nextRideStep, pageIntervalMs, queueChoice, watchedRide } from "./flow";
 import type { RailcarWatch } from "./RailcarScreen";
@@ -549,12 +550,19 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
         const s = snap.loaded.seats.find((x) => x.seated && x.player.equals(me));
         if (!s) return;
         // A Backed seat's lines go home to the Backer; the Offer stays used, so the Player asks again to ride backed.
-        const ix = await stepOffFor(getChain().core, read.current!, { caller: wallet.publicKey, loaded: snap.loaded, seat: s });
-        // Stepping off is the Player's own exit: the wallet signs it, the relayer pays when it can.
-        await sponsoredSend(wallet, getToken, [ix]).catch(() => getChain().sendBase(wallet, [ComputeBudgetProgram.setComputeUnitLimit({ units: SELF_PAID_UNITS }), ix]));
+        // The seat key signs it when the seat names it (no wallet signature); else the wallet, as the Player's own exit.
+        const loaded = snap.loaded;
+        await sendStepOff({
+          wallet,
+          seat,
+          seatSigner: s.signer,
+          build: (caller) => stepOffFor(getChain().core, read.current!, { caller, loaded, seat: s }),
+          sponsored: (signer, ixs) => sponsoredSend(signer, getToken, ixs),
+          selfPaid: (signer, ixs) => getChain().sendBase(signer, [ComputeBudgetProgram.setComputeUnitLimit({ units: SELF_PAID_UNITS }), ...ixs]),
+        });
         remember(meKey, null);
       }),
-    [act, wallet, me, meKey, getToken, snap],
+    [act, wallet, me, meKey, getToken, snap, seat],
   );
 
   const jump = useCallback(
