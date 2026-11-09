@@ -2,7 +2,7 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import type { CarView, SeatPageView, SeatView } from "../../lib/chain/many-seat";
 import type { TableView } from "./chain";
-import { boardingSteps, departureDue, mayFinish, nextRideStep, queueChoice, signalIntervalMs, watchedRide } from "./flow";
+import { boardingSteps, departureDue, mayFinish, nextRideStep, pageIntervalMs, queueChoice, signalIntervalMs, watchedRide } from "./flow";
 
 const key = () => Keypair.generate().publicKey;
 const T0 = 1_762_300_000;
@@ -79,6 +79,18 @@ describe("signals", () => {
     expect(signalIntervalMs(100)).toBe(20_000);
     // Pages together: aboard / interval = 5 per second once 3 or more are aboard.
     expect((100 * 1000) / signalIntervalMs(100)).toBe(5);
+  });
+
+  it("a page whose Player is off shares the backup rate with every seat: 100 seated, 5 aboard is about 10 a second, not 100", () => {
+    // aboard pages beat at the aboard rate: 5 aboard, one beat a second each
+    expect(pageIntervalMs({ aboard: 5, seated: 100, mine: "aboard" })).toBe(1_000);
+    // a Jumped Player's page beats as if every seat had a page open: 20 s
+    expect(pageIntervalMs({ aboard: 5, seated: 100, mine: "off" })).toBe(20_000);
+    const perSec = 5 * (1000 / pageIntervalMs({ aboard: 5, seated: 100, mine: "aboard" })) + 95 * (1000 / pageIntervalMs({ aboard: 5, seated: 100, mine: "off" }));
+    expect(perSec).toBe(9.75);
+    // 5 seated, 1 aboard: that page at 0.5 s (2/s) and 4 off at 1 s (4/s)
+    expect(pageIntervalMs({ aboard: 1, seated: 5, mine: "aboard" })).toBe(500);
+    expect(pageIntervalMs({ aboard: 1, seated: 5, mine: "off" })).toBe(1_000);
   });
 });
 

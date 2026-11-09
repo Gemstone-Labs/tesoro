@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BIND_PER_SEND, bindTargets, brakeState, pageSend, tellCues, type BrakeFacts } from "./brake";
+import { BIND_PER_SEND, bindTargets, brakeState, earlyCopyDue, pageSend, tellCues, type BrakeFacts } from "./brake";
 import type { TableView } from "./chain";
 
 const table = (o: Partial<TableView>): TableView => ({ phase: "drawing", seated: 12, brakesBound: 0, ...o }) as TableView;
@@ -25,7 +25,7 @@ describe("binding every seat during the draw", () => {
 });
 
 describe("the Brake button", () => {
-  const ready: BrakeFacts = { aboard: true, allBound: true, myBound: true, canSign: true, pressMs: null, pending: false, rideMs: 40_000 };
+  const ready: BrakeFacts = { aboard: true, allBound: true, myBound: true, canSign: true, walletCopied: true, pressMs: null, pending: false, rideMs: 40_000 };
 
   it("ready: one left", () => {
     expect(brakeState(ready)).toEqual({ status: "ready", left: 1, activeMs: 0 });
@@ -43,8 +43,32 @@ describe("the Brake button", () => {
     expect(brakeState({ ...ready, canSign: false })?.status).toBe("waiting");
   });
 
+  it("on the wallet route the Brake waits for the early copy: until it landed the button asks to sign, so the Brake is never the wallet's first ride transaction", () => {
+    expect(brakeState({ ...ready, walletCopied: false })?.status).toBe("sign");
+    expect(brakeState({ ...ready, walletCopied: true })?.status).toBe("ready");
+    // still waiting for the seats: that comes first
+    expect(brakeState({ ...ready, walletCopied: false, allBound: false })?.status).toBe("waiting");
+  });
+
   it("none off the car", () => {
     expect(brakeState({ ...ready, aboard: false })).toBeNull();
+  });
+});
+
+describe("the wallet's early copy (founder 2026-11-08)", () => {
+  const due = { route: "wallet" as const, riding: true, aboard: true, copy: "none" as const };
+  it("a page on the wallet route sends it as the ride starts, once; a seat-key page never does", () => {
+    expect(earlyCopyDue(due)).toBe(true);
+    expect(earlyCopyDue({ ...due, route: "next-tick" })).toBe(false);
+    expect(earlyCopyDue({ ...due, route: null })).toBe(false);
+  });
+
+  it("not before the ride starts, not off the car, and never twice (a declined prompt is asked again only from the button)", () => {
+    expect(earlyCopyDue({ ...due, riding: false })).toBe(false);
+    expect(earlyCopyDue({ ...due, aboard: false })).toBe(false);
+    expect(earlyCopyDue({ ...due, copy: "asking" })).toBe(false);
+    expect(earlyCopyDue({ ...due, copy: "done" })).toBe(false);
+    expect(earlyCopyDue({ ...due, copy: "declined" })).toBe(false);
   });
 });
 
