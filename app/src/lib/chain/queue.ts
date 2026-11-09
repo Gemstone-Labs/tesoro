@@ -40,6 +40,8 @@ export interface QueueDeps {
   settle(e: TxUnconfirmedError): Promise<TxOutcome>;
   /** Matches of this game the Player is seated in and still has to play, read fresh. */
   unfinished(): Promise<ChainMatch[]>;
+  /** The Match this Account's last Queue entry of this Game went into, if recent: read fresh, since the list read lags (ticket 63). */
+  recentEntry?(): string | null;
   /** The key of the Match `open` is about to create (`<opener>-<n>` from the opener's counter). */
   newId(): string | Promise<string>;
   /** After a definite failure: false when the entry itself can no longer be used (a spent Offer). */
@@ -114,6 +116,10 @@ export async function queueEntry(d: QueueDeps): Promise<Entered> {
   const step = d.onStep ?? (() => undefined);
   const existing = async () => (await d.unfinished())[0] ?? null;
 
+  const recent = d.recentEntry?.() ?? null;
+  const last = recent ? await d.readMatch(recent).catch(() => null) : null;
+  if (recent && last && last.seat !== null && last.running === null && (last.status === "open" || last.status === "active")) return { id: recent, via: "existing" };
+
   const before = await existing();
   if (before) return { id: before.id, via: "existing" };
 
@@ -132,6 +138,8 @@ export async function queueEntry(d: QueueDeps): Promise<Entered> {
       const r = await classifySend(d, e, id, (m) => m.seat !== null);
       if (r === "landed") return { id, via: "joined" };
       if (r === "unknown") throw e instanceof TxUnconfirmedError ? new QueueUnconfirmedError(id, e) : e;
+      // A join that failed while this Player holds the seat (another of their entries got there first) is their Match (ticket 63).
+      if ((await d.readMatch(id).catch(() => null))?.seat != null) return { id, via: "joined" };
       if (d.canRetry && !(await d.canRetry())) throw e;
     }
   }

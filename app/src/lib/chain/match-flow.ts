@@ -16,7 +16,8 @@ import { entryError } from "./entry-errors";
 import type { StagedEntry } from "./ticket";
 import { matchAddressOf, matchKeyOf } from "./match-id";
 import { finishMatchFree } from "./finish-match-client";
-import { mergeQueue, queueEntry, type Entered, type Merged, type QueueDeps } from "./queue";
+import { queueLockName, recentQueueEntry, rememberQueueEntry, withEntryLock } from "./entry-lock";
+import { mergeQueue, queueEntry, type Entered, type MergeDeps, type Merged, type QueueDeps } from "./queue";
 import { fetchAccountState, fetchMatch, listLiveMatchIds, listQueueMatchIds, type AccountSnapshot, type ChainMatch } from "./read";
 import { filterByLease, freshLeases } from "./presence";
 import { BRAND } from "../brand";
@@ -142,7 +143,7 @@ export function queueDeps(signer: ChainSigner, me: PublicKey, game: GameId, entr
 }
 
 /** The Queue entry for one Account: how it joins, opens and (for the merge) refunds. Never backed. */
-function plainQueueDeps(signer: ChainSigner, me: PublicKey, getToken: GetToken, game: GameId, entry: number, asset: 0 | 1 | 2, onStep?: (s: string) => void): QueueDeps & { refund(id: string): Promise<unknown> } {
+function plainQueueDeps(signer: ChainSigner, me: PublicKey, getToken: GetToken, game: GameId, entry: number, asset: 0 | 1 | 2, onStep?: (s: string) => void): QueueDeps & Pick<MergeDeps, "refund" | "finish"> {
   const common = { signer, getToken, game, entry, onStep };
   return {
     ...queueDeps(signer, me, game, entry, asset, me),
@@ -173,12 +174,19 @@ export async function enterQueue(
 ): Promise<Entered> {
   const snap = await ensureReady(signer, getToken);
   const common = { signer, getToken, game, entry, backing, onStep, onStaged };
-  return queueEntry({
-    ...queueDeps(signer, snap.accountKey, game, entry, asset, backing?.backerAccount ?? snap.accountKey),
-    join: (key) => joinEntry({ ...common, key }),
-    open: () => openEntry({ ...common, challenge: false, asset: matchAsset(game, asset) }),
-    canRetry,
-    onStep,
+  // One Queue entry per Account and Game at a time, across tabs and page instances; the next one finds the Match it entered (ticket 63).
+  const lock = queueLockName(snap.accountKey.toBase58(), game);
+  return withEntryLock(lock, async () => {
+    const r = await queueEntry({
+      ...queueDeps(signer, snap.accountKey, game, entry, asset, backing?.backerAccount ?? snap.accountKey),
+      join: (key) => joinEntry({ ...common, key }),
+      open: () => openEntry({ ...common, challenge: false, asset: matchAsset(game, asset) }),
+      recentEntry: () => recentQueueEntry(lock),
+      canRetry,
+      onStep,
+    });
+    rememberQueueEntry(lock, r.id);
+    return r;
   });
 }
 
@@ -188,7 +196,12 @@ export async function enterQueue(
  */
 export async function mergeIntoOlderMatch(signer: ChainSigner, getToken: GetToken, mine: ChainMatch, on: { onMove?(): void; onStep?(s: string): void } = {}): Promise<Merged> {
   const snap = await fetchAccountState(signer.publicKey, { fresh: true });
-  return mergeQueue({ ...plainQueueDeps(signer, snap.accountKey, getToken, mine.game, mine.entry, mine.asset as 0 | 1 | 2, on.onStep), onMove: on.onMove }, mine);
+  const lock = queueLockName(snap.accountKey.toBase58(), mine.game);
+  return withEntryLock(lock, async () => {
+    const r = await mergeQueue({ ...plainQueueDeps(signer, snap.accountKey, getToken, mine.game, mine.entry, mine.asset as 0 | 1 | 2, on.onStep), onMove: on.onMove }, mine);
+    if (r.moved) rememberQueueEntry(lock, r.entered.id);
+    return r;
+  });
 }
 
 /** Challenge: open a Match only reachable through its link. Resolves with the Match key. */
