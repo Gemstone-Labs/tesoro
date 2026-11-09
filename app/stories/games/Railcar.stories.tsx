@@ -164,7 +164,7 @@ export const RideFromHistoryDiffers = history(fx.storedWorkedRide({ tamper: true
 /** A fixed draw: the wall at 1:26, sparks at 1:18; three riders off in the first 25 s. */
 const PRACTICE_DRAW = hexToBytes("b8c8dcecf8081c2c38485c6c78889cacb8c8dcecf8081c2c38485c6c78889cac");
 const practiceRide = newPractice(PRACTICE_DRAW);
-const practiceBrakeOf = (p: Practice, t: number): RailcarBrake => ({ ...brakeState({ aboard: p.jumpMs === null, allBound: true, myBound: true, canSign: true, pressMs: p.brakeMs, pending: false, rideMs: t })!, onBrake: noop });
+const practiceBrakeOf = (p: Practice, t: number): RailcarBrake => ({ ...brakeState({ aboard: p.jumpMs === null, allBound: true, myBound: true, canSign: true, walletCopied: true, pressMs: p.brakeMs, pending: false, rideMs: t })!, onBrake: noop });
 const practice = (p: Practice, t: number): StoryObj => ({
   render: () => <RailcarScreen view={practiceView(p, t)} practice brake={p.jumpMs === null ? practiceBrakeOf(p, t) : null} actions={{ onJump: noop, onPlayAgain: noop }} />,
 });

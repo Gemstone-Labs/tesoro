@@ -90,6 +90,8 @@
 .rc-res-title { margin: 0; font: 800 40px / 1 var(--f-display); letter-spacing: 0.03em; text-transform: uppercase; }
 .rc-res-gets { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 4px 0 0; color: var(--em); font: 800 28px / 1.1 var(--f-display); }
 .rc-res-gets.lost { color: var(--danger); }
+.rc-res-would { display: inline-flex; align-items: center; gap: 4px; margin: 4px 0 0; color: var(--fg-2); font: 700 var(--fs-14) / 1.2 var(--f-body); }
+.rc-res-game .game-tag { margin-left: 8px; vertical-align: middle; }
 .rc-friend { display: grid; place-items: center; width: 34px; height: 34px; background: var(--surface); color: var(--fg); border: 0; cursor: pointer; }
 .rc-friend:hover { background: var(--surface-2); }
 .rc-friend svg { width: 16px; height: 16px; }
@@ -123,6 +125,7 @@
 .rc-row.aboard { --edge: linear-gradient(180deg, rgba(242, 104, 90, 0.7), rgba(242, 104, 90, 0.25)); background: linear-gradient(180deg, #2a1514, #1a0f0f); }
 .rc-row.aboard .rc-row-word, .rc-row.aboard > .gema-amount { color: var(--danger); }
 .rc-res-acts { display: grid; grid-template-columns: 3fr 2fr; gap: 10px; margin-top: 4px; }
+.rc-res-acts.practice { grid-template-columns: 1fr; }
 
 /* ——— Round history: a finished ride and what it revealed ——— */
 .rc-history { display: flex; flex-direction: column; gap: 20px; }
@@ -148,6 +151,7 @@
 .rc-check-verdict ul { margin: 6px 0 0; padding-left: 18px; color: var(--fg-2); font-weight: 400; }
 
 @media (min-width: 1024px) {
+  .rc-res-acts.practice { grid-template-columns: 3fr 2fr; }
   .rc { max-width: 640px; }
   .rc-stage { height: 300px; }
   .rc-stage-wrap { margin-inline: 0; }

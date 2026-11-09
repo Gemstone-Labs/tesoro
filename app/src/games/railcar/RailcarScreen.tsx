@@ -351,15 +351,14 @@ function RailcarResult({ view, actions, watch, practice }: { view: Extract<Railc
           Railcar{practice && <span className="cut cut-chip game-tag">Practice</span>}
         </p>
         <h1 className="rc-res-title">{mine?.headline ?? "Ride over"}</h1>
+        {mine && practice && (
+          <p className="rc-res-would">
+            A <GemaMark size={12} /> {fmtGemas(g(view.entry))} entry would have paid
+          </p>
+        )}
         {mine && (
           <p className={`rc-res-gets${mine.gets === 0n ? " lost" : ""}`}>
-            {practice ? (
-              <>
-                A <GemaMark size={14} /> {fmtGemas(g(view.entry))} entry would have paid
-              </>
-            ) : (
-              "You get"
-            )}{" "}
+            {!practice && "You get "}
             <GemaAmount value={g(mine.gets)} size="xl" />
             {mine.won > 0n && (
               <span className="cut cut-chip rc-res-won">
@@ -414,7 +413,7 @@ function RailcarResult({ view, actions, watch, practice }: { view: Extract<Railc
           </li>
         )}
       </ul>
-      <div className="rc-res-acts">
+      <div className={`rc-res-acts${practice ? " practice" : ""}`}>
         {watch && !mine ? (
           <Button variant="money" size="lg" block onClick={watch.signedIn ? actions.onBoard : actions.onSignIn}>
             Play the next ride

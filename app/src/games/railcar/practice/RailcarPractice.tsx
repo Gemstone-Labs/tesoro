@@ -52,7 +52,7 @@ export function RailcarPractice({ draw }: { draw?: Uint8Array }) {
 
   const view = practiceView(ride.p, t);
   const act = (f: (p: Practice, at: number) => Practice) => setRide((r) => (r ? { ...r, p: f(r.p, performance.now() - r.start) } : r));
-  const mine = brakeState({ aboard: view.phase === "ride" && view.me?.aboard === true, allBound: true, myBound: true, canSign: true, pressMs: ride.p.brakeMs, pending: false, rideMs: t });
+  const mine = brakeState({ aboard: view.phase === "ride" && view.me?.aboard === true, allBound: true, myBound: true, canSign: true, walletCopied: true, pressMs: ride.p.brakeMs, pending: false, rideMs: t });
   const brake: RailcarBrake | null = mine && { ...mine, onBrake: () => act(practiceBrake) };
 
   return (
