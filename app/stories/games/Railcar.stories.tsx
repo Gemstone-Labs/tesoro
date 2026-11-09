@@ -58,6 +58,34 @@ export const RidingBrakeSignFirst = screen(fx.riding(), { brake: brake({ walletC
 export const RidingAnothersBrake = screen(fx.riding(fx.BEN), { brake: brake({}) });
 /** You jumped after your Brake: at least what comes back, counting your own Brake. */
 export const RidingAfterYourBrakeAndJump = screen(fx.riding(fx.PLAYERS[0], { jumpedMe: true, myBrakeMs: 15_000 }));
+const withTell = (v: RailcarView, tell: number): RailcarView => (v.phase === "ride" ? { ...v, tell } : v);
+/** The Tells change the car itself from the moment each fires: screws pop from the frame... */
+export const RidingTellScrews = screen(withTell(fx.riding(), 1));
+/** ...the panel works loose... */
+export const RidingTellPanel = screen(withTell(fx.riding(), 2));
+/** ...and sparks fly at the wheels. They all stay to the end of the ride. */
+export const RidingTellSparks = screen(withTell(fx.riding(), 3));
+
+/** The crash: the ride turns into its Result, the car stops against the wall (shake, flash, debris, about a second), then the Result. Loops. */
+export const CrashBeforeResult: StoryObj = {
+  render: function Crash() {
+    const [n, setN] = useState(0);
+    useEffect(() => {
+      const id = setInterval(() => setN((x) => x + 1), 5_000);
+      return () => clearInterval(id);
+    }, []);
+    return <CrashCycle key={n} />;
+  },
+};
+function CrashCycle() {
+  const [over, setOver] = useState(false);
+  useEffect(() => {
+    const id = setTimeout(() => setOver(true), 1_500);
+    return () => clearTimeout(id);
+  }, []);
+  return <RailcarScreen view={over ? fx.workedResult() : withTell(fx.riding(), 3)} actions={actions} />;
+}
+
 /** A Player watching a car they are not in. */
 export const RidingWatching = screen(fx.riding(null));
 
@@ -191,3 +219,15 @@ export const PracticeResultAboard390: StoryObj = { ...PracticeResultAboard, ...p
 /** The Railcar page before boarding: Board, and Practice free under it. */
 export const BoardingNotAboard390: StoryObj = { ...BoardingNotAboard, ...phone };
 export const BoardingNotAboard1440: StoryObj = { ...BoardingNotAboard, ...desk };
+
+// ---- Fits the screen (staging feedback 1): Board / Practice free / Jump / Brake with no page scroll ----------------------
+
+const laptop = { globals: { viewport: { value: "laptop1512", isRotated: false } } };
+export const BoardingNotAboardLaptop: StoryObj = { ...BoardingNotAboard, ...laptop };
+export const BoardingAboardLaptop: StoryObj = { ...BoardingWaiting, ...laptop };
+export const BoardingAboard390: StoryObj = { ...BoardingWaiting, ...phone };
+export const BoardingAboard1440: StoryObj = { ...BoardingWaiting, ...desk };
+export const RidingBrakeReadyLaptop: StoryObj = { ...RidingBrakeReady, ...laptop };
+export const RidingBrakeReady390: StoryObj = { ...RidingBrakeReady, ...phone };
+export const RidingBrakeReady1440: StoryObj = { ...RidingBrakeReady, ...desk };
+export const PracticeRidingLaptop: StoryObj = { ...PracticeRiding, ...laptop };

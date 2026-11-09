@@ -1,6 +1,8 @@
 /* Railcar: one screen from Boarding to the Result (DESIGN.md "Railcar screens"). Phone first; desktop centres the same column. */
 
-.rc { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 560px; margin: 0 auto; padding-bottom: 16px; }
+.rc { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 560px; margin: 0 auto; padding-bottom: 8px; --rc-stage-h: clamp(150px, calc(100dvh - 480px), 300px); }
+.rc.riding { --rc-stage-h: clamp(150px, calc(100dvh - 440px), 300px); }
+.rc.riding.practice { --rc-stage-h: clamp(150px, calc(100dvh - 385px), 300px); }
 
 /* ——— Header ——— */
 .rc-head { display: grid; grid-template-columns: 40px 1fr 40px; align-items: center; gap: 8px; }
@@ -14,19 +16,18 @@
 /* ——— Top: countdown (boarding) or clock + Tells (ride); swaps in place ——— */
 .rc-top { display: flex; flex-direction: column; align-items: center; gap: 10px; animation: rc-in 0.35s ease-out both; }
 @keyframes rc-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-.rc-count { display: flex; flex-direction: column; align-items: center; padding: 10px 28px 12px; background: var(--surface); --edge: var(--edge-2); min-width: 220px; }
+.rc-count { display: flex; flex-direction: column; align-items: center; padding: 6px 28px 8px; background: var(--surface); --edge: var(--edge-2); min-width: 220px; }
 .rc-count-label { font: 700 var(--fs-18) / 1.2 var(--f-body); }
-.rc-count-big { font: 800 56px / 1 var(--f-mono); letter-spacing: 0.02em; }
-.rc-count-sub { color: var(--fg-2); font-size: var(--fs-13); text-align: center; }
-.rc-aboard-n { margin: 0; padding: 6px 16px; background: var(--raised); color: var(--fg-2); font-size: var(--fs-14); }
+.rc-count-big { font: 800 48px / 1 var(--f-mono); letter-spacing: 0.02em; }
+.rc-aboard-n { margin: 0; padding: 4px 16px; background: var(--raised); color: var(--fg-2); font-size: var(--fs-14); }
 .rc-aboard-n strong { color: var(--fg); font: 800 var(--fs-18) / 1.2 var(--f-display); letter-spacing: 0.04em; text-transform: uppercase; margin-right: 4px; }
 .rc-live { display: inline-flex; align-items: center; gap: 7px; padding: 4px 12px; background: var(--raised); font: 700 var(--fs-13) / 1.2 var(--f-body); letter-spacing: 0.06em; text-transform: uppercase; }
 .rc-live i { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); animation: rc-pulse 1.4s ease-in-out infinite; }
 @keyframes rc-pulse { 50% { opacity: 0.35; } }
-.rc-clock { margin: 0; font: 800 54px / 1 var(--f-mono); letter-spacing: 0.02em; }
+.rc-clock { margin: 0; font: 800 44px / 1 var(--f-mono); letter-spacing: 0.02em; }
 .rc-tells { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; width: 100%; margin: 0; padding: 0; list-style: none; }
-.rc-tell { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 7px 4px; background: var(--raised); color: var(--fg-3); font: 700 var(--fs-12) / 1.2 var(--f-body); letter-spacing: 0.04em; text-transform: uppercase; transition: color 0.3s, background 0.3s; }
-.rc-tell svg { width: 18px; height: 18px; opacity: 0.5; }
+.rc-tell { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 5px 4px; background: var(--raised); color: var(--fg-3); font: 700 var(--fs-12) / 1.2 var(--f-body); letter-spacing: 0.04em; text-transform: uppercase; transition: color 0.3s, background 0.3s; }
+.rc-tell svg { width: 16px; height: 16px; opacity: 0.5; }
 .rc-tell.on { background: var(--surface-2); color: var(--fg); --edge: var(--edge-2); }
 .rc-tell.on svg { opacity: 1; color: var(--warn); }
 .rc-tell.on[aria-current="step"] { animation: rc-tell-pop 0.4s ease-out; }
@@ -34,43 +35,48 @@
 
 /* ——— The stage: cave layers, the car, windows, wheels, leaps ——— */
 .rc-stage-wrap { position: relative; margin-inline: -16px; }
-.rc-stage { position: relative; height: 240px; overflow: hidden; background: #04090c; border-block: 1px solid var(--line); --rc-far: 0px; --rc-mid: 0px; --rc-trk: 0px; --rc-wheel: 0deg; --rc-bob: 0px; }
+.rc-stage { position: relative; height: var(--rc-stage-h); overflow: hidden; background: #04090c; border-block: 1px solid var(--line); --rc-far: 0px; --rc-mid: 0px; --rc-trk: 0px; --rc-wheel: 0deg; --rc-bob: 0px; }
 .rc-lay { position: absolute; inset-inline: 0; background-repeat: repeat-x; }
 .rc-far { inset-block: 0; background-size: auto 100%; background-position-x: var(--rc-far); }
 .rc-mid { inset-block: 0; background-size: auto 100%; background-position-x: var(--rc-mid); }
-.rc-trk { bottom: 0; height: 80px; background-size: auto 100%; background-position-x: var(--rc-trk); }
-.rc-car { position: absolute; left: 50%; bottom: 46px; width: min(94%, 520px); aspect-ratio: 1068 / 351; translate: -50% var(--rc-bob); }
+.rc-trk { bottom: 0; height: 33%; background-size: auto 100%; background-position-x: var(--rc-trk); }
+.rc-car { position: absolute; left: 50%; bottom: 19%; width: min(94%, 520px, calc(var(--rc-stage-h) * 2.6)); aspect-ratio: 1068 / 351; translate: -50% var(--rc-bob); }
 .rc-car-art { position: absolute; inset: 0; width: 100%; height: 100%; user-select: none; }
-.rc-win { position: absolute; top: 24%; width: 5.9%; height: 25%; translate: -50% 0; display: grid; place-items: center; overflow: hidden; }
-.rc-win img { width: 92%; height: auto; opacity: 0; transition: opacity 0.3s; }
+.rc-win { position: absolute; top: 28.5%; width: 5.4%; height: 23%; translate: -50% 0; display: grid; place-items: center; overflow: hidden; }
+.rc-win img { width: 100%; height: auto; max-height: 100%; object-fit: contain; opacity: 0; transition: opacity 0.3s; }
 .rc-win.on img { opacity: 1; }
 .rc-win.me::after { content: ""; position: absolute; inset: 0; box-shadow: inset 0 0 0 1.5px var(--em); }
 .rc-wheel { position: absolute; width: 9.2%; aspect-ratio: 1; translate: -50% -50%; rotate: var(--rc-wheel); background-size: 100% 100%; }
 .rc-leap { position: absolute; top: 22%; width: 8%; aspect-ratio: 1; translate: -50% 0; z-index: 3; pointer-events: none; }
-.rc-leap img { width: 100%; height: 100%; display: block; }
+.rc-leap img { width: 100%; height: 100%; display: block; clip-path: polygon(29% 0, 71% 0, 100% 29%, 100% 71%, 71% 100%, 29% 100%, 0 71%, 0 29%); }
 .rc-brake-tag { position: absolute; left: 50%; top: 10px; translate: -50% 0; margin: 0; padding: 5px 12px; background: var(--raised-2); font-size: var(--fs-12); font-weight: 800; letter-spacing: 0.04em; white-space: nowrap; z-index: 4; }
 .rc-brake-tag b { color: var(--em); }
 
 /* ——— At stake, riders, seat ——— */
-.rc-stake { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: var(--surface); font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
+.rc-stake { display: flex; justify-content: space-between; align-items: center; padding: 6px 14px; background: var(--surface); font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
 .rc-stake .gema-amount { color: var(--em); }
 .rc-riders-h { display: flex; justify-content: space-between; margin: 0 0 6px; font: 700 var(--fs-12) / 1.2 var(--f-body); letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-2); }
-.rc-riders-note { font-weight: 600; }
 .rc-strip { display: flex; gap: 8px; margin: 0; padding: 0 0 4px; list-style: none; overflow-x: auto; scrollbar-width: none; }
 .rc-rider { flex: 0 0 auto; width: 56px; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: var(--fs-11); font-weight: 700; animation: rc-in 0.3s ease-out both; }
-.rc-av { --c: 10px; display: grid; place-items: center; width: 48px; height: 48px; background: var(--raised); overflow: hidden; }
+.rc-av { --c: 14px; display: grid; place-items: center; width: 48px; height: 48px; background: var(--raised); overflow: hidden; }
 .rc-av img { width: 100%; height: 100%; object-fit: cover; }
-.rc-av.sm { --c: 7px; width: 32px; height: 32px; }
+.rc-av.sm { --c: 9px; width: 32px; height: 32px; }
 .rc-rider.me .rc-av { --edge: var(--edge-em); }
 .rc-more { font: 800 var(--fs-15) / 1 var(--f-body); color: var(--fg-2); }
 .rc-name { max-width: 56px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: uppercase; }
-.rc-seat { margin: 0; padding: 10px; text-align: center; background: var(--surface); font: 800 var(--fs-20) / 1.2 var(--f-display); letter-spacing: 0.05em; text-transform: uppercase; }
+.rc-aboard-n .rc-seat { color: var(--em); font: 800 var(--fs-14) / 1.2 var(--f-display); letter-spacing: 0.05em; text-transform: uppercase; }
 
 /* ——— Actions ——— */
 .rc-acts { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .rc-acts > .btn.block { flex: 1 1 200px; width: auto; }
+.rc-act-main { flex: 2 1 0; min-width: 160px; }
+.rc-act-side { flex: 1 1 0; min-width: 138px; }
+.rc-act-stepoff { flex: 1 1 100%; }
+.rc-act-stepoff .btn, .rc-act-main .btn, .rc-act-side .btn { width: 100%; }
+.rc-act-stepoff .btn { flex-direction: column; gap: 0; min-height: 56px; }
+.rc-act-stepoff small { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-12); font-weight: 600; color: var(--fg-2); }
 .rc-brake { flex: 0 0 112px; }
-.rc-brake .btn { min-height: 60px; flex-direction: column; gap: 0; }
+.rc-brake .btn { min-height: 56px; flex-direction: column; gap: 0; }
 .rc-brake small { display: block; white-space: nowrap; font-size: var(--fs-11); color: var(--fg-2); }
 .rc-brake.on .btn { box-shadow: inset 0 0 0 2px var(--em); color: var(--em); }
 .rc-brake.on small { color: var(--em); }
@@ -111,8 +117,6 @@
 .rc-podium { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .rc-plate { display: grid; grid-template-columns: auto auto 1fr auto auto; align-items: center; gap: 10px; padding: 8px 14px 8px 8px; background: var(--surface-2); --edge: var(--edge-2); }
 .rc-plate.p1 { --edge: var(--edge-em); }
-.rc-plate.p2 { margin-inline: 12px 0; }
-.rc-plate.p3 { margin-inline: 24px 0; }
 .rc-plate-n { font: 800 26px / 1 var(--f-display); }
 .rc-plate-who { font: 800 var(--fs-18) / 1.2 var(--f-display); letter-spacing: 0.04em; text-transform: uppercase; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rc-plate > .gema-amount { color: var(--em); }
@@ -152,12 +156,41 @@
 
 @media (min-width: 1024px) {
   .rc-res-acts.practice { grid-template-columns: 3fr 2fr; }
-  .rc { max-width: 640px; }
-  .rc-stage { height: 300px; }
+  .rc { max-width: 640px; --rc-stage-h: clamp(150px, calc(100dvh - 490px), 300px); }
   .rc-stage-wrap { margin-inline: 0; }
 }
+
+/* ——— The Tells on the train: each stays from the moment it fires. Art overlays (DAMAGE_ART) replace these basic visuals. ——— */
+.rc-dmg { position: absolute; inset: 0; pointer-events: none; }
+.rc-dmg-art { width: 100%; height: 100%; }
+.rc-dmg-screws i { position: absolute; top: 55%; width: 1.1%; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #e8eef2, #7d8a93 70%); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5); translate: -50% -60%; rotate: 20deg; animation: rc-screw 0.45s cubic-bezier(0.2, 0.9, 0.3, 1) both; }
+.rc-dmg-screws i:nth-child(even) { translate: -50% -110%; rotate: -35deg; }
+@keyframes rc-screw { from { translate: -50% 0; opacity: 0; scale: 0.4; } 60% { opacity: 1; scale: 1.4; } }
+.rc-dmg-panel b { position: absolute; background: linear-gradient(180deg, #5e7b8a, #2b4350); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 6px 8px rgba(0, 0, 0, 0.45); transform-origin: 0 0; rotate: 16deg; animation: rc-panel 1.3s ease-in-out infinite alternate; clip-path: polygon(0 0, 100% 6%, 96% 100%, 4% 92%); }
+@keyframes rc-panel { from { rotate: 11deg; } to { rotate: 20deg; } }
+.rc-dmg-sparks i { position: absolute; width: 1.5%; aspect-ratio: 1; border-radius: 50%; background: #fff3c4; box-shadow: 0 0 8px 3px #ff9a2f, 0 0 2px 1px #ffd470; translate: -50% 0; animation: rc-spark 0.6s ease-out infinite; }
+.rc-dmg-sparks i:nth-child(3n + 2) { --dx: -34px; }
+.rc-dmg-sparks i:nth-child(3n) { --dx: 22px; }
+.rc-dmg-sparks i:nth-child(3n + 1) { --dx: -10px; }
+@keyframes rc-spark { from { opacity: 1; transform: translate(0, 0) scale(1); } to { opacity: 0; transform: translate(var(--dx, -10px), 22px) scale(0.3); } }
+
+/* ——— The crash: the car stops against the wall, the stage shakes, a flash and debris, then the Result ——— */
+.rc-stage.crash { animation: rc-shake 0.5s linear 2 both; }
+@keyframes rc-shake { 0%, 100% { translate: 0 0; } 15% { translate: -7px 3px; } 30% { translate: 6px -4px; } 45% { translate: -5px -2px; } 60% { translate: 4px 3px; } 80% { translate: -2px 1px; } }
+.rc-crash { position: absolute; inset: 0; z-index: 5; pointer-events: none; overflow: hidden; }
+.rc-crash-art { width: 100%; height: 100%; object-fit: cover; animation: rc-crash-in 0.2s ease-out both; }
+.rc-crash-flash { position: absolute; inset: 0; background: radial-gradient(60% 70% at 78% 55%, #fff 0%, rgba(255, 220, 160, 0.85) 35%, rgba(255, 140, 60, 0) 75%); animation: rc-flash 1s ease-out both; }
+@keyframes rc-flash { 0% { opacity: 0; } 12% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes rc-crash-in { from { opacity: 0; } }
+.rc-crash-bit { position: absolute; left: 76%; top: 52%; width: 7px; height: 7px; background: #cfe3ee; clip-path: polygon(0 0, 100% 20%, 60% 100%); animation: rc-bit 0.9s cubic-bezier(0.1, 0.7, 0.4, 1) both; animation-delay: calc(var(--k) * 15ms); --a: calc(var(--k) * 51deg); }
+@keyframes rc-bit { from { transform: translate(0, 0) rotate(0); opacity: 1; } to { transform: translate(calc(cos(var(--a)) * 120px - 40px), calc(sin(var(--a)) * 80px + 60px)) rotate(540deg); opacity: 0; } }
 
 @media (prefers-reduced-motion: reduce) {
   .rc-top, .rc-rider, .rc-live i { animation: none; }
   .rc-tell { transition: none; }
+  .rc-dmg i, .rc-dmg b { animation: none; }
+  .rc-stage.crash { animation: none; }
+  .rc-crash-bit { display: none; }
+  .rc-crash-flash { animation: rc-fade 0.45s ease-out both; }
+  @keyframes rc-fade { 0% { opacity: 0; } 40% { opacity: 0.7; } 100% { opacity: 0; } }
 }
