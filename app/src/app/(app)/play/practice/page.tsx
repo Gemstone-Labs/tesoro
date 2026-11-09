@@ -10,11 +10,16 @@ import { VanguardPractice } from "@/games/vanguard/practice/VanguardPractice";
 
 /**
  * Practice, nothing staked: Block Burst with a random Seed, or `?game=holdem` / `?game=trading-duel` / `?game=vanguard`
- * against a local bot, or `?game=railcar` with 9 simulated riders (where Railcar is shown; its screen has no Arena).
+ * against a local bot, or `?game=railcar` with 9 simulated riders (where Railcar is shown).
  */
 export default async function Practice({ searchParams }: PageProps<"/play/practice">) {
   const raw = (await searchParams).game;
-  if (RAILCAR_SHOWN && raw === "railcar") return <RailcarPractice />;
+  if (RAILCAR_SHOWN && raw === "railcar")
+    return (
+      <Arena key="railcar" game="railcar" autoFull>
+        <RailcarPractice />
+      </Arena>
+    );
   const game = gameFromParam(raw);
   return <Arena key={game} game={game} autoFull><PracticeGame game={game} /></Arena>;
 }
