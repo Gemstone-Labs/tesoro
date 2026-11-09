@@ -1,6 +1,7 @@
 /**
  * Stepping a Railcar seat off before departure, with the accounts its lines need to go home: the page's step-off, and the
- * keeper's sweep stepping every seat off a car whose boarding ended. Reads only.
+ * keeper's sweep stepping every seat off a car whose boarding ended. Reads only (the page's order of who signs is
+ * `step-off-send.ts`).
  */
 import type { AccountMeta, PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { basketPda, spillPda, sponsorPda } from "../../lib/chain/basket";

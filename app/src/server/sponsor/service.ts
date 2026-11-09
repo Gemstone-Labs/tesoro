@@ -74,6 +74,9 @@ export const SEAT_STEP_NAMES: ReadonlySet<string> = new Set([
   // What a Railcar page sends after boarding: the departure and every finish step (games/railcar/finish-steps.ts).
   ...RIDE_STEP_NAMES,
 ]);
+const coreIxs = (coreIdl as unknown as { instructions: { name: string; discriminator: number[]; accounts: { name: string }[] }[] }).instructions;
+const STEP_OFF_CAR_AT = coreIxs.find((i) => i.name === "step_off_many_seat_match")!.accounts.findIndex((a) => a.name === "match_state");
+const isCoreIx = (i: Ix, name: string): boolean => i.programId.equals(CORE_ID) && Buffer.from(i.data.subarray(0, 8)).equals(Buffer.from(coreIxs.find((x) => x.name === name)!.discriminator));
 const JOIN_SEAT_AT = (coreIdl as unknown as { instructions: { name: string; accounts: { name: string }[] }[] }).instructions.find((i) => i.name === "join_match")!.accounts.findIndex((a) => a.name === "seat_signer");
 
 /** One rent top-up build per Account in this window: longer than a built message lives, so two cannot both land. */
@@ -534,6 +537,10 @@ export class Sponsor {
           : // A cancel is the opener's, and only while the Match is Open; the seat key of the other side cannot send it.
             matchNamesSeatKey(match, accountPda(player), auth.signer, plan.names.includes("refund_match"));
       if (!named) throw new DemoHttpError(403, "not-your-seat-key", "That key is not this Player's key for the Match.");
+      // A step-off moves a seat's entry home: only the request's own car (core then holds the key to its own seat).
+      if (ixs.some((i) => isCoreIx(i, "step_off_many_seat_match") && !i.keys[STEP_OFF_CAR_AT]?.pubkey.equals(auth.match))) {
+        throw new DemoHttpError(403, "not-this-match", "That step-off is for another car.");
+      }
       if (pagesOnly) {
         const needed = new Set((await matchCutPages(this.reader, auth.match)).map((k) => k.toBase58()));
         if (!(plan.pages ?? []).every((p) => needed.has(p.page.toBase58()))) throw new DemoHttpError(403, "not-this-match", "This Match's settlement does not need those checkpoint pages.");
@@ -604,7 +611,9 @@ export class Sponsor {
       if (!(await this.d.store.take(`topup:${who}`, 1, 1, TOPUP_WINDOW_MS, now))) throw new DemoHttpError(429, "topup-limit", "A top-up for your Break was just built. Try again in a few minutes.");
     }
     if (plan.class === "admission" && !plan.signers.some((s) => s.equals(player))) throw new DemoHttpError(400, "bad-signer", "The Player must sign what is sponsored for them.");
-    if (plan.playerSigns && !plan.signers.some((sg) => sg.equals(player))) throw new DemoHttpError(400, "bad-signer", "The Player must sign what is sponsored for them.");
+    // A seat request's key, checked above to be this Player's for the Match, signs for the Player (core's `acts_for`).
+    const signsForPlayer = (sg: PublicKey) => sg.equals(player) || (auth.kind === "seat" && sg.equals(auth.signer));
+    if (plan.playerSigns && !plan.signers.some(signsForPlayer)) throw new DemoHttpError(400, "bad-signer", "The Player must sign what is sponsored for them.");
     // Admissions and exits have separate build counters: spam on one can never use up the other (exits always work).
     // A join also carries the table assignment: the Table operator signs it and the relayer pays for that signature.
     const joining = this.d.assigner && plan.class === "admission" ? joinOf(ixs) : null;

@@ -3,7 +3,7 @@ import { BorshInstructionCoder, type Idl } from "@coral-xyz/anchor";
 import { describe, expect, it } from "vitest";
 import coreIdl from "../../lib/chain/idl/tesoro_core.json";
 import railcarIdl from "../../lib/chain/idl/railcar.json";
-import { closeCarIx, closeSeatIx, refundCarIx, reserveRoomIx, seatChunkIx, type SeatView } from "../../lib/chain/many-seat";
+import { closeCarIx, closeSeatIx, refundCarIx, reserveRoomIx, seatChunkIx, stepOffIx, type SeatView } from "../../lib/chain/many-seat";
 import { initCkptPageIx } from "../../lib/chain/settle-plan";
 import { isSeatStep } from "../../lib/seat/seat-scope";
 import { SEAT_STEP_NAMES } from "../../server/sponsor/service";
@@ -21,6 +21,7 @@ const caller = key();
 /** What each step's builder makes, as the finish (finish.ts) and the page's departure send them. */
 const built: Record<RideStepName, TransactionInstruction[]> = {
   depart: [checkDepartureIx(3n, car.address)],
+  "step-off": [stepOffIx({ caller, car: car.address, seat, markPayer: key(), potPayer: key(), sponsor: true })],
   reveal: [revealRideIx(caller, ride, 1)],
   finalize: [finalizeIx(caller, ride, 1)],
   refund: [refundCarIx(caller, car)],

@@ -967,6 +967,21 @@ async function pageSend(w: World, sponsor: Sponsor, p: Person, match: PublicKey,
   await sponsor.submit(Buffer.from(tx.serialize()).toString("base64"), built.meta, built.mac);
 }
 
+/**
+ * A Player's own step as the page sends it with the seat key (`sendStepOff` → `sponsoredSend`): built under the seat-key rule,
+ * signed by the seat key, the relayer adds its signature. Returns who signed.
+ */
+async function seatSignedSend(sponsor: Sponsor, p: Person, match: PublicKey, ixs: TransactionInstruction[]): Promise<string[]> {
+  assertSeatMay(ixs);
+  const raw = { ixs: ixs.map((i) => ({ program: i.programId.toBase58(), keys: i.keys.map((k) => ({ pubkey: k.pubkey.toBase58(), signer: k.isSigner, writable: k.isWritable })), data: Buffer.from(i.data).toString("base64") })) };
+  const built = await sponsor.build(p.key, raw, null, { kind: "seat", signer: p.seat.publicKey, match });
+  const msg = VersionedMessage.deserialize(Buffer.from(built.message, "base64"));
+  const tx = new VersionedTransaction(msg);
+  tx.sign([p.seat]);
+  await sponsor.submit(Buffer.from(tx.serialize()).toString("base64"), built.meta, built.mac);
+  return msg.staticAccountKeys.slice(0, msg.header.numRequiredSignatures).map((k) => k.toBase58());
+}
+
 /** The keeper's sweep on this LiteSVM (one machine is base and rollup): its key calls and pays every step. */
 function sweepOn(w: World, match: PublicKey, tableIndex: number, keeper: Keypair): SweepEnv {
   const core = new Program(coreIdl as Idl, { connection: {} } as unknown as AnchorProvider);
@@ -1152,6 +1167,26 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     const ann = w.rider();
     expect(await w.board(ben, w.backing(ben, ann, 5_000))).toBe("join");
     console.log(`Railcar transactions, a Backed opener and step-off, no lookup table:\n${[...w.sizes].map(([k, s]) => `  ${s.bytes} B, ${s.accounts} accounts: ${k}`).join("\n")}`);
+  });
+
+  it("Ben steps off with his seat key through the sponsor: only the relayer and the seat key sign, and his 500 come home", { timeout: 120_000 }, async () => {
+    const w = await World.create();
+    const ben = w.rider();
+    const before = w.gemas(ben);
+    expect(await w.board(ben)).toBe("open");
+    const config = decodeConfig(w.info(configPda())!.data);
+    const match = decodeCarAccount(w.info(carPda(config.nextCar - 1n))!.data).tesoroMatch;
+    const loaded = (await loadCar(w.reader(), match))!;
+    const seat = loaded.seats.find((s) => s.seated)!;
+    expect(seat.signer).toEqual(ben.seat.publicKey);
+    expect(w.gemas(ben)).toBe(before - 500n);
+    const core = new Program(coreIdl as Idl, { connection: {} } as unknown as AnchorProvider);
+    const signers = await seatSignedSend(sponsorOn(w), ben, match, [await stepOffFor(core, w.reader(), { caller: ben.seat.publicKey, loaded, seat })]);
+    expect(signers.sort()).toEqual([w.relayer.publicKey.toBase58(), ben.seat.publicKey.toBase58()].sort());
+    expect(w.gemas(ben)).toBe(before);
+    expect(w.info(seatMarkPda(match, ben.account))).toBeNull();
+    // the wallet signed the boarding and nothing after it
+    expect(w.walletSigs).toEqual({ boarding: 1 });
   });
 
   it("a Backer already in the car: the Player is told to board the next one and nothing is sent", { timeout: 120_000 }, async () => {
