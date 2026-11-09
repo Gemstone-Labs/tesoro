@@ -9,6 +9,7 @@ import { fmtGemas } from "@/lib/format";
 import { practiceHref } from "@/lib/game-params";
 import { Arena, GameMenu, type GameMenuItem } from "../fx";
 import type { BrakeStatus } from "./brake";
+import { useCrashMoment } from "./crash";
 import { RailcarStage } from "./RailcarStage";
 import { railcarHaptics } from "./tells";
 import type { RailcarView, ResultRow, Rider } from "./view";
@@ -56,7 +57,7 @@ const statusOf = (b: RailcarBrake): BrakeStatus => b.status ?? (b.activeMs > 0 ?
 /** The Brake button: one per ride, my own state only. */
 function BrakeButton({ brake }: { brake: RailcarBrake }) {
   const status = statusOf(brake);
-  const state = status === "ready" ? "1 left" : status === "sign" ? "sign first" : status === "sending" ? "sending" : status === "on" ? `${Math.ceil(brake.activeMs / 1000)}s` : status === "used" ? "used" : "soon";
+  const state = status === "ready" ? "5s" : status === "sign" ? "sign first" : status === "sending" ? "sending" : status === "on" ? `${Math.ceil(brake.activeMs / 1000)}s` : status === "used" ? "used" : "soon";
   return (
     <div className={`rc-brake ${status}`}>
       <Button size="lg" block onClick={brake.onBrake} disabled={status !== "ready" && status !== "sign"} title="Halves the car for 5 s. Only you see it.">
@@ -81,16 +82,12 @@ export interface RailcarOffer {
  * place: no navigation, no loading, the car starts rolling right. The Result follows. `busy` names the step being sent.
  * `practice`: a Practice ride (the PRACTICE tag, and the Result says what a real entry would have paid).
  */
-export function RailcarScreen({
-  view,
-  actions = {},
-  busy = null,
-  error = null,
-  brake = null,
-  offer = null,
-  watch = null,
-  practice = false,
-}: {
+export function RailcarScreen(props: RailcarScreenProps) {
+  const { view, crash } = useCrashMoment(props.view);
+  return <RailcarBody {...props} view={view} crash={crash} />;
+}
+
+interface RailcarScreenProps {
   view: RailcarView;
   actions?: RailcarActions;
   busy?: string | null;
@@ -99,7 +96,21 @@ export function RailcarScreen({
   offer?: RailcarOffer | null;
   watch?: RailcarWatch | null;
   practice?: boolean;
-}) {
+}
+
+function RailcarBody({
+  view,
+  actions = {},
+  busy = null,
+  error = null,
+  brake: brakeProp = null,
+  offer = null,
+  watch = null,
+  practice = false,
+  crash = false,
+}: RailcarScreenProps & { crash?: boolean }) {
+  // While the car hits the wall the ride is over: nothing left to press.
+  const brake = crash ? null : brakeProp;
   if (view.phase === "result") return <RailcarResult view={view} actions={actions} watch={watch} practice={practice} />;
   const riding = view.phase === "ride";
   const aboard = riding ? view.aboard : view.riders;
@@ -108,7 +119,7 @@ export function RailcarScreen({
   // Boarding and watching stay in the shell. The ⋯ menu's Full screen and F toggle the same cover in every phase.
   return (
     <Arena game="railcar" autoFull={riding && view.me !== null}>
-      <section className={`rc${riding ? " riding" : " boarding"}`} aria-label="Railcar">
+      <section className={`rc${riding ? " riding" : " boarding"}${practice ? " practice" : ""}`} aria-label="Railcar">
         <Header entry={view.entry} practice={practice} />
         {riding ? (
           <div className="rc-top" key="ride">
@@ -143,38 +154,42 @@ export function RailcarScreen({
               ) : (
                 <>
                   <span className="rc-count-label">Waiting for {view.minSeats} Players</span>
-                  <span className="rc-count-sub">The countdown starts when {view.minSeats} have boarded</span>
                 </>
               )}
             </div>
             <p className="cut cut-chip rc-aboard-n">
               <strong>{view.seated} aboard</strong> of {view.maxSeats} seats
+              {view.mySeat !== null && (
+                <>
+                  <span aria-hidden="true"> · </span>
+                  <b className="rc-seat">Your seat {view.mySeat}</b>
+                </>
+              )}
             </p>
           </div>
         )}
         <div className="rc-stage-wrap">
-          <RailcarStage aboard={aboard} moving={riding} slow={riding && meAboard && !!brake && brake.activeMs > 0} />
+          <RailcarStage aboard={aboard} moving={riding && !crash} slow={riding && meAboard && !!brake && brake.activeMs > 0} tell={riding ? view.tell : 0} rideMs={riding ? view.clockMs : 0} crash={crash} />
           {riding && brake && meAboard && brake.activeMs > 0 && (
             <p className="cut cut-chip rc-brake-tag">
               Your Brake <b className="mono">{Math.ceil(brake.activeMs / 1000)}s</b> · only you see this
             </p>
           )}
         </div>
-        {riding && (
+        {riding && !practice && (
           <div className="cut cut-card rc-stake">
             <span>At stake</span>
             <GemaAmount value={g(view.stake)} size="lg" />
           </div>
         )}
-        <Riders riders={aboard} label={riding ? `Aboard ${aboard.length}` : "Aboard"} note={riding ? "Names leave when they Jump" : undefined} />
-        {!riding && view.mySeat !== null && <p className="cut cut-card rc-seat">Your seat {view.mySeat}</p>}
+        <Riders riders={aboard} label={riding ? `Aboard ${aboard.length}` : null} />
         <div className="rc-acts">
           {riding && watch && !view.me ? (
             <NextRide watch={watch} actions={actions} busy={busy} />
           ) : riding ? (
             view.me?.aboard ? (
               <>
-                <Button variant="money" size="lg" block onClick={actions.onJump} disabled={!!busy}>
+                <Button variant="money" size="lg" block onClick={actions.onJump} disabled={!!busy || crash}>
                   {busy === "jump" ? "Jumping…" : "Jump"}
                 </Button>
                 {brake && <BrakeButton brake={brake} />}
@@ -188,33 +203,35 @@ export function RailcarScreen({
             ) : null
           ) : view.mySeat !== null ? (
             <>
-              <Button size="lg" block onClick={actions.onStepOff} disabled={!!busy}>
-                {busy === "step-off" ? "Stepping off…" : "Step off"}
-              </Button>
-              <p className="rc-caption">
-                Full <GemaMark size={12} /> {fmtGemas(g(view.entry))} back{view.myBacker && <> to <PlayerName account={view.myBacker} /></>}
-              </p>
+              <div className="rc-act-stepoff">
+                <Button size="lg" block onClick={actions.onStepOff} disabled={!!busy}>
+                  {busy === "step-off" ? "Stepping off…" : "Step off"}
+                  <small>
+                    Full <GemaMark size={11} /> {fmtGemas(g(view.entry))} back{view.myBacker && <> to <PlayerName account={view.myBacker} /></>}
+                  </small>
+                </Button>
+              </div>
             </>
           ) : (
             <>
               {offer && <BackedBy offer={offer} entry={view.entry} />}
-              <Button variant="money" size="lg" block onClick={actions.onBoard} disabled={!!busy || !actions.onBoard || !!offer?.blocked}>
-                {busy === "board" ? "Boarding…" : (
-                  <>
-                    Board · <GemaMark size={16} /> {fmtGemas(g(view.entry))}
-                  </>
-                )}
-              </Button>
-              <p className="rc-caption">
-                {!actions.onBoard
-                  ? "Sign in to board"
-                  : offer
-                    ? offer.blocked ?? "Until it leaves you can step off: the full entry goes back to your Backer"
-                    : "Until it leaves you can step off and get your full entry back"}
-              </p>
-              <Button block href={practiceHref("railcar")} icon={<Dumbbell aria-hidden="true" />}>
-                Practice free
-              </Button>
+              <div className="rc-act-main">
+                <Button variant="money" size="lg" block onClick={actions.onBoard} disabled={!!busy || !actions.onBoard || !!offer?.blocked}>
+                  {busy === "board" ? "Boarding…" : (
+                    <>
+                      Board · <GemaMark size={16} /> {fmtGemas(g(view.entry))}
+                    </>
+                  )}
+                </Button>
+              </div>
+              {(!actions.onBoard || offer) && (
+                <p className="rc-caption">{!actions.onBoard ? "Sign in to board" : (offer?.blocked ?? "Until it leaves you can step off: the full entry goes back to your Backer")}</p>
+              )}
+              <div className="rc-act-side">
+                <Button size="lg" block href={practiceHref("railcar")} icon={<Dumbbell aria-hidden="true" />}>
+                  Practice free
+                </Button>
+              </div>
             </>
           )}
         </div>
@@ -312,17 +329,16 @@ function Who({ r, className }: { r: Rider; className?: string }) {
 
 const SHOWN = 6;
 
-function Riders({ riders, label, note }: { riders: Rider[]; label: string; note?: string }) {
+/** The riders row. Boarding has no label (the count above says it) and shows nothing until someone is aboard. */
+function Riders({ riders, label }: { riders: Rider[]; label: string | null }) {
+  if (!riders.length) return null;
   const mine = riders.filter((r) => r.me);
   const ordered = [...mine, ...riders.filter((r) => !r.me)];
   const shown = ordered.slice(0, SHOWN);
   const more = ordered.length - shown.length;
   return (
     <div className="rc-riders">
-      <h2 className="rc-riders-h">
-        <span>{label}</span>
-        {note && <span className="rc-riders-note">{note}</span>}
-      </h2>
+      {label && <h2 className="rc-riders-h">{label}</h2>}
       <ul className="rc-strip">
         {shown.map((r) => (
           <li key={r.account} className={`rc-rider${r.me ? " me" : ""}`}>

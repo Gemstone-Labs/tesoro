@@ -7,6 +7,8 @@
 .fx-arena[data-game="vanguard"] { --fx-a: #c9913a; --fx-b: #5d6b3a; }
 .fx-arena[data-game="railcar"] { --fx-a: #2fd6c8; --fx-b: #3f7fd0; }
 .fx-arena-body { position: relative; z-index: 1; }
+/* Railcar: a darker, softer cave behind the car, so the car and the controls lead */
+.fx-arena[data-game="railcar"] .fx-arena-bg { opacity: 0.38; filter: saturate(0.65) brightness(0.8); }
 .fx-arena-bg, .fx-arena-shade { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
 .fx-arena-bg { background: var(--fx-arena-art) center / cover no-repeat, var(--fx-grad, #070a0c); }
 .fx-arena[data-game="block-puzzle"] { --fx-grad:
