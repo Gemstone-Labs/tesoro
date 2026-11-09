@@ -92,7 +92,7 @@ describe("two Players opened a Match within a moment of each other", () => {
     expect(matches.get(OLD)!.opponent).toBe("ben");
   });
 
-  it("finishes paying back the refunded Match before it joins, so the entry is free again and nothing waits for the sweep (ticket 61)", async () => {
+  it("starts paying back the refunded Match as it moves, so the entry comes back without the sweep (ticket 61)", async () => {
     // 2026-11-09: 3Cyp…-5 and -6 were refunded by the merge and left Refunding; the joins drew on 128 free Gemas.
     const matches = both();
     const ben = world("ben", matches);
@@ -103,6 +103,14 @@ describe("two Players opened a Match within a moment of each other", () => {
     const r = await mergeQueue({ ...ben.deps, finish }, ben.view(YOUNG)!);
     expect(r).toEqual({ moved: true, entered: { id: OLD, via: "joined" } });
     expect(ben.calls).toEqual([`refund ${YOUNG}`, `finish ${YOUNG}`, `join ${OLD}`]);
+  });
+
+  it("the join does not wait for the finish: the older opener is paired at once, and the join retries while the entry comes back", async () => {
+    const matches = both();
+    const ben = world("ben", matches);
+    const finish = vi.fn(() => new Promise<void>(() => undefined));
+    expect(await mergeQueue({ ...ben.deps, finish }, ben.view(YOUNG)!)).toEqual({ moved: true, entered: { id: OLD, via: "joined" } });
+    expect(finish).toHaveBeenCalledWith(YOUNG);
   });
 
   it("a finish that fails does not stop the move: the sweep pays the entry back later", async () => {

@@ -164,7 +164,7 @@ export async function queueEntry(d: QueueDeps): Promise<Entered> {
 export interface MergeDeps extends QueueDeps {
   /** Cancels the Player's own unjoined Match (opener refund). The Match then refunds in steps: it stays unfinished until they are done. */
   refund(id: string): Promise<unknown>;
-  /** Sends those steps (the chunks and the close), so the entry is free again before the join draws. Best effort: the sweep is the fallback. */
+  /** Sends those steps (the chunks and the close), so the entry is free again. Not awaited by the join; best effort, the sweep is the fallback. */
   finish?(id: string): Promise<unknown>;
   /** Called once a move is certain, just before the refund (the page then shows that it is moving). */
   onMove?(): void;
@@ -224,8 +224,9 @@ export async function mergeQueue(d: MergeDeps, mine: ChainMatch): Promise<Merged
     // Failed and still waiting (or paired meanwhile): stay. Only a refund that took effect moves on.
     if (r === "failed" && (now === null || now.status === "open" || now.opponent !== null)) return { moved: false };
   }
-  // Pay the refunded entry back now: no keeper does it any more, and the join below may need those Gemas (ticket 61).
-  await d.finish?.(mine.id).catch(() => undefined);
+  // Pay the refunded entry back now, alongside the join: no keeper does it any more (ticket 61). A join that needs those Gemas
+  // fails until they are back and is retried below, so the older opener is not kept waiting when other Gemas cover the entry.
+  void d.finish?.(mine.id).catch(() => undefined);
   // The Match being refunded still counts as unfinished until it closes: it is not the Match this Player is in.
   const next: QueueDeps = { ...d, unfinished: async () => (await d.unfinished()).filter((m) => m.id !== mine.id) };
   const pause = d.pause ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
