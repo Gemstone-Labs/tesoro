@@ -394,7 +394,7 @@ describe("a Game's finalize with the relayer as caller (ticket 04)", () => {
       terms: { platformBps: 200, studioBps: 300, studioOwner: null, studioPriority: true }, entry: new BN(500), openedAt: new BN(1), deadline: new BN(2), deadlineAbs: new BN(3),
       a: party(a), b: b ? party(b) : null, potLines: [1, 1], stage: { open: {} }, run: null,
     };
-    return Buffer.from(await matchCoder.encode("matchState", { bump: 255, inner, listed: true, listingEpoch: 0, payer: key(), pots: o.pots ?? [key(), key()], room: Array.from({ length: 5 }, () => ({ account: arr(PublicKey.default), left: 0 })) }));
+    return Buffer.from(await matchCoder.encode("matchState", { bump: 255, inner, listed: true, listingEpoch: 0, payer: key(), pots: [key(), key()], room: Array.from({ length: 5 }, () => ({ account: arr(PublicKey.default), left: 0 })) }));
   };
   const finalizeIx = (s: ReturnType<typeof setup>, matchState: PublicKey) => gameStepIx(s.game, "finalize", matchState, s.relayer.publicKey);
   /** A Match the Player opened, held by the fake chain. */
