@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { PLAYERS, boardingCountdown, boardingNotAboard, boardingWaiting, nobodyJumped, rideStarting, riding, workedResult, ANA, BEN, BOB, EVE } from "./fixtures";
@@ -70,6 +71,43 @@ describe("the Ride, in the same screen", () => {
   });
 });
 
+describe("staging round 1: what the screen no longer says", () => {
+  it("Boarding has no countdown hint, no ABOARD label above the riders and no step-off line before boarding", () => {
+    const t = text(html(boardingWaiting(null)));
+    expect(t).toContain("Waiting for 5 Players");
+    expect(t).not.toContain("The countdown starts");
+    expect(t).not.toMatch(/\bAboard\b/);
+    expect(t).not.toContain("Until it leaves you can step off");
+    expect(text(html(boardingNotAboard()))).not.toContain("Until it leaves you can step off");
+    expect(text(html(boardingNotAboard()))).not.toMatch(/\bAboard\b/);
+    expect(text(html(boardingWaiting()))).not.toMatch(/\bAboard\b[^a-z]/);
+  });
+
+  it("the ride keeps its count and At stake, but not 'Names leave when they Jump'", () => {
+    const t = text(html(riding()));
+    expect(t).toContain("Aboard 29");
+    expect(t).toContain("At stake");
+    expect(t).not.toContain("Names leave");
+  });
+
+  it("Practice shows no At stake row", () => {
+    const t = text(renderToStaticMarkup(<RailcarScreen view={riding()} practice />));
+    expect(t).not.toContain("At stake");
+  });
+
+  it("the Result rows are all the same width: no indent on places 2 and 3", () => {
+    const css = readFileSync(new URL("./railcar.css", import.meta.url), "utf8");
+    expect(css).not.toMatch(/\.rc-plate\.p[23][^}]*margin/);
+  });
+
+  it("every avatar frame (riders, places, Jumped rows) is a regular octagon: the cut is 29% of the side", () => {
+    const css = readFileSync(new URL("./railcar.css", import.meta.url), "utf8");
+    expect(css).toMatch(/\.rc-av \{ --c: 14px;/);
+    expect(css).toMatch(/\.rc-av\.sm \{ --c: 9px;/);
+    expect(css).toMatch(/\.rc-leap img \{[^}]*clip-path: polygon\(29% 0, 71% 0, 100% 29%/);
+  });
+});
+
 describe("my secret Brake", () => {
   const facts: BrakeFacts = { aboard: true, allBound: true, myBound: true, canSign: true, walletCopied: true, pressMs: null, pending: false, rideMs: 72_000 };
   const button = (h: string) => text(h.match(/<div class="rc-brake[^"]*">.*?<\/div>/)?.[0] ?? "");
@@ -77,7 +115,7 @@ describe("my secret Brake", () => {
 
   it("the button reads my Brake: ready, riding on the next tick, my 5 s, used, or waiting for the seats", () => {
     const at = (o: Partial<BrakeFacts>) => html(riding(), brakeState({ ...facts, ...o }));
-    expect(button(at({}))).toContain("Brake 1 left");
+    expect(button(at({}))).toContain("Brake 5s");
     expect(disabled(at({}))).toBe(false);
     expect(button(at({ pending: true }))).toContain("Brake sending");
     expect(button(at({ pressMs: 69_000 }))).toContain("Brake 2s");
