@@ -4,9 +4,9 @@ import { getImageProps } from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { ArrowRight, BookOpen, Dumbbell, UserPlus, Users } from "lucide-react";
+import { ArrowRight, Dumbbell, UserPlus, Users } from "lucide-react";
 import { AccountLink } from "@/components/account/AccountLink";
-import { HowToPlay } from "@/components/how-to-play";
+import { HowToPlay, HowToPlayTab } from "@/components/how-to-play";
 import { MatchBanner, MatchBannerSkeleton } from "@/components/match/MatchBanner";
 import { AssetPicker, Button, EntryPicker, GemaMark } from "@/components/ui";
 import { gameQuery, practiceHref } from "@/lib/game-params";
@@ -75,9 +75,7 @@ export function GamePage({ game }: { game: GameId }) {
               <i key={i} />
             ))}
           </span>
-          <button type="button" className="gp-how-tab" onClick={() => setHow(true)}>
-            <BookOpen aria-hidden="true" /> How to play<span className="sr-only"> {name}</span>
-          </button>
+          <HowToPlayTab name={name} onClick={() => setHow(true)} />
           <div className="gp-art-title">
             <h1 className="gp-title">{name}</h1>
           </div>
