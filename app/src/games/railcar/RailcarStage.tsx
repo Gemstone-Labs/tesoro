@@ -15,14 +15,14 @@ const WHEEL_Y = 305;
 /** The window the Player always sits in: the last seat, nearest the back of the car (the car rolls right, so the back is the left end). */
 export const MY_WINDOW = 0;
 
-/** Which rider each car window shows: the Player in the last seat at the back, the others aboard in seat order from the front. */
+/** Which rider each car window shows: the Player in the last seat at the back (the leftmost window), the others aboard in boarding order left to right after them. */
 export function windowRiders(riders: Rider[]): (Rider | null)[] {
   const out: (Rider | null)[] = Array(WINDOW_X.length).fill(null);
   const me = riders.find((r) => r.me);
   if (me) out[MY_WINDOW] = me;
   const others = riders.filter((r) => !r.me);
   let k = 0;
-  for (let w = WINDOW_X.length - 1; w >= 0 && k < others.length; w--) if (!out[w]) out[w] = others[k++];
+  for (let w = 0; w < WINDOW_X.length && k < others.length; w++) if (!out[w]) out[w] = others[k++];
   return out;
 }
 

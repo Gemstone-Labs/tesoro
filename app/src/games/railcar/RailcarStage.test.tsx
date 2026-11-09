@@ -21,12 +21,14 @@ describe("who sits where in the car", () => {
     expect(MY_WINDOW).toBe(0);
   });
 
-  it("the others fill the windows from the front, in seat order", () => {
-    const w = windowRiders([rider(1), rider(2), rider(0, true)]);
-    expect(w[11]?.account).toBe(PLAYERS[1].toBase58());
-    expect(w[10]?.account).toBe(PLAYERS[2].toBase58());
+  it("the others fill the windows left to right in boarding order, after the Player's window", () => {
+    const w = windowRiders([rider(1), rider(2), rider(3), rider(0, true)]);
     expect(w[0]?.me).toBe(true);
-    expect(w.filter(Boolean)).toHaveLength(3);
+    expect([1, 2, 3].map((i) => w[i]?.account)).toEqual([1, 2, 3].map((i) => PLAYERS[i].toBase58()));
+    expect(w.slice(4).every((r) => r === null)).toBe(true);
+    // Practice riders (simulated) fill the same way
+    const sim = windowRiders([{ account: "practice:a", seat: 2, me: false, name: "Ana" }, { account: "practice:you", seat: 1, me: true }, { account: "practice:b", seat: 3, me: false, name: "Ben" }]);
+    expect(sim.map((r) => r?.account ?? null).slice(0, 4)).toEqual(["practice:you", "practice:a", "practice:b", null]);
   });
 
   it("in Boarding, the ride and Practice the same window", () => {
