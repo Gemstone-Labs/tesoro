@@ -41,7 +41,7 @@ export const RideStarting = screen(fx.rideStarting());
 export const Riding = screen(fx.riding());
 /** You jumped at 0:25: what came back, and you keep watching. */
 export const RidingAfterYourJump = screen(fx.riding(fx.PLAYERS[0], { jumpedMe: true }));
-const brake = (o: Partial<BrakeFacts>): RailcarBrake => ({ ...brakeState({ aboard: true, allBound: true, myBound: true, canSign: true, pressMs: null, pending: false, rideMs: 72_000, ...o })!, onBrake: noop });
+const brake = (o: Partial<BrakeFacts>): RailcarBrake => ({ ...brakeState({ aboard: true, allBound: true, myBound: true, canSign: true, walletCopied: true, pressMs: null, pending: false, rideMs: 72_000, ...o })!, onBrake: noop });
 /** Your Brake, ready: one per ride, halves the car for 5 s, only you see it. */
 export const RidingBrakeReady = screen(fx.riding(), { brake: brake({}) });
 /** Pressed: it rides on your page's next tick (no transaction of its own). */
@@ -52,6 +52,8 @@ export const RidingWithYourBrake = screen(fx.riding(), { brake: brake({ pressMs:
 export const RidingBrakeUsed = screen(fx.riding(), { brake: brake({ pressMs: 40_000 }) });
 /** Not every seat is bound yet (the first seconds of the ride): the Brake waits. */
 export const RidingBrakeWaiting = screen(fx.riding(), { brake: brake({ allBound: false }) });
+/** Riding without a seat key on this device: the wallet signs once as the ride starts so the Brake stays secret; until it has, the button asks for it. */
+export const RidingBrakeSignFirst = screen(fx.riding(), { brake: brake({ walletCopied: false }) });
 /** Ben's screen while Ana's Brake runs: exactly the Riding screen. */
 export const RidingAnothersBrake = screen(fx.riding(fx.BEN), { brake: brake({}) });
 /** You jumped after your Brake: at least what comes back, counting your own Brake. */

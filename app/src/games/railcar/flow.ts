@@ -59,6 +59,13 @@ export const MIN_SIGNAL_MS = 500;
 /** How long a Player's page waits between signals: the aboard Players' pages together send about 5 a second. */
 export const signalIntervalMs = (aboard: number): number => Math.max(MIN_SIGNAL_MS, Math.round((Math.max(1, aboard) * 1000) / SIGNALS_PER_SEC));
 
+/**
+ * A Player's page interval during the ride. Aboard pages carry the ~5 a second between them. A page whose Player is off is a
+ * backup (in case aboard pages close): it waits as if every seat had a page open, so the backups add at most ~5 a second
+ * however many have Jumped.
+ */
+export const pageIntervalMs = (o: { aboard: number; seated: number; mine: "aboard" | "off" }): number => signalIntervalMs(o.mine === "aboard" ? o.aboard : o.seated);
+
 export type RideStep =
   | { kind: "wait" }
   /** Boarding: the departure time came (or the car is full); send `check_departure`. */

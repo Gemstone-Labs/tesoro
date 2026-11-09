@@ -3,7 +3,7 @@ import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import type { ChainSigner } from "@/games/block-puzzle/chain";
 import { bookPda, ckptPda, CLASS_PLATFORM, CLASS_LEADERBOARD } from "./basket";
 import { decodeBook, type SourceBookView } from "./book";
-import { coreIx } from "./core-ix";
+import { initCkptPageIx } from "./settle-plan";
 import { planExit } from "./exit-route";
 import { getChain } from "./client";
 import type { GetToken } from "./demo-client";
@@ -22,9 +22,7 @@ import { redeemStakeIx, stakeTokenOf, unlockStakeIx, type StakeToken } from "./s
 
 type Reader = { getMultipleAccountsInfo(keys: PublicKey[]): Promise<({ data: Uint8Array } | null)[]> };
 
-/** `init_ckpt_page`: the payer creates the next page of a class's checkpoint records (only the page being filled, or the next). */
-export const initCkptPageIx = (payer: PublicKey, source: PublicKey, classId: number, pageNo: number) =>
-  coreIx("init_ckpt_page", { payer, book: bookPda(source), page: ckptPda(source, classId, pageNo) }, { class: classId, page_no: pageNo });
+export { initCkptPageIx };
 
 const INIT_CKPT_PAGE_DISC = Buffer.from((coreIdl.instructions.find((i) => i.name === "init_ckpt_page") as { discriminator: number[] }).discriminator);
 /** Whether an instruction is tesoro_core's `init_ckpt_page`. */

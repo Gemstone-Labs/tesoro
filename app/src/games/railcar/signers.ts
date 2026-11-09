@@ -41,7 +41,8 @@ export type BrakeRoute<W, K> = { kind: "next-tick"; signer: K } | { kind: "walle
 /**
  * The Brake's route. When the Table seat names this page's seat key, the Brake rides that key's next tick: no prompt.
  * Otherwise (boarded without a seat key, so the seat names the wallet, or on another device) the wallet signs one tick
- * with the Brake, which Railcar takes through `acts_for`: one prompt, and a transaction of its own. Null signed out.
+ * with the Brake, which Railcar takes through `acts_for`: one prompt, and a transaction of its own. That wallet also signs one
+ * signal as the ride starts (`earlyCopyDue` in brake.ts), so its first rollup transaction is not the Brake. Null signed out.
  */
 export function brakeRoute<W extends { publicKey: PublicKey }, K extends { publicKey: PublicKey }>(wallet: W | null, seat: K | null, seatSigner: PublicKey): BrakeRoute<W, K> {
   if (seat && seatSigner.equals(seat.publicKey)) return { kind: "next-tick", signer: seat };

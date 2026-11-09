@@ -56,10 +56,10 @@ const statusOf = (b: RailcarBrake): BrakeStatus => b.status ?? (b.activeMs > 0 ?
 /** The Brake button: one per ride, my own state only. */
 function BrakeButton({ brake }: { brake: RailcarBrake }) {
   const status = statusOf(brake);
-  const state = status === "ready" ? "1 left" : status === "sending" ? "sending" : status === "on" ? `${Math.ceil(brake.activeMs / 1000)}s` : status === "used" ? "used" : "soon";
+  const state = status === "ready" ? "1 left" : status === "sign" ? "sign first" : status === "sending" ? "sending" : status === "on" ? `${Math.ceil(brake.activeMs / 1000)}s` : status === "used" ? "used" : "soon";
   return (
     <div className={`rc-brake ${status}`}>
-      <Button size="lg" block onClick={brake.onBrake} disabled={status !== "ready"} title="Halves the car for 5 s. Only you see it.">
+      <Button size="lg" block onClick={brake.onBrake} disabled={status !== "ready" && status !== "sign"} title="Halves the car for 5 s. Only you see it.">
         Brake <small className={status === "on" ? "mono" : undefined}>{state}</small>
       </Button>
     </div>
@@ -175,6 +175,7 @@ export function RailcarScreen({
                 {busy === "jump" ? "Jumping…" : "Jump"}
               </Button>
               {brake && <BrakeButton brake={brake} />}
+              {brake && statusOf(brake) === "sign" && <p className="rc-brake-note">Sign once so your Brake stays secret on this device</p>}
             </>
           ) : view.me ? (
             <p className="cut cut-card rc-jumped">
