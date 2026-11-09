@@ -47,10 +47,11 @@ describe("Railcar docs page", () => {
     for (const n of ["2,500", "2,150", "129", "521", "813", "630", "578", "350"]) expect(html).toContain(n);
   });
 
-  it("never links to a play route or says it is live", () => {
+  it("where Railcar is shown it is playable: links to Play and Practice free, no 'not playable' notice", () => {
     const raw = renderToStaticMarkup(<Railcar />);
-    expect(raw).not.toContain('href="/play');
-    expect(html).toContain("Not playable yet");
+    expect(raw).toMatch(/<a href="\/play\/railcar">[^<]*Play[^<]*<\/a>/);
+    expect(raw).toMatch(/<a href="\/play\/practice\?game=railcar">Practice free<\/a>/);
+    expect(html).not.toMatch(/not playable/i);
     expect(html.toLowerCase()).not.toContain("mainnet");
   });
 });
