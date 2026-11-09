@@ -2,7 +2,8 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import type { CarView, SeatView } from "../../lib/chain/many-seat";
 import type { RideSeatView, TableView } from "./chain";
-import { planPayout, railcarView } from "./view";
+import { planPayout } from "./payout";
+import { railcarView } from "./view";
 
 const key = () => Keypair.generate().publicKey;
 const [ana, ben, cy, dee, eve] = [key(), key(), key(), key(), key()];

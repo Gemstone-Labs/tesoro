@@ -5,6 +5,7 @@
 .fx-arena[data-game="holdem"] { --fx-a: #3f5f9a; --fx-b: #8aa0bd; }
 .fx-arena[data-game="trading-duel"] { --fx-a: #5aa2ff; --fx-b: #f2a63b; }
 .fx-arena[data-game="vanguard"] { --fx-a: #c9913a; --fx-b: #5d6b3a; }
+.fx-arena[data-game="railcar"] { --fx-a: #2fd6c8; --fx-b: #3f7fd0; }
 .fx-arena-body { position: relative; z-index: 1; }
 .fx-arena-bg, .fx-arena-shade { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
 .fx-arena-bg { background: var(--fx-arena-art) center / cover no-repeat, var(--fx-grad, #070a0c); }
@@ -22,6 +23,10 @@
     radial-gradient(65% 85% at 0% 50%, rgba(90, 162, 255, 0.42), transparent 70%),
     radial-gradient(65% 85% at 100% 50%, rgba(242, 166, 59, 0.34), transparent 70%),
     #080b10; }
+.fx-arena[data-game="railcar"] { --fx-grad:
+    radial-gradient(60% 70% at 100% 0%, rgba(47, 214, 200, 0.28), transparent 70%),
+    radial-gradient(60% 70% at 0% 100%, rgba(63, 127, 208, 0.26), transparent 70%),
+    #060b0e; }
 .fx-arena[data-game="vanguard"] { --fx-grad:
     radial-gradient(55% 65% at 100% 0%, rgba(201, 145, 58, 0.34), transparent 70%),
     radial-gradient(60% 70% at 0% 100%, rgba(93, 107, 58, 0.3), transparent 70%),

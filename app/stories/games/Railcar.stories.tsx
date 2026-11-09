@@ -7,6 +7,9 @@ import { RailcarScreen, type RailcarBrake, type RailcarOffer, type RailcarWatch 
 import { RideHistory } from "@/games/railcar/RideHistory";
 import { playTells, railcarHaptics } from "@/games/railcar/tells";
 import * as fx from "@/games/railcar/fixtures";
+import { hexToBytes } from "@/games/railcar/engine";
+import { RailcarPractice } from "@/games/railcar/practice/RailcarPractice";
+import { newPractice, practiceBrake, practiceJump, practiceView, type Practice } from "@/games/railcar/practice/session";
 import type { RailcarView } from "@/games/railcar/view";
 
 const meta = {
@@ -155,3 +158,36 @@ export const RideRefundedUnrevealed390: StoryObj = { ...RideRefundedUnrevealed, 
 export const RideRefundedUnrevealed1440: StoryObj = { ...RideRefundedUnrevealed, ...desk };
 /** A record the replay does not give (Ana shown 400 back where the schedule gives 350): the page lists the difference. */
 export const RideFromHistoryDiffers = history(fx.storedWorkedRide({ tamper: true }), fx.ANA.toBase58());
+
+// ---- Practice free (ticket 20): you and 9 simulated riders, the real engine, nothing staked ------------------------
+
+/** A fixed draw: the wall at 1:26, sparks at 1:18; three riders off in the first 25 s. */
+const PRACTICE_DRAW = hexToBytes("b8c8dcecf8081c2c38485c6c78889cacb8c8dcecf8081c2c38485c6c78889cac");
+const practiceRide = newPractice(PRACTICE_DRAW);
+const practiceBrakeOf = (p: Practice, t: number): RailcarBrake => ({ ...brakeState({ aboard: p.jumpMs === null, allBound: true, myBound: true, canSign: true, walletCopied: true, pressMs: p.brakeMs, pending: false, rideMs: t })!, onBrake: noop });
+const practice = (p: Practice, t: number): StoryObj => ({
+  render: () => <RailcarScreen view={practiceView(p, t)} practice brake={p.jumpMs === null ? practiceBrakeOf(p, t) : null} actions={{ onJump: noop, onPlayAgain: noop }} />,
+});
+
+/** `/play/practice?game=railcar`, live: the car leaves at once with 9 simulated riders. Jump, Brake and Play again work; nothing is sent. */
+export const PracticeLive: StoryObj = { render: () => <RailcarPractice draw={PRACTICE_DRAW} /> };
+/** Mid-ride at 1:12: the PRACTICE tag, the riders' names, Jump and your Brake. */
+export const PracticeRiding = practice(practiceRide, 72_000);
+export const PracticeRiding390: StoryObj = { ...PracticeRiding, ...phone };
+export const PracticeRiding1440: StoryObj = { ...PracticeRiding, ...desk };
+/** Your Brake running: the car slows on your screen, as in a real ride. */
+export const PracticeWithYourBrake = practice(practiceBrake(practiceRide, 70_000), 72_000);
+/** You jumped at 1:00: at least what a 500 entry would get back, and you keep watching. */
+export const PracticeAfterYourJump = practice(practiceJump(practiceRide, 60_000), 72_000);
+/** Last off at 1:20: what a 500 entry would have paid, Play again and Ride for real. */
+export const PracticeResultLastOff = practice(practiceJump(practiceRide, 80_000), 700_000);
+export const PracticeResultLastOff390: StoryObj = { ...PracticeResultLastOff, ...phone };
+export const PracticeResultLastOff1440: StoryObj = { ...PracticeResultLastOff, ...desk };
+/** Jumped early at 0:15: the refund a 500 entry would have got. */
+export const PracticeResultJumpedEarly = practice(practiceJump(practiceRide, 15_000), 700_000);
+/** Held too long: aboard at Impact, 0. */
+export const PracticeResultAboard = practice(practiceRide, 700_000);
+export const PracticeResultAboard390: StoryObj = { ...PracticeResultAboard, ...phone };
+/** The Railcar page before boarding: Board, and Practice free under it. */
+export const BoardingNotAboard390: StoryObj = { ...BoardingNotAboard, ...phone };
+export const BoardingNotAboard1440: StoryObj = { ...BoardingNotAboard, ...desk };

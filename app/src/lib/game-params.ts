@@ -1,4 +1,5 @@
 import type { GameId } from "./mock/types";
+import type { HistoryGame } from "./chain/history";
 import { isGameId } from "./games";
 import { ASSET_PARAMS, assetIndexFromParam } from "./chain/match-id";
 
@@ -30,8 +31,9 @@ export function backingQuery(game: GameId, asset: number | null | undefined, ent
 }
 
 /** The free practice page of a Game (Trading Duel carries the chosen asset). */
-export function practiceHref(game: GameId, asset?: number | null): string {
+export function practiceHref(game: HistoryGame, asset?: number | null): string {
   if (game === "block-puzzle") return "/play/practice";
+  if (game === "railcar") return "/play/practice?game=railcar";
   return `/play/practice?${gameQuery(game, asset).replace(/&$/, "")}`;
 }
 
