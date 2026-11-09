@@ -109,7 +109,7 @@ export const ROWS: Readonly<Record<string, Row>> = {
   // Ticket 09c: moves the lines an overflow record holds into the owner's stores; the rent goes back to whoever paid it.
   claim_overflow: { class: "exit", relayer: [], cu: 400_000, extra: 12 },
   match_chunk: { class: "exit", relayer: ["caller"], cu: 1_000_000, extra: 60 },
-  close_match: { class: "exit", relayer: ["caller", "match_payer", "pot_a_payer", "pot_b_payer"], cu: 300_000, extra: 4 },
+  close_match: { class: "exit", relayer: ["caller", "match_payer", "pot_a_payer", "pot_b_payer"], cu: 300_000, extra: 6 },
   refund_match: { class: "exit", relayer: ["caller", "payer"], cu: 300_000, spend: () => ({ refundable: RECEIPT_RENT, sunk: 0n }) },
   cancel_ticket: { class: "exit", relayer: ["signer"], cu: 600_000, extra: 8 },
   close_ticket: { class: "exit", relayer: ["caller", "payer"], cu: 200_000 },
@@ -123,7 +123,8 @@ export const ROWS: Readonly<Record<string, Row>> = {
   // Unlock passes the payout token account, the custody and vault, and the closing Advance's Source with its book and pages as remaining accounts.
   unlock: { class: "exit", relayer: [], cu: 600_000, extra: 60, playerSigns: true },
   claim_free_yield: { class: "exit", relayer: [], cu: 300_000, playerSigns: true },
-  cancel_offer: { class: "exit", relayer: [], cu: 300_000, playerSigns: true },
+  // `extra`: the Backer's Protections, which the W3 core names (it gives a counted entry back).
+  cancel_offer: { class: "exit", relayer: [], cu: 300_000, extra: 1, playerSigns: true },
   cancel_request: { class: "exit", relayer: [], cu: 100_000, playerSigns: true },
   // Ticket 27: a Break or Self-Exclusion is the Player's own protection. The Player signs as the authority, the relayer only pays the fee.
   set_break: { class: "exit", relayer: [], cu: 100_000, playerSigns: true },
