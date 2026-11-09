@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { newPractice } from "./practice/session";
-import { FULL_SPEED, SPEED, WHEEL_DEG_PER_PX, newRoll, rollFrame, type Roll } from "./roll";
+import { SPEED, WHEEL_DEG_PER_PX, newRoll, rollFrame, targetSpeed, type Roll } from "./roll";
 
 /** Frames at 60 fps; `slow(t)` says whether the Player's own Brake runs at ms `t`. Returns every frame's state. */
 function run(ms: number, slow: (t: number) => boolean = () => false, dt = 1000 / 60): Roll[] {
   const out: Roll[] = [];
   let r = newRoll();
   for (let t = 0; t <= ms; t += dt) {
-    r = rollFrame(r, t, slow(t));
+    r = rollFrame(r, t, slow(t), t);
     out.push(r);
   }
   return out;
@@ -30,24 +30,34 @@ describe("the roll (what the stage draws as the car moves)", () => {
       for (const k of ["far", "mid", "trk"] as const) {
         const step = frames[i][k] - frames[i - 1][k];
         expect(step, `${k} frame ${i} moved back`).toBeLessThanOrEqual(eps);
-        expect(-step, `${k} frame ${i} jumped`).toBeLessThanOrEqual(SPEED[k] * FULL_SPEED * dtSec * 1.05 + eps);
+        expect(-step, `${k} frame ${i} jumped`).toBeLessThanOrEqual(SPEED[k] * targetSpeed(14_000) * dtSec * 1.05 + eps);
       }
     }
   });
 
-  it("during the Brake the car goes on from where it is at half speed, and at the end at full speed again", () => {
+  it("during the Brake the car goes on from where it is at half the current speed, and after it eases back to the time-based speed", () => {
     const frames = run(14_000, (t) => t >= 5_000 && t < 10_000);
-    const per = (i: number) => frames[i + 1].trk - frames[i].trk;
-    const at = (ms: number) => Math.round((ms / 1000) * 60);
-    expect(per(at(4_000))).toBeCloseTo(-SPEED.trk / 60, 3);
-    expect(per(at(9_500))).toBeCloseTo(-SPEED.trk / 120, 3);
-    expect(per(at(13_500))).toBeCloseTo(-SPEED.trk / 60, 3);
+    const per = (ms: number) => {
+      const i = Math.round((ms / 1000) * 60);
+      return frames[i + 1].trk - frames[i].trk;
+    };
+    expect(per(4_000)).toBeCloseTo((-SPEED.trk * targetSpeed(4_000)) / 60, 1);
+    expect(per(9_800)).toBeCloseTo((-SPEED.trk * targetSpeed(9_800) * 0.5) / 60, 1);
+    expect(per(13_900)).toBeCloseTo((-SPEED.trk * targetSpeed(13_900)) / 60, 1);
   });
 
-  it("the speed depends on elapsed time and the Brake only: after the first seconds it stays the same", () => {
-    const frames = run(120_000);
-    const per = (ms: number) => frames[Math.round((ms / 1000) * 60) + 1].trk - frames[Math.round((ms / 1000) * 60)].trk;
-    expect(per(10_000)).toBeCloseTo(per(110_000), 6);
+  it("gets faster as the ride goes on: from 1x toward 3x by the latest possible Impact, and no further", () => {
+    expect(targetSpeed(0)).toBe(1);
+    expect(targetSpeed(60_000)).toBeGreaterThan(targetSpeed(10_000));
+    expect(targetSpeed(120_000)).toBeCloseTo(3, 6);
+    expect(targetSpeed(500_000)).toBeCloseTo(3, 6);
+    const frames = run(70_000);
+    const per = (ms: number) => {
+      const i = Math.round((ms / 1000) * 60);
+      return frames[i + 1].trk - frames[i].trk;
+    };
+    expect(-per(60_000)).toBeGreaterThan(-per(10_000) * 1.5);
+    for (const k of ["far", "mid", "trk"] as const) expect(frames[frames.length - 1][k]).toBeLessThan(frames[frames.length - 2][k]);
   });
 
   it("two rides with different crash points draw the same frames up to the earlier Impact", () => {
@@ -56,8 +66,9 @@ describe("the roll (what the stage draws as the car moves)", () => {
     const late = newPractice(new Uint8Array(32).fill(0x01));
     expect(early.ride.crashMs).not.toBe(late.ride.crashMs);
     const upTo = Math.min(early.ride.crashMs, late.ride.crashMs);
-    const a = run(upTo);
-    const b = run(upTo);
+    // The roll takes the clock and the Brake only; nothing about the draw reaches it.
+    const a = run(upTo, () => false);
+    const b = run(upTo, () => false);
     expect(a).toEqual(b);
   });
 });
