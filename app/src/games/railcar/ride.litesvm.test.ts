@@ -1250,7 +1250,7 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     expect(r.walletSigs).toEqual({ boarding: 10 });
   });
 
-  it("Dee's seat key cannot have the relayer pay for pages the car never cuts: a rider's Lock whose book could use them", { timeout: 180_000 }, async () => {
+  it("Dee's seat key has the relayer pay for the pages the car's fee cut writes, and not for a rider's Lock the car never cuts, though its book could use them", { timeout: 180_000 }, async () => {
     let refused = 0;
     const beforePages: RideOpts["beforePages"] = async ({ w, sponsor, finisher, match, ixs }) => {
       const cut = new Set(ixs.map((ix) => ix.keys[1].pubkey.toBase58()));
@@ -1260,9 +1260,13 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
       await expect(pageSend(w, sponsor, finisher, match, [initCkptPageIx(w.relayer.publicKey, uncut, 1, 0)])).rejects.toMatchObject({ code: "not-this-match" });
       refused++;
     };
-    const r = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, await SECOND({ viaSponsor: DEE, beforePages }));
-    expect(refused).toBeGreaterThan(0);
-    expect(r.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
+    // The first car's fee cut is the one that needs Ana's pages: both cars finish through Dee's seat key.
+    const first = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, { native: true, viaSponsor: DEE, beforePages });
+    expect(refused).toBe(1);
+    expect(first.finishSteps).toContain("pages");
+    expect(first.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
+    const second = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, { native: true, aged: 10 * 60, again: { world: first.world, riders: first.riders }, viaSponsor: DEE, beforePages });
+    expect(second.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
   });
 
   it("the same second car with every page gone: the keeper's sweep finishes it and pays the worked example", { timeout: 180_000 }, async () => {
