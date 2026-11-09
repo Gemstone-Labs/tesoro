@@ -1217,14 +1217,14 @@ const GAMES = {
         pad: { phone: 33, desktop: 8 },
         camera: {
           cues: [
-            { focus: ['[data-htp="eng"]'], pad: { phone: 33, desktop: 8 } },
+            { focus: ['[data-htp="eng"]'], pad: { phone: 33, desktop: 30 }, dx: { desktop: -130 } },
             { focus: [".vg-plate.us", ".vg-power"], pad: { phone: 40, desktop: 60 } },
           ],
         },
         act: async (page, info) => {
           const m = marks(page, info);
           await vgTap(page, page.__eng);
-          const engLabel = await m.add({ kind: "label", target: '[data-htp="eng"]', text: "Select a piece", side: "above", gap: 4 });
+          const engLabel = await m.add({ kind: "label", target: '[data-htp="eng"]', text: "Select a piece", side: info.set === "desktop" ? "left" : "above", gap: info.set === "desktop" ? 14 : 4 });
           await sleep(1900);
           await m.remove(engLabel);
           await info.cam.to(1, 0.7);
@@ -1359,7 +1359,10 @@ async function record(page, game, step, setName, attempt, work) {
   const first = await cropFor(page, forSet(def.camera?.cues?.[0]?.focus ?? def.camera?.keys?.[0]?.focus ?? focus, setName), set, (def.camera?.cues?.[0] ?? def.camera?.keys?.[0] ?? def).pad?.[setName] ?? (def.camera?.cues?.[0] ?? def.camera?.keys?.[0] ?? def).pad, (def.camera?.cues?.[0] ?? def.camera?.keys?.[0])?.band?.[setName] ?? undefined);
   const rectFor = async (k) => {
     const pad = k.pad?.[setName] ?? k.pad;
-    return cropFor(page, forSet(k.focus, setName), set, typeof pad === "number" ? pad : undefined, Array.isArray(k.band) ? k.band : k.band?.[setName]);
+    const r = await cropFor(page, forSet(k.focus, setName), set, typeof pad === "number" ? pad : undefined, Array.isArray(k.band) ? k.band : k.band?.[setName]);
+    // `dx` moves the crop sideways (CSS px), to keep the action centred when it sits against the edge of the page's content
+    const dx = typeof k.dx === "number" ? k.dx : k.dx?.[setName] ?? 0;
+    return { ...r, x: r.x + dx };
   };
   const cues = def.camera?.cues ? await Promise.all(def.camera.cues.map(rectFor)) : null;
   const keys = def.camera?.keys ? await Promise.all(def.camera.keys.map(async (k) => ({ sec: k.sec, rect: await rectFor(k) }))) : null;
