@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { Notice } from "@/components/ui";
 import { BlockPuzzleGame } from "@/games/block-puzzle/BlockPuzzleGame";
-import { ELSEWHERE_LINE, needTableLine, resultLine } from "@/games/block-puzzle/burst-copy";
-import { CHECKIN_SECS, REASON } from "@/games/block-puzzle/live-chain";
+import { ELSEWHERE_LINE, afterRunLine, needTableLine, resultLine } from "@/games/block-puzzle/burst-copy";
+import { CHECKIN_SECS, REASON, TABLE_PHASE, phaseAt } from "@/games/block-puzzle/live-chain";
 import { getReadySecs, slotNow } from "@/games/block-puzzle/live-clock";
 import { stripOf } from "@/games/block-puzzle/opponent";
 import { useBurstMatch } from "@/games/block-puzzle/useBurstMatch";
@@ -73,6 +73,7 @@ export function MatchView({ matchId }: { matchId: string }) {
       <div className="stack">
         <BlockPuzzleGame
           run={view.run}
+          overNote={afterRunLine({ phase: table && clock ? phaseAt(table, slot) : null, tableClosed: stage === "closing" || table?.phase === TABLE_PHASE.closed, commit: view.commit })}
           matchPanel={
             <div className="bpx-status">
               <BurstOpponentStrip account={m.opponent} state={strip} />
