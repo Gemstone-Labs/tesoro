@@ -74,6 +74,7 @@
 .rc-brake small { display: block; white-space: nowrap; font-size: var(--fs-11); color: var(--fg-2); }
 .rc-brake.on .btn { box-shadow: inset 0 0 0 2px var(--em); color: var(--em); }
 .rc-brake.on small { color: var(--em); }
+.rc-brake-note { flex: 1 0 100%; margin: 0; font-size: var(--fs-12); color: var(--fg-2); }
 .rc-caption { flex-basis: 100%; margin: 0; text-align: center; color: var(--fg-2); font-size: var(--fs-13); display: inline-flex; justify-content: center; align-items: center; gap: 4px; }
 .rc-jumped { flex: 1; display: flex; justify-content: center; align-items: center; gap: 6px; margin: 0; padding: 14px; background: var(--surface); font-weight: 700; }
 .rc-error { margin: 0; color: var(--danger); font-size: var(--fs-14); text-align: center; }

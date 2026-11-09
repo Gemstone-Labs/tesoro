@@ -1,6 +1,5 @@
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ckptPda } from "./basket";
 
 const relayer = Keypair.generate().publicKey;
 const matchKey = Keypair.generate().publicKey;
@@ -35,7 +34,8 @@ vi.mock("./settle-plan", async (importOriginal) => {
     loadMatch: async () => ({ stores: [{}] }),
     runOf: () => ({ phaseI: 0, lineI: 0 }),
     sourcesAhead: () => [],
-    missingCutPages: async () => (state.pagesExist ? [] : [{ source, cls: 1, pageNo: 0, address: ckptPda(source, 1, 0) }, { source, cls: 3, pageNo: 0, address: ckptPda(source, 3, 0) }]),
+    // The page step the finishes share: the two pages a fee cut of this Source needs, until they exist.
+    cutPageIxs: async (_read: unknown, payer: PublicKey) => (state.pagesExist ? [] : [real.initCkptPageIx(payer, source, 1, 0), real.initCkptPageIx(payer, source, 3, 0)]),
     planSizedChunk: async () => ({ ix: new TransactionInstruction({ programId: relayer, keys: [], data: Buffer.from("chunk") }), missing: [] }),
     fits: async () => true,
   };

@@ -23,17 +23,18 @@ import {
   ComputeBudgetProgram,
   Keypair,
   PublicKey,
+  SystemProgram,
+  TransactionInstruction,
   VersionedMessage,
   VersionedTransaction,
   type AccountInfo,
   type AccountMeta,
-  type TransactionInstruction,
 } from "@solana/web3.js";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { CLASS_STUDIO, basketPda, countersPda, matchPda, spillPda } from "../../lib/chain/basket";
+import { CLASS_STUDIO, basketPda, bookPda, ckptPda, countersPda, matchPda, spillPda } from "../../lib/chain/basket";
 import { coreIx } from "../../lib/chain/core-ix";
 import { drawRemaining, freshPot, nextMatchOf, previewEntry, readEntryStores, readNextTicket } from "../../lib/chain/entry";
 import coreIdl from "../../lib/chain/idl/tesoro_core.json";
@@ -43,7 +44,7 @@ import { decodeCar, joinSeatIx, seatMarkPda } from "../../lib/chain/many-seat";
 import { loadCar } from "../../lib/chain/many-seat-plan";
 import { decodeStore } from "../../lib/chain/pot-store";
 import { OVERFLOW_STORE_AT, matchOverflowPda } from "../../lib/chain/overflow";
-import { CHUNK_CU_TARGET, fits, type Reader } from "../../lib/chain/settle-plan";
+import { CHUNK_CU_TARGET, fits, initCkptPageIx, type Reader } from "../../lib/chain/settle-plan";
 import { checkedV0, instructionName, messageSize, type TxSize } from "../../lib/chain/tx-size";
 import { backingTicketOf, nextStageIx, openBackingTicketIxs, type TicketView } from "../../lib/chain/ticket";
 import { Sponsor, sponsoredInstructions, type ChainReads } from "../../server/sponsor/service";
@@ -88,6 +89,7 @@ import { backerSeatedIn, boardingEntry, type BoardingBacking } from "./boarding"
 import { stepOffFor } from "./step-off";
 import { fuelPda, programConfigPda, railcarSetupPlan, readSetupFacts, setupProblems, type AccountReader, type SetupInput, type SetupStep } from "./setup";
 import { MAGICBLOCK } from "../../lib/cluster-settings";
+import { POOL, SIM_LST_ID, SIM_SOL_MINT, TOKEN_PROGRAM_ID, faucetIx, nativeCustodyPda, nativeVaultPda, openNativePositionIx, setPriceIx, takeNativeAdvanceIx } from "../../lib/chain/native";
 
 const ROOT = join(process.cwd(), "..");
 const SO_DIR = process.env.RAILCAR_SO_DIR ?? join(ROOT, "target/deploy");
@@ -577,6 +579,40 @@ class World {
     return Object.keys(o.inner.status)[0].toLowerCase();
   }
 
+  /** sim_lst's pool and core's native custody and simSOL price, as programs/tesoro_core/tests/native.rs sets them up. */
+  async nativeSetUp() {
+    this.svm.addProgram(SIM_LST_ID, readFileSync(join(SO_DIR, "sim_lst.so")));
+    const sim = (seed: string) => PublicKey.findProgramAddressSync([Buffer.from(seed)], SIM_LST_ID)[0];
+    const disc = createHash("sha256").update("global:initialize").digest().subarray(0, 8);
+    const args = Buffer.alloc(24);
+    args.writeUInt32LE(700, 0); // 7% APY
+    args.writeUInt32LE(4_380, 4); // devnet speed: 1 month = 10 min
+    args.writeBigUInt64LE(10n * SOL, 8); // faucet amount
+    args.writeBigInt64LE(3_600n, 16); // faucet cooldown
+    const keys = [
+      { pubkey: this.admin.publicKey, isSigner: true, isWritable: true },
+      { pubkey: POOL, isSigner: false, isWritable: true },
+      { pubkey: SIM_SOL_MINT, isSigner: false, isWritable: true },
+      { pubkey: sim("vault"), isSigner: false, isWritable: false },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ];
+    this.send([new TransactionInstruction({ programId: SIM_LST_ID, keys, data: Buffer.concat([disc, args]) })], this.admin);
+    this.send([coreIx("init_native_custody", { admin: this.admin.publicKey, config: corePda("config"), pool: POOL, mint: SIM_SOL_MINT, custody: nativeCustodyPda(), vault: nativeVaultPda(), token_program: TOKEN_PROGRAM_ID, system_program: SystemProgram.programId })], this.admin);
+    this.send([setPriceIx(this.oracle.publicKey, 150_000_000n)], this.oracle);
+  }
+
+  /** A Player whose Gemas come from a native Lock: test simSOL from the faucet, locked with a 6-month Advance (the app's builders). */
+  nativeRider(): Person {
+    const p = this.person();
+    this.send([faucetIx(p.key)], p.kp);
+    const nonce = BigInt(++this.stakes);
+    const position = PublicKey.findProgramAddressSync([Buffer.from("position"), Buffer.from([0]), createHash("sha256").update(Buffer.concat([Buffer.from("native"), p.key.toBuffer(), u64(nonce)])).digest()], CORE)[0];
+    this.send([cu(1_400_000), openNativePositionIx(p.key, nonce, 10n * SOL, position), takeNativeAdvanceIx(p.key, position, 0, 6, 1n)], p.kp);
+    this.ensureSpill(p, 24);
+    return p;
+  }
+
   /** Stands in for a seat index's first `bind_brake` (the ephemeral-account CPI needs MagicBlock): the Brake seat exists, unbound. */
   async brakeSeatStandIn(index: number, seat: number) {
     const key = brakeSeatPda(tablePda(index), seat);
@@ -704,20 +740,34 @@ interface RideOpts {
   noImpact?: boolean;
   /** The finish goes through the sponsor as this rider's page sends it, vouched for by its seat key (not the relayer directly). */
   viaSponsor?: number;
+  /** The riders' Gemas come from native Locks (simSOL), whose yield the clock accrues, instead of reported Positions. */
+  native?: boolean;
+  /** Seconds the riders' Advances age before they board (on a native Lock the clock accrues yield meanwhile). */
+  aged?: number;
+  /**
+   * Another car in a World that already rode one, with the same riders: a fee the first ride cut from a rider's line gave
+   * that Source holders in the fee classes, so the yield it earns since lands into their checkpoint pages, which its book
+   * has never had (devnet car 2, 2026-11-08: core refused the chunk with AccountMissing until someone created them).
+   */
+  again?: { world: World; riders: Person[] };
+  /** Called through the sponsor's page before the finish's own pages step (`viaSponsor` only). */
+  beforePages?: (at: { w: World; sponsor: Sponsor; finisher: Person; match: PublicKey; ixs: TransactionInstruction[] }) => Promise<void>;
 }
 
 /** A car boarded, departed and ridden through `jumps` (and, unless `noImpact`, its Impact): everything before the finish. */
 async function rideToImpact(n: number, draw: Uint8Array, jumps: [number, number][], o: RideOpts = {}) {
   const backed = o.backed;
-  const w = await World.create({ setup: o.setup });
+  const w = o.again?.world ?? (await World.create({ setup: o.setup }));
+  if (o.native && !o.again) await w.nativeSetUp();
   // A backed rider has no Gemas of their own: their Backer's entry boards for them.
-  w.riders = Array.from({ length: n }, (_, i) => (i === backed?.seat ? w.person() : w.rider()));
+  w.riders = o.again?.riders ?? Array.from({ length: n }, (_, i) => (i === backed?.seat ? w.person() : o.native ? w.nativeRider() : w.rider()));
   const riders = w.riders;
   // A Player who boards without a seat key names the wallet as the seat's signer (core: "the wallet itself when it wants none").
   const keyless = new Set(o.noSeatKey ?? []);
   for (const i of keyless) riders[i].seat = riders[i].kp;
   const backer = backed ? w.rider() : null;
   const backing = backed && backer ? w.backing(riders[backed.seat], backer, backed.shareBps) : undefined;
+  if (o.aged) w.setTime(w.now + o.aged);
 
   // Boarding: the first opens the car, the others join it, each in one wallet transaction.
   w.phase = "boarding";
@@ -794,7 +844,7 @@ async function rideToImpact(n: number, draw: Uint8Array, jumps: [number, number]
   return { ...ctx, over, shown, backedRow };
 }
 
-async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], o: RideOpts = {}): Promise<RideRun & { over: ReturnType<typeof decodeTable>; finishSteps: string[]; credits: number }> {
+async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], o: RideOpts = {}): Promise<RideRun & { over: ReturnType<typeof decodeTable>; finishSteps: string[]; credits: number; world: World }> {
   const { w, riders, backer, carNo, carAcct, match, id, before, backerBefore, studioBefore, table, over, shown, backedRow } = await rideToImpact(n, draw, jumps, o);
   if (!over) throw new Error("rideCar rides to the Impact");
   const sponsor = o.viaSponsor === undefined ? null : sponsorOn(w);
@@ -826,6 +876,7 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], o
     send: async (ixs, step) => {
       const onBase = step === "finalize" || step === "reveal";
       if (sponsor && finisher) {
+        if (step === "pages" && o.beforePages) await o.beforePages({ w, sponsor, finisher, match, ixs });
         // As the page sends it: the seat key's scope, then the sponsor's rules against the chain as it is, then its send.
         await (onBase ? w.onBaseAsync(carAcct.table, () => pageSend(w, sponsor, finisher, match, ixs)) : pageSend(w, sponsor, finisher, match, ixs));
       } else {
@@ -878,6 +929,7 @@ async function rideCar(n: number, draw: Uint8Array, jumps: [number, number][], o
     finishSteps: sent.sent,
     credits,
     setupRun: w.setupRun,
+    world: w,
   };
 }
 
@@ -1169,6 +1221,61 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     expect(steps.at(-1)).toBe("close-car");
     expect(c.w.info(c.match)).toBeNull();
     expect(c.w.info(carPda(c.carNo))).toBeNull();
+    expect(c.riders.map((p, i) => c.w.gemas(p, c.id) - c.before[i])).toEqual([350n, 630n, 578n, 813n, 0n]);
+  });
+
+  // ---- a fee cut that lands yield into checkpoint pages the Source's book never had (devnet car 2, 2026-11-08) ----------
+
+  /**
+   * The worked example on native Locks, then a month of devnet yield, then the second car's riders are the same five: the
+   * second ride's fee is cut from Ana's Lock again, whose Studio and Leaderboard holders (the first ride's fees) need
+   * checkpoint pages for the yield it lands.
+   */
+  const SECOND = async (o: RideOpts = {}) => {
+    const first = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, { native: true });
+    expect(first.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
+    return { native: true, aged: 10 * 60, again: { world: first.world, riders: first.riders }, ...o } satisfies RideOpts;
+  };
+
+  it("a second car after a month of yield: the page's finish creates the checkpoint pages Ana's Lock needs and pays the worked example to the Gema", { timeout: 180_000 }, async () => {
+    const r = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, await SECOND());
+    expect(r.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
+    expect(r.studioFee).toBe(64n);
+    expect(r.walletSigs).toEqual({ boarding: 10 });
+  });
+
+  it("the same second car finished by Dee's page through the sponsor, vouched for by her seat key alone", { timeout: 180_000 }, async () => {
+    const r = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, await SECOND({ viaSponsor: DEE }));
+    expect(r.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
+    expect(r.walletSigs).toEqual({ boarding: 10 });
+  });
+
+  it("Dee's seat key has the relayer pay for the pages the car's fee cut writes, and not for a rider's Lock the car never cuts, though its book could use them", { timeout: 180_000 }, async () => {
+    let refused = 0;
+    const beforePages: RideOpts["beforePages"] = async ({ w, sponsor, finisher, match, ixs }) => {
+      const cut = new Set(ixs.map((ix) => ix.keys[1].pubkey.toBase58()));
+      const l = (await loadCar(w.reader(), match))!;
+      const uncut = [...new Set(l.lines.flat().map((x) => x.source.toBase58()))].map((k) => new PublicKey(k)).find((src) => !cut.has(bookPda(src).toBase58()) && w.info(bookPda(src)) && !w.info(ckptPda(src, 1, 0)));
+      if (!uncut) throw new Error("no rider's Source is left uncut with a book and a missing page");
+      await expect(pageSend(w, sponsor, finisher, match, [initCkptPageIx(w.relayer.publicKey, uncut, 1, 0)])).rejects.toMatchObject({ code: "not-this-match" });
+      refused++;
+    };
+    // The first car's fee cut is the one that needs Ana's pages: both cars finish through Dee's seat key.
+    const first = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, { native: true, viaSponsor: DEE, beforePages });
+    expect(refused).toBe(1);
+    expect(first.finishSteps).toContain("pages");
+    expect(first.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
+    const second = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, { native: true, aged: 10 * 60, again: { world: first.world, riders: first.riders }, viaSponsor: DEE, beforePages });
+    expect(second.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
+  });
+
+  it("the same second car with every page gone: the keeper's sweep finishes it and pays the worked example", { timeout: 180_000 }, async () => {
+    const c = await rideToImpact(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, await SECOND({ noImpact: true }));
+    const keeper = Keypair.generate();
+    c.w.svm.airdrop(keeper.publicKey, 100n * SOL);
+    c.w.setTime(c.w.now + 15 * 60);
+    const steps = await sweepUntilGone(c.w, c.match, c.carAcct.table, keeper);
+    expect(steps.at(-1)).toBe("close-car");
     expect(c.riders.map((p, i) => c.w.gemas(p, c.id) - c.before[i])).toEqual([350n, 630n, 578n, 813n, 0n]);
   });
 

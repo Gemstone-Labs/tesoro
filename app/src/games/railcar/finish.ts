@@ -2,15 +2,16 @@
  * Finishing a ride after Impact, from any page of a Player the result pays, and from the keeper's safety sweep: Railcar's
  * `reveal_ride` (the ride for the round history, once per car) and `finalize` (core freezes the result), or core's refund
  * once the car's refund time has passed with no result; then room for winners whose stores are short, every settle chunk
- * the shared planner sizes (to the compute target when `simulate` is given), every seat close, the core car's close and,
+ * the shared planner sizes (to the compute target when `simulate` is given), each after the checkpoint pages its fee cut
+ * needs (`cutPageIxs`, as head-to-head's finish creates them), every seat close, the core car's close and,
  * after a core refund, Railcar's Car. Every step is permissionless: `caller` is the relayer (the page's seat key vouches
  * for the request), so a Player's wallet signs none of it. Idempotent: two pages finishing the same car only race to the
  * same state. Each step sends only the instructions `finish-steps.ts` lists for it.
  */
 import type { PublicKey, TransactionInstruction } from "@solana/web3.js";
-import { refundCarIx, seatMarkPda } from "../../lib/chain/many-seat";
-import { closeIxs, loadCar, planSeatChunk, roomIxs } from "../../lib/chain/many-seat-plan";
-import type { Core, Reader } from "../../lib/chain/settle-plan";
+import { MAX_SEAT_CHUNK_STEPS, refundCarIx, seatMarkPda } from "../../lib/chain/many-seat";
+import { aheadOf, closeIxs, loadCar, planSeatChunk, roomIxs, sourcesOf } from "../../lib/chain/many-seat-plan";
+import { cutPageIxs, type Core, type Reader } from "../../lib/chain/settle-plan";
 import { carPda, closeRailcarCarIx, decodeCarAccount, finalizeIx, revealRideIx } from "./chain";
 import { assertStepIxs, type FinishStep } from "./finish-steps";
 
@@ -91,6 +92,12 @@ export async function finishRide(d: RideFinishDeps): Promise<FinishResult> {
         if (!roomDone) {
           roomDone = true;
           for (const ix of await roomIxs(d.read, d.caller, l)) await send([ix], "room");
+          break;
+        }
+        // A fee cut lands its Source's yield into checkpoint pages a chunk cannot create.
+        const pages = await cutPageIxs(d.read, d.caller, sourcesOf(aheadOf(l.car, l.seats, l.lines, MAX_SEAT_CHUNK_STEPS)));
+        if (pages.length) {
+          await send(pages, "pages");
           break;
         }
         const plan = await planSeatChunk(d.core, d.read, d.caller, l, d.fits, { simulate: d.simulate && ((ix) => d.simulate!(ix)) });
