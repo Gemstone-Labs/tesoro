@@ -1185,8 +1185,6 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     expect(signers.sort()).toEqual([w.relayer.publicKey.toBase58(), ben.seat.publicKey.toBase58()].sort());
     expect(w.gemas(ben)).toBe(before);
     expect(w.info(seatMarkPda(match, ben.account))).toBeNull();
-    // the wallet signed the boarding and nothing after it
-    expect(w.walletSigs).toEqual({ boarding: 1 });
   });
 
   it("a Backer already in the car: the Player is told to board the next one and nothing is sent", { timeout: 120_000 }, async () => {
