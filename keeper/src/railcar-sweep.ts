@@ -1,11 +1,7 @@
 import { ComputeBudgetProgram, Transaction, type Connection, type PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import { finishCar, findCarRide, rideSweepStep, type SweepEnv, type SweepSend } from "../../app/src/games/railcar/sweep.ts";
-import { MAX_SEAT_CHUNK_STEPS } from "../../app/src/lib/chain/many-seat.ts";
-import { aheadOf, loadCar, sourcesOf } from "../../app/src/lib/chain/many-seat-plan.ts";
-import { connReader, missingCutPages, simulatedUnits } from "../../app/src/lib/chain/settle-plan.ts";
+import { connReader, simulatedUnits } from "../../app/src/lib/chain/settle-plan.ts";
 import { act, type Ctx } from "./act.ts";
-import { initCkptPageIx } from "./core-ix.ts";
-import { bookOf } from "./kit.ts";
 import { Deferred } from "./safety-sweep.ts";
 import { fits, lookupTables, sendIxs } from "./send.ts";
 
@@ -74,24 +70,13 @@ export async function railcarRideStep(ctx: Ctx, match: PublicKey): Promise<void>
 }
 
 /**
- * Finishes a car core is settling or has paid, with the app's finisher (room for winners, chunks, seat closes, the car's
- * close) and, for a Railcar car core refunded before it rode, its Table passing it over and its Car's close.
+ * Finishes a car core is settling or has paid, with the app's finisher (room for winners, the checkpoint pages a fee cut
+ * needs, chunks, seat closes, the car's close) and, for a Railcar car core refunded before it rode, its Table passing it
+ * over and its Car's close.
  */
 export async function finishCarOf(ctx: Ctx, match: PublicKey): Promise<void> {
   const info = await ctx.conn.getAccountInfo(match);
   if (!info) return;
-  await createCutPages(ctx, match);
   await finishCar(await envOf(ctx, match), null);
 }
 
-/** Checkpoint pages a fee cut of the next chunk needs that do not exist yet: anyone may create them. */
-async function createCutPages(ctx: Ctx, match: PublicKey): Promise<void> {
-  const read = connReader(ctx.conn);
-  const l = await loadCar(read, match);
-  if (!l || (l.car.stage !== "settling" && l.car.stage !== "refunding")) return;
-  for (const page of await missingCutPages(read, sourcesOf(aheadOf(l.car, l.seats, l.lines, MAX_SEAT_CHUNK_STEPS)))) {
-    await step(ctx, match, `init_ckpt_page class ${page.cls} page ${page.pageNo} of ${page.source.toBase58()} before a fee cut`, async () =>
-      sendIxs(ctx.conn, ctx.payer, [await initCkptPageIx(ctx.core, { payer: ctx.payer.publicKey, book: bookOf(page.source), page: page.address, cls: page.cls, pageNo: page.pageNo })], { units: 200_000 }),
-    );
-  }
-}
