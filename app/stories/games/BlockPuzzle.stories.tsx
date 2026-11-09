@@ -1,20 +1,22 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useMemo, useState } from "react";
 import { BlockPuzzleGame, type MatchRun } from "@/games/block-puzzle/BlockPuzzleGame";
+import { afterRunLine } from "@/games/block-puzzle/burst-copy";
 import { BlockBoard } from "@/components/game/BlockBoard";
 import { SIZE, apply, dims, fitsAt, handBase, newState, pieceAt, pieceCells, type Piece, type State } from "@/games/block-puzzle/engine";
 import "@/games/block-puzzle/block-puzzle.css";
 
 const noop = () => undefined;
 
-function Match({ seed }: { seed: number }) {
+function Match({ seed, ms = 90_000, overNote }: { seed: number; ms?: number; overNote?: string }) {
   const [run] = useState<MatchRun>(() => {
     const t0 = performance.now();
-    return { seed: BigInt(seed), remainingMs: () => Math.max(0, 90_000 - (performance.now() - t0)), entry: 1000, onMove: noop, onEnd: noop };
+    return { seed: BigInt(seed), remainingMs: () => Math.max(0, ms - (performance.now() - t0)), entry: 1000, onMove: noop, onEnd: noop };
   });
   return (
     <BlockPuzzleGame
       run={run}
+      overNote={overNote}
       matchPanel={
         <div className="bpx-status" role="status">
           <p>You both play the same pieces at the same time · higher score wins</p>
@@ -38,6 +40,24 @@ export const PlayWithSeed: StoryObj<{ seed: number }> = {
   args: { seed: 1592381 },
   argTypes: { seed: { control: { type: "number" } } },
   render: (a) => <Match key={a.seed} seed={a.seed} />,
+};
+
+/** The 90 seconds are up: the busy line under the score says what the result waits for (it follows the Match; pick one in Controls). */
+export const AfterTimeUp: StoryObj<{ overNote: string }> = {
+  args: { overNote: afterRunLine({ phase: "grace", tableClosed: false, commit: null }) },
+  argTypes: {
+    overNote: {
+      control: "select",
+      options: [
+        afterRunLine({ phase: "running", tableClosed: false, commit: null }),
+        afterRunLine({ phase: "grace", tableClosed: false, commit: null }),
+        afterRunLine({ phase: "closed", tableClosed: true, commit: { phase: "sending", won: false } }),
+        afterRunLine({ phase: "closed", tableClosed: true, commit: { phase: "slow", won: false } }),
+        afterRunLine({ phase: "closed", tableClosed: true, commit: null }),
+      ],
+    },
+  },
+  render: (a) => <Match key={a.overNote} seed={1592381} ms={1_500} overNote={a.overNote} />,
 };
 
 /* ——— Board states, built by replaying the engine ——— */
