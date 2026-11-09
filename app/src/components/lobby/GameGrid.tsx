@@ -57,6 +57,7 @@ export function GameGrid() {
           const waiting = Object.values(byEntry).reduce((a, n) => a + n, 0);
           const fact = g.game ? facts[g.game] : undefined;
           const [word, Icon] = fact ? RESULT_WORD[fact.last] : [null, null];
+          const practice = g.practiceHref ?? (g.game ? practiceHref(g.game) : null);
           return (
             <div key={g.key} className="game-cell">
               <Link href={g.href ?? `/play/${g.game}`} className="cut cut-frame tile game-tile" onPointerMove={tilt} onPointerLeave={untilt}>
@@ -92,8 +93,8 @@ export function GameGrid() {
                   </span>
                 </span>
               </Link>
-              {g.game && (
-                <Link href={practiceHref(g.game)} className="cut cut-chip game-practice">
+              {practice && (
+                <Link href={practice} className="cut cut-chip game-practice">
                   Practice free
                 </Link>
               )}

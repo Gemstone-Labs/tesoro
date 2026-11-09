@@ -7,7 +7,8 @@ import type { CarView, SeatView } from "../../lib/chain/many-seat";
 import type { StoredRide } from "../../lib/chain/ride-record";
 import type { RideSeatView, TableView } from "./chain";
 import { refund, ride } from "./engine";
-import { railcarView, type FeeRates, type RailcarView } from "./view";
+import type { FeeRates } from "./payout";
+import { railcarView, type RailcarView } from "./view";
 
 export const FIXTURE_FEES: FeeRates = { platformBps: 200, studioBps: 300, leaderboardBps: 100 };
 const T0 = 1_762_300_000;

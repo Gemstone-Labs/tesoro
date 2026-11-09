@@ -1,6 +1,7 @@
 import { ENTRY_GEMAS } from "@/games/railcar/chain";
 import { placeSharesBps, refund } from "@/games/railcar/engine";
-import { planPayout, seatSplit } from "@/games/railcar/view";
+import { planPayout } from "@/games/railcar/payout";
+import { seatSplit } from "@/games/railcar/view";
 import type { BackedGame } from "./games";
 
 const ENTRY = BigInt(ENTRY_GEMAS);

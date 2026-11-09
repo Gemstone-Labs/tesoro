@@ -33,17 +33,17 @@ import { bindTargets, brakeState, earlyCopyDue, pageSend, tellCues, type EarlyCo
 import { ENTRY_GEMAS, RAILCAR_PROGRAM_ID, bindBrakeIx, brakeSeatPda, carPda, checkDepartureIx, commitTableIx, configPda, decodeBrakeSeat, decodeCarAccount, decodeConfig, decodeTable, jumpIx, openCarIx, signalIx, startRideIx, tablePda, tickIx, type BrakeSeatView, type RailcarConfigView, type TableView } from "./chain";
 import { backerSeatedIn, boardingEntry, type BoardingBacking } from "./boarding";
 import { stepOffFor } from "./step-off";
+import { sendStepOff } from "./step-off-send";
 import { finishRide } from "./finish";
 import { mayFinish, nextRideStep, pageIntervalMs, queueChoice, watchedRide } from "./flow";
 import type { RailcarWatch } from "./RailcarScreen";
 import { boardingSigner, brakeRoute, finishSender, joinSeatKey, jumpSigner } from "./signers";
 import type { RailcarBrake, RailcarOffer } from "./RailcarScreen";
 import { playTells } from "./tells";
+import { RAILCAR_FEES } from "./payout";
 import { RideTicker } from "./ticker";
-import { railcarView, type FeeRates, type RailcarView } from "./view";
+import { railcarView, type RailcarView } from "./view";
 
-/** Railcar's fee terms (Platform 2%, Studio 3%) and core's Leaderboard Fee (1%), until the screen reads them from the Game record. */
-const FEES: FeeRates = { platformBps: 200, studioBps: 300, leaderboardBps: 100 };
 /** Compute asked for when the Player pays the boarding themselves (the relayer's server sets its own). */
 const SELF_PAID_UNITS = 400_000;
 /** Finish steps one poll of one page sends; the next poll (or another page) carries on. */
@@ -549,12 +549,19 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
         const s = snap.loaded.seats.find((x) => x.seated && x.player.equals(me));
         if (!s) return;
         // A Backed seat's lines go home to the Backer; the Offer stays used, so the Player asks again to ride backed.
-        const ix = await stepOffFor(getChain().core, read.current!, { caller: wallet.publicKey, loaded: snap.loaded, seat: s });
-        // Stepping off is the Player's own exit: the wallet signs it, the relayer pays when it can.
-        await sponsoredSend(wallet, getToken, [ix]).catch(() => getChain().sendBase(wallet, [ComputeBudgetProgram.setComputeUnitLimit({ units: SELF_PAID_UNITS }), ix]));
+        // The seat key signs it when the seat names it (no wallet signature); else the wallet, as the Player's own exit.
+        const loaded = snap.loaded;
+        await sendStepOff({
+          wallet,
+          seat,
+          seatSigner: s.signer,
+          build: (caller) => stepOffFor(getChain().core, read.current!, { caller, loaded, seat: s }),
+          sponsored: (signer, ixs) => sponsoredSend(signer, getToken, ixs),
+          selfPaid: (signer, ixs) => getChain().sendBase(signer, [ComputeBudgetProgram.setComputeUnitLimit({ units: SELF_PAID_UNITS }), ...ixs]),
+        });
         remember(meKey, null);
       }),
-    [act, wallet, me, meKey, getToken, snap],
+    [act, wallet, me, meKey, getToken, snap, seat],
   );
 
   const jump = useCallback(
@@ -613,7 +620,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   const myBacking = my && snap?.car && my.match === snap.car.match.toBase58() ? (my.backing ?? null) : null;
   const view =
     snap?.loaded && snap.car
-      ? railcarView({ me: meKey, core: snap.loaded.car, seats: snap.loaded.seats, table: snap.rollup && snap.rollup.carNo === snap.car.carNo ? snap.rollup : snap.base && snap.base.carNo === snap.car.carNo ? snap.base : null, fees: FEES, nowMs: now, myBacking, myBrakeMs: knownPress })
+      ? railcarView({ me: meKey, core: snap.loaded.car, seats: snap.loaded.seats, table: snap.rollup && snap.rollup.carNo === snap.car.carNo ? snap.rollup : snap.base && snap.base.carNo === snap.car.carNo ? snap.base : null, fees: RAILCAR_FEES, nowMs: now, myBacking, myBrakeMs: knownPress })
       : null;
   const watch: RailcarWatch | null = snap?.watching && !snap.mine ? { signedIn: !!wallet, nextSeated: snap.boarding ? snap.boarding.loaded.car.seated : null } : null;
   const blocked = offerProblem ? new BackingError(offerProblem).message : snap?.backerSeated ? "Your Backer is in this car: board the next one" : null;

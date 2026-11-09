@@ -1,3 +1,4 @@
+import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WinCardData } from "@/lib/win-card";
 
@@ -56,6 +57,14 @@ describe("/win/[match]", () => {
     const { default: Page, generateMetadata } = await import("./page");
     expect((await generateMetadata(params(KEY))).title).toBe("Dee was last off a Railcar ride on Tesoro");
     expect(await Page(params(KEY))).toBeTruthy();
+  });
+  it("a Railcar ride's page offers Practice free, like every Game's, where Railcar is shown", async () => {
+    vi.resetModules();
+    vi.stubEnv("NEXT_PUBLIC_SHOW_RAILCAR", "1");
+    loadWin.mockResolvedValue({ ...WIN, game: "railcar", entry: 500, gemas: 313, name: "Dee", ride: { seated: 5, lastOffMs: 99_000, wallMs: 104_000 } });
+    const { default: Page } = await import("./page");
+    expect(renderToStaticMarkup(await Page(params(KEY)))).toMatch(/href="[^"]*\/play\/practice\?game=railcar"[^>]*>Practice free/);
+    vi.unstubAllEnvs();
   });
   it("renders the page for a win", async () => {
     loadWin.mockResolvedValue(WIN);

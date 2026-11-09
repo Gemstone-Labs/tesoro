@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Callout, DataTable, DocPage, H2 } from "@/components/docs/prose";
+import { DataTable, DocPage, H2 } from "@/components/docs/prose";
 import { BRAND } from "@/lib/brand";
 import { fmtGemas } from "@/lib/format";
 import {
@@ -29,15 +29,14 @@ export default function Page() {
   const p = w.payouts;
   return (
     <DocPage href="/docs/railcar">
-      <Callout kind="note" title="Not playable yet">
-        <p>Railcar is being built. This page is the rulebook it will run under; nothing here means you can play it today.</p>
-      </Callout>
-
       <H2 id="ride">A ride</H2>
       <p>
         Railcar is a Game for {MIN_PLAYERS} to {MAX_PLAYERS} Players. Everyone pays the same <b>entry of {g(ENTRY_GEMAS)} Gemas</b> and boards one car. The car runs toward a wall
         at a distance nobody knows. Each Player chooses when to <b>Jump</b>. The last three Players off before <b>Impact</b> get their entry back and share the rest of the Pot.
         Players still aboard at Impact lose their entry, and nothing else: what you Lock is never at stake.
+      </p>
+      <p>
+        <Link href="/play/railcar">Play Railcar</Link> or try it first with <Link href="/play/practice?game=railcar">Practice free</Link>.
       </p>
 
       <H2 id="boarding">Boarding</H2>
@@ -139,6 +138,12 @@ export default function Page() {
       <p>
         Railcar can be <Link href="/docs/backing">Backed</Link>. An Early-jump refund goes to the Backer. A Backer gets their entry back first on a paid place, then the rest is split
         by the Offer. If the Player is still aboard at Impact, the Backer loses the entry and no more. A Backer funds at most one seat per car.
+      </p>
+
+      <H2 id="practice">Practice</H2>
+      <p>
+        Practice rides the same car with 9 simulated riders, on the same odds, Tells, Brake and refunds. It runs on your device: no sign-in, nothing staked, nothing
+        sent. The car leaves at once, and the Result shows what an entry of {g(ENTRY_GEMAS)} Gemas would have paid.
       </p>
     </DocPage>
   );

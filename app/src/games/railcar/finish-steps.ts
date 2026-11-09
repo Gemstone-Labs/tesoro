@@ -1,6 +1,6 @@
 /**
- * Every instruction sent after boarding a Railcar car, by step: the departure check and each step of the finish
- * (`finishRide`). The seat key's scope (lib/seat/seat-scope.ts, client) and the sponsor's seat-key rule
+ * Every instruction sent after boarding a Railcar car, by step: the step-off, the departure check and each step of the
+ * finish (`finishRide`). The seat key's scope (lib/seat/seat-scope.ts, client) and the sponsor's seat-key rule
  * (server/sponsor/service.ts) both read their allow-lists from here, and `finishRide` refuses to send an instruction that
  * is not on its step's list, so a new step cannot be left off either allow-list.
  *
@@ -12,13 +12,15 @@ import coreIdl from "../../lib/chain/idl/tesoro_core.json";
 import railcarIdl from "../../lib/chain/idl/railcar.json";
 
 export type FinishStep = "reveal" | "finalize" | "refund" | "room" | "pages" | "chunk" | "close-seat" | "close-car" | "close-ride";
-export type RideStepName = FinishStep | "depart";
+export type RideStepName = FinishStep | "depart" | "step-off";
 
 type Program = "core" | "railcar";
 
 /** Which program's instruction each step sends. */
 export const RIDE_STEP_IXS: Record<RideStepName, readonly { program: Program; name: string }[]> = {
   depart: [{ program: "railcar", name: "check_departure" }],
+  // a seated Player's own exit before departure, signed by the seat key (core's `acts_for`; seat-keys user story 9)
+  "step-off": [{ program: "core", name: "step_off_many_seat_match" }],
   reveal: [{ program: "railcar", name: "reveal_ride" }],
   finalize: [{ program: "railcar", name: "finalize" }],
   refund: [{ program: "core", name: "refund_many_seat_match" }],

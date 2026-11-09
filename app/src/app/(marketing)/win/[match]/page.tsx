@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { Button } from "@/components/ui";
 import { fmtGemas } from "@/lib/format";
 import { practiceHref } from "@/lib/game-params";
+import { RAILCAR_SHOWN } from "@/lib/games";
 import { appHref } from "@/lib/landing/config";
 import "@/components/win/win.css";
 import { historyGameName } from "@/lib/chain/history";
@@ -50,7 +51,7 @@ export default async function WinPage({ params }: Props) {
       <p className="win-explain">Gemas are {BRAND.name}&apos;s in-game currency, advanced from staking yield. Practice is free, no account needed.</p>
       <div className="win-actions">
         <Button variant="money" size="lg" href={appHref(`/play/${win.game}`)}>Play {game}</Button>
-        {win.game !== "railcar" && <Button size="lg" href={appHref(practiceHref(win.game))}>Practice free</Button>}
+        {(win.game !== "railcar" || RAILCAR_SHOWN) && <Button size="lg" href={appHref(practiceHref(win.game))}>Practice free</Button>}
         <Button size="lg" href="/welcome">How it works</Button>
       </div>
     </main>
