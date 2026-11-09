@@ -76,7 +76,7 @@ describe("the Practice page", () => {
     const { default: Practice } = await import("@/app/(app)/play/practice/page");
     const { Arena } = await import("@/games/fx");
     const { RailcarPractice } = await import("./RailcarPractice");
-    const page = await Practice({ searchParams: Promise.resolve({ game: "railcar" }) } as Parameters<typeof Practice>[0]);
+    const page = await Practice({ params: Promise.resolve({}), searchParams: Promise.resolve({ game: "railcar" }) });
     expect(page.type).toBe(Arena);
     expect(page.props).toMatchObject({ game: "railcar", autoFull: true });
     expect(page.props.children.type).toBe(RailcarPractice);
