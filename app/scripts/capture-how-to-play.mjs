@@ -415,10 +415,10 @@ async function vgCaptureTruck(page, seed, stopAt = 0, m = null, cam = null, look
     if (m && best.plan.turns === 1) {
       // 0.3 s: name the Recon (camera on it), then the Truck (camera pans), then the whole run, then the capture
       const tb = await page.locator('[data-htp="b"]').boundingBox();
-      await m.show([{ kind: "ring", target: '[data-htp="a"]', shape: "circle", pad: 8 }, { kind: "label", target: '[data-htp="a"]', text: "Recon", side: "above", gap: 4 }], 1500);
+      await sleep(900);
       await cam.to(1, 0.7);
       await sleep(800);
-      await m.show([{ kind: "ring", target: '[data-htp="b"]', shape: "circle", pad: 8 }, { kind: "label", target: '[data-htp="b"]', text: "Enemy Truck", side: "below", gap: 4 }], 1500);
+      await m.show([{ kind: "label", target: '[data-htp="b"]', text: "Enemy Truck", side: "below", gap: 4 }], 1500);
       await cam.to(2, 0.7);
       await sleep(800);
       const arrow = await m.add({ kind: "arrow", target: '[data-htp="a"]', to: '[data-htp="b"]' });
@@ -479,10 +479,12 @@ async function tdWaitStart(page) {
 /** Clicks the cell of column `c` in the row that holds band `k` (row 0 is the row the line starts in). */
 const tdCell = (page, c, k) => page.evaluateHandle(([col, band]) => [...document.querySelectorAll(`.tg-cell[data-cell^="${col}_"]`)].find((e) => e.dataset.cell === `${col}_${band}`) ?? null, [c, k]);
 
-async function tdPick(page, c, k) {
+async function tdPick(page, c, k, { far = false } = {}) {
   const el = (await tdCell(page, c, k)).asElement();
   if (!el) return false;
-  await el.click({ force: true, timeout: 2000 }).catch(() => {});
+  // a column that is off screen (to the right of a phone) cannot be clicked at its centre: click it from the page instead
+  if (far) await el.evaluate((e) => e.click());
+  else await el.click({ force: true, timeout: 2000 }).catch(() => {});
   return true;
 }
 
@@ -519,7 +521,7 @@ const OVERLAY_JS = `(() => {
     if (root) return;
     html = document.documentElement;
     html.style.transformOrigin = "0 0";
-    html.style.willChange = "transform";
+    if (!window.__htpNoWillChange) html.style.willChange = "transform";
     html.style.background = "#070b10";
     root = document.createElement("div");
     root.setAttribute("aria-hidden", "true");
@@ -717,6 +719,16 @@ async function tdUntil(page, t) {
   throw new Error(`Trading Duel clock never reached ${t}`);
 }
 
+/** The band the simulated line spends the most time in during column `c` (its window is 30 + 10c to 40 + 10c seconds). */
+async function tdBestBand(c, seed) {
+  const counts = new Map();
+  for (let t = 30 + 10 * c + 0.5; t < 40 + 10 * c; t += 0.5) {
+    const k = await tdBand(t, seed);
+    counts.set(k, (counts.get(k) ?? 0) + 1);
+  }
+  return [...counts].sort((x, y) => y[1] - x[1])[0][0];
+}
+
 /** Picks the band the simulated line is in at `at` seconds, in column `c`. */
 async function tdPickAt(page, c, at, seed) {
   const k = await tdBand(at, seed);
@@ -786,8 +798,8 @@ const GAMES = {
           page.__line = bpLine(await bpRead(page), page.__move);
           await page.evaluate((cells) => cells.forEach((i) => document.querySelectorAll(".bp-board .bp-cell")[i]?.setAttribute("data-htp", "line")), page.__line);
         },
-        focus: ['[data-htp="line"]', ".bp-slot"],
-        pad: { phone: 20, desktop: 60 },
+        focus: { phone: ['[data-htp="line"]', ".bp-slot"], desktop: ['[data-htp="line"]'] },
+        pad: { phone: 20, desktop: 120 },
         act: async (page, info) => {
           if (!page.__move || !page.__line?.length) return false;
           const m = marks(page, info);
@@ -800,20 +812,28 @@ const GAMES = {
       // Practice has no opponent: the closest real screen is your own score and the clock counting while you play
       4: {
         prep: async (page) => { await bpWaitPlaying(page); page.__move = await bpUntilClear(page); },
+        focus: [".bp-score-n"],
+        pad: { phone: 40, desktop: 60 },
+        camera: {
+          cues: [
+            { focus: [".bp-score-n"], pad: { phone: 40, desktop: 60 }, band: [0.15, 0.55] },
+            { focus: ['[role="timer"]'], pad: { phone: 40, desktop: 60 }, band: [0.15, 0.55] },
+          ],
+        },
         act: async (page, info) => {
           const m = marks(page, info);
-          const score = m.at(200, tag(".bp-score-n", "Score", "below", { gap: 10 }), 3200);
-          const clock = m.at(3600, tag('[role="timer"]', "Clock", "below", { gap: 10 }), 2400);
+          const score = m.at(200, tag(".bp-score-n", "Score", "right", { gap: 18 }), 3000);
           if (page.__move) await bpPlace(page, page.__move);
-          for (let n = 0; n < 3; n++) {
+          for (let n = 0; n < 2; n++) {
             const move = bpBest(await bpRead(page));
             if (!move) break;
             await bpPlace(page, move);
           }
-          await Promise.all([score, clock]);
+          await score;
+          await info.cam.to(1, 0.8);
+          await sleep(500);
+          await m.show(tag('[role="timer"]', "Clock", "right", { gap: 18 }), 2200);
         },
-        focus: [".bp-score-n", '[role="timer"]'],
-        pad: { phone: 30, desktop: 90 },
       },
       // the game's own ending: play on until the clock runs out, then the final score
       5: {
@@ -829,8 +849,8 @@ const GAMES = {
             await bpPlace(page, move);
           }
         },
-        focus: { phone: [".bp-board", '[role="timer"]'], desktop: [".bp-board", '[role="timer"]'] },
-        pad: { phone: 0, desktop: 0 },
+        focus: [".bp-score-n", '[role="timer"]', ".bp-board .bp-cell:nth-child(-n+8)"],
+        pad: { phone: 12, desktop: 20 },
         // the Time's up dialog blurs the board behind it: render lighter so the GPU keeps 60 fps
         dsf: { phone: 1, desktop: 1 },
         act: async (page, info) => {
@@ -851,20 +871,20 @@ const GAMES = {
   holdem: {
     focus: [".hdx-pot", ".hdx-board", ".hd-cards|last"],
     steps: {
-      // both stacks: the camera goes from the Bot's down to yours (the whole table on desktop, closing in)
+      // both stacks: the camera goes from the Bot's down to yours
       1: {
         prep: () => sleep(500),
-        focus: { phone: [".hd-plaque-text|first"], desktop: [".hd-plaque-text", ".hdx-pot"] },
-        pad: { phone: 100, desktop: 500 },
+        focus: { phone: [".hd-plaque-text|first"], desktop: [".hd-cards|first", ".hd-plaque-text|first"] },
+        pad: { phone: 100, desktop: 40 },
         camera: {
           keys: [
-            { focus: { phone: [".hd-plaque-text|first"], desktop: [".hd-plaque-text", ".hdx-pot"] }, pad: { phone: 100, desktop: 500 }, sec: 1.0 },
-            { focus: { phone: [".hd-plaque-text|last"], desktop: [".hdx-pot", ".hdx-board", ".hd-cards|last"] }, pad: { phone: 100, desktop: 20 }, sec: 6.0 },
+            { focus: { phone: [".hd-plaque-text|first"], desktop: [".hd-cards|first", ".hd-plaque-text|first"] }, pad: { phone: 100, desktop: 40 }, sec: 1.0 },
+            { focus: { phone: [".hd-plaque-text|last"], desktop: [".hd-cards|last", ".hd-plaque-text|last"] }, pad: { phone: 100, desktop: 40 }, sec: 6.0 },
           ],
         },
         act: async (page, info) => {
           const m = marks(page, info);
-          const b = m.at(4400, tag(".hd-stack|last", "Your stack", "below", { ring: "rect", pad: 5, gap: 4 }), 2400);
+          const b = m.at(4600, tag(".hd-stack|last", "Your stack", info.set === "desktop" ? "right" : "below", { gap: info.set === "desktop" ? 16 : 4 }), 2400);
           await sleep(7000);
           await b;
         },
@@ -873,6 +893,12 @@ const GAMES = {
       2: {
         prep: (page) => hdWaitMyTurn(page),
         pad: { phone: 20, desktop: 40 },
+        camera: {
+          cues: [
+            { focus: { phone: [".hdx-board", ".hd-cards|last", ".hdx-pot"], desktop: [".hd-cards|last", ".hd-plaque-text|last"] }, pad: { phone: 20, desktop: 40 } },
+            { focus: { phone: [".hdx-board", ".hd-cards|last", ".hdx-pot"], desktop: [".hdx-board", ".hdx-pot"] }, pad: { phone: 20, desktop: 60 } },
+          ],
+        },
         act: async (page, info) => {
           const m = marks(page, info);
           const mine = m.at(300, tag(".hd-cards|last", "Your cards", "above", { ring: "rect", pad: 5, gap: 14 }), 3200);
@@ -882,6 +908,7 @@ const GAMES = {
             if (await pass.isEnabled().catch(() => false)) { await sleep(1100); await pass.click().catch(() => {}); }
             await sleep(400);
           }
+          await info.cam.to(1, 0.8);
           const shared = m.at(900, tag(".hdx-board", "Shared cards", "above", { ring: "rect", pad: 5, gap: 14 }), 2400);
           await sleep(3800);
           await Promise.all([mine, shared]);
@@ -890,8 +917,8 @@ const GAMES = {
       // the four actions: pick two raise sizes, then call
       3: {
         prep: (page) => hdWaitMyTurn(page),
-        focus: [".hdx-actions"],
-        pad: { phone: 60, desktop: 60 },
+        focus: { phone: [".hdx-actions"], desktop: [".hdx-btn"] },
+        pad: { phone: 60, desktop: 50 },
         act: async (page, info) => {
           const m = marks(page, info);
           const clock = m.at(200, tag(".hdx-actions", "30 s to act", "above", { ring: "rect", pad: 4, gap: 6 }), 1900);
@@ -906,7 +933,8 @@ const GAMES = {
         },
       },
       4: {
-        pad: { phone: 20, desktop: 40 },
+        focus: { phone: [".hdx-pot", ".hdx-board", ".hd-cards|last"], desktop: [".hdx-board", ".hd-cards|last"] },
+        pad: { phone: 20, desktop: 30 },
         maxSecs: 11,
         prep: (page) => hdUntilBoard(page, 5),
         act: async (page, info) => {
@@ -924,14 +952,21 @@ const GAMES = {
           await best;
         },
       },
-      // the game's own ending: all-in on a fresh hand; when the Bot calls, the cards turn over and a stack goes to zero
+      // the game's own ending: all-in on a fresh hand; the Bot calls, loses, and its stack goes to zero (a take where you lose is thrown away)
       5: {
         prep: (page) => hdWaitMyTurn(page),
         reseed: true,
-        tries: 6,
-        pad: { phone: 20, desktop: 40 },
-        maxSecs: 14,
-        act: async (page) => {
+        tries: 10,
+        focus: { phone: [".hd-cards|last", ".hd-plaque-text|last"], desktop: [".hd-cards|last", ".hd-plaque-text|last"] },
+        pad: { phone: 40, desktop: 40 },
+        camera: {
+          cues: [
+            { focus: [".hd-cards|last", ".hd-plaque-text|last"], pad: { phone: 40, desktop: 40 } },
+            { focus: [".hd-cards|first", ".hd-plaque-text|first"], pad: { phone: 40, desktop: 40 } },
+          ],
+        },
+        maxSecs: 22,
+        act: async (page, info) => {
           await page.locator(".hd-preset", { hasText: "All-in" }).first().click({ timeout: 3000 });
           await sleep(900);
           await page.locator(".hdx-btn").nth(2).click({ timeout: 3000 });
@@ -942,7 +977,15 @@ const GAMES = {
             await sleep(300);
           }
           if (!(await page.locator('[aria-label="Match over"]').count())) return false;
-          await sleep(3500);
+          const text = await page.locator('[aria-label="Match over"]').innerText();
+          if (!/You won/i.test(text)) { console.log("  holdem/5: the Bot won this hand, trying another"); return false; }
+          console.log(`  holdem/5 ending: ${text.replace(/\s+/g, " ").slice(0, 100)}`);
+          await info.cam.to(1, 0.8);
+          await sleep(1800);
+          await page.waitForFunction(() => { const e = document.querySelector(".hdx-end"); return e && Number(getComputedStyle(e).opacity) > 0.95 && e.getBoundingClientRect().width > 100; }, null, { timeout: 20000, polling: 100 });
+          await sleep(300);
+          await info.look([".hd-practice-end"], { phone: 40, desktop: 60 }, 0.8);
+          await sleep(3400);
         },
       },
     },
@@ -952,17 +995,18 @@ const GAMES = {
     steps: {
       // the head start clock, then the live price line with its trail drawn behind the dot
       1: {
-        prep: async (page) => { await tdWaitStart(page); await tdUntil(page, 16); },
+        prep: async (page) => { await tdWaitStart(page); await tdUntil(page, 26); },
         focus: { phone: [".tg-strip-clock", ".tg-head-dot"], desktop: [".tg-head-dot"] },
-        pad: { phone: 20, desktop: 60 },
+        pad: { phone: 20, desktop: 90 },
         camera: {
           keys: [
-            { focus: { phone: [".tg-strip-clock", ".tg-head-dot"], desktop: [".tg-head-dot"] }, pad: { phone: 20, desktop: 60 }, sec: 0 },
-            { focus: { phone: [".tg-strip-clock", ".tg-head-dot"], desktop: [".tg-head-dot"] }, pad: { phone: 20, desktop: 60 }, sec: 2.4 },
-            { focus: [".tg-head-dot"], pad: { phone: 100, desktop: 60 }, sec: 3.4 },
+            { focus: { phone: [".tg-strip-clock", ".tg-head-dot"], desktop: [".tg-head-dot"] }, pad: { phone: 20, desktop: 90 }, sec: 0 },
+            { focus: { phone: [".tg-strip-clock", ".tg-head-dot"], desktop: [".tg-head-dot"] }, pad: { phone: 20, desktop: 90 }, sec: 2.4 },
+            { focus: [".tg-head-dot"], pad: { phone: 100, desktop: 90 }, sec: 3.4 },
           ],
         },
         act: async (page, info) => {
+          console.log(`  td1: clock at the start of the take: ${await tdClock(page)} s`);
           const m = marks(page, info);
           const a = m.at(300, { kind: "label", target: ".tg-strip-clock", text: "Head start", side: "below", gap: 10 }, 2200);
           const b = m.at(3600, tag(".tg-head-dot", "Live price", "above", { ring: "circle", pad: 10, gap: 14 }), 3600);
@@ -973,7 +1017,7 @@ const GAMES = {
       // tap one box in each column (the row the line starts in, so the boxes sit beside the line)
       2: {
         prep: tdWaitStart,
-        pad: { phone: 130, desktop: 200 },
+        pad: { phone: 130, desktop: 90 },
         act: async (page, info) => {
           const m = marks(page, info);
           const rings = [];
@@ -985,7 +1029,8 @@ const GAMES = {
             await sleep(c === 0 ? 1900 : 1500);
             if (c === 0) await m.remove(rings.pop());
           }
-          await sleep(900);
+          await info.look([".tg-head-dot", '[data-htp="pick2"]'], { phone: 130, desktop: 60 }, 0.8);
+          await sleep(1400);
           for (const id of rings) await m.remove(id);
           await sleep(250);
         },
@@ -993,7 +1038,8 @@ const GAMES = {
       // a column locks: the picks turn into locked chips
       3: {
         prep: async (page) => { await tdWaitStart(page); await tdMark(page, 0, 0, "pick0"); await tdPick(page, 0, 0); await tdUntil(page, 13); },
-        pad: { phone: 130, desktop: 200 },
+        focus: { phone: [".tg-head-dot"], desktop: [".tg-head-dot", '[data-htp="pick0"]'] },
+        pad: { phone: 130, desktop: 60 },
         act: async (page, info) => {
           const m = marks(page, info);
           await tdMark(page, 1, 0, "pick1");
@@ -1009,11 +1055,11 @@ const GAMES = {
       4: {
         prep: async (page, { seed }) => { await tdWaitStart(page); await tdPickAt(page, 0, 35, seed); await tdMark(page, 0, await tdBand(35, seed), "pick"); await tdUntil(page, 30); },
         focus: ['[data-htp="pick"]'],
-        pad: { phone: 150, desktop: 200 },
+        pad: { phone: 150, desktop: 110 },
         camera: {
           keys: [
-            { focus: ['[data-htp="pick"]'], pad: { phone: 150, desktop: 200 }, sec: 7.7 },
-            { focus: [".tg-scoreboard-in"], pad: { phone: 100, desktop: 200 }, sec: 10.5 },
+            { focus: ['[data-htp="pick"]'], pad: { phone: 150, desktop: 110 }, sec: 7.7 },
+            { focus: { phone: [".tg-scoreboard-in"], desktop: [".tg-score|first"] }, pad: { phone: 100, desktop: 110 }, sec: 10.5 },
           ],
         },
         maxSecs: 11,
@@ -1027,26 +1073,29 @@ const GAMES = {
         },
         poster: 0.8,
       },
-      // the game's own ending: pick through the game, then the last column locks and the final scores show
+      // the game's own ending: pick through the game on the bands the line spends most time in, then the last column locks and the final scores show (a take that loses is thrown away)
       5: {
         prep: async (page, { seed }) => {
           await tdWaitStart(page);
           let next = 0;
           while ((await tdClock(page)) < 137) {
             const now = (await tdClock(page)) ?? 0;
-            // a column is picked once it is on screen: pick the next one every few seconds, on the band the line will cross
-            if (next < 12 && now >= next * 10 - 5) { await tdPickAt(page, next, 35 + next * 10, seed).catch(() => {}); next++; }
-            await sleep(500);
+            if (next < 12 && now >= next * 10 - 5) { const band = await tdBestBand(next, seed); const ok = await tdPick(page, next, band, { far: true }).catch((e) => e.message.slice(0, 60)); console.log(`  td5 pick col ${next} band ${band} at ${now}s: ${ok}`); next++; }
+            await sleep(400);
           }
         },
-        focus: [".tg-scoreboard-in", ".tg-head-dot"],
+        reseed: true,
+        tries: 5,
+        focus: { phone: [".tg-scoreboard-in", ".tg-head-dot"], desktop: [".tg-head-dot"] },
         pad: { phone: 20, desktop: 120 },
         maxSecs: 16,
         act: async (page, info) => {
           const start = Date.now();
           while (!(await page.locator('[aria-label="Game over"]').count()) && Date.now() - start < 40000) await sleep(300);
           if (!(await page.locator('[aria-label="Game over"]').count())) return false;
-          await info.look([".tg-end-panel"], { phone: 30, desktop: 60 }, 0.8);
+          console.log("  td5 end: " + (await page.locator('[aria-label="Game over"]').innerText()).replace(/\s+/g, " "));
+          if (!/You won/i.test(await page.locator('[aria-label="Game over"]').innerText())) { console.log("  trading-duel/5: not a win, trying another seed"); return false; }
+          await info.look([".tg-end-panel"], { phone: 30, desktop: 40 }, 0.8);
           await sleep(3500);
         },
       },
@@ -1177,13 +1226,13 @@ const GAMES = {
         act: async (page, info) => {
           const m = marks(page, info);
           await vgTap(page, page.__eng);
-          const engLabel = await m.add({ kind: "label", target: '[data-htp="eng"]', text: "Engineer", side: "above", gap: 4 });
+          const engLabel = await m.add({ kind: "label", target: '[data-htp="eng"]', text: "Select a piece", side: "above", gap: 4 });
           await sleep(1900);
           await m.remove(engLabel);
           await info.cam.to(1, 0.7);
           await sleep(900);
           const power = await m.add({ kind: "ring", target: ".vg-power", pad: 8 });
-          const powerLabel = await m.add({ kind: "label", target: ".vg-power", text: "Blast", side: "above", gap: 10 });
+          const powerLabel = await m.add({ kind: "label", target: ".vg-power", text: "Its power", side: "above", gap: 10 });
           await sleep(1700);
           await page.locator(".vg-power").first().click({ force: true, timeout: 1500 });
           await m.remove(power);
@@ -1226,7 +1275,8 @@ const only = (process.env.ONLY ?? "").split(",").filter(Boolean).map((s) => s.sp
 const wanted = (game, step) => !only.length || only.some(([g, n]) => g === game && (n === undefined || Number(n) === step));
 const sets = (process.env.SETS ?? "phone,desktop").split(",");
 
-const HIDE_DEV_UI = "nextjs-portal, [data-nextjs-toast], [data-next-badge-root] { display: none !important; }";
+// The scripted drags selected the page's text: the gray rectangles behind the score, the clock and the PRACTICE pill were selection highlights.
+const HIDE_DEV_UI = "nextjs-portal, [data-nextjs-toast], [data-next-badge-root] { display: none !important; } * { -webkit-user-select: none !important; user-select: none !important; }";
 const WFR = process.env.WFR ?? "wf-recorder";
 
 /** The union of `focus` on screen, in CSS px. */
@@ -1468,6 +1518,7 @@ let failed = 0;
 for (const setName of sets) {
   const screen = await screenUp(setName);
   try {
+    if (process.env.HTP_NO_WILLCHANGE) await screen.ctx.addInitScript(() => { window.__htpNoWillChange = true; });
     await screen.ctx.addInitScript(OVERLAY_JS);
     // Mark every Game's first-Practice guide as seen, so the recording shows the game, not the guide.
     await screen.ctx.addInitScript(() => {

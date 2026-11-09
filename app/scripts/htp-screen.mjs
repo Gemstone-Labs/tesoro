@@ -13,7 +13,7 @@
  */
 import { execFile, spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -83,6 +83,7 @@ async function start(setName, { playwright = process.env.PW ?? "playwright-core"
 
   const profile = join(dir, `profile-${setName}`);
   mkdirSync(profile, { recursive: true });
+  for (const f of ["SingletonLock", "SingletonCookie", "SingletonSocket"]) rmSync(join(profile, f), { force: true }); // left by a killed run
   const args = [`--force-device-scale-factor=${sc.dsf}`, `--user-data-dir=${profile}`, `--remote-debugging-port=${CDP_PORT}`, "--kiosk", "--no-first-run", "--no-default-browser-check", "--ozone-platform=wayland", "--autoplay-policy=no-user-gesture-required", "--hide-scrollbars", ...sc.chromiumFlags, "about:blank"];
   state.chromium = spawn(chrome, args, { env: state.env, stdio: "ignore" });
   for (let i = 0; i < 60; i++) {
