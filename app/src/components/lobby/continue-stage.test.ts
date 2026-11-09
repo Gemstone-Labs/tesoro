@@ -12,4 +12,10 @@ describe("the Continue card stage", () => {
   it("still says Opponent found for a Match being played", () => {
     expect(stage(m({}))).toMatchObject({ key: "ready", status: "Opponent found" });
   });
+  it("a Match its opener cancelled is not one to resume: it says the entry is coming back (ticket 62)", () => {
+    // 3Cyp…-5 on 2026-11-09: Refunding, nobody joined, so no fixed result; its card read "Opponent found · Resume".
+    const s = stage(m({ running: "refunding", opponent: null, sides: [{}, null] } as unknown as Partial<ChainMatch>));
+    expect(s).toMatchObject({ key: "cancelled", action: "View", ready: false });
+    expect(s.status).toMatch(/cancelled/i);
+  });
 });
