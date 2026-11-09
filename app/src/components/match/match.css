@@ -235,8 +235,8 @@ a.mr-tile.link:hover small { color: var(--fg); }
   .mr-art { object-position: 70% center; }
   .mr-shade { background: linear-gradient(0deg, rgba(7, 10, 11, 0.97) 30%, rgba(7, 10, 11, 0.55) 70%, rgba(7, 10, 11, 0.2)); }
   .mr-copyblock { padding: 140px 18px 24px; }
-  .mr-char { right: 12px; top: 8px; bottom: auto; height: 168px; }
-  .mr-poster:has(.mr-char) .mr-copyblock { padding-top: 168px; }
+  /* He stands on the poster's bottom edge beside the words, as on desktop (economy 66); his size follows the width so "YOU LOST" stays clear. */
+  .mr-char { right: -12px; height: min(210px, 50vw); }
   .mr-word { font-size: clamp(52px, 16vw, 80px); white-space: normal; }
   .mr-tiles { grid-template-columns: 1fr 1fr; }
 }
