@@ -180,6 +180,7 @@ export function MatchResult(p: MatchResultProps) {
                 <small>Gemas{neutral ? " back" : ""}</small>
               </span>
               <GemaUsd className="mr-usd" value={neutral ? p.entry : Math.abs(delta)} />
+              {p.matchId && role === "player" && <WaitingForMatch matchId={p.matchId} />}
             </div>
             <div className="mr-in mr-notes" style={{ "--d": "1400ms" } as Css}>
               {backed && role === "player" ? (
@@ -213,7 +214,6 @@ export function MatchResult(p: MatchResultProps) {
             {record && <RecordTile {...record} game={p.game} asset={p.asset} entry={p.entry} delay="1190ms" />}
           </div>
         )}
-        {p.matchId && p.role === "player" && <WaitingForMatch matchId={p.matchId} />}
         {p.scoreNote && <p className="note">{p.scoreNote}</p>}
         {p.split && <div className="mr-split mr-rise" style={{ "--d": "1600ms" } as Css}>{p.split}</div>}
 

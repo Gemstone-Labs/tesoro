@@ -25,9 +25,17 @@ describe("Gemas waiting for room on the result", () => {
   it("says how many wait, with a Claim, only for this Match's record", () => {
     acct.snapshot = { ...SNAP, waiting: [waitingFor(7, 95n), waitingFor(8, 71n)] };
     const h = html({ matchId: KEY });
-    expect(h).toContain("95 Gemas waiting for room");
-    expect(h).not.toContain("71 Gemas");
+    expect(h).toContain("95 of these are waiting for room");
+    expect(h).not.toContain("71 of these");
     expect(h).toContain(">Claim<");
+  });
+  it("sits inside the payout block, under the amount and before the notes and tiles", () => {
+    acct.snapshot = { ...SNAP, waiting: [waitingFor(7, 95n)] };
+    const h = html({ matchId: KEY });
+    const at = h.indexOf("of these are waiting for room");
+    expect(at).toBeGreaterThan(h.indexOf('class="mr-amount"'));
+    expect(at).toBeGreaterThan(h.indexOf("mr-usd"));
+    expect(at).toBeLessThan(h.indexOf("mr-notes"));
   });
   it("shows nothing when no record of this Match exists, or after a Claim cleared it", () => {
     acct.snapshot = { ...SNAP, waiting: [waitingFor(8, 71n)] };

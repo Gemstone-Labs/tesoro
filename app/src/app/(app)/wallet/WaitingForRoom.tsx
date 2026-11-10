@@ -17,9 +17,9 @@ export function WaitingForRoomView({ records, busy, note, error, onClaim, short 
   if (records.length === 0) return null;
   const gemas = Number(waitingGemas(records));
   return (
-    <div className="wl-waiting" role="status">
+    <div className={short ? "wl-waiting mr-waiting" : "wl-waiting"} role="status">
       <p className="note">
-        <b>{fmtGemas(gemas)} Gemas waiting for room{short ? "" : "."}</b>
+        <b>{short ? `${fmtGemas(gemas)} of these are waiting for room` : `${fmtGemas(gemas)} Gemas waiting for room.`}</b>
         {!short && " They are yours; your Account was full when they arrived. Claim moves them in as soon as there is room."}
       </p>
       <Button size="sm" disabled={busy || !onClaim} onClick={onClaim}>
