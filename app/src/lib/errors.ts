@@ -5,6 +5,8 @@ import { BRAND } from "./brand";
  * custom error codes) become a plain retry line.
  */
 export const BUSY = "The network is busy right now. Wait a few seconds and try again.";
+/** The game server paused us (too many sign-ins, or it is unreachable): calls fail fast until it answers again. */
+export const GAME_SERVER_DOWN = "Can’t reach the game server right now. Wait a minute and try again.";
 export const RETRY = "That didn’t go through. Try again in a moment.";
 /** Sent but not confirmed: it may still land, so a retry could do it twice. */
 export const UNCONFIRMED = "Sent, but not confirmed yet. Wait a moment and check before trying again.";
@@ -48,6 +50,7 @@ export function plainError(e: unknown): string {
   if (RATE_BELOW_PEAK_PATTERN.test(text)) return RATE_BELOW_PEAK;
   if (YIELD_CAP_PATTERN.test(text)) return YIELD_CAP_REACHED;
   if (UNLOCK_WAITS_PATTERN.test(text)) return UNLOCK_WAITS_FOR_TREASURY;
+  if ((e as { name?: string } | null)?.name === "TeeUnreachableError") return GAME_SERVER_DOWN;
   const err = e as { code?: number; name?: string };
   if (err?.name === "UserRejectedRequestError" || err?.code === 4001 || /user rejected|rejected the request|user denied/i.test(text)) {
     return "You cancelled the request in your wallet.";
