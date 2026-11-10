@@ -61,6 +61,9 @@ const FED_FRESH_MS = 6_000;
 /** Looking for a ride to watch means reading every Table: do it this often (a ride already found is read through the feed). */
 const SCAN_EVERY_MS = 5_000;
 
+/** A step's trouble note stays this long after the last failure (a step is retried at least every 15 s). */
+const STEP_TROUBLE_SHOWN_MS = 20_000;
+
 /** The car this device boarded, kept across reloads (a convenience: the chain is the record). */
 interface MyCar {
   carNo: string;
@@ -263,8 +266,8 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   const pageKey = useRef<ChainSigner>(keypairSigner(Keypair.generate()));
   const stepping = useRef(false);
   const retries = useRef(new StepRetry());
-  // what the failing step tells the Player (null while steps go through)
-  const [stepTrouble, setStepTrouble] = useState<string | null>(null);
+  // what the failing step tells the Player and when it last failed: it fades once the step stops being tried
+  const [stepTrouble, setStepTrouble] = useState<{ text: string; at: number } | null>(null);
   const read = useRef<Reader | null>(null);
   // The rollup Table as the websocket feed last saw it, and the ride this page watches (found by the last scan of every Table).
   const feed = useRef<{ table: number; view: TableView; at: number } | null>(null);
@@ -417,10 +420,10 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
         )
         .finally(() => {
           stepping.current = false;
-          setStepTrouble(retries.current.trouble(stepKey));
+          const text = retries.current.trouble(stepKey);
+          setStepTrouble(text ? { text, at: Date.now() } : null);
         });
     };
-    if (step.kind === "wait" || step.kind === "signal" || step.kind === "done") setStepTrouble(null);
     // A closed car clears the page's memory of it, whoever's seat it was.
     if (step.kind === "done") {
       if (meKey) remember(meKey, null);
@@ -729,7 +732,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   const blocked = offerProblem ? new BackingError(offerProblem).message : snap?.backerSeated ? "Your Backer is in this car: board the next one" : null;
   const shownOffer: RailcarOffer | null = offer ? { backer: offer.backer, sharePct: offer.shareBps / 100, ...(blocked ? { blocked } : {}) } : null;
   const missing = offerAddress && offer === null ? new BackingError("missing").message : null;
-  return { view, match: snap?.car?.match ?? null, busy, error: error ?? stepTrouble ?? missing, signedIn: !!wallet, watch, offer: shownOffer, offerSpent: offer?.status === "consumed", board, stepOff, jump, brake, playAgain };
+  return { view, match: snap?.car?.match ?? null, busy, error: error ?? (stepTrouble && now - stepTrouble.at < STEP_TROUBLE_SHOWN_MS ? stepTrouble.text : null) ?? missing, signedIn: !!wallet, watch, offer: shownOffer, offerSpent: offer?.status === "consumed", board, stepOff, jump, brake, playAgain };
 }
 
 /** A share of the finish (finalize, room, chunks, closes) through the relayer, sized against the server's lookup tables. */
