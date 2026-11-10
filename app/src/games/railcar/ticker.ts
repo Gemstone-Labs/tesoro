@@ -40,10 +40,11 @@ export interface TickerOptions {
   intervalMs(): number;
   /** Wait before the first beat (default: a random part of the interval, so the pages' beats spread out). */
   startDelayMs?: number;
-  /** Beats sent and not yet seen beyond this are skipped. */
+  /** Beats sent and not yet seen beyond this are skipped (default 3). */
   maxInFlight?: number;
   /** A beat unseen this long no longer counts as in flight. */
   confirmTimeoutMs?: number;
+  /** How often statuses are asked for (default: 1.5 times the beat interval, between 0.4 s and 1.2 s, so a page asks about once per beat). */
   pollMs?: number;
   /** A beat landed without error. */
   onLanded?(beat: Beat): void;
@@ -55,6 +56,8 @@ export interface TickerOptions {
 const OVER_CODES = new Set([6009, 6016]);
 /** A hash older than this is not used (the rollup keeps one valid for about a minute). */
 const HASH_MAX_AGE_MS = 30_000;
+const MIN_POLL_MS = 400;
+const MAX_POLL_MS = 1_200;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -75,17 +78,13 @@ export class RideTicker {
   private flying = 0;
   private readonly waiting = new Map<string, { beat: Beat; at: number }>();
   private polling = false;
-  private readonly maxInFlight: number;
   private readonly confirmTimeoutMs: number;
-  private readonly pollMs: number;
 
   constructor(
     private readonly io: TickerIo,
     private readonly opts: TickerOptions,
   ) {
-    this.maxInFlight = opts.maxInFlight ?? 3;
     this.confirmTimeoutMs = opts.confirmTimeoutMs ?? 6_000;
-    this.pollMs = opts.pollMs ?? 400;
     void this.refresh();
     this.due = Date.now() + (opts.startDelayMs ?? Math.random() * opts.intervalMs());
     this.schedule();
@@ -124,8 +123,12 @@ export class RideTicker {
     return this.fetching;
   }
 
+  private pollEvery(): number {
+    return this.opts.pollMs ?? Math.min(MAX_POLL_MS, Math.max(MIN_POLL_MS, 1.5 * this.opts.intervalMs()));
+  }
+
   private async beat() {
-    if (this.flying >= this.maxInFlight) return;
+    if (this.flying >= (this.opts.maxInFlight ?? 3)) return;
     const b = this.opts.next();
     if (!b) return;
     this.flying += 1;
@@ -168,7 +171,7 @@ export class RideTicker {
     this.polling = true;
     try {
       while (this.waiting.size && !this.stopped) {
-        await sleep(this.pollMs);
+        await sleep(this.pollEvery());
         const sigs = [...this.waiting.keys()];
         const sts = await this.io.statuses(sigs).catch(() => null);
         if (this.stopped) return;
