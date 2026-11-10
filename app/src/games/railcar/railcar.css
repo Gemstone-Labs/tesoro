@@ -174,6 +174,13 @@
 .rc-dmg-screws i { position: absolute; top: 55%; width: 1.1%; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #e8eef2, #7d8a93 70%); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5); translate: -50% -60%; rotate: 20deg; animation: rc-screw 0.45s cubic-bezier(0.2, 0.9, 0.3, 1) both; }
 .rc-dmg-screws i:nth-child(even) { translate: -50% -110%; rotate: -35deg; }
 @keyframes rc-screw { from { translate: -50% 0; opacity: 0; scale: 0.4; } 60% { opacity: 1; scale: 1.4; } }
+.rc-bolt { position: absolute; width: 6.4%; height: auto; translate: -50% -50%; pointer-events: none; z-index: 3; animation: rc-bolt 1s linear var(--d, 0s) both; }
+@keyframes rc-bolt {
+  0% { transform: translate(0, 0) rotate(0); opacity: 1; }
+  18% { transform: translate(calc(var(--dx) * 0.12), -130%) rotate(calc(var(--rot) * 0.2)); opacity: 1; }
+  60% { transform: translate(calc(var(--dx) * 0.5), calc(var(--dy) * 0.25)) rotate(calc(var(--rot) * 0.6)); opacity: 1; }
+  100% { transform: translate(var(--dx), var(--dy)) rotate(var(--rot)); opacity: 0; }
+}
 .rc-dmg-panel b { position: absolute; background: linear-gradient(180deg, #5e7b8a, #2b4350); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 6px 8px rgba(0, 0, 0, 0.45); transform-origin: 0 0; rotate: 16deg; animation: rc-panel 1.3s ease-in-out infinite alternate; clip-path: polygon(0 0, 100% 6%, 96% 100%, 4% 92%); }
 @keyframes rc-panel { from { rotate: 11deg; } to { rotate: 20deg; } }
 .rc-dmg-sparks i { position: absolute; width: 1.5%; aspect-ratio: 1; border-radius: 50%; background: #fff3c4; box-shadow: 0 0 8px 3px #ff9a2f, 0 0 2px 1px #ffd470; translate: -50% 0; animation: rc-spark 0.6s ease-out infinite; }
@@ -189,10 +196,8 @@
 .rc-crash-frame { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; }
 .rc-crash-frame.f1 { animation: rc-f1 1s linear both; }
 .rc-crash-frame.f2 { animation: rc-f2 1s linear both; }
-.rc-crash-frame.f3 { animation: rc-f3 1s linear both; }
 @keyframes rc-f1 { 0% { opacity: 1; } 28% { opacity: 1; } 29%, 100% { opacity: 0; } }
-@keyframes rc-f2 { 0%, 28% { opacity: 0; } 29% { opacity: 1; } 62% { opacity: 1; } 63%, 100% { opacity: 0; } }
-@keyframes rc-f3 { 0%, 62% { opacity: 0; } 63% { opacity: 1; } 100% { opacity: 1; } }
+@keyframes rc-f2 { 0%, 28% { opacity: 0; } 29%, 100% { opacity: 1; } }
 .rc-crash-flash { position: absolute; inset: 0; background: radial-gradient(60% 70% at 78% 55%, #fff 0%, rgba(255, 220, 160, 0.85) 35%, rgba(255, 140, 60, 0) 75%); animation: rc-flash 1s ease-out both; }
 @keyframes rc-flash { 0% { opacity: 0; } 12% { opacity: 1; } 100% { opacity: 0; } }
 .rc-crash-bit { position: absolute; left: 76%; top: 52%; width: 7px; height: 7px; background: #cfe3ee; clip-path: polygon(0 0, 100% 20%, 60% 100%); animation: rc-bit 0.9s cubic-bezier(0.1, 0.7, 0.4, 1) both; animation-delay: calc(var(--k) * 15ms); --a: calc(var(--k) * 51deg); }
@@ -205,6 +210,7 @@
   .rc-stage.crash { animation: none; }
   .rc-crash-bit { display: none; }
   .rc-dmg-art { animation: none; }
+  .rc-bolt { display: none; }
   .rc-crash-frame:not(.mid) { display: none; }
   .rc-crash-frame.mid { animation: rc-fade 0.45s ease-out both; }
   .rc-crash-flash { animation: rc-fade 0.45s ease-out both; }

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui";
 import { RailcarScreen, type RailcarBrake, type RailcarOffer, type RailcarWatch } from "@/games/railcar/RailcarScreen";
 import { RailcarWaiting } from "@/games/railcar/RailcarWaiting";
 import { RailcarStage } from "@/games/railcar/RailcarStage";
+import { RailcarShowcase } from "@/games/railcar/showcase";
 import { RideHistory } from "@/games/railcar/RideHistory";
 import { playTells, railcarHaptics } from "@/games/railcar/tells";
 import * as fx from "@/games/railcar/fixtures";
@@ -91,7 +92,7 @@ function CrashCycle() {
   return <RailcarScreen view={over ? fx.workedResult() : withTell(fx.riding(), 3)} actions={actions} />;
 }
 
-/** The crash held on its impact (no timer): the car stopped, the shake, and the picked frames f1 flash, f2 crumpled front, f3 smoke play over the car in 1 s. */
+/** The crash held on its impact (no timer): the car stopped, the shake, and the picked frames play over the car in 1 s: f1 flash, then f2 crumpled front held to the end. */
 export const CrashImpact: StoryObj = {
   render: () => (
     <div className="rc" style={{ maxWidth: 640 }}>
@@ -99,6 +100,9 @@ export const CrashImpact: StoryObj = {
     </div>
   ),
 };
+
+/** A whole ride in about 14 s, no waiting: the car leaves and speeds up, Screws (bolts pop off), your Brake (half speed for 5 s), Panel, Sparks, the crash (flash, crumpled front, shake), then the Result. Replay restarts it. The real screen on a fixture with a fast ride clock. */
+export const Showcase: StoryObj = { render: () => <RailcarShowcase /> };
 
 /** A Player watching a car they are not in. */
 export const RidingWatching = screen(fx.riding(null));
