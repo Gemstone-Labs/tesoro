@@ -193,7 +193,7 @@
 .rc-stage.crash { animation: rc-shake 0.5s linear 0.3s 2 both; }
 /* The wall rushes in from the right for 0.3 s while the car slides left to meet it; the contact (0.3 s) starts the flash, the shake and the cracked wall. The hold is 1.3 s (CRASH_MS). */
 .rc-stage.crash .rc-car { animation: rc-car-slide 0.3s cubic-bezier(0.3, 0, 0.2, 1) both; }
-@keyframes rc-car-slide { from { transform: translateX(0); } to { transform: translateX(-27%); } }
+@keyframes rc-car-slide { from { transform: translateX(0); } to { transform: translateX(-22%); } }
 .rc-wall { position: absolute; z-index: 0; height: var(--rc-stage-h); aspect-ratio: 4 / 3; bottom: calc(var(--rc-stage-h) * -0.19); left: calc(97.5% - var(--rc-stage-h) * 0.1467); pointer-events: none; animation: rc-wall-in 0.3s cubic-bezier(0.3, 0, 0.2, 1) both; }
 @keyframes rc-wall-in { from { translate: calc(var(--rc-stage-h) * 1.1) 0; } to { translate: 0 0; } }
 .rc-wall img { position: absolute; inset: 0; width: 100%; height: 100%; user-select: none; }
@@ -218,7 +218,7 @@
   .rc-tell { transition: none; }
   .rc-dmg i, .rc-dmg b { animation: none; }
   .rc-stage.crash { animation: none; }
-  .rc-stage.crash .rc-car { animation: none; transform: translateX(-27%); }
+  .rc-stage.crash .rc-car { animation: none; transform: translateX(-22%); }
   .rc-wall { animation: rc-rfade 0.45s ease-out both; translate: 0 0; }
   .rc-wall-intact { display: none; }
   .rc-wall-hit { opacity: 1; animation: none; }
