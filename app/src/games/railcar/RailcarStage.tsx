@@ -140,9 +140,9 @@ export function RailcarStage({ aboard, moving, slow = false, tell = 0, crash = f
       <div className="rc-lay rc-mid" style={{ backgroundImage: `url(${ART}/mid.webp)` }} />
       <div className="rc-lay rc-trk" style={{ backgroundImage: `url(${ART}/track.webp)` }} />
       <div className="rc-car">
-        {/* eslint-disable-next-line @next/next/no-img-element -- a sprite drawn over by the windows and wheels */}
         {/* the wall exists only from the Impact: nothing on screen hints at it before */}
         {crash && <CrashWall />}
+        {/* eslint-disable-next-line @next/next/no-img-element -- a sprite drawn over by the windows and wheels */}
         <img className="rc-car-art" src={`${ART}/car.webp`} alt="" width={CAR_W} height={CAR_H} draggable={false} />
         {windows.map((r, i) => (
           <span key={i} className={`rc-win${r ? " on" : ""}${r?.me ? " me" : ""}`} style={{ left: `${(WINDOW_X[i] / CAR_W) * 100}%` }}>
