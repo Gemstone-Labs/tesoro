@@ -16,7 +16,11 @@
  * Run it with tsx (it imports the app's TypeScript rules). Needs Hyprland, wf-recorder, Chromium, playwright-core and ffmpeg
  * (libx264, libvpx-vp9, libwebp). It never touches the person's own windows or workspaces and removes its output when done.
  * Env: PW, CHROME, FFMPEG, WFR, OUT=<output dir>, ONLY=<game>[:step][,...] (e.g. ONLY=vanguard:3 or ONLY=holdem,trading-duel:1),
- *      SETS=phone|desktop, NO_PLAYBACK_CHECK=1, KEEP=1.
+ *      SETS=phone|desktop, NO_PLAYBACK_CHECK=1, KEEP=1, HTP_ENCODER=vaapi (the GPU encodes the screen recording: use it when the CPU is busy,
+ *      or the page drops frames at the sharp capture size; the screen is 3x on a phone and 2x on desktop, see htp-screen.mjs).
+ *
+ * Output: phone 1080x1350 (4:5), desktop 1760x1100 (16:10), about the size the guide shows them at on a retina screen. The label overlay keeps
+ * its proportions: it is laid out on the old 480x600 / 960x600 reference (SETS[].ref).
  *
  * Railcar (`ONLY=railcar`, needs a build with `NEXT_PUBLIC_SHOW_RAILCAR=1`) replays one exact ride through `&draw=` (see RC_DRAW) and starts it
  * by closing the first-Practice guide, so every take sees the same ride on a known clock.
@@ -26,7 +30,7 @@
  *
  * Every clip is recorded from its own fresh game: `prep` plays up to the moment the step is about, unrecorded,
  * then `act` plays the moment itself while the screen is recorded. Each clip fades in and out so it loops cleanly, is encoded at
- * 60 fps as limited-range BT.709 yuv420p, and is shrunk until each video is at most 300 KB. After encoding, a clip is thrown away
+ * 60 fps as limited-range BT.709 yuv420p, and is encoded for sharpness (OUT_PX, a constant-quality crf; each video is at most MAX_MB, a bigger crf is tried when it is over). After encoding, a clip is thrown away
  * and recorded again if it has under MIN_FPS unique frames per second or fails the motion-continuity check (motion-continuity.mjs).
  */
 import { execFile, spawn } from "node:child_process";
@@ -45,7 +49,8 @@ const FFMPEG = process.env.FFMPEG ?? "ffmpeg";
 const FFPROBE = process.env.FFPROBE ?? FFMPEG.replace(/ffmpeg$/, "ffprobe");
 const MIN_SECS = 3;
 const MAX_SECS = 12;
-const MAX_KB = 300;
+/** Cap per video file. 720x900 / 1280x800 at ~1 Mbps looks as sharp as 1080 at a phone's real display size, for a third of the bytes. */
+const MAX_MB = 1.2;
 const MIN_FPS = 20;
 const SEED = 3;
 
@@ -55,8 +60,8 @@ const SEED = 3;
  */
 const EDGE = 700;
 const SETS = {
-  phone: { context: { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true }, ratio: 4 / 5, out: [480, 600], pad: 8, band: [0, 0.6] },
-  desktop: { context: { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 }, ratio: 16 / 10, out: [960, 600], pad: 12, band: [0.12, 0.62] },
+  phone: { context: { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true }, ratio: 4 / 5, out: [720, 900], ref: [480, 600], pad: 8, band: [0, 0.6] },
+  desktop: { context: { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 }, ratio: 16 / 10, out: [1280, 800], ref: [960, 600], pad: 12, band: [0.12, 0.62] },
 };
 
 const run = (file, args) => promisify(execFile)(file, args, { maxBuffer: 1 << 28 });
@@ -1424,7 +1429,6 @@ const GAMES = {
         prep: rcPrep(28600),
         camera: { keys: [{ rect: RC_VIEWS.row, sec: 0 }] },
         tail: 0,
-        speed: 1.25, // the crash's flash and the fast background make this the heaviest clip: a little faster keeps each video under 300 KB
         act: async (page, info) => {
           await rcStart(page);
           const m = marks(page, info);
@@ -1526,7 +1530,7 @@ async function record(page, game, step, setName, attempt, work) {
   await cdp.send("Emulation.setDeviceMetricsOverride", { width: sc.css[0], height: sc.css[1], deviceScaleFactor: dsf, mobile: false });
   await sleep(400);
   const C = cropOf(set);
-  await page.evaluate((c) => window.__htp.init(c), { C, out: set.out, band: set.band });
+  await page.evaluate((c) => window.__htp.init(c), { C, out: set.ref, band: set.band });
   const info = { seed, set: setName };
   await def.prep?.(page, info);
 
@@ -1666,13 +1670,13 @@ async function encode(game, step, setName, take) {
   const input = ["-y", "-loglevel", "error", "-i", take.vfr, "-vf", vf, "-r", "60", "-an", "-pix_fmt", "yuv420p", ...COLOUR_TAGS];
   const sizes = {};
   for (const [ext, codec, crfs] of [
-    ["webm", (crf) => ["-c:v", "libvpx-vp9", "-b:v", "0", "-crf", String(crf), "-row-mt", "1", "-deadline", "good", "-cpu-used", "2"], [34, 38, 42, 46, 50, 54, 58, 62]],
-    ["mp4", (crf) => ["-c:v", "libx264", "-crf", String(crf), "-preset", "slow", "-movflags", "+faststart"], [24, 27, 30, 33, 37, 41, 45]],
+    ["webm", (crf) => ["-c:v", "libvpx-vp9", "-b:v", "0", "-crf", String(crf), "-row-mt", "1", "-deadline", "good", "-cpu-used", "2"], [40, 43, 46, 49, 52]],
+    ["mp4", (crf) => ["-c:v", "libx264", "-crf", String(crf), "-preset", "slow", "-movflags", "+faststart"], [27, 29, 30, 31, 33, 35]],
   ]) {
     for (const crf of crfs) {
       await run(FFMPEG, [...input, ...codec(crf), `${base}.${ext}`]);
       sizes[ext] = Math.round(statSync(`${base}.${ext}`).size / 1024);
-      if (sizes[ext] <= MAX_KB) break;
+      if (sizes[ext] <= MAX_MB * 1024) break;
     }
   }
   // the poster: a frame from the clip (fraction `poster` of the way through)
@@ -1683,7 +1687,7 @@ async function encode(game, step, setName, take) {
   written.push(`${base}.webm`, `${base}.mp4`);
   const fps = await uniqueFps(`${base}.mp4`);
   const smooth = await frameDiffs(`${base}.mp4`).then(continuity);
-  const warn = secs < MIN_SECS ? "  (SHORT)" : sizes.webm > MAX_KB || sizes.mp4 > MAX_KB ? "  (OVER SIZE)" : "";
+  const warn = secs < MIN_SECS ? "  (SHORT)" : sizes.webm > MAX_MB * 1024 || sizes.mp4 > MAX_MB * 1024 ? "  (OVER SIZE)" : "";
   console.log(`${game}/${step}-${setName}: ${ow}x${oh}, ${secs.toFixed(1)} s (x${speed.toFixed(2)}), webm ${sizes.webm} KB, mp4 ${sizes.mp4} KB, ${fps.toFixed(1)} unique fps, still-in-motion ${(smooth.share * 100).toFixed(1)}%${warn}`);
   if (fps < MIN_FPS) throw new Error(`only ${fps.toFixed(1)} unique frames per second (needs ${MIN_FPS}): the screen barely moves in this take (add motion, a camera move or a longer act)`);
   if (smooth.share >= MAX_SHARE) {
