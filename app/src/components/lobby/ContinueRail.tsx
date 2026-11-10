@@ -26,6 +26,8 @@ export function stage(m: ChainMatch, sending = false, nowMs = Date.now()) {
   if (standing.kind === "delayed") return { key: "delayed", status: delayedLine(standing, nowMs), action: "View", ready: false };
   // The result is fixed and the Pot is still being paid out: nothing left to play, no time left to count.
   if (resultOf(m)) return { key: "paying", status: "Result in · paying out", action: "View", ready: false };
+  // Cancelled before anyone joined: the entry is on its way back, there is nothing to resume (ticket 62).
+  if (m.running === "refunding" && !m.sides?.[1]) return { key: "cancelled", status: "Cancelled · entry on its way back", action: "View", ready: false };
   if (m.status === "active" && sending) return { key: "sending", status: "Result on its way", action: "View", ready: false };
   if (m.status === "active") return { key: "ready", status: "Opponent found", action: "Resume", ready: true };
   if (m.challenge) return { key: "waiting", status: "Waiting for your friend", action: "Open", ready: false };
@@ -138,8 +140,8 @@ export function ContinueRail({
                   <span>
                     <GemaMark size={13} /> {fmtGemas(m.entry)}
                   </span>
-                  <span>Win {fmtGemas(m.entry * 2 - matchFee(m))}</span>
-                  {s.key !== "paying" && (
+                  {s.key !== "cancelled" && <span>Win {fmtGemas(m.entry * 2 - matchFee(m))}</span>}
+                  {s.key !== "paying" && s.key !== "cancelled" && (
                     <span className="continue-time">
                       <Clock aria-hidden="true" /> {timeLeft(m.deadline - now)}
                     </span>

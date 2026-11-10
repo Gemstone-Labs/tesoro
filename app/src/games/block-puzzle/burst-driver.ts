@@ -460,7 +460,11 @@ export class BurstDriver {
     if (!a) {
       const cancelling = isCancelling(m);
       this.patchStage(cancelling ? "cancelling" : "table", { seat });
-      if (cancelling) return;
+      if (cancelling) {
+        // A cancelled Match pays the entry back in chunks; the page sends them, as for a result (ticket 61).
+        if (m.running) void this.finisher?.();
+        return;
+      }
       // Joined, and no table in TABLE_WAIT_SECS: the Game refunds it, and any participant's page sends that (ticket 58).
       const s = nextStep({ seat, status: m.status, assignment: null, table: null, baseTable: null, slot: 0, nowS: now() / 1000, deadline: m.deadline, board: null, stalledMs: 0 });
       if (s.kind === "refundUntabled" && now() - (this.lastTry.refundUntabled ?? 0) >= (MIN_GAP_MS.refundUntabled ?? 0)) {

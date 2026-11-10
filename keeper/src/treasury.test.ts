@@ -14,7 +14,7 @@ import { largestRedeemable, planTreasuryRedeems, treasuryJob, type TreasuryDeps 
 
 const core = new anchor.Program(loadIdl("tesoro_core"), new anchor.AnchorProvider(new Connection("http://127.0.0.1:1"), new anchor.Wallet(Keypair.generate()), {}));
 const k = () => Keypair.generate().publicKey;
-const line = (amount: bigint, over: object = {}) => ({ side: 0, cls: 3, tranche: 0, dueAt: 0n, source: k(), amount, ...over });
+const line = (amount: bigint, over: object = {}) => ({ side: 0, cls: 3, tranche: 0, dueAt: 0n, source: k(), amount, ck: 0, ...over });
 
 describe("planning Treasury redeems", () => {
   it("takes playable lines of at least the minimum, the largest first, at most the cap", () => {
