@@ -19,4 +19,11 @@ describe("GameGrid", () => {
     expect(html.match(/class="cut cut-chip game-practice"/g)).toHaveLength(4);
     expect(html).toContain("tile-entry");
   });
+
+  it("puts a How to play button on every desktop tile, outside the tile's link", () => {
+    const html = renderToStaticMarkup(<GameGrid />);
+    expect(html.match(/<button type="button" class="htp-tab game-how">/g)).toHaveLength(4);
+    expect(html).toContain('How to play<span class="sr-only"> Vanguard</span>');
+    expect(html).not.toMatch(/<a [^>]*game-tile[^>]*>(?:(?!<\/a>).)*htp-tab/s);
+  });
 });

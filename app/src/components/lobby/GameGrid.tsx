@@ -2,8 +2,9 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useMemo, type PointerEvent } from "react";
+import { useMemo, useState, type PointerEvent } from "react";
 import { Clock, Users } from "lucide-react";
+import { HowToPlay, HowToPlayTab } from "@/components/how-to-play";
 import { ENTRY_SIZES, GemaMark } from "@/components/ui";
 import { CheckIcon, MinusIcon, XIcon } from "@/components/ui/icons";
 import { useAccount } from "@/lib/account";
@@ -12,6 +13,7 @@ import { gameFacts, waitingByEntry } from "@/lib/chain/lobby-plays";
 import { CATALOGUE } from "@/lib/catalogue";
 import { fmtGemas } from "@/lib/format";
 import { practiceHref } from "@/lib/game-params";
+import type { GameId } from "@/lib/mock";
 import { useQueue } from "./useQueue";
 
 const RESULT_WORD = { won: ["Won", CheckIcon], lost: ["Lost", XIcon], draw: ["Draw", MinusIcon], "no-show": ["No-show", XIcon], refunded: ["Refunded", MinusIcon] } as const;
@@ -35,7 +37,7 @@ function untilt(e: PointerEvent<HTMLElement>) {
 
 /**
  * GAMES: every live Game as an art tile that opens its page (entry, Play now). Phones: a 2×2 grid, the name and how many
- * Players wait. Desktop: two wide tiles a row with each entry and who waits at it, your last result and Practice free.
+ * Players wait. Desktop: two wide tiles a row with each entry and who waits at it, your last result, Practice free and How to play.
  */
 export function GameGrid() {
   const queue = useQueue();
@@ -45,6 +47,8 @@ export function GameGrid() {
     () => (auth.status === "signed-in" && snapshot?.matchesLoaded ? gameFacts(accountHistory(snapshot.matches, snapshot.funded)) : {}),
     [auth.status, snapshot],
   );
+  // the guide keeps its Game while it closes, so the sheet doesn't empty mid-animation
+  const [how, setHow] = useState<{ game: GameId; open: boolean } | null>(null);
   const live = CATALOGUE.filter((g) => g.live);
   const soon = CATALOGUE.filter((g) => !g.live);
 
@@ -55,7 +59,8 @@ export function GameGrid() {
         {live.map((g, i) => {
           const byEntry = g.game && queue ? waitingByEntry(queue[g.game], ENTRY_SIZES, me) : {};
           const waiting = Object.values(byEntry).reduce((a, n) => a + n, 0);
-          const fact = g.game ? facts[g.game] : undefined;
+          const game = g.game;
+          const fact = game ? facts[game] : undefined;
           const [word, Icon] = fact ? RESULT_WORD[fact.last] : [null, null];
           return (
             <div key={g.key} className="game-cell">
@@ -92,15 +97,21 @@ export function GameGrid() {
                   </span>
                 </span>
               </Link>
-              {g.game && (
-                <Link href={practiceHref(g.game)} className="cut cut-chip game-practice">
-                  Practice free
-                </Link>
+              {game && (
+                <>
+                  <HowToPlayTab name={g.name} className="game-how" onClick={() => setHow({ game, open: true })} />
+                  <Link href={practiceHref(game)} className="cut cut-chip game-practice">
+                    Practice free
+                  </Link>
+                </>
               )}
             </div>
           );
         })}
       </div>
+      {how && (
+        <HowToPlay game={how.game} open={how.open} onClose={() => setHow({ ...how, open: false })} end="game-page" practiceHref={practiceHref(how.game)} />
+      )}
       {soon.length > 0 && (
         <div className="soon-strip">
           <b>
