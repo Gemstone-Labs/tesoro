@@ -12,6 +12,7 @@ import { VanguardBoard, type HitSide, type Mark, type Preview, type ShownFx, typ
 import { RulesSheet } from "../RulesSheet";
 import { blastSquares, canSwitch, isJump, observe, powerBlockedLine, powerFor, rosterView, type Ledger } from "../powers-ui";
 import { applyBot, botMove, type Policy } from "./bot";
+import { usePracticeHowTo } from "@/components/how-to-play";
 import { PracticePauseButton, PracticePauseOverlay, usePracticePause } from "../../fx/PracticePause";
 import "../vanguard.css";
 
@@ -93,6 +94,7 @@ export function VanguardPractice(props: VanguardPracticeProps) {
 
 function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep = 0, prepare, policy = "standard", first = "us", seen }: VanguardPracticeProps) {
   const { paused, toggle: togglePause, now: practiceNow } = usePracticePause();
+  const howTo = usePracticeHowTo("vanguard");
   // one random source per mount: seeded in stories, so the setup and the bot repeat
   const [rng] = useState<Rng>(() => (seed === undefined ? Math.random : seeded(seed)));
   const fresh = useCallback(() => {
@@ -496,7 +498,8 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
         say={say}
         stage={
         <div className="vg-stage">
-          {paused && <PracticePauseOverlay onResume={togglePause} items={vanguardMenuItems(() => setRulesOpen(true))} leaveHref="/play" />}
+          {paused && <PracticePauseOverlay onResume={togglePause} items={[...vanguardMenuItems(() => setRulesOpen(true)), howTo.item]} leaveHref="/play" />}
+          {howTo.dialog}
           <VanguardBoard pieces={tenId === undefined ? pieces : pieces.map((p) => (p.id === tenId ? { ...p, rank: "1", changed: "spy" } : p))} depots={depots} selected={selected} marks={marks} preview={preview} fx={fx} storm={storm} locked={!yourTurn} onPiece={onPiece} onMark={onMark} />
           {!started && (
             <Countdown

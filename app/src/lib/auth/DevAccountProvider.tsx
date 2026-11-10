@@ -6,6 +6,7 @@
  * Each browser tab context holds a local Keypair in localStorage; `?dev=<name>` picks a named one.
  * The key lives in the browser: never point this at anything with value.
  */
+import { clearTeeTokens } from "@/lib/chain/tee-auth";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Keypair, VersionedTransaction, type Transaction } from "@solana/web3.js";
 import nacl from "tweetnacl";
@@ -117,6 +118,7 @@ function DevBridge({ children }: { children: ReactNode }) {
       addresses: { solana: keypair?.publicKey.toBase58() ?? null, evm: evm?.address ?? null },
       linked: [],
       signOut: async () => {
+        clearTeeTokens();
         try {
           localStorage.removeItem(KEY(slot));
           localStorage.removeItem(EVM_KEY(slot));

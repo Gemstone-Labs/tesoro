@@ -77,7 +77,12 @@ export const LINE_RENT = 1_002_240n;
 export const CKPT_PAGE_RENT = 11_971_200n;
 /** Estimates of the deposits an open or join fronts besides its lines. Tuned at deploy (ticket 24), they only bound. */
 export const MATCH_RECORD_RENT = 6_000_000n;
-export const MATCH_SUNK = 3_000_000n;
+/**
+ * What one entry costs the relayer for good: its share of the Match's fees, start to close. The rent all comes back (close,
+ * receipt and Pair closes). Measured on 24 played devnet Matches, 2026-11-05 to 11-09: 20,800 to 88,140 lamports of fees
+ * per whole Match, two entries.
+ */
+export const MATCH_SUNK = 50_000n;
 export const TICKET_HEAD_RENT = 2_000_000n;
 export const RECEIPT_RENT = 2_000_000n;
 /** Size of a tesoro_core settlement receipt account (1,275,080 lamports of rent on devnet). */

@@ -12,10 +12,11 @@
  * Privacy: the Battle is readable by everyone, an Army only by its own Player. A read of an account the connection may not
  * see returns `null`, indistinguishable from "does not exist".
  */
+import { openTeeConnection } from "../../lib/chain/tee-auth";
 import type { Vanguard } from "../../lib/chain/idl/vanguard.types";
 import * as anchor from "@coral-xyz/anchor";
 import { ComputeBudgetProgram, Connection, Keypair, PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
-import { DELEGATION_PROGRAM_ID, MAGIC_PROGRAM_ID, PERMISSION_PROGRAM_ID, getAuthToken, permissionPdaFromAccount } from "@magicblock-labs/ephemeral-rollups-sdk";
+import { DELEGATION_PROGRAM_ID, MAGIC_PROGRAM_ID, PERMISSION_PROGRAM_ID, permissionPdaFromAccount } from "@magicblock-labs/ephemeral-rollups-sdk";
 import nacl from "tweetnacl";
 import {
   OUTCOME,
@@ -237,7 +238,6 @@ export class VanguardChain {
   readonly tesoro: anchor.Program<any>;
   private readonly teeRpc: string;
   private readonly teeWs: string;
-  private readonly tee = new Map<string, Connection>();
   /** The cached rollup blockhash per connection, with every message already sent under it. */
   private readonly hashes = new Map<Connection, { hash: string; at: number; sent: Set<string> }>();
   /** Step logger; a UI may replace it while it is mounted. */
@@ -281,13 +281,7 @@ export class VanguardChain {
 
   /** A TEE connection authenticated as `signer` (one per Player; tokens are per key). */
   async teeConnection(signer: PlayerSigner): Promise<Connection> {
-    const key = signer.publicKey.toBase58();
-    const cached = this.tee.get(key);
-    if (cached) return cached;
-    const { token } = await withRetry(() => getAuthToken(this.teeRpc, signer.publicKey, (m: Uint8Array) => signer.signMessage(m)));
-    const conn = new Connection(`${this.teeRpc}?token=${token}`, { wsEndpoint: `${this.teeWs}?token=${token}`, commitment: "confirmed" });
-    this.tee.set(key, conn);
-    return conn;
+    return openTeeConnection(this.teeRpc, this.teeWs, signer.publicKey, (m: Uint8Array) => signer.signMessage(m));
   }
 
   // -- sending -------------------------------------------------------------------------------

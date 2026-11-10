@@ -13,6 +13,7 @@
  *
  * Shares the Player signer, payout maths and tesoro_core PDAs with the Hold'em client.
  */
+import { openTeeConnection } from "../../lib/chain/tee-auth";
 import type { TradingDuel } from "../../lib/chain/idl/trading_duel.types";
 import * as anchor from "@coral-xyz/anchor";
 import { ComputeBudgetProgram, Connection, Keypair, PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
@@ -20,7 +21,6 @@ import {
   DELEGATION_PROGRAM_ID,
   MAGIC_PROGRAM_ID,
   PERMISSION_PROGRAM_ID,
-  getAuthToken,
   permissionPdaFromAccount,
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import {
@@ -376,7 +376,6 @@ export class TradingDuelChain {
   readonly tesoro: anchor.Program<any>;
   private readonly teeRpc: string;
   private readonly teeWs: string;
-  private readonly tee = new Map<string, Connection>();
   onTx?: DuelChainOptions["onTx"];
 
   constructor(duelIdl: TradingDuel, tesoroIdl: any, opts: DuelChainOptions = {}) {
@@ -395,13 +394,7 @@ export class TradingDuelChain {
 
   /** A TEE connection authenticated as `signer` (one per Player; tokens are per key). */
   async teeConnection(signer: PlayerSigner): Promise<Connection> {
-    const key = signer.publicKey.toBase58();
-    const cached = this.tee.get(key);
-    if (cached) return cached;
-    const { token } = await withRetry(() => getAuthToken(this.teeRpc, signer.publicKey, (m: Uint8Array) => signer.signMessage(m)));
-    const conn = new Connection(`${this.teeRpc}?token=${token}`, { wsEndpoint: `${this.teeWs}?token=${token}`, commitment: "confirmed" });
-    this.tee.set(key, conn);
-    return conn;
+    return openTeeConnection(this.teeRpc, this.teeWs, signer.publicKey, (m: Uint8Array) => signer.signMessage(m));
   }
 
   // -- sending -------------------------------------------------------------------------------

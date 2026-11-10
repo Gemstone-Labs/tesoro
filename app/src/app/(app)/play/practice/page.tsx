@@ -1,4 +1,5 @@
 import { Arena } from "@/games/fx";
+import { FirstPracticeGuide } from "@/components/how-to-play";
 import { Suspense } from "react";
 import { BlockPuzzleGame } from "@/games/block-puzzle/BlockPuzzleGame";
 import { HoldemPractice } from "@/games/holdem/practice/HoldemPractice";
@@ -6,6 +7,7 @@ import { TradingDuelPractice } from "@/games/trading-duel/practice/TradingDuelPr
 import { gameFromParam } from "@/lib/game-params";
 import { RAILCAR_SHOWN } from "@/lib/games";
 import { RailcarPractice } from "@/games/railcar/practice/RailcarPractice";
+import { practiceSeed } from "@/lib/practice-seed";
 import { VanguardPractice } from "@/games/vanguard/practice/VanguardPractice";
 
 /**
@@ -13,18 +15,19 @@ import { VanguardPractice } from "@/games/vanguard/practice/VanguardPractice";
  * against a local bot, or `?game=railcar` with 9 simulated riders (where Railcar is shown).
  */
 export default async function Practice({ searchParams }: PageProps<"/play/practice">) {
-  const raw = (await searchParams).game;
-  if (RAILCAR_SHOWN && raw === "railcar")
+  const params = await searchParams;
+  if (RAILCAR_SHOWN && params.game === "railcar")
     return (
       <Arena key="railcar" game="railcar" autoFull>
         <RailcarPractice />
       </Arena>
     );
-  const game = gameFromParam(raw);
-  return <Arena key={game} game={game} autoFull><PracticeGame game={game} /></Arena>;
+  const game = gameFromParam(params.game);
+  const seed = typeof params.seed === "string" ? practiceSeed(`seed=${encodeURIComponent(params.seed)}`) : undefined;
+  return <Arena key={game} game={game} autoFull><FirstPracticeGuide game={game}><PracticeGame game={game} seed={seed} /></FirstPracticeGuide></Arena>;
 }
 
-function PracticeGame({ game }: { game: ReturnType<typeof gameFromParam> }) {
+function PracticeGame({ game, seed }: { game: ReturnType<typeof gameFromParam>; seed?: number }) {
   switch (game) {
     case "trading-duel":
       return (
@@ -33,7 +36,7 @@ function PracticeGame({ game }: { game: ReturnType<typeof gameFromParam> }) {
         </Suspense>
       );
     case "vanguard":
-      return <VanguardPractice />;
+      return <VanguardPractice seed={seed} />;
     case "holdem":
       return <HoldemPractice />;
     case "block-puzzle":

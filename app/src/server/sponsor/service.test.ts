@@ -812,8 +812,8 @@ describe("the rest of sign-up on the sponsor (ticket 18c)", () => {
     await s.sponsor.submit(playerSigns(b, s.player), b.meta, b.mac);
     const none = setup({ noAccount: true });
     await expect(none.sponsor.build(none.player.publicKey, wire([linkEvmBridgeIx(none.player.publicKey, none.relayer.publicKey)]), "u")).rejects.toMatchObject({ code: "no-account" });
-    const capped = setup({ gemas: 0n, limits: { accountSunkTotal: 1_000_000 } });
-    await expect(capped.sponsor.build(capped.player.publicKey, wire([linkEvmBridgeIx(capped.player.publicKey, capped.relayer.publicKey)]), "u")).rejects.toMatchObject({ code: "total-limit" });
+    const capped = setup({ gemas: 0n, limits: { accountSunkPerDay: 1_000_000 } });
+    await expect(capped.sponsor.build(capped.player.publicKey, wire([linkEvmBridgeIx(capped.player.publicKey, capped.relayer.publicKey)]), "u")).rejects.toMatchObject({ code: "cost-limit" });
   });
   it("an Account gets one sponsored link_evm, not one per EVM address it sets", async () => {
     const s = setup({ gemas: 0n });
