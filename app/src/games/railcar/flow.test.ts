@@ -146,8 +146,23 @@ describe("finishing a ride from the Players' pages", () => {
     const core = coreCar({ stage: "departed", seated: 5, pages: 1 });
     expect(nextRideStep({ mine, core, rollup: table({ phase: "drawing" }), base: null, previousFrozen: false, now: T0 }).kind).toBe("signal");
     expect(nextRideStep({ mine, core, rollup: table({ phase: "riding" }), base: null, previousFrozen: false, now: T0 }).kind).toBe("signal");
-    expect(nextRideStep({ mine, core, rollup: table({ phase: "over" }), base: table({ phase: "riding" }), previousFrozen: false, now: T0 }).kind).toBe("commit");
+    expect(nextRideStep({ mine, core, rollup: table({ phase: "over", overAt: T0 - 200, commitAt: T0 - 200 }), base: table({ phase: "riding" }), previousFrozen: false, now: T0 }).kind).toBe("commit");
     expect(nextRideStep({ mine, core, rollup: table({ phase: "over" }), base: table({ phase: "over" }), previousFrozen: false, now: T0 }).kind).toBe("finalize");
+  });
+
+  it("commit: sent when the result is owed, or as a repeat only after the program's wait and inside its window", () => {
+    const core = coreCar({ stage: "departed", seated: 5, pages: 1 });
+    const step = (over: Partial<TableView>, now: number) => nextRideStep({ mine, core, rollup: table({ phase: "over", overAt: T0, commitAt: T0, ...over }), base: table({ phase: "riding" }), previousFrozen: false, now }).kind;
+    // the ride just ended and was committed by the rollup itself: the base copy is only late
+    expect(step({}, T0 + 1)).toBe("wait");
+    expect(step({}, T0 + 119)).toBe("wait");
+    // the program's first repeat is due 120 s after the last commit
+    expect(step({}, T0 + 120)).toBe("commit");
+    // a result the Sponsor could not pay is owed at once
+    expect(step({ dirty: true }, T0 + 1)).toBe("commit");
+    // past the window the program refuses every repeat (core takes over), so the page stops
+    expect(step({ commitAt: T0 + 86_000 }, T0 + 86_400 + 500)).toBe("wait");
+    expect(step({ dirty: true }, T0 + 86_400 + 1)).toBe("commit");
   });
 
   it("after the result: the chunks, then the closes, then nothing", () => {

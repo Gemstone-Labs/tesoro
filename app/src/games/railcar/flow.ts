@@ -83,6 +83,18 @@ export type RideStep =
   | { kind: "close" }
   | { kind: "done" };
 
+/** table_kit's commit timing (crates/table_kit/src/commit.rs): the first repeat waits 120 s, and core takes over after a day. */
+export const COMMIT_RETRY_SECS = 120;
+export const COMMIT_WINDOW_SECS = 24 * 60 * 60;
+
+/**
+ * May `commit_table` be sent now? The program takes it when the result is owed (the Sponsor could not pay the first commit), or as
+ * a repeat once its wait since the last commit has passed and the result is younger than the window; anything else answers
+ * `CommitNotDue`. The wait doubles with each repeat, so a repeat sent at the first wait may still be refused, but never sooner.
+ */
+export const commitDue = (t: Pick<TableView, "dirty" | "commitAt" | "overAt">, now: number): boolean =>
+  t.dirty || (now >= t.commitAt + COMMIT_RETRY_SECS && now < t.overAt + COMMIT_WINDOW_SECS);
+
 export interface RideFacts {
   /** The Player's car: its number and its Table. */
   mine: { carNo: bigint; table: number };
@@ -107,7 +119,7 @@ export function nextRideStep(f: RideFacts): RideStep {
   const t = f.rollup;
   if (!t) return { kind: "wait" };
   if (t.carNo === f.mine.carNo && t.phase !== "idle") {
-    if (t.phase === "over") return f.base && f.base.carNo === f.mine.carNo && f.base.phase === "over" ? { kind: "finalize" } : { kind: "commit" };
+    if (t.phase === "over") return f.base && f.base.carNo === f.mine.carNo && f.base.phase === "over" ? { kind: "finalize" } : commitDue(t, f.now) ? { kind: "commit" } : { kind: "wait" };
     return { kind: "signal" };
   }
   if (t.nextCar !== f.mine.carNo) return { kind: "wait" };
