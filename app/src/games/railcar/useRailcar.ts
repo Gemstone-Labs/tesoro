@@ -43,6 +43,7 @@ import { playTells } from "./tells";
 import { RAILCAR_FEES } from "./payout";
 import { watchAccount } from "@/games/block-puzzle/table-feed";
 import { RideTicker } from "./ticker";
+import { StepRetry } from "./step-retry";
 import { railcarView, type RailcarView } from "./view";
 
 /** Compute asked for when the Player pays the boarding themselves (the relayer's server sets its own). */
@@ -261,6 +262,9 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   // A key made for this page: it signs the rollup's anyone-may steps (signals, start, commit) so the wallet is never asked.
   const pageKey = useRef<ChainSigner>(keypairSigner(Keypair.generate()));
   const stepping = useRef(false);
+  const retries = useRef(new StepRetry());
+  // what the failing step tells the Player (null while steps go through)
+  const [stepTrouble, setStepTrouble] = useState<string | null>(null);
   const read = useRef<Reader | null>(null);
   // The rollup Table as the websocket feed last saw it, and the ride this page watches (found by the last scan of every Table).
   const feed = useRef<{ table: number; view: TableView; at: number } | null>(null);
@@ -401,14 +405,22 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
     const send = finishSender(seat, getToken);
     const page = pageKey.current;
     const chain = getChain();
+    const stepKey = `${step.kind}:${car.carNo}`;
     const run = (fn: () => Promise<unknown>) => {
+      if (!retries.current.ready(stepKey, Date.now())) return;
       stepping.current = true;
       void fn()
-        .catch(() => undefined) // another page may have sent the same step first: the next read shows where things are
+        .then(
+          () => retries.current.succeeded(stepKey, Date.now()),
+          // another page may have sent the same step first: the next read shows where things are, and a step that keeps failing is said
+          (e: unknown) => retries.current.failed(stepKey, e, Date.now()),
+        )
         .finally(() => {
           stepping.current = false;
+          setStepTrouble(retries.current.trouble(stepKey));
         });
     };
+    if (step.kind === "wait" || step.kind === "signal" || step.kind === "done") setStepTrouble(null);
     // A closed car clears the page's memory of it, whoever's seat it was.
     if (step.kind === "done") {
       if (meKey) remember(meKey, null);
@@ -717,7 +729,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   const blocked = offerProblem ? new BackingError(offerProblem).message : snap?.backerSeated ? "Your Backer is in this car: board the next one" : null;
   const shownOffer: RailcarOffer | null = offer ? { backer: offer.backer, sharePct: offer.shareBps / 100, ...(blocked ? { blocked } : {}) } : null;
   const missing = offerAddress && offer === null ? new BackingError("missing").message : null;
-  return { view, match: snap?.car?.match ?? null, busy, error: error ?? missing, signedIn: !!wallet, watch, offer: shownOffer, offerSpent: offer?.status === "consumed", board, stepOff, jump, brake, playAgain };
+  return { view, match: snap?.car?.match ?? null, busy, error: error ?? stepTrouble ?? missing, signedIn: !!wallet, watch, offer: shownOffer, offerSpent: offer?.status === "consumed", board, stepOff, jump, brake, playAgain };
 }
 
 /** A share of the finish (finalize, room, chunks, closes) through the relayer, sized against the server's lookup tables. */
