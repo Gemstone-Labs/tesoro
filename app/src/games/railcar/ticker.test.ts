@@ -1,6 +1,7 @@
 import { Keypair, PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { keypairSigner } from "@/games/block-puzzle/chain";
+import { poissonGapMs } from "./flow";
 import { RideTicker, type TickerIo, type TickerOptions } from "./ticker";
 
 const PROGRAM = new PublicKey("ExpLHqvPEqbdEze5HaYWmnTsH9SXYa8jkXeuEvjRGzam");
@@ -87,6 +88,34 @@ describe("RideTicker", () => {
     expect(sent.length).toBe(11);
     const gaps = sent.slice(1).map((s, i) => s.at - sent[i].at);
     for (const g of gaps) expect(Math.abs(g - 1_000)).toBeLessThanOrEqual(50);
+  });
+
+  it("schedules each beat from the interval in force: a page that waited on 20 s beats within 1 s once the interval falls to 1 s, and the pages don't burst together", async () => {
+    const { io, sent } = rollup();
+    let interval = 20_000;
+    const spy = vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const t = new RideTicker(io, page({ intervalMs: () => interval }).opts);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(sent.length).toBe(1); // the first beat, at the start
+    interval = 1_000; // many Players Jumped
+    await vi.advanceTimersByTimeAsync(1_500);
+    t.stop();
+    spy.mockRestore();
+    expect(sent.length).toBe(2);
+    // not at the moment the interval changed (a page that had waited long would burst with every other), but within the new interval
+    expect(sent[1].at - sent[0].at).toBeGreaterThan(2_000);
+    expect(sent[1].at - sent[0].at).toBeLessThanOrEqual(3_500);
+  });
+
+  it("an interval that grows stretches the wait the same way", async () => {
+    const { io, sent } = rollup();
+    let interval = 1_000;
+    const t = new RideTicker(io, page({ intervalMs: () => interval }).opts);
+    await vi.advanceTimersByTimeAsync(500);
+    interval = 10_000;
+    await vi.advanceTimersByTimeAsync(8_000);
+    t.stop();
+    expect(sent.length).toBe(1);
   });
 
   it("never sends the same bytes twice: under a hash the rollup keeps handing out, a plain tick goes once and a Brake once", async () => {
@@ -202,5 +231,37 @@ describe("RideTicker", () => {
       expect(now.perSec).toBeLessThanOrEqual(3.1);
       expect(before.perSec).toBeGreaterThan(now.perSec);
     });
+  });
+});
+
+describe("RideTicker with random gaps and an at-once Brake", () => {
+  for (const [aboard, mean] of [[5, 1_000], [20, 4_000], [100, 20_000]]) {
+    it(`${aboard} aboard (mean ${mean} ms): a pressed Brake is sent within 500 ms, and the next gap is drawn fresh from it`, async () => {
+      const { io, sent } = rollup();
+      const p = page({ intervalMs: () => mean, gap: poissonGapMs, startDelayMs: 1_000_000 });
+      const t = new RideTicker(io, p.opts);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(sent.length).toBe(0);
+      p.state.brake = true;
+      const at = Date.now();
+      t.nudge();
+      await vi.advanceTimersByTimeAsync(500);
+      t.stop();
+      expect(sent.length).toBe(1);
+      expect(sent[0].brake).toBe(true);
+      expect(sent[0].at - at).toBeLessThanOrEqual(500);
+    });
+  }
+
+  it("beats at random gaps with the given mean, never in lockstep", async () => {
+    const { io, sent } = rollup({ confirmMs: 50 });
+    const t = new RideTicker(io, page({ intervalMs: () => 1_000, gap: poissonGapMs, startDelayMs: 0, maxInFlight: 50 }).opts);
+    await vi.advanceTimersByTimeAsync(300_000);
+    t.stop();
+    const gaps = sent.slice(1).map((s, i) => s.at - sent[i].at);
+    const mean = gaps.reduce((a, b) => a + b) / gaps.length;
+    expect(mean).toBeGreaterThan(900);
+    expect(mean).toBeLessThan(1_100);
+    expect(new Set(gaps.map((g) => Math.round(g / 50))).size).toBeGreaterThan(10);
   });
 });

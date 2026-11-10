@@ -60,6 +60,8 @@ const table = (n: number, o: Partial<TableView>): TableView => ({
   dirty: false,
   commitAt: 0,
   brakesBound: n,
+  paceSlot: 0n,
+  paceTs: 0,
   revealed: false,
   revealDraw: new Uint8Array(32),
   seats: Array.from({ length: n }, (_, i) => rideSeat(i)),

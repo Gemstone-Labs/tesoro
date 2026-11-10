@@ -59,6 +59,20 @@ export const MIN_SIGNAL_MS = 500;
 /** How long a Player's page waits between signals: the aboard Players' pages together send about 5 a second. */
 export const signalIntervalMs = (aboard: number): number => Math.max(MIN_SIGNAL_MS, Math.round((Math.max(1, aboard) * 1000) / SIGNALS_PER_SEC));
 
+/** A gap is never shorter than this, nor longer than `MAX_GAP_FACTOR` times its mean. */
+export const MIN_GAP_MS = 200;
+export const MAX_GAP_FACTOR = 4;
+
+/**
+ * The wait to an aboard page's next tick: exponentially distributed with mean `meanMs` (`u` is a uniform draw in [0,1)), so the
+ * page's ticks are a Poisson process. Privacy: a Brake is sent at once as an extra tick, and in a memoryless process one extra
+ * event cannot be told from the process, so the tick stream never marks the press. The gap is clamped to
+ * [MIN_GAP_MS, MAX_GAP_FACTOR x mean] so the tail never stalls a small car; the clamp makes the process near-Poisson, which is
+ * enough (the mean moves by under 2 %).
+ */
+export const poissonGapMs = (meanMs: number, u: number = Math.random()): number =>
+  Math.min(MAX_GAP_FACTOR * meanMs, Math.max(MIN_GAP_MS, -meanMs * Math.log(1 - Math.min(u, 0.999999))));
+
 /**
  * A Player's page interval during the ride. Aboard pages carry the ~5 a second between them. A page whose Player is off is a
  * backup (in case aboard pages close): it waits as if every seat had a page open, so the backups add at most ~5 a second

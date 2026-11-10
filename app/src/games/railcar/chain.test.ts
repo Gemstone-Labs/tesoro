@@ -95,6 +95,7 @@ describe("a Table reads as the program writes it", () => {
     expect([t.carNo, t.nextCar, t.entry, t.rideSlot]).toEqual([9n, 11n, 500n, 1_300n]);
     expect([t.rideTs, t.overMs, t.overAt]).toEqual([1_762_300_000, 104_000, 1_762_300_104]);
     expect([t.dirty, t.commitAt]).toEqual([true, 1_762_300_090]);
+    expect([t.paceSlot, t.paceTs]).toEqual([1_400n, 1_762_300_001]);
     expect(t.car.equals(car)).toBe(true);
     expect(t.tesoroMatch.equals(match)).toBe(true);
     expect(t.seats).toHaveLength(5);
