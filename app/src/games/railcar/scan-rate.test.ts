@@ -18,7 +18,10 @@ vi.mock("./chain", async (orig) => ({
   decodeTable: () => table,
 }));
 // readSnapshot touches none of the wallet, signing, sponsor or Entry code useRailcar imports; stubbing them keeps the import of
-// the hook cheap (it cost ~2 s of the first test, which timed out on a loaded machine).
+// the hook cheap (importing the hook cost ~1.5 s inside the first test, which timed out on a loaded machine; the heaviest were the block-puzzle chain client, boarding and the Tell sounds).
+vi.mock("@/games/block-puzzle/chain", () => ({ accountOfSigner: () => null, keypairSigner: () => ({}) }));
+vi.mock("./boarding", () => ({ backerSeatedIn: () => false, boardingEntry: () => ({}) }));
+vi.mock("./tells", () => ({ playTells: () => undefined }));
 vi.mock("@/lib/account", () => ({ useAccount: () => ({}) }));
 vi.mock("@/lib/chain/client", () => ({ getChain: () => ({}) }));
 vi.mock("@/lib/chain/entry", () => ({}));
