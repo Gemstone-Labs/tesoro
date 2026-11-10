@@ -35,15 +35,30 @@ export type DamageStage = (typeof DAMAGE_STAGES)[number];
  * over the car in place of the basic visual. Leave a stage out to keep its basic visual.
  */
 export const DAMAGE_ART: Partial<Record<DamageStage, string>> = {
-  screws: `${ART}/damage-screws.webp`,
+  screws: `${ART}/damage-screws-v2.webp`,
   panel: `${ART}/damage-panel.webp`,
   sparks: `${ART}/damage-sparks.webp`,
 };
 /**
- * Art hook for the crash: frames registered to the car (1068 x 351), played in order over the crash hold (flash, crumpled
- * front with debris, smoke) in place of the basic flash and debris. An empty list keeps the basic visual.
+ * Art hook for the crash: frames registered to the car (1068 x 351), played in order over the crash hold (flash, then the
+ * crumpled front with debris, held to the end) in place of the basic flash and debris. An empty list keeps the basic visual.
  */
-export const CRASH_ART: string[] = [1, 2, 3].map((i) => `${ART}/crash-f${i}.webp`);
+export const CRASH_ART: string[] = [1, 2].map((i) => `${ART}/crash-f${i}.webp`);
+
+/** The loose bolts that pop off the car when the Screws Tell fires (small sprites, not car-sized). */
+export const BOLT_ART = [`${ART}/bolt-a.webp`, `${ART}/bolt-b.webp`];
+/** Where the bolts leave the car (x in car art px, along the sill) and how long they take to tumble away. */
+const BOLTS = [
+  { x: 350, delay: 0, dx: -900, dy: 1100, rot: -520 },
+  { x: 625, delay: 0.12, dx: -650, dy: 1250, rot: 420 },
+  { x: 900, delay: 0.24, dx: -1000, dy: 1000, rot: -380 },
+];
+const BOLT_Y = 245;
+export const BOLT_POP_MS = 1000;
+const BOLT_LAST_DELAY_MS = 240;
+
+/** The bolts pop only when the Screws Tell fires while this page watches, never when the page opens on a ride already past it. */
+export const boltsDue = (was: number, now: number, reducedMotion: boolean) => was < 1 && now >= 1 && !reducedMotion;
 
 const reduced = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -86,6 +101,15 @@ export function RailcarStage({ aboard, moving, slow = false, tell = 0, crash = f
   useEffect(() => {
     slowNow.current = slow;
   });
+  // The Screws Tell firing pops bolts off the car for a moment.
+  const [pops, setPops] = useState<number[]>([]);
+  const prevTell = useRef(tell);
+  const nextPop = useRef(0);
+  useEffect(() => {
+    const was = prevTell.current;
+    prevTell.current = tell;
+    if (boltsDue(was, tell, reduced())) setPops((p) => [...p, nextPop.current++]);
+  }, [tell]);
   useEffect(() => {
     clock.current = { rideMs, at: performance.now() };
   }, [rideMs]);
@@ -126,12 +150,35 @@ export function RailcarStage({ aboard, moving, slow = false, tell = 0, crash = f
           <span key={x} className="rc-wheel" style={{ left: `${(x / CAR_W) * 100}%`, top: `${(WHEEL_Y / CAR_H) * 100}%`, backgroundImage: `url(${ART}/wheel.webp)` }} />
         ))}
         <CarDamage tell={tell} stages={["screws", "panel"]} />
+        {pops.map((id) => (
+          <BoltPop key={id} onDone={() => setPops((all) => all.filter((x) => x !== id))} />
+        ))}
         {leaps.map((l) => (
           <LeapOff key={l.id} leap={l} onDone={() => setLeaps((all) => all.filter((x) => x.id !== l.id))} />
         ))}
         {crash && <CrashMoment />}
       </div>
     </div>
+  );
+}
+
+/** Three bolts pop off along the sill and tumble back and down off the car (about a second), then are gone. */
+export function BoltPop({ onDone }: { onDone?: () => void }) {
+  const done = useRef(onDone);
+  useEffect(() => {
+    done.current = onDone;
+  });
+  useEffect(() => {
+    const id = setTimeout(() => done.current?.(), BOLT_POP_MS + BOLT_LAST_DELAY_MS + 50);
+    return () => clearTimeout(id);
+  }, []);
+  return (
+    <>
+      {BOLTS.map((b, i) => (
+        // eslint-disable-next-line @next/next/no-img-element -- small sprite, animated by CSS
+        <img key={i} className="rc-bolt" data-testid="rc-bolt" src={BOLT_ART[i % BOLT_ART.length]} alt="" draggable={false} style={{ left: `${(b.x / CAR_W) * 100}%`, top: `${(BOLT_Y / CAR_H) * 100}%`, "--d": `${b.delay}s`, "--dx": `${b.dx}%`, "--dy": `${b.dy}%`, "--rot": `${b.rot}deg` } as CSSProperties} />
+      ))}
+    </>
   );
 }
 
@@ -174,8 +221,8 @@ export function CarDamage({ tell, art = DAMAGE_ART, stages = DAMAGE_STAGES }: { 
 
 /**
  * The crash: the car stops against the wall, the stage shakes, then the picked frames play in order over the car (flash,
- * crumpled front with debris, smoke); `CRASH_ART` holds them. With no frames the basic flash and debris play. Reduced motion
- * shows the middle frame only, faded in and out. Shown for `CRASH_MS` before the Result.
+ * crumpled front with debris, held to the end); `CRASH_ART` holds them. With no frames the basic flash and debris play. Reduced motion
+ * shows the crumpled front only, faded in and out. Shown for `CRASH_MS` before the Result.
  */
 export function CrashMoment({ art = CRASH_ART }: { art?: string[] }) {
   return (

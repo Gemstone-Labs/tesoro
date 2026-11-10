@@ -5,7 +5,8 @@ import { Button } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { friendlyError } from "@/lib/chain/native-flow";
 import { claimWaiting } from "@/lib/chain/overflow-flow";
-import { waitingForMatch, waitingGemas, type WaitingRecord } from "@/lib/chain/overflow";
+import type { PublicKey } from "@solana/web3.js";
+import { waitingForMatch, waitingForMatchAt, waitingGemas, type WaitingRecord } from "@/lib/chain/overflow";
 import { fmtGemas } from "@/lib/format";
 
 /**
@@ -56,8 +57,9 @@ export function WaitingForRoom({ records, short }: { records: readonly WaitingRe
 }
 
 /** The line under a Result: the Gemas this Match left waiting for room, with Claim. Nothing when none wait. */
-export function WaitingForMatch({ matchId }: { matchId: string }) {
+export function WaitingForMatch({ matchId, match }: { matchId?: string; match?: PublicKey | null }) {
   const { snapshot } = useAccount();
-  const records = waitingForMatch(snapshot?.waiting ?? [], matchId);
+  const waiting = snapshot?.waiting ?? [];
+  const records = match ? waitingForMatchAt(waiting, match) : matchId ? waitingForMatch(waiting, matchId) : [];
   return records.length ? <WaitingForRoom records={records} short /> : null;
 }

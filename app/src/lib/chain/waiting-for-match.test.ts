@@ -1,7 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import { matchPda } from "./basket";
-import { waitingForMatch, type WaitingRecord } from "./overflow";
+import { waitingForMatch, waitingForMatchAt, type WaitingRecord } from "./overflow";
 
 const k = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
 const OPENER = k(9);
@@ -18,5 +18,12 @@ describe("waitingForMatch", () => {
   it("is empty for a key that names no Match, and once the records are claimed", () => {
     expect(waitingForMatch([rec(7, 95n)], "7")).toEqual([]);
     expect(waitingForMatch([], `${OPENER.toBase58()}-7`)).toEqual([]);
+  });
+});
+
+describe("waitingForMatchAt", () => {
+  it("takes the Match address itself (a many-seat car), same filter", () => {
+    const at = matchPda(OPENER, 7);
+    expect(waitingForMatchAt([rec(7, 95n), rec(8, 71n)], at).map((r) => r.gemas)).toEqual([95n]);
   });
 });
