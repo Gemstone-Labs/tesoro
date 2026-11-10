@@ -12,14 +12,17 @@ import { VanguardPractice } from "@/games/vanguard/practice/VanguardPractice";
 
 /**
  * Practice, nothing staked: Block Burst with a random Seed, or `?game=holdem` / `?game=trading-duel` / `?game=vanguard`
- * against a local bot, or `?game=railcar` with 9 simulated riders (where Railcar is shown).
+ * against a local bot, or `?game=railcar` with 9 simulated riders (where Railcar is shown). `&draw=<64 hex>` replays one
+ * Railcar Practice ride (the How to play clips); a real ride never reads it.
  */
 export default async function Practice({ searchParams }: PageProps<"/play/practice">) {
   const params = await searchParams;
   if (RAILCAR_SHOWN && params.game === "railcar")
     return (
       <Arena key="railcar" game="railcar" autoFull>
-        <RailcarPractice />
+        <FirstPracticeGuide game="railcar">
+          <RailcarPractice draw={drawFromParam(params.draw)} />
+        </FirstPracticeGuide>
       </Arena>
     );
   const game = gameFromParam(params.game);
@@ -44,4 +47,10 @@ function PracticeGame({ game, seed }: { game: ReturnType<typeof gameFromParam>; 
     default:
       return game satisfies never;
   }
+}
+
+/** A Practice ride's 32-byte draw from `?draw=` (64 hex digits), or undefined for a fresh random one. */
+function drawFromParam(v: string | string[] | undefined): Uint8Array | undefined {
+  if (typeof v !== "string" || !/^[0-9a-f]{64}$/i.test(v)) return undefined;
+  return Uint8Array.from(v.match(/../g)!, (h) => parseInt(h, 16));
 }
