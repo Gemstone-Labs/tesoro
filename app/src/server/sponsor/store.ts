@@ -28,6 +28,7 @@ export class MemoryUsageStore implements UsageStore {
   private readonly checkedAt = new Map<string, number>();
   private readonly inputs = new Map<string, string>();
   private readonly retried = new Set<string>();
+  private readonly origins = new Map<string, string>();
   private readonly journals = new Map<string, CompletionJournal>();
 
   private current(key: string, windowMs: number, now: number) {
@@ -103,7 +104,10 @@ export class MemoryUsageStore implements UsageStore {
     const keys = [...new Set([...input.creates, ...input.ensures])];
     for (const key of keys) {
       if (input.creates.includes(key) && this.holds.has(key)) throw new Error("Reservation already exists; reconcile its close before reuse");
-      if ([...this.journals.values()].some((j) => j.state === "pending" && [...j.acquired, ...j.closes].some((r) => r.key === key && r.generation === this.generations.get(key)))) throw new Error("Reservation has an unresolved transaction");
+      // fenced by a pending close, and by a pending origin that did not create the hold (a join: its failure would drop the hold under this one)
+      const origin = this.journals.get(this.origins.get(key) ?? "");
+      if (origin?.state === "pending" && !origin.creates.includes(key)) throw new Error("Reservation has an unresolved transaction");
+      if ([...this.journals.values()].some((j) => j.state === "pending" && j.closes.some((r) => r.key === key && r.generation === this.generations.get(key)))) throw new Error("Reservation has an unresolved transaction");
     }
     const acquired = [];
     for (const key of keys) {
@@ -113,6 +117,7 @@ export class MemoryUsageStore implements UsageStore {
         this.generations.set(key, generation);
         const seed = input.seeds?.[key];
         if (seed) this.seeds.set(key, seed);
+        this.origins.set(key, input.signature);
         acquired.push({ key, generation });
       }
     }

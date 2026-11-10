@@ -47,6 +47,7 @@ beforeAll(async () => {
   // This existing reservation represents B14's captured hold; the SQL must preserve it while adding generations.
   await db.query("insert into sponsor_hold(key,lamports) values ($1,300000)", [capturedMatch.toBase58()]);
   await db.exec(readFileSync(new URL("../../../supabase/migrations/0017_sponsor_completion.sql", import.meta.url), "utf8"));
+  for (const file of ["0019_sponsor_closure_seeds.sql", "0028_sponsor_join_pending_open.sql"]) await db.exec(readFileSync(new URL(`../../../supabase/migrations/${file}`, import.meta.url), "utf8"));
   sql = completionStore(async (fn, args) => {
     const values = Object.values(args);
     const result = await db.query<{ value: unknown }>(`select ${fn}(${values.map((_, i) => `$${i + 1}`).join(",")}) as value`, values);
@@ -55,6 +56,8 @@ beforeAll(async () => {
 });
 afterAll(async () => { await db?.close(); });
 const heldSql = async () => BigInt((await db.query<{ total: string }>("select coalesce(sum(lamports),0)::text as total from sponsor_hold")).rows[0].total);
+
+const memoryStore = new MemoryUsageStore();
 
 describe("persistent sponsor completion", () => {
   it("recovers a self-paid close after restart using its successful originating admission", async () => {
@@ -186,7 +189,6 @@ describe("persistent sponsor completion", () => {
     const a = make("pending-admission");
     const results = await Promise.allSettled([sql.prepareCompletion(a), sql.prepareCompletion(make("competitor"))]);
     expect(results.map((r) => r.status)).toEqual(["fulfilled", "rejected"]);
-    await expect(sql.prepareCompletion({ ...make("join-pending"), creates: [], ensures: [ticket] })).rejects.toThrow("unresolved");
     const before = await heldSql();
     await sql.finishCompletion(a.signature, false);
     expect(await heldSql()).toBe(before - 300_000n);
@@ -202,6 +204,53 @@ describe("persistent sponsor completion", () => {
     await sql.prepareCompletion(ensure);
     await sql.finishCompletion(ensure.signature, false);
     expect(await heldSql()).toBe(before);
+  });
+
+  describe.each([
+    ["Postgres", () => sql as CompletionStore, async () => heldSql()],
+    ["memory", (() => { return () => memoryStore as CompletionStore; })(), () => memoryStore.held()],
+  ] as const)("a join of a Match whose opening is unfinalised (%s)", (_name, store, held) => {
+    const make = (signature: string, o: { creates?: string[]; ensures?: string[]; closes?: string[] }) => ({ signature, raw: signature, creates: [], ensures: [], closes: [], reserve: "300000", ...o });
+
+    it("is admitted when the pending origin creates the Match, and the hold survives the origin landing", async () => {
+      const match = key().toBase58(), before = await held();
+      const open = make("o1-" + match, { creates: [match] }), join = make("j1-" + match, { ensures: [match] });
+      await store().prepareCompletion(open);
+      expect(await store().prepareCompletion(join)).toBe(true);
+      await store().finishCompletion(open.signature, true);
+      await store().finishCompletion(join.signature, true);
+      expect(await held()).toBe(before + 300_000n);
+    });
+
+    it("gives the hold back once the creating transaction fails after the join was prepared", async () => {
+      const match = key().toBase58(), before = await held();
+      const open = make("o2-" + match, { creates: [match] }), join = make("j2-" + match, { ensures: [match] });
+      await store().prepareCompletion(open);
+      await store().prepareCompletion(join);
+      await store().finishCompletion(open.signature, false);
+      expect(await held()).toBe(before);
+      await store().finishCompletion(join.signature, false);
+      expect(await held()).toBe(before);
+    });
+
+    it("is fenced by a pending close of the Match", async () => {
+      const match = key().toBase58();
+      const open = make("o3-" + match, { creates: [match] });
+      await store().prepareCompletion(open);
+      await store().finishCompletion(open.signature, true);
+      const close = make("c3-" + match, { closes: [match] });
+      await store().prepareCompletion(close);
+      await expect(store().prepareCompletion(make("j3-" + match, { ensures: [match] }))).rejects.toThrow("unresolved");
+      await store().finishCompletion(close.signature, false);
+    });
+
+    it("is fenced when the pending origin is itself a join that acquired the hold (its failure would drop it under the second join)", async () => {
+      const match = key().toBase58();
+      const ana = make("ana-" + match, { ensures: [match] });
+      await store().prepareCompletion(ana);
+      await expect(store().prepareCompletion(make("ben-" + match, { ensures: [match] }))).rejects.toThrow("unresolved");
+      await store().finishCompletion(ana.signature, false);
+    });
   });
 
   it("does not trust one preflight rejection after another worker can broadcast the saved admission", async () => {

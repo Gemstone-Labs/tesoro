@@ -16,8 +16,10 @@ close targets in `sponsor_completion` before broadcasting. The journal covers ad
 and physical closes; unrelated sponsored moves do not need a journal entry.
 
 Prepare and finish are atomic RPCs using one transaction-level advisory lock. Creating a Match or Ticket cannot adopt
-an existing reservation. Joining a Match can use its existing reservation only once its originating admission is resolved
-and while no close of that generation is pending. Retrying a signature preserves its original generation snapshot and
+an existing reservation. Joining a Match can use its existing reservation while no close of that generation is pending, and either its
+originating admission is resolved or that admission creates the reservation (a second Player may board a car whose opening has not
+finalised: the join cannot land unless the opening does). If the originating admission is itself a join, it fences later joins until
+resolved, because its failure would drop the reservation under them. Retrying a signature preserves its original generation snapshot and
 signed bytes. A completed journal is terminal; a failed signature cannot be prepared again.
 
 The app and keeper reconcile through the same code. Only a finalized successful transaction whose executed Core
