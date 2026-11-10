@@ -238,7 +238,9 @@ describe("RideTicker with random gaps and an at-once Brake", () => {
   for (const [aboard, mean] of [[5, 1_000], [20, 4_000], [100, 20_000]]) {
     it(`${aboard} aboard (mean ${mean} ms): a pressed Brake is sent within 500 ms, and the next gap is drawn fresh from it`, async () => {
       const { io, sent } = rollup();
-      const p = page({ intervalMs: () => mean, gap: poissonGapMs, startDelayMs: 1_000_000 });
+      const draws: number[] = [];
+      const gap = (m: number) => (draws.push(Date.now()), poissonGapMs(m));
+      const p = page({ intervalMs: () => mean, gap, startDelayMs: 1_000_000 });
       const t = new RideTicker(io, p.opts);
       await vi.advanceTimersByTimeAsync(1_000);
       expect(sent.length).toBe(0);
@@ -247,9 +249,10 @@ describe("RideTicker with random gaps and an at-once Brake", () => {
       t.nudge();
       await vi.advanceTimersByTimeAsync(500);
       t.stop();
-      expect(sent.length).toBe(1);
+      // A regular random beat may also fall in this window; the Brake is the first one sent, and a fresh gap is drawn at the press.
       expect(sent[0].brake).toBe(true);
       expect(sent[0].at - at).toBeLessThanOrEqual(500);
+      expect(draws).toContain(at);
     });
   }
 
