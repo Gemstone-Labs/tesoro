@@ -25,8 +25,8 @@ const require = createRequire(import.meta.url);
 export const OUTPUT = "HTPREC";
 export const CDP_PORT = Number(process.env.HTP_CDP_PORT ?? 9444);
 export const SCREENS = {
-  phone: { css: [390, 844], dsf: Number(process.env.HTP_PHONE_DSF ?? 2), chromiumFlags: ["--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4"] },
-  desktop: { css: [1440, 900], dsf: Number(process.env.HTP_DESKTOP_DSF ?? 1), chromiumFlags: [] },
+  phone: { css: [390, 844], dsf: Number(process.env.HTP_PHONE_DSF ?? 3), chromiumFlags: ["--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4"] },
+  desktop: { css: [1440, 900], dsf: Number(process.env.HTP_DESKTOP_DSF ?? 2), chromiumFlags: [] },
 };
 
 const state = { browser: null, hypr: null, chromium: null, env: null, sig: null };
