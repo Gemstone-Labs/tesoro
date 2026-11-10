@@ -17,7 +17,7 @@ import {
   Transaction,
   type TransactionInstruction,
 } from "@solana/web3.js";
-import { getAuthToken } from "@magicblock-labs/ephemeral-rollups-sdk";
+import { hasTeeConnection, openTeeConnection } from "@/lib/chain/tee-auth";
 import nacl from "tweetnacl";
 import { MAGICBLOCK } from "../../lib/cluster-settings";
 import { TxFailedError, TxUnconfirmedError, txOutcome, type TxOutcome } from "./tx";
@@ -125,21 +125,12 @@ export class BlockPuzzleChain {
 
   /** True when this signer already has a rollup session, so reading through it asks for no signature. */
   hasTeeSession(signer: ChainSigner): boolean {
-    return this.tees.has(signer.publicKey.toBase58());
+    return hasTeeConnection(this.teeRpc, signer.publicKey);
   }
 
   /** One TEE connection per Player: the auth token binds reads to that wallet. */
   async tee(signer: ChainSigner): Promise<Connection> {
-    const k = signer.publicKey.toBase58();
-    const cached = this.tees.get(k);
-    if (cached) return cached;
-    const { token } = await getAuthToken(this.teeRpc, signer.publicKey, (m: Uint8Array) => signer.signMessage(m));
-    const conn = new Connection(`${this.teeRpc}?token=${token}`, {
-      wsEndpoint: `${this.teeWs}?token=${token}`,
-      commitment: "confirmed",
-    });
-    this.tees.set(k, conn);
-    return conn;
+    return openTeeConnection(this.teeRpc, this.teeWs, signer.publicKey, (m: Uint8Array) => signer.signMessage(m));
   }
 
   async sendBase(signer: ChainSigner, ixs: TransactionInstruction[]): Promise<string> {
