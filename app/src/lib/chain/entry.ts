@@ -238,7 +238,7 @@ export async function relayerKey(): Promise<PublicKey | null> {
 }
 
 /** Limits the relayer enforces per Account/day: the same instructions may be sent with the Player paying. */
-const SELF_PAY_CODES = new Set(["account-limit", "pair-limit", "global-limit", "total-limit", "too-many-failures", "too-many-cycles", "sponsor-paused", "sponsor-empty"]);
+const SELF_PAY_CODES = new Set(["account-limit", "pair-limit", "global-limit", "cost-limit", "too-many-failures", "too-many-cycles", "sponsor-paused", "sponsor-empty"]);
 export const mayPayYourself = (e: unknown) => e instanceof SponsorError && (e.selfPay || SELF_PAY_CODES.has(e.code) || e.status === 429);
 
 /**

@@ -1,6 +1,6 @@
 /**
  * What the relayer is willing to spend, and on whom. Admissions (new Tickets, Matches, growth) are limited per Account,
- * per Account pair, per day and in total, and failed transactions and repeated cycles count against the Account. Exits
+ * per Account pair and per day, and failed transactions and repeated cycles count against the Account. Exits
  * (settle and refund chunks, Ticket cancel and expiry, close, Redeem) are never limited by any of this: they are
  * authorised by the obligation, and their fees come out of the balance the admissions had to leave untouched.
  *
@@ -19,8 +19,8 @@ export interface Limits {
   pairPerDay: number;
   /** Admissions across all Accounts per day. */
   globalPerDay: number;
-  /** Lamports an Account may cost the relayer for good, over its lifetime. */
-  accountSunkTotal: number;
+  /** Lamports an Account may cost the relayer for good per day (fees and rent never returned), so a Player who plays every day keeps free entries. */
+  accountSunkPerDay: number;
   /** Transactions of an Account that failed, per day, before admissions stop. */
   failuresPerDay: number;
   /**
@@ -59,7 +59,7 @@ export const DEFAULT_LIMITS: Limits = {
   accountPerDay: 60,
   pairPerDay: 10,
   globalPerDay: 20_000,
-  accountSunkTotal: 50_000_000,
+  accountSunkPerDay: 50_000_000,
   failuresPerDay: 20,
   exitFailuresPerDay: 50,
   cyclesPerDay: 20,
@@ -120,7 +120,7 @@ export async function admit(store: UsageStore, limits: Limits, plan: Plan, playe
   await take(k.global(), 1, limits.globalPerDay, DAY, "global-limit", "Free transactions are paused for today.");
   if (plan.names.includes("link_evm")) await take(k.link(player), 1, limits.linksPerAccount, LIFETIME, "link-limit", "This Account already got a free EVM link. Add some SOL to link another address.");
   const sunk = Number(plan.spend.sunk);
-  await take(k.sunk(player), sunk, limits.accountSunkTotal, LIFETIME, "total-limit", "This Account has used all the free transactions it gets.");
+  await take(k.sunk(player), sunk, limits.accountSunkPerDay, DAY, "cost-limit", "This Account's free transactions for today are used up. Try again tomorrow.");
   return { undo };
 }
 

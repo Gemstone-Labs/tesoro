@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { admissionFits, admit, DEFAULT_LIMITS, exitFits, recordCycle, recordFailure, type Limits } from "./policy";
 import { key } from "./fixtures";
-import type { Plan } from "./rules";
+import { MATCH_SUNK, type Plan } from "./rules";
 import { MemoryUsageStore } from "./store";
 
 const plan = (over: Partial<Plan> = {}): Plan => ({ kind: "core", names: ["open_match"], class: "admission", spend: { refundable: 10n, sunk: 100n }, cu: 1, obligations: [], pair: null, signers: [], playerSigns: false, funders: [], onboarding: false, invite: false, noGemas: false, ...over });
@@ -34,12 +34,19 @@ describe("admission limits", () => {
     await admit(s, l, plan(), "b", 0);
     await refusal(admit(s, l, plan(), "c", 0), "global-limit");
   });
-  it("in total: what an Account costs for good, however long ago", async () => {
+  it("per day: what an Account costs for good, so a Player who plays every day keeps free entries", async () => {
     const s = new MemoryUsageStore();
-    const l = limits({ accountSunkTotal: 250 });
+    const l = limits({ accountSunkPerDay: 250 });
     await admit(s, l, plan(), "a", 0);
     await admit(s, l, plan(), "a", 0);
-    await refusal(admit(s, l, plan(), "a", 400 * DAY), "total-limit");
+    await refusal(admit(s, l, plan(), "a", DAY - 1), "cost-limit");
+    await admit(s, l, plan(), "a", DAY);
+  });
+  it("by default, the day's cost budget outlasts the day's Match entries (phone check 2026-11-09: free entries ran out after 16)", async () => {
+    const s = new MemoryUsageStore();
+    const entry = plan({ spend: { refundable: 0n, sunk: MATCH_SUNK } });
+    for (let i = 0; i < DEFAULT_LIMITS.accountPerDay; i++) await admit(s, DEFAULT_LIMITS, entry, "a", i);
+    await refusal(admit(s, DEFAULT_LIMITS, entry, "a", DEFAULT_LIMITS.accountPerDay), "account-limit");
   });
   it("a refusal gives back what the earlier limits took", async () => {
     const s = new MemoryUsageStore();
