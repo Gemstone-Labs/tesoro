@@ -41,6 +41,7 @@ import { boardingSigner, brakeRoute, finishSender, joinSeatKey, jumpSigner } fro
 import type { RailcarBrake, RailcarOffer } from "./RailcarScreen";
 import { playTells } from "./tells";
 import { RAILCAR_FEES } from "./payout";
+import { watchAccount } from "@/games/block-puzzle/table-feed";
 import { RideTicker } from "./ticker";
 import { railcarView, type RailcarView } from "./view";
 
@@ -50,6 +51,14 @@ const SELF_PAID_UNITS = 400_000;
 const FINISH_PER_POLL = 8;
 /** How often a page sends its share of the bindings while some seat is still unbound. */
 const BIND_EVERY_MS = 3_000;
+/** Pages poll the chain this often while a ride runs, and otherwise; the rollup Table comes from a websocket feed in between. */
+const RIDING_POLL_MS = 800;
+const IDLE_POLL_MS = 1_500;
+/** The Table feed reads the rollup itself only when its websocket has been silent this long; a fed Table older than FED_FRESH_MS is not trusted. */
+const FEED_QUIET_MS = 3_000;
+const FED_FRESH_MS = 6_000;
+/** Looking for a ride to watch means reading every Table: do it this often (a ride already found is read through the feed). */
+const SCAN_EVERY_MS = 5_000;
 
 /** The car this device boarded, kept across reloads (a convenience: the chain is the record). */
 interface MyCar {
@@ -107,7 +116,16 @@ interface Snapshot {
   forgot: boolean;
 }
 
-export async function readSnapshot(read: Reader, tee: () => Promise<Connection | null>, me: PublicKey | null, remembered: MyCar | null, backer: PublicKey | null): Promise<Snapshot> {
+/** What a page already knows, so a read can leave out rollup requests it does not need. */
+export interface ReadHints {
+  /** The Table as the page's websocket feed last saw it (null when it has none that is fresh): read instead of asking the rollup. */
+  fed?: (table: number) => TableView | null;
+  /** Look at every Table for a ride to watch. False reuses `watching` (a ride found a moment ago). */
+  scan?: boolean;
+  watching?: { carNo: bigint; table: number; match: PublicKey } | null;
+}
+
+export async function readSnapshot(read: Reader, tee: () => Promise<Connection | null>, me: PublicKey | null, remembered: MyCar | null, backer: PublicKey | null, hints: ReadHints = {}): Promise<Snapshot> {
   // A remembered car that is closed, or still boarding without a seat of the Player's, must not stand in for the car boarding now.
   let my = remembered;
   let forgot = false;
@@ -135,12 +153,19 @@ export async function readSnapshot(read: Reader, tee: () => Promise<Connection |
   }
   // Not in a car: watch the ride in progress, if any, on the rollup's Tables.
   if (!my && config) {
-    const conn = await tee();
-    const infos = conn ? await conn.getMultipleAccountsInfo(Array.from({ length: config.tables }, (_, i) => tablePda(i)), "confirmed").catch(() => []) : [];
-    const live = watchedRide(infos.flatMap((i) => (i ? [decodeTable(i.data)] : [])), Math.floor(Date.now() / 1000));
-    if (live) {
-      car = { carNo: live.carNo, table: live.index, match: live.tesoroMatch };
-      watching = true;
+    if (hints.scan === false) {
+      if (hints.watching) {
+        car = hints.watching;
+        watching = true;
+      }
+    } else {
+      const conn = await tee();
+      const infos = conn ? await conn.getMultipleAccountsInfo(Array.from({ length: config.tables }, (_, i) => tablePda(i)), "confirmed").catch(() => []) : [];
+      const live = watchedRide(infos.flatMap((i) => (i ? [decodeTable(i.data)] : [])), Math.floor(Date.now() / 1000));
+      if (live) {
+        car = { carNo: live.carNo, table: live.index, match: live.tesoroMatch };
+        watching = true;
+      }
     }
   }
   if (!car) return { config, car: null, loaded: null, boarding, watching, rollup: null, base: null, previousFrozen: false, mine: false, backerSeated: false, forgot };
@@ -154,9 +179,12 @@ export async function readSnapshot(read: Reader, tee: () => Promise<Connection |
   if (loaded && loaded.car.stage !== "boarding") {
     const [baseInfo] = await read.many([tablePda(car.table)]);
     base = baseInfo ? decodeTable(baseInfo.data) : null;
-    const conn = await tee();
-    const info = conn ? await conn.getAccountInfo(tablePda(car.table), "confirmed").catch(() => null) : null;
-    rollup = info ? decodeTable(info.data) : null;
+    rollup = hints.fed?.(car.table) ?? null;
+    if (!rollup) {
+      const conn = await tee();
+      const info = conn ? await conn.getAccountInfo(tablePda(car.table), "confirmed").catch(() => null) : null;
+      rollup = info ? decodeTable(info.data) : null;
+    }
     if (rollup && rollup.carNo !== car.carNo && rollup.phase === "over") previousFrozen = !!(await read.many([settledPda(rollup.tesoroMatch)]))[0];
   }
   return { config, car, loaded, boarding, watching, rollup, base, previousFrozen, mine, backerSeated, forgot };
@@ -232,9 +260,15 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   const pageKey = useRef<ChainSigner>(keypairSigner(Keypair.generate()));
   const stepping = useRef(false);
   const read = useRef<Reader | null>(null);
+  // The rollup Table as the websocket feed last saw it, and the ride this page watches (found by the last scan of every Table).
+  const feed = useRef<{ table: number; view: TableView; at: number } | null>(null);
+  const lastScan = useRef(0);
+  const lastWatch = useRef<{ carNo: bigint; table: number; match: PublicKey } | null>(null);
   // The Brake pressed on this page, waiting for the next tick to carry it.
   const pendingBrake = useRef(false);
   const [pending, setPending] = useState(false);
+  // Counts Brakes that landed, so the Brake seat is read again then (and not at every poll).
+  const [brakeLanded, setBrakeLanded] = useState(0);
   const [mine, setMine] = useState<BrakeSeatView | null>(null);
   const [copy, setCopy] = useState<{ car: bigint; state: EarlyCopy } | null>(null);
   const lastBind = useRef(0);
@@ -274,7 +308,17 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
 
   const refresh = useCallback(async () => {
     read.current ??= connReader(getChain().base);
-    const s = await readSnapshot(read.current, tee, me, meKey ? recall(meKey) : null, backerKey ? new PublicKey(backerKey) : null);
+    const scan = Date.now() - lastScan.current >= SCAN_EVERY_MS;
+    if (scan) lastScan.current = Date.now();
+    const s = await readSnapshot(read.current, tee, me, meKey ? recall(meKey) : null, backerKey ? new PublicKey(backerKey) : null, {
+      fed: (table) => {
+        const f = feed.current;
+        return f && f.table === table && Date.now() - f.at < FED_FRESH_MS ? f.view : null;
+      },
+      scan,
+      watching: lastWatch.current,
+    });
+    lastWatch.current = s.watching && s.car ? s.car : null;
     if (s.forgot && meKey) remember(meKey, null);
     setSnap(s);
     return s;
@@ -306,7 +350,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
       const s = await refresh().catch(() => null);
       if (stop) return;
       const riding = s?.rollup?.phase === "riding" || s?.rollup?.phase === "drawing";
-      timer = setTimeout(loop, riding ? 400 : 1_500);
+      timer = setTimeout(loop, riding ? RIDING_POLL_MS : IDLE_POLL_MS);
     };
     void loop();
     return () => {
@@ -314,6 +358,31 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
       clearTimeout(timer);
     };
   }, [refresh]);
+
+  // The rollup Table of the car on screen, pushed by the websocket (an account subscription, as Block Burst does): the page's
+  // reads take it from here, so a ride costs no rollup request per read. A silent socket costs one read per FEED_QUIET_MS.
+  const feedTable = snap?.car && snap.loaded && snap.loaded.car.stage !== "boarding" ? snap.car.table : null;
+  useEffect(() => {
+    if (feedTable === null) return;
+    let live = true;
+    let stop: (() => void) | undefined;
+    void tee().then((conn) => {
+      if (!live || !conn) return;
+      stop = watchAccount({
+        conn,
+        address: tablePda(feedTable),
+        decode: (info) => decodeTable(info.data),
+        onValue: (view) => {
+          feed.current = { table: feedTable, view, at: Date.now() };
+        },
+        pollMs: FEED_QUIET_MS,
+      });
+    });
+    return () => {
+      live = false;
+      stop?.();
+    };
+  }, [feedTable, tee]);
 
   // The clock the screen reads (the ride clock and the countdown).
   useEffect(() => {
@@ -412,7 +481,10 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
           return { signer: page, ixs: [signalIx(page.publicKey, signalTable)], brake: false };
         },
         onLanded: (beat) => {
-          if (beat.brake) pendingBrake.current = false;
+          if (beat.brake) {
+            pendingBrake.current = false;
+            setBrakeLanded((n) => n + 1);
+          }
         },
         // the ride is over on the rollup: read it now rather than at the next poll
         onEnded: () => void beatFacts.current.refresh().catch(() => undefined),
@@ -474,7 +546,9 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
     return () => {
       live = false;
     };
-  }, [tickKey, ride, signalTable, tableSeat]);
+    // the Brake seat changes when a Brake lands or the draw binds seats, not with every Table read
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tickKey, ride?.carNo, ride?.phase, ride?.brakesBound, !!ride, signalTable, tableSeat, brakeLanded]);
 
   // The Tells as sound and vibration, from what the public Table shows.
   const tells = useRef<{ car: bigint; tell: number; falseScrews: number } | null>(null);
