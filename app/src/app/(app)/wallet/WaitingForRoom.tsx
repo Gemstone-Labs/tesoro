@@ -5,7 +5,7 @@ import { Button } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { friendlyError } from "@/lib/chain/native-flow";
 import { claimWaiting } from "@/lib/chain/overflow-flow";
-import { waitingGemas, type WaitingRecord } from "@/lib/chain/overflow";
+import { waitingForMatch, waitingGemas, type WaitingRecord } from "@/lib/chain/overflow";
 import { fmtGemas } from "@/lib/format";
 
 /**
@@ -13,15 +13,16 @@ import { fmtGemas } from "@/lib/format";
  * room" and a Claim button that moves them in. The Gemas are the Player's own; Claim only needs room, which a Claim that
  * finds none leaves for the next try (the Redeem of a small leftover or any spend makes some).
  */
-export function WaitingForRoomView({ records, busy, note, error, onClaim }: { records: readonly WaitingRecord[]; busy?: boolean; note?: string | null; error?: string | null; onClaim?: () => void }) {
+export function WaitingForRoomView({ records, busy, note, error, onClaim, short }: { records: readonly WaitingRecord[]; short?: boolean; busy?: boolean; note?: string | null; error?: string | null; onClaim?: () => void }) {
   if (records.length === 0) return null;
   const gemas = Number(waitingGemas(records));
   return (
-    <div className="wl-waiting" role="status">
+    <div className={short ? "wl-waiting mr-waiting" : "wl-waiting"} role="status">
       <p className="note">
-        <b>{fmtGemas(gemas)} Gemas waiting for room.</b> They are yours; your Account was full when they arrived. Claim moves them in as soon as there is room.
+        <b>{short ? `${fmtGemas(gemas)} of these are waiting for room` : `${fmtGemas(gemas)} Gemas waiting for room.`}</b>
+        {!short && " They are yours; your Account was full when they arrived. Claim moves them in as soon as there is room."}
       </p>
-      <Button size="sm" disabled={busy || !onClaim} onClick={onClaim}>
+      <Button size={short ? "md" : "sm"} disabled={busy || !onClaim} onClick={onClaim}>
         {busy ? "Claiming…" : "Claim"}
       </Button>
       {note && !error && <span className="meta">{note}</span>}
@@ -30,7 +31,7 @@ export function WaitingForRoomView({ records, busy, note, error, onClaim }: { re
   );
 }
 
-export function WaitingForRoom({ records }: { records: readonly WaitingRecord[] }) {
+export function WaitingForRoom({ records, short }: { records: readonly WaitingRecord[]; short?: boolean }) {
   const { auth, refresh } = useAccount();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -51,5 +52,12 @@ export function WaitingForRoom({ records }: { records: readonly WaitingRecord[] 
       setBusy(false);
     }
   };
-  return <WaitingForRoomView records={records} busy={busy} note={note} error={error} onClaim={auth.signer ? () => void claim() : undefined} />;
+  return <WaitingForRoomView records={records} busy={busy} note={note} error={error} onClaim={auth.signer ? () => void claim() : undefined} short={short} />;
+}
+
+/** The line under a Result: the Gemas this Match left waiting for room, with Claim. Nothing when none wait. */
+export function WaitingForMatch({ matchId }: { matchId: string }) {
+  const { snapshot } = useAccount();
+  const records = waitingForMatch(snapshot?.waiting ?? [], matchId);
+  return records.length ? <WaitingForRoom records={records} short /> : null;
 }

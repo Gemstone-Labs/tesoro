@@ -2,17 +2,48 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 const lb = vi.hoisted(() => ({ value: { data: null, forMe: false, error: false } as { data: unknown; forMe: boolean; error: boolean } }));
 vi.mock("@/lib/chain/useLeaderboard", () => ({ useLeaderboard: () => ({ ...lb.value, retry: () => undefined }) }));
-const acct = vi.hoisted(() => ({ snapshot: null as { matches: unknown[]; accountKey: { toBase58(): string } } | null, rows: [] as unknown[] }));
+const acct = vi.hoisted(() => ({ snapshot: null as { matches: unknown[]; accountKey: { toBase58(): string }; waiting?: unknown[] } | null, rows: [] as unknown[] }));
 vi.mock("@/lib/account", async (orig) => ({ ...(await orig<typeof import("@/lib/account")>()), useAccount: () => ({ auth: { status: "signed-in", addresses: { solana: "6qPLGMP5pY9KXQ8PVr8V8cjiWNdy3tzfKnf85e5wQmoZ" } }, snapshot: acct.snapshot }) }));
 vi.mock("@/lib/friends/useRecordRows", () => ({ useRecordRows: () => (acct.snapshot ? acct.rows : null) }));
 const fr = vi.hoisted(() => ({ status: "ready" as string, relation: "none" as string }));
 vi.mock("@/lib/friends/FriendsProvider", async (orig) => ({ ...(await orig<typeof import("@/lib/friends/FriendsProvider")>()), useFriends: () => ({ status: fr.status, relation: () => fr.relation, act: async () => ({}) }) }));
+import { PublicKey } from "@solana/web3.js";
+import { matchPda } from "@/lib/chain/basket";
 import { MatchResult, type MatchResultProps } from "./MatchResult";
 
 const SNAP = { matches: [], accountKey: { toBase58: () => "me" } };
 const OPP = "6qPLGMP5pY9KXQ8PVr8V8cjiWNdy3tzfKnf85e5wQmoZ";
 const base: MatchResultProps = { game: "block-puzzle", outcome: "won", delta: 440, entry: 500, role: "player", backed: false, playAgainHref: "/play/queue", opponent: OPP, points: 5, matchId: "7" };
 const html = (over: Partial<MatchResultProps> = {}) => renderToStaticMarkup(<MatchResult {...base} {...over} />);
+
+const k = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
+const waitingFor = (n: number, gemas: bigint) => ({ address: k(n), owner: k(2), payer: k(3), kind: 0, match: matchPda(k(9), n), gemas, lines: 1, storeLines: [], sources: [k(4)] });
+const KEY = `${k(9).toBase58()}-7`;
+
+describe("Gemas waiting for room on the result", () => {
+  afterEach(() => { acct.snapshot = null; });
+  it("says how many wait, with a Claim, only for this Match's record", () => {
+    acct.snapshot = { ...SNAP, waiting: [waitingFor(7, 95n), waitingFor(8, 71n)] };
+    const h = html({ matchId: KEY });
+    expect(h).toContain("95 of these are waiting for room");
+    expect(h).not.toContain("71 of these");
+    expect(h).toContain(">Claim<");
+  });
+  it("sits inside the payout block, under the amount and before the notes and tiles", () => {
+    acct.snapshot = { ...SNAP, waiting: [waitingFor(7, 95n)] };
+    const h = html({ matchId: KEY });
+    const at = h.indexOf("of these are waiting for room");
+    expect(at).toBeGreaterThan(h.indexOf('class="mr-amount"'));
+    expect(at).toBeGreaterThan(h.indexOf("mr-usd"));
+    expect(at).toBeLessThan(h.indexOf("mr-notes"));
+  });
+  it("shows nothing when no record of this Match exists, or after a Claim cleared it", () => {
+    acct.snapshot = { ...SNAP, waiting: [waitingFor(8, 71n)] };
+    expect(html({ matchId: KEY })).not.toContain("waiting for room");
+    acct.snapshot = SNAP;
+    expect(html({ matchId: KEY })).not.toContain("waiting for room");
+  });
+});
 
 describe("the result screen", () => {
   afterEach(() => {
