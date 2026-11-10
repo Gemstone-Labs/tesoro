@@ -25,9 +25,12 @@ it("rebuilds four many-Source settlements from actual LiteSVM event-CPI bytes, i
   const worlds = [...new Set(transactions.map((tx) => tx.world))];
   expect(worlds).toHaveLength(4);
   const counts: number[] = [];
-  // Each Rust case starts an independent LiteSVM world, whose deterministic Match id may repeat.
+  // Each Rust case starts an independent LiteSVM world, whose deterministic Match id may repeat, so every world starts from empty
+  // tables. One database serves all four (building it, with its migrations, costs ~2 s) and is emptied between worlds.
+  const { rpc, sql } = await testDb();
   for (const world of worlds) {
-    const { rpc, sql } = await testDb();
+    const tables = await sql.query<{ tablename: string }>("select tablename from pg_tables where schemaname = 'public'");
+    if (tables.rows.length) await sql.exec(`truncate ${tables.rows.map((t) => `public."${t.tablename}"`).join(", ")} restart identity cascade`);
     const txs = transactions.filter((tx) => tx.world === world);
     const retry = txs.find((tx) => tx.phase === "closed-retry");
     expect(retry?.records.map((r) => r.type)).toEqual(["chunk"]);
@@ -51,7 +54,7 @@ it("rebuilds four many-Source settlements from actual LiteSVM event-CPI bytes, i
     for (const tx of txs) {
       expect(await ingestMatchRecords(rpc, tx.records, { ...tx, finalized: true, gameOf: (key) => key })).toBe(0);
     }
-    await sql.close();
   }
+  await sql.close();
   expect(counts.sort((a, b) => a - b)).toEqual([4, 5, 8, 10]);
 });
