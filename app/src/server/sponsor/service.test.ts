@@ -234,15 +234,25 @@ describe("first payout account funding", () => {
     const b = await s.sponsor.build(s.player.publicKey, wire(ixs));
     await s.sponsor.submit(playerSigns(b, s.player), b.meta, b.mac);
     await expect(s.sponsor.build(s.player.publicKey, wire(ixs))).rejects.toMatchObject({ code: "setup-already-funded" });
+    const send = vi.spyOn(s.deps.chain, "send");
     const bare = await s.sponsor.build(s.player.publicKey, wire([ixs.at(-1)!]));
     await s.sponsor.submit(playerSigns(bare, s.player), bare.meta, bare.mac);
     expect(s.sent).toHaveLength(2);
+    expect(send).toHaveBeenLastCalledWith(expect.anything(), { failFast: true });
   });
   it("returns the first-use grant after a definitive atomic failure", async () => {
     const s = setup({ sendFails: true }); const { ixs } = await firstPayout(s);
     const b = await s.sponsor.build(s.player.publicKey, wire(ixs));
     await expect(s.sponsor.submit(playerSigns(b, s.player), b.meta, b.mac)).rejects.toMatchObject({ code: "chain" });
     await expect(s.sponsor.build(s.player.publicKey, wire(ixs))).resolves.toHaveProperty("class", "exit");
+  });
+  it("asks for a fast failure on an ordinary send, and keeps the first-use grant for a setup send that waits for the final answer", async () => {
+    const plain = setup(); const { ixs } = await firstPayout(plain);
+    const grant = vi.spyOn(plain.deps.chain, "send");
+    const b = await plain.sponsor.build(plain.player.publicKey, wire(ixs));
+    expect(b.meta.ataGrant).toBeTruthy();
+    await plain.sponsor.submit(playerSigns(b, plain.player), b.meta, b.mac);
+    expect(grant).toHaveBeenLastCalledWith(expect.anything(), { failFast: false });
   });
   it("retains the first-use grant after an ambiguous broadcast failure", async () => {
     const s = setup({ sendError: new Error("network timeout") }); const { ixs } = await firstPayout(s);

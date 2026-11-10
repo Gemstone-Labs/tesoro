@@ -97,7 +97,7 @@ export interface ChainReads extends CompletionChain, Partial<ClosureReads> {
    */
   simulate?(tx: VersionedTransaction, watch: PublicKey): Promise<{ err: unknown; lamports: bigint | null }>;
   /** Sends and waits for confirmation; throws when the transaction fails. Returns the signature. */
-  send(raw: Uint8Array): Promise<string>;
+  send(raw: Uint8Array, o?: { failFast?: boolean }): Promise<string>;
 }
 
 export interface SponsorDeps {
@@ -915,7 +915,8 @@ export class Sponsor {
     }
     let signature: string;
     try {
-      signature = await this.d.chain.send(tx.serialize());
+      // Setup transactions hand back a quota or a grant on failure, so they wait for the failure to be final.
+      signature = await this.d.chain.send(tx.serialize(), { failFast: !meta.onboard && !meta.ataGrant });
     } catch (e) {
       if (meta.assign && e instanceof ChainTransactionFailed && e.beforeBroadcast) await this.d.assigner?.release(meta.assign).catch(() => undefined);
       await recordFailure(this.d.store, meta.player, now);
