@@ -93,6 +93,7 @@
 /* ——— Result (re1 Podium) ——— */
 .rc-result { gap: 10px; }
 .rc-res-head { display: flex; flex-direction: column; gap: 4px; }
+.rc-res-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .rc-res-game { margin: 0; color: var(--fg-2); font: 700 var(--fs-13) / 1.2 var(--f-body); letter-spacing: 0.08em; text-transform: uppercase; }
 .rc-res-title { margin: 0; font: 800 40px / 1 var(--f-display); letter-spacing: 0.03em; text-transform: uppercase; }
 .rc-res-gets { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 4px 0 0; color: var(--em); font: 800 28px / 1.1 var(--f-display); }
@@ -104,7 +105,7 @@
 .rc-friend { display: grid; place-items: center; width: 34px; height: 34px; background: var(--surface); color: var(--fg); border: 0; cursor: pointer; }
 .rc-friend:hover { background: var(--surface-2); }
 .rc-friend svg { width: 16px; height: 16px; }
-.rc-res-won { padding: 4px 10px; background: var(--raised); --edge: var(--edge-em); }
+.rc-res-won { display: inline-flex; align-items: center; padding: 8px 12px; line-height: 1; background: var(--raised); --edge: var(--edge-em); }
 .rc-res-backer { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; color: var(--fg); font-weight: 700; font-size: var(--fs-14); }
 .rc-res-backer-note { flex-basis: 100%; color: var(--fg-2); font-weight: 400; font-size: var(--fs-13); }
 .rc-split { grid-column: 1 / -1; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 4px; color: var(--fg-2); font: 700 var(--fs-12) / 1.2 var(--f-body); text-transform: none; letter-spacing: 0; }
