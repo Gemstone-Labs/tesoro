@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore, type ReactNode } from "react";
 import { BookOpen, ChevronLeft, CircleMinus, Dumbbell, Hexagon, ScrollText, UserPlus, Vibrate, VibrateOff, Zap, type LucideIcon } from "lucide-react";
 import { HowToPlayTab } from "@/components/how-to-play";
 import { PlayerAvatar, PlayerName } from "@/components/account/Player";
@@ -105,6 +105,8 @@ interface RailcarScreenProps {
   practice?: boolean;
   /** A Practice ride stopped while the guide is open: the car stands still. */
   paused?: boolean;
+  /** Under the Result's amount: the Gemas this ride left waiting for room, with Claim (the live page's `RailcarWaiting`; Practice and history pass none). */
+  waiting?: ReactNode;
 }
 
 function RailcarBody({
@@ -117,11 +119,12 @@ function RailcarBody({
   watch = null,
   practice = false,
   paused = false,
+  waiting = null,
   crash = false,
 }: RailcarScreenProps & { crash?: boolean }) {
   // While the car hits the wall the ride is over: nothing left to press.
   const brake = crash ? null : brakeProp;
-  if (view.phase === "result") return <RailcarResult view={view} actions={actions} watch={watch} practice={practice} />;
+  if (view.phase === "result") return <RailcarResult view={view} actions={actions} watch={watch} practice={practice} waiting={waiting} />;
   const riding = view.phase === "ride";
   const aboard = riding ? view.aboard : view.riders;
   const meAboard = riding ? view.me?.aboard === true : view.mySeat !== null;
@@ -373,7 +376,7 @@ function Riders({ riders, label }: { riders: Rider[]; label: string | null }) {
 
 // ---- Result (re1 Podium) -------------------------------------------------------------------------------------------
 
-function RailcarResult({ view, actions, watch, practice }: { view: Extract<RailcarView, { phase: "result" }>; actions: RailcarActions; watch: RailcarWatch | null; practice: boolean }) {
+function RailcarResult({ view, actions, watch, practice, waiting }: { view: Extract<RailcarView, { phase: "result" }>; actions: RailcarActions; watch: RailcarWatch | null; practice: boolean; waiting: ReactNode }) {
   const places = view.rows.filter((r) => r.kind === "place");
   const rest = view.rows.filter((r) => r.kind !== "place");
   const mine = view.mine;
@@ -400,6 +403,7 @@ function RailcarResult({ view, actions, watch, practice }: { view: Extract<Railc
             )}
           </p>
         )}
+        {mine && !practice && waiting}
         {mine?.backer && (
           <p className="rc-res-backer">
             <PlayerName account={mine.backer.account} /> gets <GemaAmount value={g(mine.backer.gets)} size="sm" />

@@ -1,4 +1,3 @@
-import { getAuthToken } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { Connection, type PublicKey } from "@solana/web3.js";
 import { browserStore } from "../storage";
 import { GAME_SERVER_DOWN } from "../errors";
@@ -39,9 +38,50 @@ const FAIL_BASE_MS = 5_000;
 const FAIL_MAX_MS = 60_000;
 const STORE_PREFIX = "tesoro:tee-token:v1:";
 
-const BANNED = /-32005|temporarily banned/i;
+/**
+ * The SDK's getAuthToken throws `Failed to authenticate: ${json.error}`, and a ban answers `error` with a JSON-RPC object
+ * ({code:-32005,...}), which stringifies to "[object Object]": the code is lost. So we log in ourselves and keep the body.
+ * "[object Object]" is still read as a ban, the safe reading of an error whose cause was thrown away.
+ */
+const BANNED = /-32005|temporarily banned|\[object Object\]/i;
 const RATE_LIMITED = /\b429\b|too many requests|rate.?limit/i;
 const CANCELLED = /user rejected|rejected the request|user denied|cancelled|canceled/i;
+
+/** A failed login that keeps what the server answered, so a ban is recognised by its code, not by luck. */
+export class TeeLoginError extends Error {
+  override name = "TeeLoginError";
+  constructor(readonly step: "challenge" | "login", readonly status: number, readonly body: string) {
+    super(`Failed to ${step === "login" ? "authenticate" : "get challenge"} (HTTP ${status}): ${body.slice(0, 300)}`);
+  }
+}
+
+/** The SDK's login flow (challenge, sign, login) with the server's answer kept in the error. */
+export async function teeLogin(rpc: string, publicKey: PublicKey, sign: (m: Uint8Array) => Promise<Uint8Array>): Promise<TeeToken> {
+  const bs58 = (await import("bs58")).default;
+  const readJson = async (res: Response, step: "challenge" | "login") => {
+    const text = await res.text().catch(() => "");
+    if (res.status !== 200) throw new TeeLoginError(step, res.status, text);
+    try {
+      return JSON.parse(text) as { challenge?: unknown; token?: unknown; expiresAt?: unknown; error?: unknown };
+    } catch {
+      throw new TeeLoginError(step, res.status, text);
+    }
+  };
+  const pubkey = publicKey.toString();
+  const c = await readJson(await fetch(`${rpc}/auth/challenge?${new URLSearchParams({ pubkey })}`), "challenge");
+  if (typeof c.challenge !== "string" || !c.challenge) throw new TeeLoginError("challenge", 200, JSON.stringify(c));
+  const signature = bs58.encode(await sign(new TextEncoder().encode(c.challenge)));
+  const a = await readJson(
+    await fetch(`${rpc}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pubkey, challenge: c.challenge, signature }),
+    }),
+    "login",
+  );
+  if (typeof a.token !== "string" || !a.token) throw new TeeLoginError("login", 200, "No token received");
+  return { token: a.token, expiresAt: typeof a.expiresAt === "number" ? a.expiresAt : Date.now() + 30 * 24 * 3600_000 };
+}
 
 type Cooldown = { until: number; failures: number };
 const cooldowns = new Map<string, Cooldown>();
@@ -137,7 +177,7 @@ export async function teeToken(
   const inflight = logins.get(key);
   if (inflight) return inflight;
   assertOpen(rpc);
-  const login = deps.login ?? ((r, p, s) => getAuthToken(r, p, s));
+  const login = deps.login ?? (teeLogin);
   const run = (async () => {
     for (let i = 0; ; i++) {
       try {
@@ -152,6 +192,7 @@ export async function teeToken(
         return t;
       } catch (e) {
         const text = e instanceof Error ? e.message : String(e);
+        if (e instanceof TeeLoginError && e.status === 429) throw pause(rpc, "rate");
         if (CANCELLED.test(text) || (e as { code?: number })?.code === 4001) throw e;
         if (BANNED.test(text)) throw pause(rpc, "ban");
         if (RATE_LIMITED.test(text)) throw pause(rpc, "rate");

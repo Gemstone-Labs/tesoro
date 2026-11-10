@@ -97,6 +97,8 @@
 .rc-res-title { margin: 0; font: 800 40px / 1 var(--f-display); letter-spacing: 0.03em; text-transform: uppercase; }
 .rc-res-gets { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 4px 0 0; color: var(--em); font: 800 28px / 1.1 var(--f-display); }
 .rc-res-gets.lost { color: var(--danger); }
+.rc-res-head .mr-waiting { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 6px; }
+.rc-res-head .mr-waiting .note { margin: 0; font-size: var(--fs-15); color: var(--fg); }
 .rc-res-would { display: inline-flex; align-items: center; gap: 4px; margin: 4px 0 0; color: var(--fg-2); font: 700 var(--fs-14) / 1.2 var(--f-body); }
 .rc-res-game .game-tag { margin-left: 8px; vertical-align: middle; }
 .rc-friend { display: grid; place-items: center; width: 34px; height: 34px; background: var(--surface); color: var(--fg); border: 0; cursor: pointer; }
@@ -172,6 +174,13 @@
 .rc-dmg-screws i { position: absolute; top: 55%; width: 1.1%; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #e8eef2, #7d8a93 70%); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5); translate: -50% -60%; rotate: 20deg; animation: rc-screw 0.45s cubic-bezier(0.2, 0.9, 0.3, 1) both; }
 .rc-dmg-screws i:nth-child(even) { translate: -50% -110%; rotate: -35deg; }
 @keyframes rc-screw { from { translate: -50% 0; opacity: 0; scale: 0.4; } 60% { opacity: 1; scale: 1.4; } }
+.rc-bolt { position: absolute; width: 6.4%; height: auto; translate: -50% -50%; pointer-events: none; z-index: 3; animation: rc-bolt 1s linear var(--d, 0s) both; }
+@keyframes rc-bolt {
+  0% { transform: translate(0, 0) rotate(0); opacity: 1; }
+  18% { transform: translate(calc(var(--dx) * 0.12), -130%) rotate(calc(var(--rot) * 0.2)); opacity: 1; }
+  60% { transform: translate(calc(var(--dx) * 0.5), calc(var(--dy) * 0.25)) rotate(calc(var(--rot) * 0.6)); opacity: 1; }
+  100% { transform: translate(var(--dx), var(--dy)) rotate(var(--rot)); opacity: 0; }
+}
 .rc-dmg-panel b { position: absolute; background: linear-gradient(180deg, #5e7b8a, #2b4350); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 6px 8px rgba(0, 0, 0, 0.45); transform-origin: 0 0; rotate: 16deg; animation: rc-panel 1.3s ease-in-out infinite alternate; clip-path: polygon(0 0, 100% 6%, 96% 100%, 4% 92%); }
 @keyframes rc-panel { from { rotate: 11deg; } to { rotate: 20deg; } }
 .rc-dmg-sparks i { position: absolute; width: 1.5%; aspect-ratio: 1; border-radius: 50%; background: #fff3c4; box-shadow: 0 0 8px 3px #ff9a2f, 0 0 2px 1px #ffd470; translate: -50% 0; animation: rc-spark 0.6s ease-out infinite; }
@@ -181,19 +190,27 @@
 @keyframes rc-spark { from { opacity: 1; transform: translate(0, 0) scale(1); } to { opacity: 0; transform: translate(var(--dx, -10px), 22px) scale(0.3); } }
 
 /* ——— The crash: the car stops against the wall, the stage shakes, a flash and debris, then the Result ——— */
-.rc-stage.crash { animation: rc-shake 0.5s linear 2 both; }
+.rc-stage.crash { animation: rc-shake 0.5s linear 0.3s 2 both; }
+/* The wall rushes in from the right for 0.3 s while the car slides left to meet it; the contact (0.3 s) starts the flash, the shake and the cracked wall. The hold is 1.3 s (CRASH_MS). */
+.rc-stage.crash .rc-car { animation: rc-car-slide 0.3s cubic-bezier(0.3, 0, 0.2, 1) both; }
+@keyframes rc-car-slide { from { transform: translateX(0); } to { transform: translateX(-22%); } }
+.rc-wall { position: absolute; z-index: 0; height: var(--rc-stage-h); aspect-ratio: 4 / 3; bottom: calc(var(--rc-stage-h) * -0.19); left: calc(97.5% - var(--rc-stage-h) * 0.1467); pointer-events: none; animation: rc-wall-in 0.3s cubic-bezier(0.3, 0, 0.2, 1) both; }
+@keyframes rc-wall-in { from { translate: calc(var(--rc-stage-h) * 1.1) 0; } to { translate: 0 0; } }
+.rc-wall img { position: absolute; inset: 0; width: 100%; height: 100%; user-select: none; }
+.rc-wall-intact { animation: rc-wall-off 1.3s linear both; }
+.rc-wall-hit { opacity: 0; animation: rc-wall-on 1.3s linear both; }
+@keyframes rc-wall-off { 0%, 22.9% { opacity: 1; } 23%, 100% { opacity: 0; } }
+@keyframes rc-wall-on { 0%, 22.9% { opacity: 0; } 23%, 100% { opacity: 1; } }
 @keyframes rc-shake { 0%, 100% { translate: 0 0; } 15% { translate: -7px 3px; } 30% { translate: 6px -4px; } 45% { translate: -5px -2px; } 60% { translate: 4px 3px; } 80% { translate: -2px 1px; } }
 .rc-crash { position: absolute; inset: 0; z-index: 5; pointer-events: none; }
 .rc-crash-frame { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; }
-.rc-crash-frame.f1 { animation: rc-f1 1s linear both; }
-.rc-crash-frame.f2 { animation: rc-f2 1s linear both; }
-.rc-crash-frame.f3 { animation: rc-f3 1s linear both; }
-@keyframes rc-f1 { 0% { opacity: 1; } 28% { opacity: 1; } 29%, 100% { opacity: 0; } }
-@keyframes rc-f2 { 0%, 28% { opacity: 0; } 29% { opacity: 1; } 62% { opacity: 1; } 63%, 100% { opacity: 0; } }
-@keyframes rc-f3 { 0%, 62% { opacity: 0; } 63% { opacity: 1; } 100% { opacity: 1; } }
-.rc-crash-flash { position: absolute; inset: 0; background: radial-gradient(60% 70% at 78% 55%, #fff 0%, rgba(255, 220, 160, 0.85) 35%, rgba(255, 140, 60, 0) 75%); animation: rc-flash 1s ease-out both; }
+.rc-crash-frame.f1 { animation: rc-f1 1.3s linear both; }
+.rc-crash-frame.f2 { animation: rc-f2 1.3s linear both; }
+@keyframes rc-f1 { 0%, 22.9% { opacity: 0; } 23%, 45% { opacity: 1; } 46%, 100% { opacity: 0; } }
+@keyframes rc-f2 { 0%, 45% { opacity: 0; } 46%, 100% { opacity: 1; } }
+.rc-crash-flash { position: absolute; inset: 0; background: radial-gradient(60% 70% at 78% 55%, #fff 0%, rgba(255, 220, 160, 0.85) 35%, rgba(255, 140, 60, 0) 75%); animation: rc-flash 1s ease-out 0.3s both; }
 @keyframes rc-flash { 0% { opacity: 0; } 12% { opacity: 1; } 100% { opacity: 0; } }
-.rc-crash-bit { position: absolute; left: 76%; top: 52%; width: 7px; height: 7px; background: #cfe3ee; clip-path: polygon(0 0, 100% 20%, 60% 100%); animation: rc-bit 0.9s cubic-bezier(0.1, 0.7, 0.4, 1) both; animation-delay: calc(var(--k) * 15ms); --a: calc(var(--k) * 51deg); }
+.rc-crash-bit { position: absolute; left: 76%; top: 52%; width: 7px; height: 7px; background: #cfe3ee; clip-path: polygon(0 0, 100% 20%, 60% 100%); animation: rc-bit 0.9s cubic-bezier(0.1, 0.7, 0.4, 1) both; animation-delay: calc(0.3s + var(--k) * 15ms); --a: calc(var(--k) * 51deg); }
 @keyframes rc-bit { from { transform: translate(0, 0) rotate(0); opacity: 1; } to { transform: translate(calc(cos(var(--a)) * 120px - 40px), calc(sin(var(--a)) * 80px + 60px)) rotate(540deg); opacity: 0; } }
 
 @media (prefers-reduced-motion: reduce) {
@@ -201,10 +218,16 @@
   .rc-tell { transition: none; }
   .rc-dmg i, .rc-dmg b { animation: none; }
   .rc-stage.crash { animation: none; }
+  .rc-stage.crash .rc-car { animation: none; transform: translateX(-22%); }
+  .rc-wall { animation: rc-rfade 0.45s ease-out both; translate: 0 0; }
+  .rc-wall-intact { display: none; }
+  .rc-wall-hit { opacity: 1; animation: none; }
   .rc-crash-bit { display: none; }
   .rc-dmg-art { animation: none; }
+  .rc-bolt { display: none; }
   .rc-crash-frame:not(.mid) { display: none; }
-  .rc-crash-frame.mid { animation: rc-fade 0.45s ease-out both; }
+  .rc-crash-frame.mid { animation: rc-rfade 0.45s ease-out both; }
   .rc-crash-flash { animation: rc-fade 0.45s ease-out both; }
+  @keyframes rc-rfade { 0% { opacity: 0; } 30%, 70% { opacity: 1; } 100% { opacity: 0; } }
   @keyframes rc-fade { 0% { opacity: 0; } 40% { opacity: 0.7; } 100% { opacity: 0; } }
 }

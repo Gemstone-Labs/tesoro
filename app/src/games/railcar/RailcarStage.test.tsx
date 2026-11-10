@@ -2,8 +2,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { PLAYERS, boardingCountdown, riding } from "./fixtures";
-import { CarDamage, CRASH_ART, CrashMoment, DAMAGE_ART, DAMAGE_STAGES, MY_WINDOW, RailcarStage, windowRiders } from "./RailcarStage";
+import { PLAYERS, boardingCountdown, riding, rideShow } from "./fixtures";
+import { CRASH_MS } from "./crash";
+import { BOLT_ART, BoltPop, boltsDue, CarDamage, CRASH_ART, CrashMoment, CrashWall, DAMAGE_ART, DAMAGE_STAGES, MY_WINDOW, RailcarStage, WALL_ART, windowRiders } from "./RailcarStage";
 import { RailcarScreen, TELLS } from "./RailcarScreen";
 import { art } from "@/lib/art";
 import type { Rider } from "./view";
@@ -87,11 +88,12 @@ describe("the crash", () => {
   it("the picked frames play in order over the car, and replace the basic flash", () => {
     const h = renderToStaticMarkup(<CrashMoment />);
     const frames = [...h.matchAll(/data-frame="(\d)" src="([^"]+)"/g)].map((m) => [m[1], m[2]]);
-    expect(frames.map((f) => f[0])).toEqual(["1", "2", "3"]);
+    expect(frames.map((f) => f[0])).toEqual(["1", "2"]);
     expect(frames.map((f) => f[1])).toEqual(CRASH_ART);
-    expect(CRASH_ART).toHaveLength(3);
+    expect(CRASH_ART).toHaveLength(2);
     expect(h).not.toContain("rc-crash-flash");
     expect(h).toMatch(/rc-crash-frame f2 mid/);
+    expect(h).not.toContain("rc-crash-frame f3");
     expect(renderToStaticMarkup(<CrashMoment art={[]} />)).toContain("rc-crash-flash");
   });
 
@@ -102,15 +104,78 @@ describe("the crash", () => {
   });
 });
 
+describe("the wall", () => {
+  const css = readFileSync(new URL("./railcar.css", import.meta.url), "utf8");
+
+  it("does not exist before the Impact; it enters with the crash, behind the car", () => {
+    for (const h of [renderToStaticMarkup(<RailcarStage aboard={[]} moving tell={3} />), renderToStaticMarkup(<RailcarScreen view={riding()} />), renderToStaticMarkup(<RailcarScreen view={boardingCountdown()} />)]) {
+      expect(h).not.toContain("rc-wall");
+      expect(h).not.toContain("wall-v1");
+      expect(h).not.toContain("wall-impact");
+    }
+    const h = renderToStaticMarkup(<RailcarStage aboard={[]} moving={false} crash />);
+    expect(h).toContain('data-testid="rc-wall"');
+    expect(h.indexOf("rc-wall")).toBeLessThan(h.indexOf("rc-car-art"));
+  });
+
+  it("has the intact sprite and the cracked one (new file names, both exist)", () => {
+    const h = renderToStaticMarkup(<CrashWall />);
+    expect(h).toMatch(/rc-wall-intact" src="\/art\/final\/railcar\/wall-v1\.webp/);
+    expect(h).toMatch(/rc-wall-hit" src="\/art\/final\/railcar\/wall-impact-v1\.webp/);
+    for (const url of Object.values(WALL_ART)) expect(existsSync(join(process.cwd(), "public", url)), url).toBe(true);
+  });
+
+  it("two rides with different crash points show the same screen until the earlier Impact", () => {
+    const early = (ms: number) => renderToStaticMarkup(<RailcarScreen view={rideShow(ms, 2, [], PLAYERS[0], { crashMs: 70_000 })} />);
+    const late = (ms: number) => renderToStaticMarkup(<RailcarScreen view={rideShow(ms, 2, [], PLAYERS[0], { crashMs: 118_000 })} />);
+    for (const ms of [1_000, 30_000, 60_000, 69_000]) expect(early(ms)).toBe(late(ms));
+    expect(early(60_000)).not.toContain("rc-wall");
+  });
+
+  it("the CSS: the wall rushes in 0.3 s while the car slides, the contact swaps the sprite, the hold is CRASH_MS, reduced motion has no rush", () => {
+    expect(css).toMatch(/\.rc-wall \{[^}]*animation: rc-wall-in 0\.3s /);
+    expect(css).toMatch(/\.rc-stage\.crash \.rc-car \{ animation: rc-car-slide 0\.3s /);
+    expect(css).toMatch(new RegExp(`\\.rc-wall-hit \\{[^}]*animation: rc-wall-on ${CRASH_MS / 1000}s `));
+    expect(css).toMatch(new RegExp(`\\.rc-crash-frame\\.f2 \\{ animation: rc-f2 ${CRASH_MS / 1000}s `));
+    expect(css).toMatch(/prefers-reduced-motion[^]*\.rc-stage\.crash \.rc-car \{ animation: none; transform: translateX/);
+  });
+});
+
+describe("the Screws bolts", () => {
+  it("round 4's S-a overlay is the Screws damage, under a new file name (the image cache keeps old names)", () => {
+    expect(DAMAGE_ART.screws).toBe("/art/final/railcar/damage-screws-v2.webp");
+  });
+
+  it("three bolts pop off the car, with the small sprites", () => {
+    const h = renderToStaticMarkup(<BoltPop />);
+    expect(h.match(/data-testid="rc-bolt"/g)).toHaveLength(3);
+    for (const src of BOLT_ART) expect(h).toContain(src);
+  });
+
+  it("they pop when the Screws Tell fires while watching; not on a page that opens past it, not under reduced motion", () => {
+    expect(boltsDue(0, 1, false)).toBe(true);
+    expect(boltsDue(1, 2, false)).toBe(false);
+    expect(boltsDue(1, 1, false)).toBe(false);
+    expect(boltsDue(0, 1, true)).toBe(false);
+    expect(renderToStaticMarkup(<RailcarStage aboard={[]} moving tell={1} />)).not.toContain("rc-bolt");
+  });
+
+  it("the CSS tumbles them back and down over about a second, and hides them under reduced motion", () => {
+    const css = readFileSync(new URL("./railcar.css", import.meta.url), "utf8");
+    expect(css).toMatch(/\.rc-bolt \{[^}]*animation: rc-bolt 1s /);
+    expect(css).toMatch(/prefers-reduced-motion[^]*\.rc-bolt \{ display: none; \}/);
+  });
+});
+
 describe("the picked art is wired", () => {
   it("every Tell stage has its overlay, and every file exists", () => {
-    for (const stage of DAMAGE_STAGES) expect(DAMAGE_ART[stage]).toMatch(new RegExp(`damage-${stage}\\.webp$`));
-    for (const url of [...Object.values(DAMAGE_ART), ...CRASH_ART, "/art/final/railcar/tile-v2.webp", ...TELLS.map((t) => t.art)]) expect(existsSync(join(process.cwd(), "public", url!)), url).toBe(true);
+    for (const stage of DAMAGE_STAGES) expect(DAMAGE_ART[stage]).toMatch(new RegExp(`damage-${stage}(-v2)?\\.webp$`));
+    for (const url of [...Object.values(DAMAGE_ART), ...CRASH_ART, ...BOLT_ART, ...Object.values(WALL_ART), "/art/final/railcar/tile-v2.webp", ...TELLS.map((t) => t.art)]) expect(existsSync(join(process.cwd(), "public", url!)), url).toBe(true);
   });
 
   it("each fired Tell adds its overlay and they stack; the sparks sit behind the wheels", () => {
     const h = renderToStaticMarkup(<RailcarStage aboard={[]} moving tell={3} />);
-    for (const s of DAMAGE_STAGES) expect(h).toContain(`damage-${s}.webp`);
+    for (const s of DAMAGE_STAGES) expect(h).toMatch(new RegExp(`damage-${s}(-v2)?\\.webp`));
     const at = (cls: string) => h.indexOf(`class="${cls}`);
     expect(at("rc-dmg rc-dmg-art rc-dmg-sparks")).toBeLessThan(at("rc-wheel"));
     expect(at("rc-dmg rc-dmg-art rc-dmg-screws")).toBeGreaterThan(at("rc-wheel"));

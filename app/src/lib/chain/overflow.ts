@@ -82,7 +82,12 @@ export const waitingGemas = (records: readonly Pick<WaitingRecord, "gemas">[]): 
 /** The records that hold Gemas of one Match (`<opener>-<n>`): what its Result says is waiting for room. */
 export function waitingForMatch(records: readonly WaitingRecord[], matchKey: string): WaitingRecord[] {
   const at = matchAddressOf(matchKey);
-  return at ? records.filter((r) => r.gemas > 0n && r.match?.equals(at)) : [];
+  return at ? waitingForMatchAt(records, at) : [];
+}
+
+/** The same for a Match named by its address (a many-seat car, which has no `<opener>-<n>` key in hand). */
+export function waitingForMatchAt(records: readonly WaitingRecord[], at: PublicKey): WaitingRecord[] {
+  return records.filter((r) => r.gemas > 0n && r.match?.equals(at));
 }
 
 /**

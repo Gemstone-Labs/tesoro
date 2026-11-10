@@ -184,3 +184,10 @@ export function storedWorkedRide(o: { brake?: boolean; tamper?: boolean } = {}):
     },
   };
 }
+
+/** A ride for the Showcase: 40 aboard, the ride clock at `clockMs`, `tell` stages fired, and the seats in `jumped` already off (never the Player's seat 0). */
+export function rideShow(clockMs: number, tell: number, jumped: readonly number[] = [], me: PublicKey = PLAYERS[0], o: { crashMs?: number } = {}): RailcarView {
+  const n = 40;
+  const seatsT = Array.from({ length: n }, (_, i) => (jumped.includes(i) ? rideSeat(i, jumped.indexOf(i) + 1, 20_000 + i * 1_000) : rideSeat(i)));
+  return view(me, coreCar({ stage: "departed", seated: n, pages: 4 }), n, table(n, { tell, aboard: n - jumped.length, jumps: jumped.length, seats: seatsT, rideTs: T0 + 60, ...(o.crashMs ? { revealed: true, revealDraw: drawWithCrash(o.crashMs), overMs: o.crashMs } : {}) }), T0 + 60 + clockMs / 1000);
+}
