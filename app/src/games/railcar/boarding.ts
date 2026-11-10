@@ -34,3 +34,25 @@ export async function backerSeatedIn(read: Reader, car: PublicKey, backer: Publi
   return !!mark;
 }
 
+
+/**
+ * Errors a board gets when it was built from a snapshot another rider's transaction has since changed: `open_car` names the car
+ * address from the config's next number (Anchor ConstraintSeeds, 0x7d6) and the boarding car (CarBoarding, 0x1775), and a join
+ * names a seat page. None of them sends anything, so the board can be built again from fresh state.
+ */
+export const isStaleBoard = (e: unknown): boolean => e instanceof Error && /0x7d6|0x1775|ConstraintSeeds|A car is still boarding/i.test(e.message);
+
+const BOARD_ATTEMPTS = 3;
+
+/** Runs a board, building it again from fresh state (the attempt reads the chain itself) when only a stale snapshot failed it. */
+export async function boardWithRetry(attempt: () => Promise<void>, o: { waitMs?: (n: number) => number } = {}): Promise<void> {
+  const waitMs = o.waitMs ?? ((n: number) => 700 * n);
+  for (let n = 1; ; n++) {
+    try {
+      return await attempt();
+    } catch (e) {
+      if (n >= BOARD_ATTEMPTS || !isStaleBoard(e)) throw e;
+      await new Promise((r) => setTimeout(r, waitMs(n)));
+    }
+  }
+}
