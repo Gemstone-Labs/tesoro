@@ -218,7 +218,7 @@ describe("ban detection with the real error shapes", () => {
     });
     const d = deps(login);
     const p = teeToken(RPC, pk, sign, d).catch((e) => e);
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(3_500);
     expect(await p).toBeInstanceOf(TeeUnreachableError);
     expect(login).toHaveBeenCalledTimes(3);
     for (let i = 0; i < 20; i++) await teeToken(RPC, pk, sign, d).catch(() => {});
