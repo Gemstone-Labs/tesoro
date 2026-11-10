@@ -9,8 +9,8 @@ import type { RailcarView } from "./view";
 
 type RideView = Extract<RailcarView, { phase: "ride" }>;
 
-/** How long the impact shows before the Result (about a second). Reduced motion gets a shorter fade. */
-export const CRASH_MS = 1000;
+/** How long the impact shows before the Result: the wall rushes in for 0.3 s, then flash, crumpled front and shake. Reduced motion gets a shorter fade. */
+export const CRASH_MS = 1300;
 export const CRASH_REDUCED_MS = 450;
 
 /** The ride screen to keep showing while the Result waits: the ride just left, or the one already held; null when none. */

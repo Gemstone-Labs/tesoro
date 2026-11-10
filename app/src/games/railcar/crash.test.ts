@@ -20,9 +20,9 @@ describe("the crash moment before the Result", () => {
     expect(crashHold(riding(), riding(), null)).toBeNull();
   });
 
-  it("lasts about a second, and less with reduced motion", () => {
-    expect(CRASH_MS).toBeGreaterThanOrEqual(800);
-    expect(CRASH_MS).toBeLessThanOrEqual(1200);
+  it("lasts 1 to 1.3 s (the wall rushes in 0.3 s, then the impact), and less with reduced motion", () => {
+    expect(CRASH_MS).toBeGreaterThanOrEqual(1000);
+    expect(CRASH_MS).toBeLessThanOrEqual(1300);
     expect(CRASH_REDUCED_MS).toBeLessThan(CRASH_MS);
   });
 });
