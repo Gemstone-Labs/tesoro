@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { CarView, SeatView } from "../../lib/chain/many-seat";
 import type { RideSeatView, TableView } from "./chain";
 import { planPayout } from "./payout";
-import { railcarView } from "./view";
+import { DELAYED_AFTER_SECS, railcarView } from "./view";
 
 const key = () => Keypair.generate().publicKey;
 const [ana, ben, cy, dee, eve] = [key(), key(), key(), key(), key()];
@@ -83,6 +83,22 @@ describe("one screen from boarding to the result", () => {
     expect(v.clockMs).toBe(0);
     expect(v.stake).toBe(2_500n);
     expect(v.aboard).toHaveLength(5);
+  });
+
+  it("a car that left 2 minutes ago with no ride yet is Delayed: entries refund from the chain's refund time", () => {
+    const core = coreCar({ stage: "departed", departedAt: T0, refundAfter: T0 + 86_400 });
+    const at = (secs: number, t: TableView | null = null) => railcarView({ me: ana.toBase58(), core, seats, table: t, fees: FEES, nowMs: (T0 + secs) * 1000 });
+    const delayed = (v: ReturnType<typeof railcarView>) => (v.phase === "ride" ? v.delayed : "not a ride");
+    expect(delayed(at(DELAYED_AFTER_SECS - 1))).toBeNull();
+    expect(delayed(at(DELAYED_AFTER_SECS))).toEqual({ refundAt: T0 + 86_400, refundOpen: false });
+    expect(delayed(at(DELAYED_AFTER_SECS, table({ phase: "drawing", rideTs: 0 })))).toEqual({ refundAt: T0 + 86_400, refundOpen: false });
+    expect(delayed(at(86_400))).toEqual({ refundAt: T0 + 86_400, refundOpen: true });
+    expect(delayed(at(DELAYED_AFTER_SECS + 5, table({ rideTs: T0 + 125 })))).toBeNull();
+  });
+
+  it("a departed car without its departure time (older records) is never called Delayed", () => {
+    const v = railcarView({ me: null, core: coreCar({ stage: "departed" }), seats, table: null, fees: FEES, nowMs: (T0 + 86_400) * 1000 });
+    expect(v.phase === "ride" && v.delayed).toBeNull();
   });
 
   it("riding: the clock since the ride started, Tells, who is still aboard, and what I got back after my Jump", () => {
