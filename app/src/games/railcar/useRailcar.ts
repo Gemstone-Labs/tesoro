@@ -31,7 +31,7 @@ import { countingFor } from "@/lib/seat/signature-counter";
 import { browserStore } from "@/lib/storage";
 import { bindTargets, brakeState, earlyCopyDue, pageSend, tellCues, type EarlyCopy } from "./brake";
 import { ENTRY_GEMAS, RAILCAR_PROGRAM_ID, bindBrakeIx, brakeSeatPda, carPda, checkDepartureIx, commitTableIx, configPda, decodeBrakeSeat, decodeCarAccount, decodeConfig, decodeTable, jumpIx, openCarIx, signalIx, startRideIx, tablePda, tickIx, type BrakeSeatView, type RailcarConfigView, type TableView } from "./chain";
-import { backerSeatedIn, boardingEntry, type BoardingBacking } from "./boarding";
+import { backerSeatedIn, boardWithRetry, boardingEntry, type BoardingBacking } from "./boarding";
 import { stepOffFor } from "./step-off";
 import { sendStepOff } from "./step-off-send";
 import { finishRide } from "./finish";
@@ -616,7 +616,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
 
   const board = useCallback(
     () =>
-      act("board", async () => {
+      act("board", () => boardWithRetry(async () => {
         if (!wallet || !me || !meKey) throw new Error("Sign in to board.");
         const chain = getChain();
         const s = await refresh();
@@ -664,7 +664,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
         const carNo = choice.carNo;
         remember(meKey, { carNo: carNo.toString(), table: Number(carNo % BigInt(s.config.tables)), match: match.toBase58(), matchKey: key, ...(backing && offer ? { backing: { backer: offer.backer, shareBps: offer.shareBps } } : {}) });
         setSeat(seatKey);
-      }),
+      })),
     [act, wallet, me, meKey, getToken, refresh, backing, offer, offerAddress, offerProblem],
   );
 
