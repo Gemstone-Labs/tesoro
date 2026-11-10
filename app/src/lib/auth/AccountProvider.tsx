@@ -1,5 +1,6 @@
 "use client";
 
+import { clearTeeTokens } from "@/lib/chain/tee-auth";
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { PrivyProvider, getIdentityToken, useCreateWallet, useLogin, usePrivy, useWallets, type ConnectedWallet, type PrivyClientConfig } from "@privy-io/react-auth";
 import { createWalletClient, custom, type Address } from "viem";
@@ -264,7 +265,10 @@ function PrivyBridge({ children }: { children: ReactNode }) {
       email: user?.email?.address ?? null,
       addresses: { solana, evm },
       linked,
-      signOut: logout,
+      signOut: async () => {
+        clearTeeTokens();
+        await logout();
+      },
       linkWallet: (family) => linkWallet({ walletChainType: family === "solana" ? "solana-only" : "ethereum-only" }),
       gate,
       openSignIn: (why) => {
