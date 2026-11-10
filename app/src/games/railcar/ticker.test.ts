@@ -128,8 +128,9 @@ describe("RideTicker", () => {
     const p = page();
     new RideTicker(io, p.opts);
     await vi.advanceTimersByTimeAsync(20_000);
-    // beats 0-2 land, beat 3 (3 000 ms) is refused and seen at ~3 400 ms: nothing after it
-    expect(sent.length).toBe(4);
+    // beats 0-2 land, beat 3 (3 000 ms) is refused; statuses are asked for every ~1.2 s, so beat 4 (4 000 ms) goes out before the
+    // refusal is seen (a harmless refused send), and nothing after it
+    expect(sent.length).toBe(5);
     expect(p.state.ended).toBe(1);
   });
 
@@ -151,8 +152,9 @@ describe("RideTicker", () => {
     p.state.brake = true;
     await vi.advanceTimersByTimeAsync(5_550);
     t.stop();
-    // pressed at 2.5 s: beat 3 (3 s) carries it and fails, beats 4 and 5 carry it, beat 4 lands at ~5.9 s; beats 6-8 carry nothing
-    expect(sent.map((s) => s.brake)).toEqual([false, false, false, true, true, true, false, false, false]);
+    // pressed at 2.5 s: beat 3 (3 s) carries it and fails, beats 4, 5 and 6 carry it (the landing of beat 4 is seen at the next
+    // status poll, ~1.2 s later); beats 7 and 8 carry nothing
+    expect(sent.map((s) => s.brake)).toEqual([false, false, false, true, true, true, true, false, false]);
     expect(p.state.landedBrakes).toBe(1);
   });
 
