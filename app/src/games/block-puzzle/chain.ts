@@ -17,7 +17,7 @@ import {
   Transaction,
   type TransactionInstruction,
 } from "@solana/web3.js";
-import { hasTeeConnection, openTeeConnection } from "@/lib/chain/tee-auth";
+import { hasTeeConnection, openTeeConnection } from "../../lib/chain/tee-auth";
 import nacl from "tweetnacl";
 import { MAGICBLOCK } from "../../lib/cluster-settings";
 import { TxFailedError, TxUnconfirmedError, txOutcome, type TxOutcome } from "./tx";

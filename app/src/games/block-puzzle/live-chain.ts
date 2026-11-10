@@ -21,7 +21,7 @@
  * Privacy: `readOwnBoard` works only for the Player's own Board; every other read of a hidden account returns `null`
  * (indistinguishable from "does not exist"), never an RPC error. The Vault is not readable by anyone.
  */
-import { openTeeConnection } from "@/lib/chain/tee-auth";
+import { openTeeConnection } from "../../lib/chain/tee-auth";
 import { settledPda } from "../../lib/chain/basket";
 import { u64 } from "../../lib/chain/native";
 import * as anchor from "@coral-xyz/anchor";

@@ -13,7 +13,7 @@
  *
  * Shares the Player signer, payout maths and tesoro_core PDAs with the Hold'em client.
  */
-import { openTeeConnection } from "@/lib/chain/tee-auth";
+import { openTeeConnection } from "../../lib/chain/tee-auth";
 import type { TradingDuel } from "../../lib/chain/idl/trading_duel.types";
 import * as anchor from "@coral-xyz/anchor";
 import { ComputeBudgetProgram, Connection, Keypair, PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";

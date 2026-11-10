@@ -12,7 +12,7 @@
  * Privacy: the Battle is readable by everyone, an Army only by its own Player. A read of an account the connection may not
  * see returns `null`, indistinguishable from "does not exist".
  */
-import { openTeeConnection } from "@/lib/chain/tee-auth";
+import { openTeeConnection } from "../../lib/chain/tee-auth";
 import type { Vanguard } from "../../lib/chain/idl/vanguard.types";
 import * as anchor from "@coral-xyz/anchor";
 import { ComputeBudgetProgram, Connection, Keypair, PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";

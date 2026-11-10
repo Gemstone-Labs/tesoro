@@ -20,7 +20,7 @@
  * Privacy: `readOwnHole` works only for the Player's own Hole account; every other read of a
  * hidden account returns `null` (indistinguishable from "does not exist"), never an RPC error.
  */
-import { openTeeConnection } from "@/lib/chain/tee-auth";
+import { openTeeConnection } from "../../lib/chain/tee-auth";
 import type { Holdem } from "../../lib/chain/idl/holdem.types";
 import { settledPda } from "../../lib/chain/basket";
 import { u64 } from "../../lib/chain/native";
