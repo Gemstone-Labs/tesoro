@@ -97,6 +97,8 @@
 .rc-res-title { margin: 0; font: 800 40px / 1 var(--f-display); letter-spacing: 0.03em; text-transform: uppercase; }
 .rc-res-gets { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 4px 0 0; color: var(--em); font: 800 28px / 1.1 var(--f-display); }
 .rc-res-gets.lost { color: var(--danger); }
+.rc-res-head .mr-waiting { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 6px; }
+.rc-res-head .mr-waiting .note { margin: 0; font-size: var(--fs-15); color: var(--fg); }
 .rc-res-would { display: inline-flex; align-items: center; gap: 4px; margin: 4px 0 0; color: var(--fg-2); font: 700 var(--fs-14) / 1.2 var(--f-body); }
 .rc-res-game .game-tag { margin-left: 8px; vertical-align: middle; }
 .rc-friend { display: grid; place-items: center; width: 34px; height: 34px; background: var(--surface); color: var(--fg); border: 0; cursor: pointer; }

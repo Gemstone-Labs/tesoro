@@ -641,7 +641,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   const blocked = offerProblem ? new BackingError(offerProblem).message : snap?.backerSeated ? "Your Backer is in this car: board the next one" : null;
   const shownOffer: RailcarOffer | null = offer ? { backer: offer.backer, sharePct: offer.shareBps / 100, ...(blocked ? { blocked } : {}) } : null;
   const missing = offerAddress && offer === null ? new BackingError("missing").message : null;
-  return { view, busy, error: error ?? missing, signedIn: !!wallet, watch, offer: shownOffer, offerSpent: offer?.status === "consumed", board, stepOff, jump, brake, playAgain };
+  return { view, match: snap?.car?.match ?? null, busy, error: error ?? missing, signedIn: !!wallet, watch, offer: shownOffer, offerSpent: offer?.status === "consumed", board, stepOff, jump, brake, playAgain };
 }
 
 /** A share of the finish (finalize, room, chunks, closes) through the relayer, sized against the server's lookup tables. */

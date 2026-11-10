@@ -28,6 +28,7 @@ export function RailcarRoute() {
   return (
     <RailcarScreen
       view={r.view ?? EMPTY}
+      match={r.match}
       busy={r.busy}
       error={r.error}
       brake={r.brake}
