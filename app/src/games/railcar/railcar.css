@@ -34,7 +34,7 @@
 @keyframes rc-tell-pop { 50% { transform: scale(1.06); } }
 
 /* ——— The stage: cave layers, the car, windows, wheels, leaps ——— */
-.rc-stage-wrap { position: relative; margin-inline: -16px; }
+.rc-stage-wrap { position: relative; }
 .rc-stage { position: relative; height: var(--rc-stage-h); overflow: hidden; background: #04090c; border-block: 1px solid var(--line); --rc-far: 0px; --rc-mid: 0px; --rc-trk: 0px; --rc-wheel: 0deg; --rc-bob: 0px; }
 .rc-lay { position: absolute; inset-inline: 0; background-repeat: repeat-x; }
 .rc-far { inset-block: 0; background-size: auto 100%; background-position-x: var(--rc-far); }
@@ -69,9 +69,7 @@
 /* ——— Actions ——— */
 .rc-acts { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .rc-acts > .btn.block { flex: 1 1 200px; width: auto; }
-.rc-act-main { flex: 2 1 0; min-width: 160px; }
-.rc-act-side { flex: 1 1 0; min-width: 138px; }
-.rc-act-stepoff { flex: 1 1 100%; }
+.rc-act-main, .rc-act-side, .rc-act-stepoff { flex: 1 1 100%; }
 .rc-act-stepoff .btn, .rc-act-main .btn, .rc-act-side .btn { width: 100%; }
 .rc-act-stepoff .btn { flex-direction: column; gap: 0; min-height: 56px; }
 .rc-act-stepoff small { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-12); font-weight: 600; color: var(--fg-2); }
@@ -161,7 +159,6 @@
 @media (min-width: 1024px) {
   .rc-res-acts.practice { grid-template-columns: 3fr 2fr; }
   .rc { max-width: 640px; --rc-stage-h: clamp(150px, calc(100dvh - 490px), 300px); }
-  .rc-stage-wrap { margin-inline: 0; }
 }
 
 /* ——— The Tells on the train: each stays from the moment it fires. Art overlays (DAMAGE_ART) replace these basic visuals. ——— */
