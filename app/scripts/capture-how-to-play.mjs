@@ -805,19 +805,26 @@ const rcBox = (page, sel) => page.evaluate((q) => {
  * the header's entry chip out of frame, and the car views stop above the "You jumped ... back" card, which takes the Jump button's place.
  *  - clock: the clock, Tells and car (from the PRACTICE pill on desktop); for clips where nobody Jumps
  *  - tells: the Tells and the car, the clock above the frame on a phone
- *  - car: the car and the riders leaping from it, tight, so the Jump card below stays out of frame
+ *  - row: the car and the whole rider row, ending above the Jump card (for clips where you Jump)
  */
 const RC_VIEWS = {
   clock: async (page, set) => {
     const [tag, clock] = await Promise.all([rcBox(page, ".game-tag"), rcBox(page, ".rc-clock")]);
     return set === "phone" ? { x: 0, y: clock.t - 12, w: 390, h: 487.5 } : { x: 310, y: tag.t - 2, w: 820, h: 512.5 };
   },
-  tells: (page, set) => (set === "phone" ? RC_VIEWS.car(page, set) : RC_VIEWS.clock(page, set)),
-  car: async (page, set) => {
-    const [tells, car, acts] = await Promise.all([rcBox(page, ".rc-tells"), rcBox(page, ".rc-car"), rcBox(page, ".rc-acts")]);
-    const r = set === "phone" ? { x: 20, y: tells.t - 8, w: 350, h: 437.5 } : { x: 440, y: car.t - 60, w: 560, h: 350 };
-    if (r.y + r.h > acts.t) console.log(`  WARNING: the view reaches ${(r.y + r.h - acts.t).toFixed(0)} px into the Jump card`);
-    return r;
+  tells: (page, set) => (set === "phone" ? RC_VIEWS.row(page, set) : RC_VIEWS.clock(page, set)),
+  /**
+   * The Tells (phone) or the track (desktop) down to the end of the rider row, so "ABOARD N", the first avatar and the whole row are
+   * inside and the count can be read as riders jump. It ends in the 10 px gap above the Jump card.
+   */
+  row: async (page, set) => {
+    const [tells, stage, riders, acts] = await Promise.all([rcBox(page, ".rc-tells"), rcBox(page, ".rc-stage"), rcBox(page, ".rc-riders"), rcBox(page, ".rc-acts")]);
+    const top = set === "phone" ? tells.t - 6 : tells.b + 4;
+    const bottom = Math.min(riders.b + 4, acts.t - 2);
+    const h = bottom - top;
+    const w = h * (set === "phone" ? 0.8 : 1.6);
+    const x = Math.min(Math.max((stage.l + stage.r) / 2 - w / 2, 0), set === "phone" ? 390 - w : 1440 - w);
+    return { x, y: top, w, h };
   },
 };
 
@@ -1381,7 +1388,7 @@ const GAMES = {
       3: {
         route: RC_ROUTE,
         prep: rcPrep(9200),
-        camera: { keys: [{ rect: RC_VIEWS.car, sec: 0 }] },
+        camera: { keys: [{ rect: RC_VIEWS.row, sec: 0 }] },
         act: async (page, info) => {
           await rcStart(page);
           const m = marks(page, info);
@@ -1415,7 +1422,7 @@ const GAMES = {
       5: {
         route: RC_ROUTE,
         prep: rcPrep(28600),
-        camera: { keys: [{ rect: RC_VIEWS.car, sec: 0 }] },
+        camera: { keys: [{ rect: RC_VIEWS.row, sec: 0 }] },
         tail: 0,
         speed: 1.25, // the crash's flash and the fast background make this the heaviest clip: a little faster keeps each video under 300 KB
         act: async (page, info) => {
