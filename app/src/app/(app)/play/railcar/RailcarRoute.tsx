@@ -1,11 +1,13 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { HowToPlay } from "@/components/how-to-play";
 import { RailcarWaiting } from "@/games/railcar/RailcarWaiting";
 import { RailcarScreen } from "@/games/railcar/RailcarScreen";
 import { useRailcar } from "@/games/railcar/useRailcar";
 import { useAccount } from "@/lib/account";
+import { practiceHref } from "@/lib/game-params";
 import type { RailcarView } from "@/games/railcar/view";
 
 /** Before any car exists (or while the first read runs): an empty car to board. Boarding opens one. */
@@ -17,6 +19,7 @@ export function RailcarRoute() {
   const router = useRouter();
   const r = useRailcar(offer);
   const { auth } = useAccount();
+  const [how, setHow] = useState(false);
   // A used Offer stays on the seat it boarded; the page itself goes back to boarding with the Player's own Gemas.
   useEffect(() => {
     if (offer && r.offerSpent) router.replace("/play/railcar", { scroll: false });
@@ -27,15 +30,18 @@ export function RailcarRoute() {
     else void navigator.clipboard?.writeText(url).catch(() => undefined);
   };
   return (
-    <RailcarScreen
-      view={r.view ?? EMPTY}
-      waiting={<RailcarWaiting match={r.match} />}
-      busy={r.busy}
-      error={r.error}
-      brake={r.brake}
-      offer={r.offer}
-      watch={r.watch}
-      actions={{ onBoard: r.signedIn ? () => void r.board() : undefined, onSignIn: () => auth.openSignIn(), onStepOff: () => void r.stepOff(), onJump: () => void r.jump(), onPlayAgain: r.playAgain, onShare: share }}
-    />
+    <>
+      <RailcarScreen
+        view={r.view ?? EMPTY}
+        waiting={<RailcarWaiting match={r.match} />}
+        busy={r.busy}
+        error={r.error}
+        brake={r.brake}
+        offer={r.offer}
+        watch={r.watch}
+        actions={{ onBoard: r.signedIn ? () => void r.board() : undefined, onSignIn: () => auth.openSignIn(), onStepOff: () => void r.stepOff(), onJump: () => void r.jump(), onPlayAgain: r.playAgain, onShare: share, onHowTo: () => setHow(true) }}
+      />
+      <HowToPlay game="railcar" open={how} onClose={() => setHow(false)} end="game-page" practiceHref={practiceHref("railcar")} />
+    </>
   );
 }

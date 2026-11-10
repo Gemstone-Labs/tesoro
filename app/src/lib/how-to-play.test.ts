@@ -1,11 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { CLIP_EXTENSIONS, GUIDE_STEPS, clipPaths } from "./how-to-play";
+import { CLIP_EXTENSIONS, GUIDE_STEPS, clipPaths, guideGameName, type GuideGame } from "./how-to-play";
 import { markFirstPracticeGuideShown, shouldShowFirstPracticeGuide } from "./how-to-play-seen";
-import type { GameId } from "./mock/types";
 
-const GAMES = Object.keys(GUIDE_STEPS) as GameId[];
+const GAMES = Object.keys(GUIDE_STEPS) as GuideGame[];
 
 function fakeStorage(throws: boolean) {
   const data = new Map<string, string>();
@@ -19,12 +18,18 @@ function fakeStorage(throws: boolean) {
 }
 
 describe("guide steps", () => {
-  it("covers the four Games with five steps each", () => {
-    expect(GAMES.sort()).toEqual(["block-puzzle", "holdem", "trading-duel", "vanguard"]);
+  it("covers the four Games and Railcar with five steps each", () => {
+    expect(GAMES.sort()).toEqual(["block-puzzle", "holdem", "railcar", "trading-duel", "vanguard"]);
+    expect(guideGameName("railcar")).toBe("Railcar");
     for (const g of GAMES) {
       expect(GUIDE_STEPS[g]).toHaveLength(5);
       for (const s of GUIDE_STEPS[g]) expect(s.title && s.line).toBeTruthy();
     }
+  });
+
+  // founder rule (round 5): the guide teaches play only, never money
+  it("never talks about money", () => {
+    for (const g of GAMES) for (const s of GUIDE_STEPS[g]) expect(`${s.title} ${s.line}`).not.toMatch(/\b(pot|fees?|refunds?|gemas|stakes?|paid|pays?|payouts?|winnings|entry|entries)\b/i);
   });
 
   it("names clips by Game, step and screen", () => {

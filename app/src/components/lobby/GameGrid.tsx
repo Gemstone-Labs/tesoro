@@ -13,7 +13,7 @@ import { gameFacts, waitingByEntry } from "@/lib/chain/lobby-plays";
 import { CATALOGUE } from "@/lib/catalogue";
 import { fmtGemas } from "@/lib/format";
 import { practiceHref } from "@/lib/game-params";
-import type { GameId } from "@/lib/mock";
+import type { GuideGame } from "@/lib/how-to-play";
 import { useQueue } from "./useQueue";
 
 const RESULT_WORD = { won: ["Won", CheckIcon], lost: ["Lost", XIcon], draw: ["Draw", MinusIcon], "no-show": ["No-show", XIcon], refunded: ["Refunded", MinusIcon] } as const;
@@ -48,7 +48,7 @@ export function GameGrid() {
     [auth.status, snapshot],
   );
   // the guide keeps its Game while it closes, so the sheet doesn't empty mid-animation
-  const [how, setHow] = useState<{ game: GameId; open: boolean } | null>(null);
+  const [how, setHow] = useState<{ game: GuideGame; open: boolean } | null>(null);
   const live = CATALOGUE.filter((g) => g.live);
   const soon = CATALOGUE.filter((g) => !g.live);
 
@@ -63,6 +63,7 @@ export function GameGrid() {
           const fact = game ? facts[game] : undefined;
           const [word, Icon] = fact ? RESULT_WORD[fact.last] : [null, null];
           const practice = g.practiceHref ?? (g.game ? practiceHref(g.game) : null);
+          const guide = g.game ?? g.guide;
           return (
             <div key={g.key} className="game-cell">
               <Link href={g.href ?? `/play/${g.game}`} className="cut cut-frame tile game-tile" onPointerMove={tilt} onPointerLeave={untilt}>
@@ -98,7 +99,7 @@ export function GameGrid() {
                   </span>
                 </span>
               </Link>
-              {game && <HowToPlayTab name={g.name} className="game-how" onClick={() => setHow({ game, open: true })} />}
+              {guide && <HowToPlayTab name={g.name} className="game-how" onClick={() => setHow({ game: guide, open: true })} />}
               {practice && (
                 <Link href={practice} className="cut cut-chip game-practice">
                   Practice free

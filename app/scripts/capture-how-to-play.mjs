@@ -1,6 +1,6 @@
 /**
  * Records the "How to play" guide clips from the real Practice screens (dev fixtures, no chain):
- * public/art/how-to-play/<game>/<n>-<phone|desktop>.{webm,mp4,webp}, for every step of the four Games.
+ * public/art/how-to-play/<game>/<n>-<phone|desktop>.{webm,mp4,webp}, for every step of the four Games and Railcar.
  * Phone set: 390 px wide phone layout, cropped to portrait 4:5. Desktop set: 1440x900 desktop layout, cropped to 16:10.
  * Both sets play the same script. Re-run whenever a game's UI or the step list changes.
  *
@@ -17,6 +17,9 @@
  * (libx264, libvpx-vp9, libwebp). It never touches the person's own windows or workspaces and removes its output when done.
  * Env: PW, CHROME, FFMPEG, WFR, OUT=<output dir>, ONLY=<game>[:step][,...] (e.g. ONLY=vanguard:3 or ONLY=holdem,trading-duel:1),
  *      SETS=phone|desktop, NO_PLAYBACK_CHECK=1, KEEP=1.
+ *
+ * Railcar (`ONLY=railcar`, needs a build with `NEXT_PUBLIC_SHOW_RAILCAR=1`) replays one exact ride through `&draw=` (see RC_DRAW) and starts it
+ * by closing the first-Practice guide, so every take sees the same ride on a known clock.
  *
  * Practice is seeded so a re-run plays the same: `?seed=<n>` fixes Block Burst pieces, Hold'em shuffles and bot,
  * the Vanguard setup and bot, and the Trading Duel price path. Seeds are read only in dev builds. Trading Duel runs in real time.
@@ -754,6 +757,86 @@ const vgTagMoved = (page, before) => page.evaluate((b) => {
   return true;
 }, before);
 
+// ---------------------------------------------------------------- Railcar
+
+/**
+ * One exact Practice ride, replayed by `&draw=`: the crash point, the Tells and the 9 simulated riders all follow from it, so every
+ * take and every re-run sees the same ride (times are ride-clock seconds, no Brake pressed):
+ *   crash 37.1 · false screws 5.8, 11.5 (sound only) · Screws 16.4 · Panel 25.1 · Sparks 29.1
+ *   riders Jump at 10.5, 11.8, 12.1 (early), 26.3 (the Panel scares one), 30.2, 30.4, 31.2 (after the Sparks); two stay aboard.
+ * Chosen because the Tells come 20.7 / 12.0 / 8.0 s before the wall (the 12.7 s from Screws to Sparks is about the shortest a ride can
+ * show), three riders leap together at 10.5 s before the first Tell, and three more Jump after the Sparks.
+ */
+const RC_DRAW = "0a4c74bd1eb7dd886217c7597294d3af3a16eb1314e2fd38c500a62ad96023e2";
+const RC_ROUTE = `/play/practice?game=railcar&draw=${RC_DRAW}`;
+
+/**
+ * Starts the ride on a known clock: the first Practice visit opens the guide before the ride starts, and closing it starts the ride
+ * (the init script forgets the "seen" flag on every load). `window.__rc0` is when the ride clock first showed.
+ */
+async function rcBoard(page) {
+  await page.locator("dialog[open]").first().waitFor({ timeout: 30000 });
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => new Promise((ok) => {
+    const look = () => { if (document.querySelector(".rc-clock")) { window.__rc0 = performance.now(); ok(); } else requestAnimationFrame(look); };
+    look();
+  }));
+}
+
+/** Waits until the ride clock reaches `ms` (checked every frame), and reads it. */
+const rcUntil = (page, ms) => page.waitForFunction((t) => performance.now() - window.__rc0 >= t, ms, { polling: "raf", timeout: 90000 });
+const rcMs = (page) => page.evaluate(() => performance.now() - window.__rc0);
+
+/** The recording starts this long after the prep ends (cover, recorder start, uncover): measured, see "rc act starts" in the log. */
+const RC_LEAD_MS = 1900;
+/** Prep: board, then wait until the ride clock is `at` ms minus the recorder's start-up, so the take starts at about `at`. */
+const rcPrep = (at) => async (page) => { await rcBoard(page); await rcUntil(page, at - RC_LEAD_MS); };
+
+/** A page element's box as unzoomed page px (undoes the camera). */
+const rcBox = (page, sel) => page.evaluate((q) => {
+  const e = document.querySelector(q);
+  if (!e) return null;
+  const r = e.getBoundingClientRect();
+  return window.__htp.unproject({ l: r.left, t: r.top, r: r.right, b: r.bottom });
+}, sel);
+
+/**
+ * The clip's view rect (unzoomed page px, in the set's aspect ratio), measured from the page so it follows the layout. Every view keeps
+ * the header's entry chip out of frame, and the car views stop above the "You jumped ... back" card, which takes the Jump button's place.
+ *  - clock: the clock, Tells and car (from the PRACTICE pill on desktop); for clips where nobody Jumps
+ *  - tells: the Tells and the car, the clock above the frame on a phone
+ *  - row: the car and the whole rider row, ending above the Jump card (for clips where you Jump)
+ */
+const RC_VIEWS = {
+  clock: async (page, set) => {
+    const [tag, clock] = await Promise.all([rcBox(page, ".game-tag"), rcBox(page, ".rc-clock")]);
+    return set === "phone" ? { x: 0, y: clock.t - 12, w: 390, h: 487.5 } : { x: 310, y: tag.t - 2, w: 820, h: 512.5 };
+  },
+  tells: (page, set) => (set === "phone" ? RC_VIEWS.row(page, set) : RC_VIEWS.clock(page, set)),
+  /**
+   * The Tells (phone) or the track (desktop) down to the end of the rider row, so "ABOARD N", the first avatar and the whole row are
+   * inside and the count can be read as riders jump. It ends in the 10 px gap above the Jump card.
+   */
+  row: async (page, set) => {
+    const [tells, stage, riders, acts] = await Promise.all([rcBox(page, ".rc-tells"), rcBox(page, ".rc-stage"), rcBox(page, ".rc-riders"), rcBox(page, ".rc-acts")]);
+    const top = set === "phone" ? tells.t - 6 : tells.b + 4;
+    const bottom = Math.min(riders.b + 4, acts.t - 2);
+    const h = bottom - top;
+    const w = h * (set === "phone" ? 0.8 : 1.6);
+    const x = Math.min(Math.max((stage.l + stage.r) / 2 - w / 2, 0), set === "phone" ? 390 - w : 1440 - w);
+    return { x, y: top, w, h };
+  },
+};
+
+const RC_WIN_ME = ".rc-win.me";
+/** The press is sent to the button itself: a pointer click would scroll the page to the button (it is below the camera's frame). */
+const rcPress = (page, sel, text) => page.evaluate(([q, t]) => [...document.querySelectorAll(q)].find((b) => b.textContent.trim().startsWith(t)).click(), [sel, text]);
+const rcJump = (page) => rcPress(page, ".rc-acts button", "Jump");
+const rcBrake = (page) => rcPress(page, ".rc-brake button", "Brake");
+/** The crash moment shows for 1 s before the Result: the clip ends inside it. */
+const rcCrash = (page) => page.waitForSelector(".rc-crash", { state: "attached", timeout: 90000 });
+const rcStart = async (page) => console.log(`  rc act starts at ride ${((await rcMs(page)) / 1000).toFixed(2)} s`);
+
 const GAMES = {
   "block-puzzle": {
     // the bottom four rows of the board and the piece tray: where pieces land, inside the clear band
@@ -1265,6 +1348,99 @@ const GAMES = {
       },
     },
   },
+  railcar: {
+    focus: [".rc-stage"],
+    steps: {
+      // the car rolls with riders in the windows and the clock running, before any Tell
+      1: {
+        route: RC_ROUTE,
+        prep: rcPrep(0),
+        camera: { keys: [{ rect: RC_VIEWS.clock, sec: 0 }] },
+        act: async (page, info) => {
+          await rcStart(page);
+          const m = marks(page, info);
+          const a = m.at(300, { kind: "label", target: ".rc-car", text: "Riders aboard", side: "above", gap: 12 }, 2400);
+          const b = m.at(3000, { kind: "label", target: ".rc-tells", text: "Wall ahead, hidden", side: "below", gap: 26 }, 2600);
+          await rcUntil(page, 9400);
+          await Promise.all([a, b]);
+        },
+        poster: 0.45,
+      },
+      // Screws, then Panel, then Sparks: the chips light and the car takes damage (the stretch is 12.7 s: played a little faster)
+      2: {
+        route: RC_ROUTE,
+        prep: rcPrep(16000),
+        camera: { keys: [{ rect: RC_VIEWS.tells, sec: 0 }] },
+        maxSecs: 12,
+        act: async (page, info) => {
+          await rcStart(page);
+          const m = marks(page, info);
+          const a = m.at(0, [{ kind: "ring", target: ".rc-tells", shape: "rect", pad: 2 }, { kind: "label", target: ".rc-tells", text: "Tells", side: "below", gap: 14 }], 2600);
+          await rcUntil(page, 29000);
+          await a;
+          const b = m.at(0, { kind: "label", target: ".rc-car", text: "The wall is close", side: "above", gap: 10 }, 800);
+          await rcUntil(page, 30100);
+          await b;
+        },
+        poster: 0.8,
+      },
+      // riders leap out of their windows, then you tap Jump and leap too
+      3: {
+        route: RC_ROUTE,
+        prep: rcPrep(9200),
+        camera: { keys: [{ rect: RC_VIEWS.row, sec: 0 }] },
+        act: async (page, info) => {
+          await rcStart(page);
+          const m = marks(page, info);
+          const a = m.at(0, [{ kind: "ring", target: RC_WIN_ME, shape: "rect", pad: 5 }, { kind: "label", target: RC_WIN_ME, text: "You", side: "above", gap: 12 }], 1500);
+          const b = m.at(1300, { kind: "label", target: ".rc-car", text: "Riders jump", side: "above", gap: 12 }, 2200);
+          await rcUntil(page, 13600);
+          await Promise.all([a, b]);
+          await rcJump(page);
+          await m.show({ kind: "label", target: ".rc-car", text: "You jump", side: "above", gap: 12 }, 1700);
+        },
+        poster: 0.7,
+      },
+      // press Brake: the car visibly slows and the tag counts down
+      4: {
+        route: RC_ROUTE,
+        prep: rcPrep(1800),
+        camera: { keys: [{ rect: RC_VIEWS.clock, sec: 0 }] },
+        act: async (page, info) => {
+          await rcStart(page);
+          const m = marks(page, info);
+          await rcUntil(page, 3000);
+          await rcBrake(page);
+          const a = m.at(300, { kind: "label", target: ".rc-car", text: "Car slows", side: "above", gap: 12 }, 1900);
+          const b = m.at(2500, { kind: "label", target: ".rc-brake-tag", text: "Only you see it", side: "below", gap: 10 }, 2600);
+          await rcUntil(page, 9000);
+          await Promise.all([a, b]);
+        },
+        poster: 0.55,
+      },
+      // after the Sparks others jump, you jump late and the car hits the wall: the clip ends on the crash, before the Result
+      5: {
+        route: RC_ROUTE,
+        prep: rcPrep(28600),
+        camera: { keys: [{ rect: RC_VIEWS.row, sec: 0 }] },
+        tail: 0,
+        speed: 1.25, // the crash's flash and the fast background make this the heaviest clip: a little faster keeps each video under 300 KB
+        act: async (page, info) => {
+          await rcStart(page);
+          const m = marks(page, info);
+          const a = m.at(1500, { kind: "label", target: ".rc-car", text: "Others jump", side: "above", gap: 12 }, 1800);
+          await rcUntil(page, 35000);
+          await a;
+          await rcJump(page);
+          const b = m.at(0, { kind: "label", target: ".rc-car", text: "Last 3 off win", side: "above", gap: 12 }, 1800);
+          await rcCrash(page);
+          await sleep(750);
+          await b;
+        },
+        poster: 0.9,
+      },
+    },
+  },
 };
 
 // ---------------------------------------------------------------- recorder
@@ -1358,6 +1534,7 @@ async function record(page, game, step, setName, attempt, work) {
   const focus = def.focus ?? GAMES[game].focus;
   const first = await cropFor(page, forSet(def.camera?.cues?.[0]?.focus ?? def.camera?.keys?.[0]?.focus ?? focus, setName), set, (def.camera?.cues?.[0] ?? def.camera?.keys?.[0] ?? def).pad?.[setName] ?? (def.camera?.cues?.[0] ?? def.camera?.keys?.[0] ?? def).pad, (def.camera?.cues?.[0] ?? def.camera?.keys?.[0])?.band?.[setName] ?? undefined);
   const rectFor = async (k) => {
+    if (k.rect) return k.rect(page, setName);
     const pad = k.pad?.[setName] ?? k.pad;
     const r = await cropFor(page, forSet(k.focus, setName), set, typeof pad === "number" ? pad : undefined, Array.isArray(k.band) ? k.band : k.band?.[setName]);
     // `dx` moves the crop sideways (CSS px), to keep the action centred when it sits against the edge of the page's content
@@ -1524,6 +1701,8 @@ for (const setName of sets) {
     // Mark every Game's first-Practice guide as seen, so the recording shows the game, not the guide.
     await screen.ctx.addInitScript(() => {
       for (const g of ["block-puzzle", "holdem", "trading-duel", "vanguard"]) localStorage.setItem(`tesoro:how-to-play:${g}`, "1");
+      // Railcar's clips start the ride by closing its first-Practice guide, so the ride clock is known: forget it on every load.
+      localStorage.removeItem("tesoro:how-to-play:railcar");
     });
     for (const game of Object.keys(GAMES)) {
       for (const step of [1, 2, 3, 4, 5]) {

@@ -1,7 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { boardingCountdown, boardingNotAboard } from "../fixtures";
-import { RailcarScreen } from "../RailcarScreen";
+import { RailcarScreen, guideOpens } from "../RailcarScreen";
 import { practiceHref } from "@/lib/game-params";
 import { newPractice, practiceJump, practiceView, type PracticeRider } from "./session";
 
@@ -76,10 +77,59 @@ describe("the Practice page", () => {
     const { default: Practice } = await import("@/app/(app)/play/practice/page");
     const { Arena } = await import("@/games/fx");
     const { RailcarPractice } = await import("./RailcarPractice");
+    const { FirstPracticeGuide } = await import("@/components/how-to-play");
     const page = await Practice({ params: Promise.resolve({}), searchParams: Promise.resolve({ game: "railcar" }) });
     expect(page.type).toBe(Arena);
     expect(page.props).toMatchObject({ game: "railcar", autoFull: true });
-    expect(page.props.children.type).toBe(RailcarPractice);
+    const guide = page.props.children as ReactElement<{ game: string; children: ReactElement<{ draw?: Uint8Array }> }>;
+    expect(guide.type).toBe(FirstPracticeGuide);
+    expect(guide.props.game).toBe("railcar");
+    expect(guide.props.children.type).toBe(RailcarPractice);
+    expect(guide.props.children.props.draw).toBeUndefined();
     vi.unstubAllEnvs();
+  });
+
+  it("replays one ride from ?draw= (64 hex digits) and ignores anything else", async () => {
+    vi.resetModules();
+    vi.stubEnv("NEXT_PUBLIC_SHOW_RAILCAR", "1");
+    const { default: Practice } = await import("@/app/(app)/play/practice/page");
+    const drawOf = async (draw: string) => {
+      const page = await Practice({ params: Promise.resolve({}), searchParams: Promise.resolve({ game: "railcar", draw }) });
+      return (page.props.children as ReactElement<{ children: ReactElement<{ draw?: Uint8Array }> }>).props.children.props.draw;
+    };
+    expect(Array.from((await drawOf("0a".repeat(32)))!)).toEqual(new Array(32).fill(10));
+    expect(await drawOf("0a".repeat(31))).toBeUndefined();
+    expect(await drawOf("zz".repeat(32))).toBeUndefined();
+    vi.unstubAllEnvs();
+  });
+});
+
+describe("How to play", () => {
+  it("is a tab on the car while boarding, and not once the car leaves", () => {
+    const tab = /<button type="button" class="htp-tab rc-how">/;
+    expect(renderToStaticMarkup(<RailcarScreen view={boardingNotAboard()} actions={{ onHowTo: () => {} }} />)).toMatch(tab);
+    expect(renderToStaticMarkup(<RailcarScreen view={boardingNotAboard()} />)).not.toMatch(tab);
+    expect(practice(practiceView(worked(), 30_000))).not.toMatch(/htp-tab/);
+  });
+
+  it("opens from the menu anywhere but a real ride the Player is in", () => {
+    const riding = practiceView(worked(), 30_000);
+    expect(guideOpens(riding, true)).toBe(true);
+    expect(guideOpens(riding, false)).toBe(false);
+    expect(guideOpens(boardingCountdown(), false)).toBe(true);
+    expect(guideOpens(boardingNotAboard(), false)).toBe(true);
+  });
+
+  it("is on the Railcar tile of Play", async () => {
+    vi.resetModules();
+    vi.stubEnv("NEXT_PUBLIC_SHOW_RAILCAR", "1");
+    vi.doMock("@/components/lobby/useQueue", () => ({ useQueue: () => null }));
+    vi.doMock("@/lib/account", () => ({ useAccount: () => ({ auth: { status: "signed-out" }, snapshot: null }) }));
+    const { GameGrid } = await import("@/components/lobby/GameGrid");
+    const html = renderToStaticMarkup(<GameGrid />);
+    expect(html).toMatch(/<button type="button" class="htp-tab game-how">.*?<span class="sr-only"> Railcar<\/span>/);
+    vi.unstubAllEnvs();
+    vi.doUnmock("@/components/lobby/useQueue");
+    vi.doUnmock("@/lib/account");
   });
 });
