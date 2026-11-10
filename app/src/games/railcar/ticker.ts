@@ -58,6 +58,8 @@ const OVER_CODES = new Set([6009, 6016]);
 const HASH_MAX_AGE_MS = 30_000;
 const MIN_POLL_MS = 400;
 const MAX_POLL_MS = 1_200;
+/** How often a waiting page looks at the interval again. */
+const RECHECK_MS = 500;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -71,6 +73,9 @@ export class RideTicker {
   private stopped = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private due: number;
+  /** The interval `due` was set from, and the planned time of the last beat. */
+  private dueFor: number;
+  private last = 0;
   /** The newest hash seen, when it was first seen, and every message sent under it. */
   private hash: { value: string; at: number; sent: Set<string> } | null = null;
   private fetching: Promise<void> | null = null;
@@ -86,22 +91,39 @@ export class RideTicker {
   ) {
     this.confirmTimeoutMs = opts.confirmTimeoutMs ?? 6_000;
     void this.refresh();
-    this.due = Date.now() + (opts.startDelayMs ?? Math.random() * opts.intervalMs());
+    this.dueFor = opts.intervalMs();
+    this.due = Date.now() + (opts.startDelayMs ?? Math.random() * this.dueFor);
     this.schedule();
   }
 
   private schedule() {
     if (this.stopped) return;
-    this.timer = setTimeout(() => this.fire(), Math.max(0, this.due - Date.now()));
+    // Wake at the due time, or sooner to look at the interval again: it follows the number aboard, which falls as Players Jump.
+    this.timer = setTimeout(() => this.wake(), Math.max(0, Math.min(this.due - Date.now(), RECHECK_MS)));
   }
 
-  private fire() {
+  private wake() {
     if (this.stopped) return;
-    void this.beat();
     const now = Date.now();
-    this.due += this.opts.intervalMs();
-    // a throttled tab: carry on from now, no burst to catch up
-    if (this.due <= now) this.due = now + this.opts.intervalMs();
+    const interval = this.opts.intervalMs();
+    if (interval !== this.dueFor && this.last === 0) this.dueFor = interval; // before the first beat: it keeps its start delay
+    else if (interval !== this.dueFor) {
+      // The interval changed since this beat was scheduled: the next beat is one new interval after the last. A page that is
+      // already past that moment waits a random part of the new interval instead of firing at once, so pages that had waited
+      // long don't all beat together.
+      this.dueFor = interval;
+      this.due = this.last + interval;
+      if (this.due <= now) this.due = now + Math.random() * interval;
+    }
+    if (now >= this.due) this.fire(now, interval);
+    else this.schedule();
+  }
+
+  private fire(now: number, interval: number) {
+    void this.beat();
+    // from the planned time (no drift), unless a throttled tab is far behind: carry on from now, no burst to catch up
+    this.last = now - this.due < interval ? this.due : now;
+    this.due = this.last + interval;
     this.schedule();
   }
 

@@ -42,6 +42,7 @@ import type { RailcarBrake, RailcarOffer } from "./RailcarScreen";
 import { playTells } from "./tells";
 import { RAILCAR_FEES } from "./payout";
 import { watchAccount } from "@/games/block-puzzle/table-feed";
+import { PaceWatch, backupDue } from "./pace";
 import { RideTicker } from "./ticker";
 import { StepRetry } from "./step-retry";
 import { railcarView, type RailcarView } from "./view";
@@ -473,10 +474,21 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   // One ticker per ride (ticker.ts): it beats on a fixed cadence without waiting for confirms, and reads what to send (tick or
   // signal, the Brake, the interval) at each beat, so a change of those never restarts it (a restart could resend its bytes).
   const interval = pageIntervalMs({ aboard: aboardN, seated: ride?.seated ?? aboardN, mine: aboard ? "aboard" : "off" });
-  const beatFacts = useRef({ sends, tickKey, tableSeat, interval, refresh });
+  // A Jumped Player's page is a backup: it signals only after the Table's pace mark stood still (pace.ts), so the car's signals
+  // stay near 5 a second however many pages have Jumped.
+  const paceWatch = useRef(new PaceWatch());
+  const backup = !!mySeat && !aboard;
+  const beatFacts = useRef({ sends, tickKey, tableSeat, interval, refresh, backup });
   useEffect(() => {
-    beatFacts.current = { sends, tickKey, tableSeat, interval, refresh };
+    beatFacts.current = { sends, tickKey, tableSeat, interval, refresh, backup };
   });
+  useEffect(() => {
+    if (!ride) return;
+    paceWatch.current.read(ride.paceSlot, Date.now());
+  }, [snap, ride]);
+  useEffect(() => {
+    paceWatch.current.reset();
+  }, [carNo]);
   useEffect(() => {
     if (!riding || signalTable === null || carNo === null) return;
     const page = pageKey.current;
@@ -491,6 +503,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
         intervalMs: () => beatFacts.current.interval,
         next: () => {
           const f = beatFacts.current;
+          if (f.backup && !backupDue({ quietMs: paceWatch.current.quietMs(Date.now()), tableSeat: f.tableSeat ?? 0 })) return null;
           if (f.sends === "tick" && f.tickKey && f.tableSeat !== null) {
             const brake = pendingBrake.current;
             return { signer: f.tickKey, ixs: [tickIx(f.tickKey.publicKey, signalTable, carNo, f.tableSeat, brake)], brake };

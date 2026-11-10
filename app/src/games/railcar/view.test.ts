@@ -41,6 +41,8 @@ const table = (o: Partial<TableView> = {}): TableView => ({
   dirty: false,
   commitAt: 0,
   brakesBound: 5,
+  paceSlot: 0n,
+  paceTs: 0,
   revealed: false,
   revealDraw: new Uint8Array(32),
   seats: players.map((_, i) => rideSeat(i, 0, 0)),

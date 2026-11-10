@@ -89,6 +89,34 @@ describe("RideTicker", () => {
     for (const g of gaps) expect(Math.abs(g - 1_000)).toBeLessThanOrEqual(50);
   });
 
+  it("schedules each beat from the interval in force: a page that waited on 20 s beats within 1 s once the interval falls to 1 s, and the pages don't burst together", async () => {
+    const { io, sent } = rollup();
+    let interval = 20_000;
+    const spy = vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const t = new RideTicker(io, page({ intervalMs: () => interval }).opts);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(sent.length).toBe(1); // the first beat, at the start
+    interval = 1_000; // many Players Jumped
+    await vi.advanceTimersByTimeAsync(1_500);
+    t.stop();
+    spy.mockRestore();
+    expect(sent.length).toBe(2);
+    // not at the moment the interval changed (a page that had waited long would burst with every other), but within the new interval
+    expect(sent[1].at - sent[0].at).toBeGreaterThan(2_000);
+    expect(sent[1].at - sent[0].at).toBeLessThanOrEqual(3_500);
+  });
+
+  it("an interval that grows stretches the wait the same way", async () => {
+    const { io, sent } = rollup();
+    let interval = 1_000;
+    const t = new RideTicker(io, page({ intervalMs: () => interval }).opts);
+    await vi.advanceTimersByTimeAsync(500);
+    interval = 10_000;
+    await vi.advanceTimersByTimeAsync(8_000);
+    t.stop();
+    expect(sent.length).toBe(1);
+  });
+
   it("never sends the same bytes twice: under a hash the rollup keeps handing out, a plain tick goes once and a Brake once", async () => {
     const { io, sent } = rollup({ sameHash: true });
     const p = page();
