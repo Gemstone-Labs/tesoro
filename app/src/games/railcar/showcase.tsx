@@ -3,11 +3,12 @@
 /**
  * A short ride that plays itself, for Storybook: the real `RailcarScreen` (so the real stage, Tells, Brake and crash) driven by a
  * fixture and a fake ride clock that runs about 9x faster than real time, so the whole ride (speed-up, three Tells, the Player's
- * Brake, the wall) shows in 14 s. Only the clock is compressed: the ride rules are untouched. Nothing here ships in the app.
+ * Brake, the wall) shows in about 14 s. Only the clock is compressed: the ride rules are untouched. Nothing here ships in the app.
  */
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui";
 import { brakeState } from "./brake";
+import { CRASH_MS } from "./crash";
 import { rideShow, workedResult } from "./fixtures";
 import { RailcarScreen, type RailcarBrake } from "./RailcarScreen";
 import type { RailcarView } from "./view";
@@ -23,8 +24,8 @@ const JUMPS: [number, number][] = [
   [8_000, 11],
 ];
 export const SHOWCASE_CRASH_MS = 11_500;
-/** The crash holds the ride screen for a second before the Result, then the Result rests for a moment. */
-export const SHOWCASE_MS = SHOWCASE_CRASH_MS + 1_000 + 1_500;
+/** The crash (the wall rushes in, impact, shake) holds the ride screen before the Result, then the Result rests for a moment. */
+export const SHOWCASE_MS = SHOWCASE_CRASH_MS + CRASH_MS + 1_200;
 /** The wall of the worked example is at 1:44 of ride clock: the fake clock gets there as the car hits it. */
 const CLOCK_X = 104_000 / SHOWCASE_CRASH_MS;
 

@@ -101,7 +101,7 @@ export const CrashImpact: StoryObj = {
   ),
 };
 
-/** A whole ride in about 14 s, no waiting: the car leaves and speeds up, Screws (bolts pop off), your Brake (half speed for 5 s), Panel, Sparks, the crash (flash, crumpled front, shake), then the Result. Replay restarts it. The real screen on a fixture with a fast ride clock. */
+/** A whole ride in about 14 s, no waiting: the car leaves and speeds up, Screws (bolts pop off), your Brake (half speed for 5 s), Panel, Sparks, the crash (the wall rushes in, flash, crumpled front, shake), then the Result. Replay restarts it. The real screen on a fixture with a fast ride clock. */
 export const Showcase: StoryObj = { render: () => <RailcarShowcase /> };
 
 /** A Player watching a car they are not in. */
