@@ -164,6 +164,8 @@ export async function readSnapshot(read: Reader, tee: () => Promise<Connection |
 
 export interface RailcarPage {
   view: RailcarView | null;
+  /** The car's Match account (null before a car is known): the Result looks up Gemas waiting for room against it. */
+  match: PublicKey | null;
   busy: string | null;
   error: string | null;
   signedIn: boolean;
