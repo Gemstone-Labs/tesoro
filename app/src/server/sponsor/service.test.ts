@@ -250,7 +250,7 @@ describe("first payout account funding", () => {
     const plain = setup(); const { ixs } = await firstPayout(plain);
     const grant = vi.spyOn(plain.deps.chain, "send");
     const b = await plain.sponsor.build(plain.player.publicKey, wire(ixs));
-    expect(b.meta.ataGrant).toBeTruthy();
+    expect(JSON.parse(b.meta).ataGrant).toBeTruthy();
     await plain.sponsor.submit(playerSigns(b, plain.player), b.meta, b.mac);
     expect(grant).toHaveBeenLastCalledWith(expect.anything(), { failFast: false });
   });
