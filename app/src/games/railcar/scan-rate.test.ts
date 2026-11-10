@@ -1,5 +1,5 @@
 import { Keypair, PublicKey } from "@solana/web3.js";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { CarView, SeatView } from "../../lib/chain/many-seat";
 import type { TableView } from "./chain";
 
@@ -42,8 +42,13 @@ function rig() {
 const mine = { carNo: "9", table: 0, match: riding.address.toBase58(), matchKey: "x-9" };
 
 describe("readSnapshot rollup requests while a ride runs", () => {
+  // The hook's module graph loads once, here, with its own generous timeout: a loaded machine slows the import, not the checks.
+  let readSnapshot: typeof import("./useRailcar").readSnapshot;
+  beforeAll(async () => {
+    ({ readSnapshot } = await import("./useRailcar"));
+  }, 60_000);
+
   it("a Player's page asks the rollup once per read without a feed (before), and not at all with one", async () => {
-    const { readSnapshot } = await import("./useRailcar");
     const a = rig();
     await readSnapshot(a.read, a.tee, ME, mine, null);
     expect(a.calls()).toBe(1);
@@ -54,7 +59,6 @@ describe("readSnapshot rollup requests while a ride runs", () => {
   });
 
   it("a watcher's page reads every Table only on a scan; between scans it follows the ride it found through the feed", async () => {
-    const { readSnapshot } = await import("./useRailcar");
     const a = rig();
     const first = await readSnapshot(a.read, a.tee, null, null, null, { scan: true, fed: () => table });
     expect(a.rollup.getMultipleAccountsInfo).toHaveBeenCalledTimes(1);
