@@ -1,9 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { isMuted, subscribeMuted } from "@/games/fx/sfx";
 import { brakeState, type BrakeFacts, type TellCue } from "@/games/railcar/brake";
 import { Button } from "@/components/ui";
 import { RailcarScreen, type RailcarBrake, type RailcarOffer, type RailcarWatch } from "@/games/railcar/RailcarScreen";
+import { RailcarWaiting } from "@/games/railcar/RailcarWaiting";
 import { RailcarStage } from "@/games/railcar/RailcarStage";
 import { RideHistory } from "@/games/railcar/RideHistory";
 import { playTells, railcarHaptics } from "@/games/railcar/tells";
@@ -12,6 +13,9 @@ import { hexToBytes } from "@/games/railcar/engine";
 import { RailcarPractice } from "@/games/railcar/practice/RailcarPractice";
 import { newPractice, practiceBrake, practiceJump, practiceView, type Practice } from "@/games/railcar/practice/session";
 import type { RailcarView } from "@/games/railcar/view";
+import { PublicKey } from "@solana/web3.js";
+import { matchPda } from "@/lib/chain/basket";
+import { demoSnapshot } from "@/lib/chain/fixture";
 
 const meta = {
   title: "Games/Railcar",
@@ -21,8 +25,8 @@ export default meta;
 
 const noop = () => undefined;
 const actions = { onBoard: noop, onStepOff: noop, onJump: noop, onPlayAgain: noop, onShare: noop, onAddFriend: noop, onSignIn: noop };
-const screen = (view: RailcarView, o: { busy?: string; error?: string; brake?: RailcarBrake; offer?: RailcarOffer; watch?: RailcarWatch } = {}): StoryObj => ({
-  render: () => <RailcarScreen view={view} actions={actions} busy={o.busy ?? null} error={o.error ?? null} brake={o.brake ?? null} offer={o.offer ?? null} watch={o.watch ?? null} />,
+const screen = (view: RailcarView, o: { busy?: string; error?: string; brake?: RailcarBrake; offer?: RailcarOffer; watch?: RailcarWatch; waiting?: ReactNode } = {}): StoryObj => ({
+  render: () => <RailcarScreen view={view} actions={actions} busy={o.busy ?? null} error={o.error ?? null} brake={o.brake ?? null} offer={o.offer ?? null} watch={o.watch ?? null} waiting={o.waiting ?? null} />,
 });
 const phone = { globals: { viewport: { value: "phone390", isRotated: false } } };
 const desk = { globals: { viewport: { value: "desktop1440", isRotated: false } } };
@@ -107,6 +111,19 @@ export const ResultSecondLastOff = screen(fx.workedResult(fx.BEN));
 export const ResultJumpedEarly = screen(fx.workedResult(fx.ANA));
 /** The worked example as Eve (aboard at Impact). */
 export const ResultAboardAtImpact = screen(fx.workedResult(fx.EVE));
+/** The ride paid 350 Gemas into a full Account: one line under the amount says how many wait for room, with Claim. */
+const CAR = new PublicKey(new Uint8Array(32).fill(9));
+export const ResultWaitingForRoom: StoryObj = {
+  ...screen(fx.workedResult(), { waiting: <RailcarWaiting match={matchPda(CAR, 7)} /> }),
+  parameters: {
+    data: {
+      snapshot: (a: string) => ({
+        ...demoSnapshot(a),
+        waiting: [{ address: CAR, owner: CAR, payer: CAR, kind: 0, match: matchPda(CAR, 7), gemas: 350n, lines: 1, storeLines: [], sources: [CAR] }],
+      }),
+    },
+  },
+};
 /** Nobody jumped: every entry back, no fees. */
 export const ResultNobodyJumped = screen(fx.nobodyJumped());
 
