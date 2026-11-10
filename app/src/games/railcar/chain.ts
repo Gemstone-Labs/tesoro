@@ -173,6 +173,9 @@ export interface TableView {
   commitAt: number;
   /** Seats whose Brake seat is bound to this ride: no Brake counts until all are. */
   brakesBound: number;
+  /** The pace mark: slot and unix time of the last moment the ride was on pace. It moves with every signal that lands. */
+  paceSlot: bigint;
+  paceTs: number;
   /** After the ride: the draw and every seat's `brakeMs` are public, enough for the engine to recompute the ride. */
   revealed: boolean;
   revealDraw: Uint8Array;
@@ -229,6 +232,8 @@ export function decodeTable(data: Uint8Array): TableView {
     revealDraw: Uint8Array.from(data.subarray(b + 180, b + 212)),
     revealed: data[b + 212] === 1,
     brakesBound: data[b + 213],
+    paceSlot: v.getBigUint64(b + 292, true),
+    paceTs: Number(v.getBigInt64(b + 300, true)),
     seats,
   };
 }

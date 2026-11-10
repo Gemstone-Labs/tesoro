@@ -1,5 +1,5 @@
 import { Keypair, PublicKey } from "@solana/web3.js";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CarView, SeatView } from "../../lib/chain/many-seat";
 import { rememberedCarGone } from "./flow";
 
@@ -35,6 +35,12 @@ vi.mock("./chain", async (orig) => ({
 }));
 
 describe("readSnapshot with a stale railcar:car key", () => {
+  // The hook's module graph loads once, here, with its own generous timeout: a loaded machine slows the import, not the checks.
+  let readSnapshot: typeof import("./useRailcar").readSnapshot;
+  beforeAll(async () => {
+    ({ readSnapshot } = await import("./useRailcar"));
+  }, 60_000);
+
   beforeEach(() => {
     loads.clear();
     loads.set(closed.address.toBase58(), { car: closed, seats: [], pages: [] });
@@ -44,7 +50,6 @@ describe("readSnapshot with a stale railcar:car key", () => {
   const stale = { carNo: "8", table: 0, match: closed.address.toBase58(), matchKey: "x-8" };
 
   it("forgets the closed car and offers the boarding one (Board no longer tries to open a car that is already boarding)", async () => {
-    const { readSnapshot } = await import("./useRailcar");
     const s = await readSnapshot(read, async () => null, ME, stale, null);
     expect(s.forgot).toBe(true);
     expect(s.boarding?.loaded.car.address.toBase58()).toBe(boarding.address.toBase58());
@@ -53,7 +58,6 @@ describe("readSnapshot with a stale railcar:car key", () => {
   });
 
   it("keeps a remembered car the Player really sits in", async () => {
-    const { readSnapshot } = await import("./useRailcar");
     loads.set(boarding.address.toBase58(), { car: boarding, seats: [seat(ME)], pages: [] });
     const s = await readSnapshot(read, async () => null, ME, { ...stale, carNo: "8", match: boarding.address.toBase58() }, null);
     expect(s.forgot).toBe(false);

@@ -1,5 +1,5 @@
 import { Keypair, PublicKey } from "@solana/web3.js";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { CarView, SeatView } from "../../lib/chain/many-seat";
 import type { TableView } from "./chain";
 
@@ -17,6 +17,20 @@ vi.mock("./chain", async (orig) => ({
   decodeCarAccount: () => ({ table: 0, tesoroMatch: riding.address }),
   decodeTable: () => table,
 }));
+// readSnapshot touches none of the wallet, signing, sponsor or Entry code useRailcar imports; stubbing them keeps the import of
+// the hook cheap (importing the hook cost ~1.5 s inside the first test, which timed out on a loaded machine; the heaviest were the block-puzzle chain client, boarding and the Tell sounds).
+vi.mock("@/games/block-puzzle/chain", () => ({ accountOfSigner: () => null, keypairSigner: () => ({}) }));
+vi.mock("./boarding", () => ({ backerSeatedIn: () => false, boardingEntry: () => ({}) }));
+vi.mock("./tells", () => ({ playTells: () => undefined }));
+vi.mock("@/lib/account", () => ({ useAccount: () => ({}) }));
+vi.mock("@/lib/chain/client", () => ({ getChain: () => ({}) }));
+vi.mock("@/lib/chain/entry", () => ({}));
+vi.mock("@/lib/chain/backing", () => ({ BackingError: class extends Error {}, backingProblem: () => null, fetchOffer: async () => null }));
+vi.mock("@/lib/chain/ticket", () => ({}));
+vi.mock("@/lib/chain/sponsor-client", () => ({}));
+vi.mock("@/lib/seat/seat-key", () => ({ seatKeys: {} }));
+vi.mock("@/lib/seat/signature-counter", () => ({ countingFor: () => ({}) }));
+vi.mock("@/lib/chain/settle-plan", () => ({ connReader: () => ({}), fits: () => true, simulatedUnits: async () => 0 }));
 vi.mock("./flow", async (orig) => ({ ...(await orig<typeof import("./flow")>()), watchedRide: () => table }));
 
 /** The rollup requests one read of a page's snapshot makes. */
@@ -28,8 +42,13 @@ function rig() {
 const mine = { carNo: "9", table: 0, match: riding.address.toBase58(), matchKey: "x-9" };
 
 describe("readSnapshot rollup requests while a ride runs", () => {
+  // The hook's module graph loads once, here, with its own generous timeout: a loaded machine slows the import, not the checks.
+  let readSnapshot: typeof import("./useRailcar").readSnapshot;
+  beforeAll(async () => {
+    ({ readSnapshot } = await import("./useRailcar"));
+  }, 60_000);
+
   it("a Player's page asks the rollup once per read without a feed (before), and not at all with one", async () => {
-    const { readSnapshot } = await import("./useRailcar");
     const a = rig();
     await readSnapshot(a.read, a.tee, ME, mine, null);
     expect(a.calls()).toBe(1);
@@ -40,7 +59,6 @@ describe("readSnapshot rollup requests while a ride runs", () => {
   });
 
   it("a watcher's page reads every Table only on a scan; between scans it follows the ride it found through the feed", async () => {
-    const { readSnapshot } = await import("./useRailcar");
     const a = rig();
     const first = await readSnapshot(a.read, a.tee, null, null, null, { scan: true, fed: () => table });
     expect(a.rollup.getMultipleAccountsInfo).toHaveBeenCalledTimes(1);
