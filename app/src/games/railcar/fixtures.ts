@@ -88,6 +88,11 @@ export function riding(me: PublicKey | null = PLAYERS[0], o: { jumpedMe?: boolea
 /** The car just left: the ride clock waits for the draw (0:00), the car already rolls. */
 export const rideStarting = (me: PublicKey | null = PLAYERS[0]) => view(me, coreCar({ stage: "departed", seated: 37, pages: 4 }), 37, null, T0 + 61);
 
+/** The car left 5 minutes ago (or a day ago: `refundOpen`) and its ride never started: Delayed, refunds a day after it left. */
+export const rideDelayed = (me: PublicKey | null = PLAYERS[0], refundOpen = false) =>
+  view(me, coreCar({ stage: "departed", seated: 5, pages: 1, departedAt: T0 + 60, refundAfter: T0 + 60 + 86_400 }), 5, null, T0 + 60 + (refundOpen ? 86_400 : 300));
+export const DELAYED_REFUND_AT = T0 + 60 + 86_400;
+
 /** The worked example after Impact, as `me` sees it (Dee last off by default). */
 export function workedResult(me: PublicKey | null = DEE, backed?: FixtureBacking): RailcarView {
   const t = table(5, {

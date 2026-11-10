@@ -1,10 +1,11 @@
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { PLAYERS, boardingCountdown, boardingNotAboard, boardingWaiting, nobodyJumped, rideStarting, riding, workedResult, ANA, BEN, BOB, EVE } from "./fixtures";
+import { PLAYERS, DELAYED_REFUND_AT, boardingCountdown, boardingNotAboard, boardingWaiting, nobodyJumped, rideDelayed, rideStarting, riding, workedResult, ANA, BEN, BOB, EVE } from "./fixtures";
 import { brakeState, type BrakeFacts } from "./brake";
 import { RailcarScreen, type RailcarBrake } from "./RailcarScreen";
 import type { RailcarView } from "./view";
+import { refundByText } from "@/lib/chain/match-status";
 
 const html = (view: RailcarView, brake: RailcarBrake | null = null) => renderToStaticMarkup(<RailcarScreen view={view} brake={brake} />);
 const text = (h: string) => h.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
@@ -254,5 +255,27 @@ describe("Backing: a Player boards with a Backer's Gemas", () => {
 
   it("aboard at Impact backed: the Backer bears the loss", () => {
     expect(text(html(workedResult(EVE, { ...backed, seat: 4 })))).toContain("Your Backer bears the loss");
+  });
+});
+
+describe("a ride that never started: Delayed instead of a clock stuck at 0:00", () => {
+  it("a Player aboard: Delayed, the car stands still, no Jump or Brake, the refund time from the chain", () => {
+    const h = html(rideDelayed(), { left: 1, activeMs: 0 });
+    const t = text(h);
+    expect(t).toContain("Delayed");
+    expect(t).toContain(`Your entry is safe: if it has not started by ${refundByText(DELAYED_REFUND_AT, Date.now())}, it is refunded.`);
+    expect(t).not.toMatch(/Jump|Brake/);
+    expect(h).not.toContain('role="timer"');
+    expect(h).toContain('class="rc-stage"');
+  });
+
+  it("a Spectator: no Live chip and no Play the next ride, which would wait behind this car", () => {
+    const t = text(renderToStaticMarkup(<RailcarScreen view={rideDelayed(null)} watch={{ signedIn: true, nextSeated: 3 }} actions={{ onBoard: () => undefined }} />));
+    expect(t).toContain("every entry is refunded");
+    expect(t).not.toMatch(/Live|Play the next ride/);
+  });
+
+  it("once the refund time passed: the refund is open", () => {
+    expect(text(html(rideDelayed(PLAYERS[0], true)))).toContain("Delayed, refund is open");
   });
 });
