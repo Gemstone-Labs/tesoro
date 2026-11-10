@@ -26,7 +26,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
           (ready || (error && auth.status !== "loading") ? (
             <button type="button" className="cut cut-card gpill" aria-label="Your Gemas, buy Gemas" title="Buy Gemas" onClick={() => requestDeposit()}>
               <GemaMark size={30} glint />
-              <b className="tnum">{ready ? <CountUp value={gemas.total} /> : "—"}</b>
+              <b className="tnum">{ready ? <CountUp value={gemas.owned} /> : "—"}</b>
               <span>Gemas</span>
             </button>
           ) : (

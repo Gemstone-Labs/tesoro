@@ -22,6 +22,7 @@ import type { GameId } from "@/lib/mock";
 import { GAME_NAMES } from "@/lib/mock";
 import { postUrl, winPath, winShareText } from "@/lib/win-card";
 import { refundCopy } from "@/lib/chain/match-status";
+import { WaitingForMatch } from "@/app/(app)/wallet/WaitingForRoom";
 import { MomentOverlay } from "./MomentOverlay";
 import { Odometer, Shards } from "./ResultMotion";
 import "./match.css";
@@ -212,6 +213,7 @@ export function MatchResult(p: MatchResultProps) {
             {record && <RecordTile {...record} game={p.game} asset={p.asset} entry={p.entry} delay="1190ms" />}
           </div>
         )}
+        {p.matchId && p.role === "player" && <WaitingForMatch matchId={p.matchId} />}
         {p.scoreNote && <p className="note">{p.scoreNote}</p>}
         {p.split && <div className="mr-split mr-rise" style={{ "--d": "1600ms" } as Css}>{p.split}</div>}
 
