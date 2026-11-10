@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSyncExternalStore, type ReactNode } from "react";
-import { BookOpen, ChevronLeft, CircleMinus, Dumbbell, Hexagon, ScrollText, UserPlus, Vibrate, VibrateOff, Zap, type LucideIcon } from "lucide-react";
+import { BookOpen, ChevronLeft, CircleMinus, Dumbbell, Hexagon, ScrollText, UserPlus, Vibrate, VibrateOff, X, Zap, type LucideIcon } from "lucide-react";
 import { HowToPlayTab } from "@/components/how-to-play";
 import { PlayerAvatar, PlayerName } from "@/components/account/Player";
 import { Button, GemaAmount, GemaMark } from "@/components/ui";
@@ -383,9 +383,14 @@ function RailcarResult({ view, actions, watch, practice, waiting }: { view: Extr
   return (
     <section className="rc rc-result" aria-label="Railcar result">
       <header className="rc-res-head">
-        <p className="rc-res-game">
-          Railcar{practice && <span className="cut cut-chip game-tag">Practice</span>}
-        </p>
+        <div className="rc-res-top">
+          <p className="rc-res-game">
+            Railcar{practice && <span className="cut cut-chip game-tag">Practice</span>}
+          </p>
+          <Link href="/play" className="cut cut-btn rc-ibtn" aria-label="Back to games" title="Back to games">
+            <X aria-hidden="true" />
+          </Link>
+        </div>
         <h1 className="rc-res-title">{mine?.headline ?? "Ride over"}</h1>
         {mine && practice && (
           <p className="rc-res-would">
