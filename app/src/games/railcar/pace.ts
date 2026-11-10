@@ -5,9 +5,8 @@
  * case that those pages close, so it stays silent while the Table's pace mark keeps moving (every signal that lands moves it)
  * and sends only after a clear gap. That keeps a car near 5 a second instead of up to 10 (ticket 25).
  */
-
-/** The pace mark must have stood still this long, by the page's own reads, before a backup sends. */
-export const BACKUP_QUIET_MS = 2_500;
+/** The pace mark must stand still this long, by the page's own reads, before a backup sends. An aboard page's gap is at most 4x its mean (2 s at the 0.5 s floor), plus ~1.4 s for a signal to be read back. */
+export const BACKUP_QUIET_MS = 4_000;
 /** Each seat waits this much longer than the one before (up to `STAGGER_SEATS`), so the backups don't all go together. */
 const STAGGER_MS = 250;
 const STAGGER_SEATS = 10;

@@ -36,8 +36,13 @@ export interface Beat {
 export interface TickerOptions {
   /** What to send on this beat; null sends nothing. Read at every beat. */
   next(): Beat | null;
-  /** The interval to the next beat, read at every beat. */
+  /** The mean interval to the next beat, read at every beat. */
   intervalMs(): number;
+  /**
+   * The wait from a beat to the next, given the mean interval (random, for the aboard pages' Poisson ticks). Without it the
+   * wait is the interval itself. With it, a change of the interval redraws the wait from now (memoryless, so no burst).
+   */
+  gap?(meanMs: number): number;
   /** Wait before the first beat (default: a random part of the interval, so the pages' beats spread out). */
   startDelayMs?: number;
   /** Beats sent and not yet seen beyond this are skipped (default 3). */
@@ -92,7 +97,7 @@ export class RideTicker {
     this.confirmTimeoutMs = opts.confirmTimeoutMs ?? 6_000;
     void this.refresh();
     this.dueFor = opts.intervalMs();
-    this.due = Date.now() + (opts.startDelayMs ?? Math.random() * this.dueFor);
+    this.due = Date.now() + (opts.startDelayMs ?? (opts.gap ? opts.gap(this.dueFor) : Math.random() * this.dueFor));
     this.schedule();
   }
 
@@ -112,8 +117,11 @@ export class RideTicker {
       // already past that moment waits a random part of the new interval instead of firing at once, so pages that had waited
       // long don't all beat together.
       this.dueFor = interval;
-      this.due = this.last + interval;
-      if (this.due <= now) this.due = now + Math.random() * interval;
+      if (this.opts.gap) this.due = now + this.opts.gap(interval);
+      else {
+        this.due = this.last + interval;
+        if (this.due <= now) this.due = now + Math.random() * interval;
+      }
     }
     if (now >= this.due) this.fire(now, interval);
     else this.schedule();
@@ -121,6 +129,11 @@ export class RideTicker {
 
   private fire(now: number, interval: number) {
     void this.beat();
+    if (this.opts.gap) {
+      this.last = now;
+      this.due = now + this.opts.gap(interval);
+      return this.schedule();
+    }
     // from the planned time (no drift), unless a throttled tab is far behind: carry on from now, no burst to catch up
     this.last = now - this.due < interval ? this.due : now;
     this.due = this.last + interval;
@@ -149,8 +162,22 @@ export class RideTicker {
     return this.opts.pollMs ?? Math.min(MAX_POLL_MS, Math.max(MIN_POLL_MS, 1.5 * this.opts.intervalMs()));
   }
 
-  private async beat() {
-    if (this.flying >= (this.opts.maxInFlight ?? 3)) return;
+  /**
+   * Sends a beat now (a pressed Brake) and draws a fresh gap from it. The in-flight limit does not hold it back: a Brake is at
+   * most one such beat per seat per ride.
+   */
+  nudge() {
+    if (this.stopped) return;
+    const interval = this.opts.intervalMs();
+    void this.beat(true);
+    this.last = Date.now();
+    this.due = this.last + (this.opts.gap ? this.opts.gap(interval) : interval);
+    if (this.timer) clearTimeout(this.timer);
+    this.schedule();
+  }
+
+  private async beat(force = false) {
+    if (!force && this.flying >= (this.opts.maxInFlight ?? 3)) return;
     const b = this.opts.next();
     if (!b) return;
     this.flying += 1;

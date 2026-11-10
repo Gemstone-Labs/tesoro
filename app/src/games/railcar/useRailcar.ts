@@ -35,7 +35,7 @@ import { backerSeatedIn, boardingEntry, type BoardingBacking } from "./boarding"
 import { stepOffFor } from "./step-off";
 import { sendStepOff } from "./step-off-send";
 import { finishRide } from "./finish";
-import { mayFinish, nextRideStep, pageIntervalMs, queueChoice, rememberedCarGone, watchedRide } from "./flow";
+import { mayFinish, nextRideStep, pageIntervalMs, poissonGapMs, queueChoice, rememberedCarGone, watchedRide } from "./flow";
 import type { RailcarWatch } from "./RailcarScreen";
 import { boardingSigner, brakeRoute, finishSender, joinSeatKey, jumpSigner } from "./signers";
 import type { RailcarBrake, RailcarOffer } from "./RailcarScreen";
@@ -477,6 +477,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   // A Jumped Player's page is a backup: it signals only after the Table's pace mark stood still (pace.ts), so the car's signals
   // stay near 5 a second however many pages have Jumped.
   const paceWatch = useRef(new PaceWatch());
+  const tickerRef = useRef<RideTicker | null>(null);
   const backup = !!mySeat && !aboard;
   const beatFacts = useRef({ sends, tickKey, tableSeat, interval, refresh, backup });
   useEffect(() => {
@@ -501,6 +502,8 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
       },
       {
         intervalMs: () => beatFacts.current.interval,
+        // aboard pages tick at random gaps (a Brake goes out at once and hides among them); a backup keeps its fixed interval
+        gap: (mean) => (beatFacts.current.backup ? mean : poissonGapMs(mean)),
         next: () => {
           const f = beatFacts.current;
           if (f.backup && !backupDue({ quietMs: paceWatch.current.quietMs(Date.now()), tableSeat: f.tableSeat ?? 0 })) return null;
@@ -520,7 +523,11 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
         onEnded: () => void beatFacts.current.refresh().catch(() => undefined),
       },
     );
-    return () => ticker.stop();
+    tickerRef.current = ticker;
+    return () => {
+      ticker.stop();
+      if (tickerRef.current === ticker) tickerRef.current = null;
+    };
   }, [riding, signalTable, carNo]);
 
   // While the draw is asked for (and until every seat is bound) the page binds its own Brake seat and the next ones.
@@ -698,9 +705,11 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   const pressBrake = useCallback(() => {
     if (!brakeVia || !meKey || !snap?.car || !ride || tableSeat === null) return;
     if (brakeVia.kind === "next-tick") {
-      // the next tick carries it: no transaction of its own, no wallet prompt
+      // a tick carries it: no wallet prompt
+      // an extra tick goes out at once: the page's ticks are a Poisson process, so it can't be told from the others (flow.ts)
       pendingBrake.current = true;
       setPending(true);
+      tickerRef.current?.nudge();
       return;
     }
     // No seat key of this page's on the seat: one tick of its own, signed by the wallet, once its early copy landed.
