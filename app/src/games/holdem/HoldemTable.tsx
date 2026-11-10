@@ -18,6 +18,8 @@ import { FOLD_CHIPS_AT, SHOWDOWN_CHIPS_AT, STREET_LEAD, STREET_MS, runoutOffset,
 import { PACE, paced } from "./pace";
 import { Handshake, Trophy, Flag, ScrollText } from "lucide-react";
 import { Arena, Callout, GameMenu, prefersReducedMotion, sfx } from "../fx";
+import { PracticePauseButton, PracticePauseOverlay } from "../fx/PracticePause";
+import type { GameMenuItem } from "../fx/GameActions";
 import { art } from "@/lib/art";
 import "./holdem.css";
 
@@ -72,6 +74,8 @@ interface Props {
   endPanel?: React.ReactNode;
   /** A failed action, shown on the table (the page around it is hidden in full screen). */
   error?: string | null;
+  /** Practice only: pause the game, with extra actions on the pause card after Hand log. */
+  pause?: { paused: boolean; onToggle: () => void; items?: GameMenuItem[] };
 }
 
 /**
@@ -84,7 +88,7 @@ function TableMenu({ onLog, leaveHref }: { onLog: () => void; leaveHref?: string
   return <GameMenu className="hdx-menu" items={[{ label: "Hand log", icon: <ScrollText aria-hidden="true" />, onSelect: onLog }]} leaveHref={leaveHref} />;
 }
 
-export function HoldemTable({ table: t, seat, hole, busy, ended, onAct, onClaim, practice, endPanel, error }: Props) {
+export function HoldemTable({ table: t, seat, hole, busy, ended, onAct, onClaim, practice, endPanel, error, pause }: Props) {
   const opp = 1 - seat;
   const now = useNow();
   const [walletA, walletB] = t.players.map((p) => p.toBase58());
@@ -290,8 +294,13 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, onAct, onClaim,
             </Button>
           </span>
         )}
+        {practice && pause && <PracticePauseButton paused={pause.paused} onToggle={pause.onToggle} disabled={ended} />}
         <TableMenu onLog={() => setLogOpen(true)} leaveHref={practice ? "/play" : undefined} />
       </header>
+      {practice && pause?.paused && (
+        <PracticePauseOverlay onResume={pause.onToggle} leaveHref="/play"
+          items={[{ label: "Hand log", icon: <ScrollText aria-hidden="true" />, onSelect: () => setLogOpen(true) }, ...(pause.items ?? [])]} />
+      )}
       {error && <p className="status err hdx-error" role="alert">{error}</p>}
 
       <div className="hdx-stage" style={{ ["--rv" as string]: `${revealAt}ms` }}>

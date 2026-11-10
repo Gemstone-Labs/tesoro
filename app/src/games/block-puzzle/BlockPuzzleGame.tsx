@@ -1,5 +1,6 @@
 "use client";
 
+import { practiceSeed } from "@/lib/practice-seed";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useGuideHidden } from "@/components/guide/Guide";
 import { Button, CountUp, GemaMark, Label } from "@/components/ui";
@@ -12,6 +13,7 @@ import { Arena, Countdown, GameMenu, burst, prefersReducedMotion, sfx } from "..
 import type { CalloutTone } from "../fx";
 import { clearCallout, comboHeat } from "./feel";
 import { readBest, writeBest } from "./best";
+import { usePracticeHowTo } from "@/components/how-to-play";
 import { PracticePauseButton, PracticePauseOverlay, usePracticePause } from "../fx/PracticePause";
 import { blockHaptics } from "./haptics";
 import { usePieceDrag } from "./use-piece-drag";
@@ -129,6 +131,7 @@ const RING_C = 2 * Math.PI * RING_R;
  */
 export function BlockPuzzleGame({ run, matchPanel, overNote }: { run?: MatchRun; matchPanel?: ReactNode; /** A Match: the busy line under the final score until the result is in. */ overNote?: string }) {
   const { paused, toggle: togglePause, now: practiceNow } = usePracticePause(() => performance.now());
+  const howTo = usePracticeHowTo("block-puzzle");
   const me = useAccount().snapshot?.accountKey.toBase58();
   const [phase, setPhase] = useState<Phase>("idle");
   const [combo, setCombo] = useState(0);
@@ -228,7 +231,8 @@ export function BlockPuzzleGame({ run, matchPanel, overNote }: { run?: MatchRun;
   }, [setPreview, scorePresentation, resetEffects]);
 
   const start = () => {
-    const seed = run ? run.seed : randomSeed();
+    const fixed = practiceSeed();
+    const seed = run ? run.seed : fixed !== undefined ? BigInt(Math.abs(fixed)) : randomSeed();
     resetEffects();
     scorePresentation.reset();
     const initial = { st: run?.resume ?? newState(seed), colors: Array<number>(64).fill(NO_COLOR), lines: 0, gemsCleared: 0 };
@@ -580,7 +584,8 @@ export function BlockPuzzleGame({ run, matchPanel, overNote }: { run?: MatchRun;
           ))}
           </div>
         </div>
-        {paused && <PracticePauseOverlay onResume={togglePause} items={gameItems} leaveHref="/play" />}
+        {paused && <PracticePauseOverlay onResume={togglePause} items={[howTo.item, ...gameItems]} leaveHref="/play" />}
+        {!run && howTo.dialog}
         {(phase === "count" || goOn) && (
           <Countdown
             from={3}

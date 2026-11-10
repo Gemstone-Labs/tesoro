@@ -1,12 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { usePracticeHowTo } from "@/components/how-to-play";
 import { Button, Label } from "@/components/ui";
+import { usePracticePause } from "../../fx/PracticePause";
 import { PHASE, STATUS, type Action } from "../chain";
 import { HoldemTable } from "../HoldemTable";
 import { botAction } from "./bot";
 import { act, deal, holes, newPractice, type Practice } from "./engine";
 import { paced } from "../pace";
+import { seededRng } from "@/games/trading-duel/practice/bot";
+import { practiceSeed } from "@/lib/practice-seed";
 import { CARD_LANDS, DEAL_MS, STREET_LEAD } from "../useTableFeed";
 
 const YOU = 0;
@@ -20,8 +24,16 @@ const nowSecs = () => Math.floor(Date.now() / 1000);
 export function HoldemPractice() {
   // Shuffling on the server would mismatch hydration: the Match starts on mount.
   const [game, setGame] = useState<Practice | null>(null);
+  const { paused, toggle: togglePause } = usePracticePause();
+  const howTo = usePracticeHowTo("holdem");
+  // `?seed=` (dev builds) fixes the shuffles and the bot's choices.
+  const rng = useRef<(() => number) | undefined>(undefined);
   useEffect(() => {
-    const t = setTimeout(() => setGame(newPractice(nowSecs())), 0);
+    const t = setTimeout(() => {
+      const seed = practiceSeed();
+      rng.current = seed === undefined ? undefined : seededRng(seed);
+      setGame(newPractice(nowSecs(), rng.current));
+    }, 0);
     return () => clearTimeout(t);
   }, []);
 
@@ -32,21 +44,21 @@ export function HoldemPractice() {
   // Between hands: leave the last hand on the table for a moment (longer after a showdown), then deal.
   // The bot thinks for a beat before acting so its moves can be followed.
   useEffect(() => {
-    if (!game || !t || t.status !== STATUS.live) return;
+    if (!game || !t || t.status !== STATUS.live || paused) return;
     const fresh = t.phase !== seen.current.phase || t.handNo !== seen.current.handNo;
     seen.current = { phase: t.phase, handNo: t.handNo };
     if (t.phase === PHASE.shuffle) {
       const pause = t.lastHand.handNo === 0 ? 400 : paced(t.lastHand.showdown ? 3900 : 2100);
-      const id = setTimeout(() => setGame((g) => (g ? deal(g, nowSecs()) : g)), pause);
+      const id = setTimeout(() => setGame((g) => (g ? deal(g, nowSecs(), rng.current) : g)), pause);
       return () => clearTimeout(id);
     }
     if (t.toAct === BOT) {
       // A street that was just dealt is still landing on the table: the bot waits for it like a Player would.
       const landing = !fresh ? 0 : t.phase === PHASE.preflop ? DEAL_MS : STREET_LEAD + CARD_LANDS + paced(2 * 140);
-      const id = setTimeout(() => setGame((g) => (g ? act(g, BOT, botAction(g.table, BOT, holes(g)[BOT]), nowSecs()) : g)), landing + paced(700 + Math.random() * 500));
+      const id = setTimeout(() => setGame((g) => (g ? act(g, BOT, botAction(g.table, BOT, holes(g)[BOT], rng.current), nowSecs(), rng.current) : g)), landing + paced(700 + Math.random() * 500));
       return () => clearTimeout(id);
     }
-  }, [game, t]);
+  }, [game, t, paused]);
 
   if (!game || !t) return <p className="meta" role="status">Shuffling…</p>;
 
@@ -54,11 +66,13 @@ export function HoldemPractice() {
   const hole = game.lastHoles ? { handNo: dealt ? t.handNo : t.lastHand.handNo, cards: game.lastHoles[YOU] } : null;
 
   const onAct = (a: Action) => {
-    setGame((g) => (g && g.table.toAct === YOU && g.table.status === STATUS.live ? act(g, YOU, a, nowSecs()) : g));
+    if (paused) return;
+    setGame((g) => (g && g.table.toAct === YOU && g.table.status === STATUS.live ? act(g, YOU, a, nowSecs(), rng.current) : g));
   };
 
   return (
     <div className="stack-lg">
+      {howTo.dialog}
       <HoldemTable
         table={t}
         seat={YOU}
@@ -68,6 +82,7 @@ export function HoldemPractice() {
         onAct={onAct}
         onClaim={() => {}}
         practice
+        pause={{ paused, onToggle: togglePause, items: [howTo.item] }}
         endPanel={
           over && (
             <div className="cut cut-frame hd-practice-end">
@@ -78,7 +93,7 @@ export function HoldemPractice() {
                 </p>
               </div>
               <div className="bp-actions">
-                <Button onClick={() => setGame(newPractice(nowSecs()))}>Play again</Button>
+                <Button onClick={() => setGame(newPractice(nowSecs(), rng.current))}>Play again</Button>
                 <Button href="/play">Back to games</Button>
               </div>
             </div>

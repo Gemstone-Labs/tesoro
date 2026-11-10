@@ -7,6 +7,8 @@ import { chainMatchFromPage, type ChainMatch } from "@/lib/chain/read";
 import real from "@/lib/chain/match-pages/block-burst-devnet-2026-10-27.json";
 import type { MatchPage } from "@/server/history/reads";
 import { PublicKey } from "@solana/web3.js";
+import { matchPda } from "@/lib/chain/basket";
+import { demoSnapshot } from "@/lib/chain/fixture";
 import type { GameId } from "@/lib/mock";
 
 const BACKER = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM";
@@ -79,3 +81,21 @@ export const RealLost: Story = { args: fromPage(REAL_WIN, LOSER) };
 export const RealRefunded: Story = { args: fromPage(real.refunded as unknown as MatchPage, WINNER) };
 /** No real draw exists on devnet yet: this one is the won page with the draw's settled amounts (nothing moves). */
 export const RealDraw: Story = { args: fromPage({ ...REAL_WIN, winner: null, loser: null, winnerSide: null, kind: 2, points: null, fees: { studio: 0, platform: 0, leaderboard: 0 }, parties: REAL_WIN.parties.map((p) => ({ ...p, delta: 0, result: "draw" })) } as MatchPage, WINNER) };
+
+/** The Match left Gemas waiting for room: one plain line under the payout, with Claim, and the top bar counts them. */
+const OPENER = new PublicKey(new Uint8Array(32).fill(9));
+const waitingStory = (game: GameId): Story => ({
+  args: { ...props(game, true), matchId: `${OPENER.toBase58()}-7` },
+  parameters: {
+    data: {
+      snapshot: (a: string) => ({
+        ...demoSnapshot(a),
+        waiting: [{ address: OPENER, owner: OPENER, payer: OPENER, kind: 0, match: matchPda(OPENER, 7), gemas: 440n, lines: 1, storeLines: [], sources: [OPENER] }],
+      }),
+    },
+  },
+});
+export const BlockBurstWaitingForRoom: Story = waitingStory("block-puzzle");
+export const HoldemWaitingForRoom: Story = waitingStory("holdem");
+export const TradingDuelWaitingForRoom: Story = waitingStory("trading-duel");
+export const VanguardWaitingForRoom: Story = waitingStory("vanguard");

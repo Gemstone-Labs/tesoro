@@ -10,10 +10,10 @@ import { backerDelta, matchDelta } from "@/lib/chain/ledger";
 import type { ChainMatch } from "@/lib/chain/read";
 import type { GameId } from "@/lib/mock";
 
-/** DEV ONLY (NEXT_PUBLIC_DEV_WALLET=1): every Match result variant on fixtures. `?case=won|lost|draw|refunded|backed-player|backed-lost|backer-won|backer-lost|holdem-won|holdem-lost`. */
+/** DEV ONLY (NEXT_PUBLIC_DEV_WALLET=1): every Match result variant on fixtures. `?case=won|lost|draw|refunded|backed-player|backed-lost|backer-won|backer-lost|holdem-won|holdem-lost|trading-duel-won|vanguard-won`. */
 function Preview() {
   const c = useSearchParams().get("case") ?? "won";
-  const game: GameId = c.startsWith("holdem") ? "holdem" : "block-puzzle";
+  const game: GameId = c.startsWith("holdem") ? "holdem" : c.startsWith("trading-duel") ? "trading-duel" : c.startsWith("vanguard") ? "vanguard" : "block-puzzle";
   const won = !["lost", "backed-lost", "backer-lost", "holdem-lost"].includes(c);
   let m: ChainMatch = match(game, 1000, won, 2, [151, 42]);
   if (c === "draw" && m.session) m = { ...m, session: { ...m.session, result: "draw", scores: [88, 88] } };

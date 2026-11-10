@@ -22,6 +22,7 @@ import type { GameId } from "@/lib/mock";
 import { GAME_NAMES } from "@/lib/mock";
 import { postUrl, winPath, winShareText } from "@/lib/win-card";
 import { refundCopy } from "@/lib/chain/match-status";
+import { WaitingForMatch } from "@/app/(app)/wallet/WaitingForRoom";
 import { MomentOverlay } from "./MomentOverlay";
 import { Odometer, Shards } from "./ResultMotion";
 import "./match.css";
@@ -179,6 +180,7 @@ export function MatchResult(p: MatchResultProps) {
                 <small>Gemas{neutral ? " back" : ""}</small>
               </span>
               <GemaUsd className="mr-usd" value={neutral ? p.entry : Math.abs(delta)} />
+              {p.matchId && role === "player" && <WaitingForMatch matchId={p.matchId} />}
             </div>
             <div className="mr-in mr-notes" style={{ "--d": "1400ms" } as Css}>
               {backed && role === "player" ? (
