@@ -3,6 +3,7 @@ import { useAuth } from "./auth/context";
 import { useChainData } from "./chain/ChainDataProvider";
 import type { AccountSnapshot, ChainMatch } from "./chain/read";
 import { accountHistory } from "./chain/history";
+import { waitingGemas } from "./chain/overflow";
 import type { EntryError } from "./chain/ledger";
 import type { AuthState } from "./auth/types";
 import type { Account, GemaHolding, Match, Position } from "./mock";
@@ -21,8 +22,12 @@ export interface AccountView {
     pending: number;
     /** Held back for Offers you posted: still yours, not spendable until the Offer is used or released. */
     reserved: number;
-    /** `total - reserved`: what an entry can draw on now. */
+    /** `total - reserved`: what an entry can draw on now. Waiting Gemas are not in it. */
     available: number;
+    /** Gemas in overflow records ("waiting for room"): the Player's own, but not spendable until claimed. */
+    waiting: number;
+    /** `total + waiting`: everything the Player owns, what the top bar shows. */
+    owned: number;
   };
   /**
    * True when Positions, Gemas and Matches come from tesoro_core on Solana devnet. False means
@@ -46,6 +51,17 @@ export interface AccountView {
    * the data is mock.
    */
   entryProblem: (entry: number) => EntryError["code"] | null;
+}
+
+/** The totals derived from holdings; waiting Gemas count as owned, never as available. */
+export function gemaTotals(t: { total: number; redeemable: number; reserved: number; waiting: number }): AccountView["gemas"] {
+  return { total: t.total, redeemable: t.redeemable, pending: t.total - t.redeemable, reserved: t.reserved, available: t.total - t.reserved, waiting: t.waiting, owned: t.total + t.waiting };
+}
+
+/** Same rule as the program: playable Gemas minus Offer reservations minus what an open Ticket still has to stage. Waiting Gemas are not playable. */
+export function entryProblemOf(snap: Pick<AccountSnapshot, "ownTotal" | "wonTotal" | "reservedTotal" | "ticketNeed">, entry: number): EntryError["code"] | null {
+  const free = snap.ownTotal + snap.wonTotal - snap.reservedTotal - snap.ticketNeed;
+  return BigInt(entry) > free ? "insufficient" : null;
 }
 
 export function redeemableOf(h: GemaHolding): number {
@@ -159,6 +175,7 @@ export function useAccount(): AccountView {
   const holdings = mock ? mockHoldings : (real?.holdings ?? []);
   const total = holdings.reduce((s, h) => s + h.gemas, 0);
   const reserved = onChain ? Number((chain.snapshot?.reservedTotal ?? 0n) + (chain.snapshot?.ticketNeed ?? 0n)) : 0;
+  const waiting = onChain ? Number(waitingGemas(chain.snapshot?.waiting ?? [])) : 0;
   const redeemable = holdings.reduce((s, h) => s + redeemableOf(h), 0);
   const account: Account = {
     id: auth.email ?? "guest",
@@ -171,7 +188,7 @@ export function useAccount(): AccountView {
     positions: mock ? mockPositions : (real?.positions ?? []),
     holdings,
     matches: mock ? mockMatches : (real?.matches ?? []),
-    gemas: { total, redeemable, pending: total - redeemable, reserved, available: total - reserved },
+    gemas: gemaTotals({ total, redeemable, reserved, waiting }),
     onChain,
     loading: auth.status === "loading" || (onChain && (chain.loading || !auth.addresses.solana)),
     ready: mock || (onChain && chain.snapshot !== null),
@@ -182,9 +199,7 @@ export function useAccount(): AccountView {
     entryProblem: (entry) => {
       const snap = chain.snapshot;
       if (!onChain || !snap) return null;
-      // Same rule as the program: playable Gemas minus Offer reservations minus what an open Ticket still has to stage.
-      const free = snap.ownTotal + snap.wonTotal - snap.reservedTotal - snap.ticketNeed;
-      return BigInt(entry) > free ? "insufficient" : null;
+      return entryProblemOf(snap, entry);
     },
   };
 }

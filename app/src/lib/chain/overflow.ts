@@ -2,6 +2,7 @@ import "./polyfill";
 import { PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import { BASKET_VERSION, DISC, TESORO_CORE, basketPda, decodeStore, matchPda, spillPda, type Line } from "./basket";
 import { coreIx, metaOf } from "./core-ix";
+import { matchAddressOf } from "./match-id";
 
 /**
  * Overflow records (tesoro_core `instructions/overflow.rs`): the Gemas of a win, a refund, a Season prize or a Studio Fee that
@@ -77,6 +78,12 @@ export function decodeOverflowRecord(address: PublicKey, data: Uint8Array): Wait
 
 /** Total Gemas waiting for room across records. */
 export const waitingGemas = (records: readonly Pick<WaitingRecord, "gemas">[]): bigint => records.reduce((t, r) => t + r.gemas, 0n);
+
+/** The records that hold Gemas of one Match (`<opener>-<n>`): what its Result says is waiting for room. */
+export function waitingForMatch(records: readonly WaitingRecord[], matchKey: string): WaitingRecord[] {
+  const at = matchAddressOf(matchKey);
+  return at ? records.filter((r) => r.gemas > 0n && r.match?.equals(at)) : [];
+}
 
 /**
  * `claim_overflow`: moves up to `CLAIM_LINES` lines of the record into the owner's stores. `books` are the Source books (and
