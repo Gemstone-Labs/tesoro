@@ -127,7 +127,7 @@ const RING_C = 2 * Math.PI * RING_R;
  * clears show on the game-over card. No character anywhere on it. `matchPanel` is the Match status the
  * caller owns (who we wait for); without a `run` this is practice.
  */
-export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPanel?: ReactNode }) {
+export function BlockPuzzleGame({ run, matchPanel, overNote }: { run?: MatchRun; matchPanel?: ReactNode; /** A Match: the busy line under the final score until the result is in. */ overNote?: string }) {
   const { paused, toggle: togglePause, now: practiceNow } = usePracticePause(() => performance.now());
   const me = useAccount().snapshot?.accountKey.toBase58();
   const [phase, setPhase] = useState<Phase>("idle");
@@ -613,7 +613,10 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
                 ))}
               </ul>
               {run ? (
-                <p className="note">Waiting for the clock…</p>
+                <p className="note bp-over-wait" role="status">
+                  <span className="spinner" aria-hidden="true" />
+                  {overNote ?? "Waiting for your result…"}
+                </p>
               ) : (
                 <>
                   <div className="bp-actions">

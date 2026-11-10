@@ -112,6 +112,45 @@ describe("queueEntry (OC-04)", () => {
     expect(calls).toEqual(["unfinished", `join ${A}`, `join ${B}`]);
   });
 
+  it("a join that failed because this Player's other join already seated them there is that Match: no new Match opens (ticket 63)", async () => {
+    // 6qPL…-10 on 2026-11-09: two entry runs joined at once; 2SJqtf3D landed, 3k9MnuyT failed TicketNotOpen, and the failed run
+    // opened 3Cyp…-7 because the list read did not show -10 yet.
+    const matches = new Map([[A, match(A)]]);
+    const { deps, calls } = world({ list: [A], matches });
+    deps.join = vi.fn(async (id: string) => {
+      calls.push(`join ${id}`);
+      matches.set(A, match(A, { status: "active", seat: 1, opponent: "opener" }));
+      throw new TxFailedError("sig3k9M", { InstructionError: [1, { Custom: 6411 }] });
+    });
+    await expect(queueEntry(deps)).resolves.toEqual({ id: A, via: "joined" });
+    expect(calls).toEqual(["unfinished", `join ${A}`]);
+  });
+
+  it("a Match this Player's previous entry just opened is found by a fresh read, though the list read does not show it yet (ticket 63)", async () => {
+    const matches = new Map([[NEW, match(NEW, { seat: 0 })]]);
+    const { deps, calls } = world({ list: [], matches });
+    deps.recentEntry = () => NEW;
+    await expect(queueEntry(deps)).resolves.toEqual({ id: NEW, via: "existing" });
+    expect(calls).toEqual([]);
+  });
+
+  it("a recent entry that was cancelled and is still paying back (Refunding) does not stop a new one", async () => {
+    const matches = new Map([[NEW, match(NEW, { seat: 0, status: "active", running: "refunding" })]]);
+    const { deps, calls } = world({ list: [], matches });
+    deps.recentEntry = () => NEW;
+    deps.newId = () => "opener-901";
+    await expect(queueEntry(deps)).resolves.toEqual({ id: "opener-901", via: "opened" });
+    expect(calls).toContain("open opener-901");
+  });
+
+  it("a recent entry that is over (refunded or settled) does not stop a new one", async () => {
+    const matches = new Map([[NEW, match(NEW, { seat: 0, status: "refunded" })]]);
+    const { deps, calls } = world({ list: [], matches });
+    deps.recentEntry = () => NEW;
+    await expect(queueEntry(deps)).resolves.toEqual({ id: NEW, via: "opened" });
+    expect(calls).toContain(`open ${NEW}`);
+  });
+
   it("an expired join whose Match shows someone else seated counts as failed", async () => {
     const matches = new Map([
       [A, match(A)],

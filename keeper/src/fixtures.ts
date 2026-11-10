@@ -21,6 +21,7 @@ export function storeBytes(lines: Partial<StoreLine>[], opts: { account?: Public
     body.writeBigInt64LE(l.dueAt ?? 0n, at + 3);
     (l.source ?? PublicKey.default).toBuffer().copy(body, at + 11);
     body.writeBigUInt64LE(l.amount ?? 0n, at + 43);
+    body.writeUInt32LE(l.ck ?? 0, at + 91);
   });
   return buf;
 }

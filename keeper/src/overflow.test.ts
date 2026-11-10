@@ -8,6 +8,8 @@ import { OVERFLOW_MATCH, OVERFLOW_SEASON, basketOf, matchOverflowId, overflowAdd
 import { matchAddress } from "./kit.ts";
 import { claimRouteRecords, routeRecordsOf, type SeasonDeps } from "./season.ts";
 import { OVERFLOW_ROUTE, routeOverflowId } from "./kit.ts";
+import { encodeBook, freshClass } from "../../app/src/lib/chain/basket-fixture.ts";
+import { bookOf, ckptOf } from "./kit.ts";
 import { OVERFLOW_STORE_AT, claimStep, overflowJob, overflowRowOf, type OverflowDeps } from "./overflow.ts";
 import { loadIdl } from "./runtime.ts";
 import type { Info } from "./supply.ts";
@@ -16,9 +18,9 @@ const core = new anchor.Program(loadIdl("tesoro_core"), new anchor.AnchorProvide
 const k = () => Keypair.generate().publicKey;
 
 /** An overflow record: head (payer, kind, id) and a line store of `owner`. */
-function recordBytes(o: { payer: PublicKey; kind: number; id: Buffer; owner: PublicKey; lines: { source: PublicKey; amount: bigint }[]; capacity?: number }): Buffer {
+function recordBytes(o: { payer: PublicKey; kind: number; id: Buffer; owner: PublicKey; lines: { source: PublicKey; amount: bigint; ck?: number }[]; capacity?: number }): Buffer {
   const store = storeBytes(
-    o.lines.map((l) => ({ side: 1, cls: 3, tranche: 0, dueAt: 0n, source: l.source, amount: l.amount })),
+    o.lines.map((l) => ({ side: 1, cls: 3, tranche: 0, dueAt: 0n, source: l.source, amount: l.amount, ck: l.ck })),
     { account: o.owner, capacity: o.capacity ?? 4, bodyAt: OVERFLOW_STORE_AT },
   );
   o.payer.toBuffer().copy(store, 8);
@@ -103,6 +105,29 @@ describe("the overflow job", () => {
     const w = run([record(owner, k(), 0)], stores(owner, 0));
     await overflowJob(w.ctx, w.d);
     assert.deepEqual(w.sent, ["claimOverflow"]);
+  });
+  it("passes the checkpoint pages of a stale line the claim merges into, which the neighbours of the current page do not cover", async () => {
+    const owner = k();
+    const source = k();
+    const row = {
+      pubkey: k(),
+      data: recordBytes({ payer: k(), kind: OVERFLOW_MATCH, id: Buffer.alloc(40), owner, lines: [{ source, amount: 71n, ck: 100 }] }),
+    };
+    const held = new Map([
+      [basketOf(owner).toBase58(), storeBytes([{ side: 1, cls: 3, source, amount: 95n, ck: 0 }], { account: owner, capacity: 4 })],
+      [spillOf(owner).toBase58(), storeBytes([], { account: owner, capacity: 0 })],
+      [bookOf(source).toBase58(), encodeBook([freshClass(), freshClass(), freshClass(), { ...freshClass(), ck: 100 }])],
+      [ckptOf(source, 3, 0).toBase58(), Buffer.alloc(64)],
+      [ckptOf(source, 3, 3).toBase58(), Buffer.alloc(64)],
+    ]);
+    const w = run([row], held);
+    const sent: PublicKey[][] = [];
+    const send = w.d.send;
+    w.d.send = async (ixs, o) => (sent.push(ixs.flatMap((i) => i.keys.map((m) => m.pubkey))), send(ixs, o));
+    await overflowJob(w.ctx, w.d);
+    const keys = sent[0].map((x) => x.toBase58());
+    assert.ok(keys.includes(ckptOf(source, 3, 0).toBase58()), "the page of the stale line (ck 0) is passed");
+    assert.ok(keys.includes(ckptOf(source, 3, 3).toBase58()), "the current page is still passed");
   });
 });
 

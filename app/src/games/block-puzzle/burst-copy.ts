@@ -1,4 +1,5 @@
-import { REASON } from "./live-chain";
+import { commitCopy, type CommitState } from "@/lib/chain/commit-pending";
+import { REASON, type LivePhase } from "./live-chain";
 
 export type Outcome = "won" | "lost" | "draw" | "refunded";
 
@@ -34,3 +35,14 @@ export { tableWaitLine as needTableLine } from "@/lib/chain/match-status";
 
 /** A second tab is already playing this Match for you. */
 export const ELSEWHERE_LINE = "This Match is being played in another tab.";
+
+/**
+ * The busy line under Time's up, from the end of this Player's run to the result (ticket 65): what the Player is waiting for,
+ * in plain words. `phase` is the table's live phase, `commit` the result's save while it is on its way.
+ */
+export function afterRunLine(i: { phase: LivePhase | null; tableClosed: boolean; commit: CommitState | null }): string {
+  if (i.commit) return i.commit.phase === "slow" ? commitCopy(i.commit).line : "Saving the result…";
+  if (i.tableClosed) return "Paying out the Pot…";
+  if (i.phase === "running" || i.phase === "frozen") return "Your opponent still has time. The result comes when it runs out.";
+  return "Time’s up. Adding up both scores…";
+}

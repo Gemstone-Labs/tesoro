@@ -2,10 +2,10 @@ import { PublicKey } from "@solana/web3.js";
 import { act, log, type Ctx } from "./act.ts";
 import { claimOverflowIx, growStoreIx } from "./core-ix.ts";
 import { shortKey } from "./env.ts";
-import { OVERFLOW_MATCH, basketOf, decodeStore, keyOf, matchAddress, slack, spillOf, type StoreLine } from "./kit.ts";
+import { OVERFLOW_MATCH, basketOf, bookOf, ckptOf, decodeStore, keyOf, matchAddress, slack, spillOf, type StoreLine } from "./kit.ts";
 import { connLister, type Lister } from "./lists.ts";
 import { sendIxs, type SendOpts } from "./send.ts";
-import { connReader, supplySources, type Reader } from "./supply.ts";
+import { bookCheckpointCounts, connReader, supplySources, type Reader } from "./supply.ts";
 
 /** Where an overflow record's line store starts: 8 B discriminator, a 73 B head (payer 32, kind 1, id 40). */
 export const OVERFLOW_STORE_AT = 8 + 32 + 1 + 40;
@@ -58,6 +58,36 @@ export const realOverflowDeps = (ctx: Ctx): OverflowDeps => ({
   send: (ixs, opts) => sendIxs(ctx.conn, ctx.payer, ixs, opts),
 });
 
+/** Checkpoint records one catch-up reads (`MAX_CATCHUP_SCALE_STEPS + 1`), as in the app's `ckptPagesFor`. */
+const CATCHUP_RECORDS = 11;
+const RECORDS_PER_PAGE = 32;
+
+/**
+ * The checkpoint pages the lines a claim touches read when a claimed line merges into an older one (`MissingCheckpoint`
+ * without them): for each Source, the records from the line's checkpoint up to the class's, those that exist. Pages already
+ * supplied are left out.
+ */
+export async function stalePages(read: Pick<Reader, "many">, lines: StoreLine[], supplied: PublicKey[]): Promise<{ pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[]> {
+  const sources = [...new Map(lines.map((l) => [l.source.toBase58(), l.source])).values()];
+  const books = await read.many(sources.map(bookOf));
+  const wanted = new Map<string, PublicKey>();
+  sources.forEach((source, i) => {
+    const book = books[i];
+    if (!book) return;
+    const counts = bookCheckpointCounts(book.data);
+    for (const l of lines) {
+      if (!l.source.equals(source) || l.cls === 0 || l.cls === 2) continue; // pooled classes write no records
+      for (let at = l.ck; at < Math.min(counts[l.cls] ?? 0, l.ck + CATCHUP_RECORDS); at++) {
+        const key = ckptOf(source, l.cls, Math.floor(at / RECORDS_PER_PAGE));
+        wanted.set(key.toBase58(), key);
+      }
+    }
+  });
+  const missing = [...wanted.values()].filter((k) => !supplied.some((x) => x.equals(k)));
+  const infos = await read.many(missing);
+  return missing.flatMap((k, i) => (infos[i] ? [{ pubkey: k, isSigner: false, isWritable: true }] : []));
+}
+
 /** One claim step on a record (grow the spill first when the keeper paid for the record and there is no room). Returns the actions sent. */
 export async function claimRecord(ctx: Ctx, d: Pick<OverflowDeps, "read" | "send">, row: OverflowRow, subject = `record=${shortKey(row.address)} owner=${shortKey(row.owner)}`): Promise<number> {
   let actions = 0;
@@ -78,8 +108,10 @@ export async function claimRecord(ctx: Ctx, d: Pick<OverflowDeps, "read" | "send
   }
   const lines = row.lines.slice(0, CLAIM_LINES);
   const supply = await supplySources(ctx.core, d.read, lines.map((l) => ({ source: keyOf(l.source), cut: false })));
+  const held = [...decodeStore(b.data).lines(), ...decodeStore(s.data).lines()];
+  const stale = await stalePages(d.read, [...lines, ...held], supply.metas.map((m) => m.pubkey));
   const r = await act(ctx, "overflow", subject, `claim_overflow (${row.lines.length} line(s), rent to ${shortKey(row.payer)})`, async () =>
-    d.send([await claimOverflowIx(ctx.core, { account: row.owner, record: row.address, payer: row.payer, max: CLAIM_LINES, remaining: [...supply.metas, ...(row.match ? [{ pubkey: row.match, isSigner: false, isWritable: false }] : [])] })], { units: 400_000 }),
+    d.send([await claimOverflowIx(ctx.core, { account: row.owner, record: row.address, payer: row.payer, max: CLAIM_LINES, remaining: [...supply.metas, ...stale, ...(row.match ? [{ pubkey: row.match, isSigner: false, isWritable: false }] : [])] })], { units: 400_000 }),
   );
   return actions + +r.ok;
 }
