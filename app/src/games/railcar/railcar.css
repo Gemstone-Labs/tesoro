@@ -172,7 +172,7 @@
 .rc-dmg-screws i { position: absolute; top: 55%; width: 1.1%; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #e8eef2, #7d8a93 70%); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5); translate: -50% -60%; rotate: 20deg; animation: rc-screw 0.45s cubic-bezier(0.2, 0.9, 0.3, 1) both; }
 .rc-dmg-screws i:nth-child(even) { translate: -50% -110%; rotate: -35deg; }
 @keyframes rc-screw { from { translate: -50% 0; opacity: 0; scale: 0.4; } 60% { opacity: 1; scale: 1.4; } }
-.rc-bolt { position: absolute; width: 4.6%; height: auto; translate: -50% -50%; pointer-events: none; z-index: 3; animation: rc-bolt 1s linear var(--d, 0s) both; }
+.rc-bolt { position: absolute; width: 6.4%; height: auto; translate: -50% -50%; pointer-events: none; z-index: 3; animation: rc-bolt 1s linear var(--d, 0s) both; }
 @keyframes rc-bolt {
   0% { transform: translate(0, 0) rotate(0); opacity: 1; }
   18% { transform: translate(calc(var(--dx) * 0.12), -130%) rotate(calc(var(--rot) * 0.2)); opacity: 1; }

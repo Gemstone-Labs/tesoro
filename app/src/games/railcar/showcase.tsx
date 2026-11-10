@@ -65,13 +65,13 @@ function Run() {
   return <RailcarScreen view={view} actions={actions} brake={brake} />;
 }
 
-/** The self-playing ride, with a Replay button that stays above the ride's window cover. */
+/** The self-playing ride, with a Replay button (bottom right) that stays above the ride's window cover. */
 export function RailcarShowcase() {
   const [run, setRun] = useState(0);
   return (
     <>
       <Run key={run} />
-      <div style={{ position: "fixed", top: 12, right: 12, zIndex: 70 }}>
+      <div style={{ position: "fixed", bottom: 14, right: 14, zIndex: 70 }}>
         <Button size="sm" onClick={() => setRun((r) => r + 1)}>
           Replay
         </Button>
