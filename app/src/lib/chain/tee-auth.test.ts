@@ -1,6 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { TeeUnreachableError, guardedFetch, resetTeeAuth, teeToken, type TeeAuthDeps } from "./tee-auth";
+import { TeeUnreachableError, clearTeeTokens, guardedFetch, invalidateTeeToken, resetTeeAuth, teeToken, type TeeAuthDeps } from "./tee-auth";
 
 const RPC = "https://tee.test";
 const pk = new PublicKey("11111111111111111111111111111112");
@@ -58,6 +58,17 @@ describe("teeToken", () => {
     expect(login).toHaveBeenCalledTimes(2);
   });
 
+  it("a rate-limited login pauses for seconds, not a minute", async () => {
+    const login = vi.fn(async () => {
+      throw new Error("429 too many requests");
+    });
+    const d = deps(login);
+    await expect(teeToken(RPC, pk, sign, d)).rejects.toBeInstanceOf(TeeUnreachableError);
+    await vi.advanceTimersByTimeAsync(2_500);
+    await expect(teeToken(RPC, pk, sign, d)).rejects.toBeInstanceOf(TeeUnreachableError);
+    expect(login).toHaveBeenCalledTimes(2);
+  });
+
   it("retries a transient failure a few times with growing waits, then stops", async () => {
     const login = vi.fn(async () => {
       throw new Error("fetch failed");
@@ -99,19 +110,59 @@ describe("guardedFetch", () => {
     expect(inner).toHaveBeenCalledTimes(2);
   });
 
-  it("treats HTTP 429 as a ban and a normal answer as fine", async () => {
+  it("treats HTTP 429 as a short rate limit, not a ban", async () => {
     const inner = vi.fn().mockResolvedValueOnce(new Response("slow down", { status: 429 })).mockResolvedValue(new Response("{}", { status: 200 }));
     const f = guardedFetch(RPC, inner as unknown as typeof fetch);
     await expect(f(RPC, {})).rejects.toBeInstanceOf(TeeUnreachableError);
     await expect(f(RPC, {})).rejects.toBeInstanceOf(TeeUnreachableError);
     expect(inner).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(61_000);
+    await vi.advanceTimersByTimeAsync(2_500);
     expect((await f(RPC, {})).status).toBe(200);
+  });
+
+  it("a 401 drops the token once; the next caller logs in fresh, and a late 401 from the old token does not drop the new one", async () => {
+    const store = memStore();
+    let n = 0;
+    const login = vi.fn(async () => ok(++n));
+    const d = deps(login, store);
+    const old = await teeToken(RPC, pk, sign, d);
+    invalidateTeeToken(RPC, pk, store, old.token);
+    const fresh = await teeToken(RPC, pk, sign, d);
+    expect(fresh.token).toBe("tok2");
+    expect(login).toHaveBeenCalledTimes(2);
+    invalidateTeeToken(RPC, pk, store, old.token); // late 401 from the old connection
+    expect((await teeToken(RPC, pk, sign, d)).token).toBe("tok2");
+    expect(login).toHaveBeenCalledTimes(2);
+  });
+
+  it("sign-out clears every stored token and nothing else", async () => {
+    const m = new Map<string, string>([["other", "x"]]);
+    const store = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), removeItem: (k: string) => void m.delete(k), key: (i: number) => [...m.keys()][i] ?? null, get length() { return m.size; } };
+    const login = vi.fn(async () => ok());
+    await teeToken(RPC, pk, sign, deps(login, store));
+    clearTeeTokens(store);
+    expect([...m.keys()]).toEqual(["other"]);
+    await teeToken(RPC, pk, sign, deps(login, store));
+    expect(login).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps one token per wallet", async () => {
+    const other = new PublicKey("11111111111111111111111111111113");
+    const store = memStore();
+    let n = 0;
+    const login = vi.fn(async () => ok(++n));
+    const a = await teeToken(RPC, pk, sign, deps(login, store));
+    const b = await teeToken(RPC, other, sign, deps(login, store));
+    expect(a.token).not.toBe(b.token);
+    resetTeeAuth();
+    expect((await teeToken(RPC, pk, sign, deps(login, store))).token).toBe(a.token);
+    expect((await teeToken(RPC, other, sign, deps(login, store))).token).toBe(b.token);
+    expect(login).toHaveBeenCalledTimes(2);
   });
 
   it("login and rollup share one pause", async () => {
     const login = vi.fn(async () => {
-      throw new Error("429 too many requests");
+      throw new Error("Failed to authenticate: client temporarily banned -32005");
     });
     await expect(teeToken(RPC, pk, sign, deps(login))).rejects.toBeInstanceOf(TeeUnreachableError);
     const inner = vi.fn(async () => new Response("{}"));

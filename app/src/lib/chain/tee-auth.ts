@@ -28,15 +28,19 @@ export class TeeUnreachableError extends Error {
 const EXPIRY_MARGIN_MS = 3600_000;
 const LOGIN_TRIES = 3;
 const RETRY_BASE_MS = 1000;
-/** Pause after a ban or rate limit: doubles per repeat, capped. */
+/** Pause after the server says "client temporarily banned" (-32005): doubles per repeat, capped. */
 const BAN_BASE_MS = 60_000;
 const BAN_MAX_MS = 300_000;
+/** Pause after an HTTP 429 (a short rate limit, not a ban): a few seconds, so a live Match is not frozen. */
+const RATE_BASE_MS = 2_000;
+const RATE_MAX_MS = 20_000;
 /** Pause after a transient failure that survived its retries. */
 const FAIL_BASE_MS = 5_000;
 const FAIL_MAX_MS = 60_000;
 const STORE_PREFIX = "tesoro:tee-token:v1:";
 
-const BANNED = /-32005|temporarily banned|\b429\b|too many requests|rate.?limit/i;
+const BANNED = /-32005|temporarily banned/i;
+const RATE_LIMITED = /\b429\b|too many requests|rate.?limit/i;
 const CANCELLED = /user rejected|rejected the request|user denied|cancelled|canceled/i;
 
 type Cooldown = { until: number; failures: number };
@@ -62,15 +66,14 @@ function assertOpen(rpc: string): void {
   if (c && Date.now() < c.until) throw new TeeUnreachableError(c.until);
 }
 
-function pause(rpc: string, banned: boolean): TeeUnreachableError {
+type PauseKind = "ban" | "rate" | "fail";
+function pause(rpc: string, kind: PauseKind): TeeUnreachableError {
   const failures = (cooldowns.get(rpc)?.failures ?? 0) + 1;
-  const [base, max] = banned ? [BAN_BASE_MS, BAN_MAX_MS] : [FAIL_BASE_MS, FAIL_MAX_MS];
+  const [base, max] = kind === "ban" ? [BAN_BASE_MS, BAN_MAX_MS] : kind === "rate" ? [RATE_BASE_MS, RATE_MAX_MS] : [FAIL_BASE_MS, FAIL_MAX_MS];
   const until = Date.now() + Math.min(max, jitter(base * 2 ** (failures - 1)));
   cooldowns.set(rpc, { until, failures });
   return new TeeUnreachableError(until);
 }
-
-export const isBannedText = (text: string): boolean => BANNED.test(text);
 
 function readStored(store: TokenStore | null, key: string): TeeToken | null {
   try {
@@ -85,12 +88,31 @@ function readStored(store: TokenStore | null, key: string): TeeToken | null {
 
 const fresh = (t: TeeToken | null | undefined): t is TeeToken => !!t && t.expiresAt - Date.now() > EXPIRY_MARGIN_MS;
 
-export function invalidateTeeToken(rpc: string, pk: PublicKey, store: TokenStore | null = browserStore()): void {
+/** Drops the token for `pk` (and its connection). With `only`, drops it just when it is still that token, so a late 401 cannot kill a newer login. */
+export function invalidateTeeToken(rpc: string, pk: PublicKey, store: TokenStore | null = browserStore(), only?: string): void {
   const key = tokenKey(rpc, pk);
+  if (only !== undefined && tokens.get(key)?.token !== only && readStored(store, key)?.token !== only) return;
   tokens.delete(key);
   connections.delete(key);
   try {
     store?.removeItem?.(STORE_PREFIX + key);
+  } catch {
+    /* blocked site data */
+  }
+}
+
+/** Sign-out: forget every login token held in memory or stored, so the next Player on this browser starts clean. */
+export function clearTeeTokens(store: (TokenStore & Partial<Pick<Storage, "key" | "length">>) | null = browserStore()): void {
+  tokens.clear();
+  connections.clear();
+  try {
+    if (!store?.removeItem || !store.key || store.length === undefined) return;
+    const keys: string[] = [];
+    for (let i = 0; i < store.length; i++) {
+      const k = store.key(i);
+      if (k?.startsWith(STORE_PREFIX)) keys.push(k);
+    }
+    for (const k of keys) store.removeItem(k);
   } catch {
     /* blocked site data */
   }
@@ -131,8 +153,9 @@ export async function teeToken(
       } catch (e) {
         const text = e instanceof Error ? e.message : String(e);
         if (CANCELLED.test(text) || (e as { code?: number })?.code === 4001) throw e;
-        if (BANNED.test(text)) throw pause(rpc, true);
-        if (i >= LOGIN_TRIES - 1) throw pause(rpc, false);
+        if (BANNED.test(text)) throw pause(rpc, "ban");
+        if (RATE_LIMITED.test(text)) throw pause(rpc, "rate");
+        if (i >= LOGIN_TRIES - 1) throw pause(rpc, "fail");
         await sleep(jitter(RETRY_BASE_MS * 2 ** i));
       }
     }
@@ -153,12 +176,12 @@ export function guardedFetch(rpc: string, inner: typeof fetch = (...a) => fetch(
   return async (input, init) => {
     assertOpen(rpc);
     const res = await inner(input, init);
-    if (res.status === 429) throw pause(rpc, true);
+    if (res.status === 429) throw pause(rpc, "rate");
     if (res.status === 401) onUnauthorized?.();
     const len = Number(res.headers.get("content-length") ?? NaN);
     if (!Number.isFinite(len) || len < 1000) {
       const text = await res.clone().text().catch(() => "");
-      if (text.length < 1000 && /-32005|temporarily banned/i.test(text)) pause(rpc, true);
+      if (text.length < 1000 && /-32005|temporarily banned/i.test(text)) pause(rpc, "ban");
       else cooldowns.delete(rpc);
     } else cooldowns.delete(rpc);
     return res;
@@ -180,7 +203,7 @@ export function openTeeConnection(
       new Connection(`${rpc}?token=${token}`, {
         wsEndpoint: `${ws}?token=${token}`,
         commitment: "confirmed",
-        fetch: guardedFetch(rpc, undefined, () => invalidateTeeToken(rpc, pk)),
+        fetch: guardedFetch(rpc, undefined, () => invalidateTeeToken(rpc, pk, undefined, token)),
       }),
   );
   connections.set(key, p);
