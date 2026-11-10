@@ -22,7 +22,7 @@ export function WaitingForRoomView({ records, busy, note, error, onClaim, short 
         <b>{short ? `${fmtGemas(gemas)} of these are waiting for room` : `${fmtGemas(gemas)} Gemas waiting for room.`}</b>
         {!short && " They are yours; your Account was full when they arrived. Claim moves them in as soon as there is room."}
       </p>
-      <Button size="sm" disabled={busy || !onClaim} onClick={onClaim}>
+      <Button size={short ? "md" : "sm"} disabled={busy || !onClaim} onClick={onClaim}>
         {busy ? "Claiming…" : "Claim"}
       </Button>
       {note && !error && <span className="meta">{note}</span>}
