@@ -34,15 +34,21 @@ export interface ShowcaseFrame {
   brake: RailcarBrake | null;
 }
 
-/** What the screen shows `ms` after the departure. */
-export function showcaseAt(ms: number): ShowcaseFrame {
-  if (ms >= SHOWCASE_CRASH_MS) return { view: workedResult(), brake: null };
+/** Where the showcase stands `ms` after the departure, before any screen is built: null once the car has crashed. */
+export function showcaseMoment(ms: number) {
+  if (ms >= SHOWCASE_CRASH_MS) return null;
   const tell = ms >= SPARKS_AT ? 3 : ms >= PANEL_AT ? 2 : ms >= SCREWS_AT ? 1 : 0;
   const jumped = JUMPS.filter(([at]) => ms >= at).map(([, seat]) => seat);
-  const view = rideShow(Math.round(ms * CLOCK_X), tell, jumped);
   // The Brake runs on the real showcase clock so its 5 s are real seconds on screen.
-  const state = brakeState({ aboard: true, allBound: true, myBound: true, canSign: true, walletCopied: true, pressMs: ms >= BRAKE_AT ? BRAKE_AT : null, pending: false, rideMs: ms })!;
-  return { view, brake: { ...state, onBrake: () => undefined } };
+  const brake = brakeState({ aboard: true, allBound: true, myBound: true, canSign: true, walletCopied: true, pressMs: ms >= BRAKE_AT ? BRAKE_AT : null, pending: false, rideMs: ms })!;
+  return { clockMs: Math.round(ms * CLOCK_X), tell, jumped, brake };
+}
+
+/** What the screen shows `ms` after the departure. */
+export function showcaseAt(ms: number): ShowcaseFrame {
+  const m = showcaseMoment(ms);
+  if (!m) return { view: workedResult(), brake: null };
+  return { view: rideShow(m.clockMs, m.tell, m.jumped), brake: { ...m.brake, onBrake: () => undefined } };
 }
 
 /** The showcase clock moves on by `dt` and stops at the end. */
