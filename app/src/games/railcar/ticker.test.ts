@@ -176,4 +176,29 @@ describe("RideTicker", () => {
     t.stop();
     expect(sent.length).toBe(3);
   });
+
+  describe("rollup requests per second (a banned IP is the cost of too many)", () => {
+    async function perSecond(intervalMs: number, pollMs?: number) {
+      const { io } = rollup({ confirmMs: 450 });
+      const n = { blockhash: 0, send: 0, statuses: 0 };
+      const counted: TickerIo = {
+        blockhash: () => (n.blockhash++, io.blockhash()),
+        send: (a, b) => (n.send++, io.send(a, b)),
+        statuses: (x) => (n.statuses++, io.statuses(x)),
+      };
+      const t = new RideTicker(counted, page({ intervalMs: () => intervalMs, pollMs }).opts);
+      await vi.advanceTimersByTimeAsync(30_000);
+      t.stop();
+      return { ...n, perSec: (n.blockhash + n.send + n.statuses) / 30 };
+    }
+
+    it("a page of a 5-aboard car (one beat a second) asks the rollup about 3 times a second, was 4 with the 400 ms status poll", async () => {
+      const now = await perSecond(1_000);
+      const before = await perSecond(1_000, 400);
+      expect(now.send).toBeLessThanOrEqual(31);
+      expect(now.statuses).toBeLessThanOrEqual(31);
+      expect(now.perSec).toBeLessThanOrEqual(3.1);
+      expect(before.perSec).toBeGreaterThan(now.perSec);
+    });
+  });
 });
