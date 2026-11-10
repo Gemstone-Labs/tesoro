@@ -11,6 +11,19 @@ describe("boarding when another rider's open or join lands first", () => {
     expect(isStaleBoard(new Error("AnchorError caused by account: car. Error Code: ConstraintSeeds."))).toBe(true);
   });
 
+  it("knows them in every form the error arrives in: hex, decimal, the structured status, and the page's own wording", () => {
+    for (const m of [
+      "Transaction failed: InstructionError [2, Custom 2006]",
+      'Transaction failed: {"InstructionError":[2,{"Custom":2006}]}',
+      'Transaction failed: {"InstructionError":[1,{"Custom":6005}]}',
+      "Transaction failed: custom program error: 2006",
+      "Transaction failed: custom program error: 6005",
+      "Transaction failed … custom program error 0x7d6",
+      "Transaction failed: InstructionError [0, Custom(6005)]",
+    ]) expect(isStaleBoard(new Error(m)), m).toBe(true);
+    for (const m of ["Transaction failed: InstructionError [2, Custom 6001]", "Transaction failed: custom program error: 0x1771", "Transaction failed: InstructionError [2, Custom 20060]", "Transaction failed: InstructionError [1, InsufficientFundsForRent]"]) expect(isStaleBoard(new Error(m)), m).toBe(false);
+  });
+
   it("does not retry other errors: a declined prompt, an empty wallet, a Backer in the car", async () => {
     for (const e of [new Error("User rejected the request"), new Error("Not enough Gemas"), new Error("Your Backer is in this car: board the next one.")]) {
       const attempt = vi.fn().mockRejectedValue(e);
@@ -34,11 +47,11 @@ describe("boarding when another rider's open or join lands first", () => {
     expect(seen).toEqual(["open", "join"]);
   });
 
-  it("is bounded: gives up with the last error after 3 attempts, waiting longer each time", async () => {
+  it("is bounded: gives up with the last error after 5 attempts, waiting longer each time", async () => {
     const waits: number[] = [];
     const attempt = vi.fn().mockRejectedValue(stale());
     await expect(boardWithRetry(attempt, { waitMs: (n) => (waits.push(n), 0) })).rejects.toThrow("0x7d6");
-    expect(attempt).toHaveBeenCalledTimes(3);
-    expect(waits).toEqual([1, 2]);
+    expect(attempt).toHaveBeenCalledTimes(5);
+    expect(waits).toEqual([1, 2, 3, 4]);
   });
 });
