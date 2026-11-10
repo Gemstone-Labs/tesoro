@@ -93,6 +93,7 @@ export function practiceView(p: Practice, t: number): RailcarView {
   const mine = all[0];
   return {
     phase: "ride",
+    delayed: null,
     clockMs: t,
     tell: practiceTells(p, t).tell,
     aboard: all.filter((s) => !off(s)).map((s) => s.rider),

@@ -6,6 +6,7 @@ import { BookOpen, ChevronLeft, CircleMinus, Dumbbell, Hexagon, ScrollText, User
 import { HowToPlayTab } from "@/components/how-to-play";
 import { PlayerAvatar, PlayerName } from "@/components/account/Player";
 import { Button, GemaAmount, GemaMark } from "@/components/ui";
+import { refundByText } from "@/lib/chain/match-status";
 import { fmtGemas } from "@/lib/format";
 import { practiceHref } from "@/lib/game-params";
 import { Arena, GameMenu, type GameMenuItem } from "../fx";
@@ -128,6 +129,8 @@ function RailcarBody({
   const riding = view.phase === "ride";
   const aboard = riding ? view.aboard : view.riders;
   const meAboard = riding ? view.me?.aboard === true : view.mySeat !== null;
+  const delayed = riding ? view.delayed : null;
+  const seatedHere = riding && view.me !== null;
   // The window cover (never the browser's own full screen): a Player's ride covers from departure until the Result;
   // Boarding and watching stay in the shell. The ⋯ menu's Full screen and F toggle the same cover in every phase.
   return (
@@ -136,15 +139,23 @@ function RailcarBody({
         <Header entry={view.entry} practice={practice} onHowTo={guideOpens(view, practice) ? actions.onHowTo : undefined} />
         {riding ? (
           <div className="rc-top" key="ride">
-            {watch && (
-              <span className="cut cut-chip rc-live">
-                <i aria-hidden="true" />
-                Live
-              </span>
+            {delayed ? (
+              <div className="cut cut-card rc-count">
+                <span className="rc-count-label">{delayedWords(delayed, seatedHere).title}</span>
+              </div>
+            ) : (
+              <>
+                {watch && (
+                  <span className="cut cut-chip rc-live">
+                    <i aria-hidden="true" />
+                    Live
+                  </span>
+                )}
+                <p className="rc-clock mono" role="timer" aria-label={`Ride time ${clock(view.clockMs)}`}>
+                  {clock(view.clockMs)}
+                </p>
+              </>
             )}
-            <p className="rc-clock mono" role="timer" aria-label={`Ride time ${clock(view.clockMs)}`}>
-              {clock(view.clockMs)}
-            </p>
             <ol className="rc-tells" aria-label="Tells">
               {TELLS.map(({ name, art }, i) => (
                 <li key={name} className={`cut cut-chip rc-tell${view.tell > i ? " on" : ""}`} aria-current={view.tell === i + 1 ? "step" : undefined}>
@@ -184,7 +195,7 @@ function RailcarBody({
         )}
         <div className="rc-stage-wrap">
           {!riding && actions.onHowTo && <HowToPlayTab name="Railcar" className="rc-how" onClick={actions.onHowTo} />}
-          <RailcarStage aboard={aboard} moving={riding && !crash && !paused} slow={riding && meAboard && !!brake && brake.activeMs > 0} tell={riding ? view.tell : 0} rideMs={riding ? view.clockMs : 0} crash={crash} />
+          <RailcarStage aboard={aboard} moving={riding && !crash && !paused && !delayed} slow={riding && meAboard && !!brake && brake.activeMs > 0} tell={riding ? view.tell : 0} rideMs={riding ? view.clockMs : 0} crash={crash} />
           {riding && brake && meAboard && brake.activeMs > 0 && (
             <p className="cut cut-chip rc-brake-tag">
               Your Brake <b className="mono">{Math.ceil(brake.activeMs / 1000)}s</b> · only you see this
@@ -199,7 +210,9 @@ function RailcarBody({
         )}
         <Riders riders={aboard} label={riding ? `Aboard ${aboard.length}` : null} />
         <div className="rc-acts">
-          {riding && watch && !view.me ? (
+          {delayed ? (
+            <p className="cut cut-card rc-delayed">{delayedWords(delayed, seatedHere).line}</p>
+          ) : riding && watch && !view.me ? (
             <NextRide watch={watch} actions={actions} busy={busy} />
           ) : riding ? (
             view.me?.aboard ? (
@@ -310,6 +323,18 @@ function Header({ entry, practice, onHowTo }: { entry: bigint; practice: boolean
       <RailcarMenu onHowTo={onHowTo} />
     </header>
   );
+}
+
+/** A car that left but never started riding: the Gemas are safe and the refund has a time (core's refund_after). */
+function delayedWords(d: { refundAt: number; refundOpen: boolean }, aboard: boolean): { title: string; line: string } {
+  if (d.refundOpen) return { title: "Delayed, refund is open", line: aboard ? "This ride never started. Your entry is safe and is being refunded." : "This ride never started. Every entry is being refunded." };
+  const by = refundByText(d.refundAt, Date.now());
+  return {
+    title: "Delayed",
+    line: aboard
+      ? `This ride should have started by now. Your entry is safe: if it has not started by ${by}, it is refunded. You can leave this page.`
+      : `This ride should have started by now. If it has not started by ${by}, every entry is refunded.`,
+  };
 }
 
 /** The game menu: How to play, the rulebook, vibration for the Tells (where the phone can), sound, full screen. */

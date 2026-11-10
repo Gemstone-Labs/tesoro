@@ -84,6 +84,8 @@ export type RailcarView =
        * back to them.
        */
       me: { aboard: true; backer?: string } | { aboard: false; jumpMs: number; back: bigint; backer?: string } | null;
+      /** The car left but its ride has not started in time: every entry refunds from `refundAt` (unix secs, core's). */
+      delayed: { refundAt: number; refundOpen: boolean } | null;
     }
   | {
       phase: "result";
@@ -126,6 +128,16 @@ function backingsOf(f: RailcarFacts): BackingOf {
   return (coreSeat, account, me) => bySeat.get(coreSeat) ?? byAccount.get(account) ?? (me ? (f.myBacking ?? null) : null);
 }
 
+/** The draw has 90 s to land after the car leaves (Railcar's DRAW_WINDOW_SECS); past this with no ride, the car is Delayed. */
+export const DELAYED_AFTER_SECS = 120;
+
+function delayedOf(core: CarView | null, t: TableView | null, nowMs: number): { refundAt: number; refundOpen: boolean } | null {
+  if (!core || core.stage !== "departed" || !core.departedAt || t?.phase === "riding") return null;
+  const now = nowMs / 1000;
+  if (now < core.departedAt + DELAYED_AFTER_SECS) return null;
+  return { refundAt: core.refundAfter, refundOpen: now >= core.refundAfter };
+}
+
 export function railcarView(f: RailcarFacts): RailcarView {
   const core = f.core;
   const entry = core?.entry ?? f.table?.entry ?? 500n;
@@ -158,6 +170,7 @@ export function railcarView(f: RailcarFacts): RailcarView {
     stake: n * entry,
     entry,
     me: !mine ? null : { ...(mine.s.order === 0 ? { aboard: true as const } : { aboard: false as const, jumpMs: mine.s.jumpMs, back: earlyBack(entry, mine.s.jumpMs, f.myBrakeMs ?? null) }), ...withBacker(backerOfMine(f)) },
+    delayed: delayedOf(core, t, f.nowMs),
   };
 }
 

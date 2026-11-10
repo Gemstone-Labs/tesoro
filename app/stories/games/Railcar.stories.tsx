@@ -43,6 +43,12 @@ export const SteppingOff = screen(fx.boardingCountdown(), { busy: "step-off" });
 
 /** The car just left: the screen is already the Ride and the car rolls; the clock waits at 0:00 for the draw. */
 export const RideStarting = screen(fx.rideStarting());
+/** The car left 5 minutes ago and its ride never started: Delayed, with the time every entry refunds (a day after it left). */
+export const RideDelayed = { ...screen(fx.rideDelayed()), ...phone };
+/** The same Delayed car, watched by someone not in it: no Live chip, no next ride (it would wait behind this car). */
+export const RideDelayedWatching = { ...screen(fx.rideDelayed(null), { watch: { signedIn: true, nextSeated: 3 } }), ...phone };
+/** A day after it left: the refund is open. */
+export const RideDelayedRefundOpen = { ...screen(fx.rideDelayed(fx.PLAYERS[0], true)), ...phone };
 /** Mid-ride: 1:12, screws heard, 29 of 40 still aboard. */
 export const Riding = screen(fx.riding());
 /** You jumped at 0:25: what came back, and you keep watching. */
