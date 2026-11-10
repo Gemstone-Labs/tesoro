@@ -186,7 +186,6 @@ describe("persistent sponsor completion", () => {
     const a = make("pending-admission");
     const results = await Promise.allSettled([sql.prepareCompletion(a), sql.prepareCompletion(make("competitor"))]);
     expect(results.map((r) => r.status)).toEqual(["fulfilled", "rejected"]);
-    await expect(sql.prepareCompletion({ ...make("join-pending"), creates: [], ensures: [ticket] })).rejects.toThrow("unresolved");
     const before = await heldSql();
     await sql.finishCompletion(a.signature, false);
     expect(await heldSql()).toBe(before - 300_000n);
@@ -202,6 +201,22 @@ describe("persistent sponsor completion", () => {
     await sql.prepareCompletion(ensure);
     await sql.finishCompletion(ensure.signature, false);
     expect(await heldSql()).toBe(before);
+  });
+
+  it("lets a second Player's join go through while the first admission of the same Match is unfinalised", async () => {
+    const match = key().toBase58();
+    const make = (signature: string, kind: "creates" | "ensures") => ({ signature, raw: signature, creates: kind === "creates" ? [match] : [], ensures: kind === "ensures" ? [match] : [], closes: [], reserve: "300000" });
+    const open = make("rider-1-open", "creates"), join = make("rider-2-join", "ensures");
+    const before = await heldSql();
+    await sql.prepareCompletion(open);
+    expect(await sql.prepareCompletion(join)).toBe(true);
+    expect(await heldSql()).toBe(before + 300_000n);
+    await sql.finishCompletion(open.signature, true);
+    await sql.finishCompletion(join.signature, true);
+    expect(await heldSql()).toBe(before + 300_000n);
+    const memory = new MemoryUsageStore();
+    await memory.prepareCompletion(open);
+    expect(await memory.prepareCompletion(join)).toBe(true);
   });
 
   it("does not trust one preflight rejection after another worker can broadcast the saved admission", async () => {
