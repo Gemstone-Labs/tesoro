@@ -17,6 +17,17 @@ vi.mock("./chain", async (orig) => ({
   decodeCarAccount: () => ({ table: 0, tesoroMatch: riding.address }),
   decodeTable: () => table,
 }));
+// readSnapshot touches none of the wallet, signing, sponsor or Entry code useRailcar imports; stubbing them keeps the import of
+// the hook cheap (it cost ~2 s of the first test, which timed out on a loaded machine).
+vi.mock("@/lib/account", () => ({ useAccount: () => ({}) }));
+vi.mock("@/lib/chain/client", () => ({ getChain: () => ({}) }));
+vi.mock("@/lib/chain/entry", () => ({}));
+vi.mock("@/lib/chain/backing", () => ({ BackingError: class extends Error {}, backingProblem: () => null, fetchOffer: async () => null }));
+vi.mock("@/lib/chain/ticket", () => ({}));
+vi.mock("@/lib/chain/sponsor-client", () => ({}));
+vi.mock("@/lib/seat/seat-key", () => ({ seatKeys: {} }));
+vi.mock("@/lib/seat/signature-counter", () => ({ countingFor: () => ({}) }));
+vi.mock("@/lib/chain/settle-plan", () => ({ connReader: () => ({}), fits: () => true, simulatedUnits: async () => 0 }));
 vi.mock("./flow", async (orig) => ({ ...(await orig<typeof import("./flow")>()), watchedRide: () => table }));
 
 /** The rollup requests one read of a page's snapshot makes. */
