@@ -45,6 +45,9 @@ export const DAMAGE_ART: Partial<Record<DamageStage, string>> = {
  */
 export const CRASH_ART: string[] = [1, 2].map((i) => `${ART}/crash-f${i}.webp`);
 
+/** The wall the car hits: the intact sprite while it rushes in, the cracked one from the contact (400 x 300 art, drawn at stage height, its left face at 44/400). */
+export const WALL_ART = { intact: `${ART}/wall-v1.webp`, hit: `${ART}/wall-impact-v1.webp` };
+
 /** The loose bolts that pop off the car when the Screws Tell fires (small sprites, not car-sized). */
 export const BOLT_ART = [`${ART}/bolt-a.webp`, `${ART}/bolt-b.webp`];
 /** Where the bolts leave the car (x in car art px, along the sill) and how long they take to tumble away. */
@@ -137,6 +140,8 @@ export function RailcarStage({ aboard, moving, slow = false, tell = 0, crash = f
       <div className="rc-lay rc-mid" style={{ backgroundImage: `url(${ART}/mid.webp)` }} />
       <div className="rc-lay rc-trk" style={{ backgroundImage: `url(${ART}/track.webp)` }} />
       <div className="rc-car">
+        {/* the wall exists only from the Impact: nothing on screen hints at it before */}
+        {crash && <CrashWall />}
         {/* eslint-disable-next-line @next/next/no-img-element -- a sprite drawn over by the windows and wheels */}
         <img className="rc-car-art" src={`${ART}/car.webp`} alt="" width={CAR_W} height={CAR_H} draggable={false} />
         {windows.map((r, i) => (
@@ -220,7 +225,22 @@ export function CarDamage({ tell, art = DAMAGE_ART, stages = DAMAGE_STAGES }: { 
 }
 
 /**
- * The crash: the car stops against the wall, the stage shakes, then the picked frames play in order over the car (flash,
+ * The wall rushes in from the right (about 0.3 s) while the car slides left to meet it, its face landing at the car's front; at the
+ * contact the intact sprite swaps for the cracked one. Under reduced motion the cracked wall just appears and fades with the frames.
+ */
+export function CrashWall() {
+  return (
+    <div className="rc-wall" data-testid="rc-wall" aria-hidden="true">
+      {/* eslint-disable-next-line @next/next/no-img-element -- art sprite at stage height */}
+      <img className="rc-wall-intact" src={WALL_ART.intact} alt="" draggable={false} />
+      {/* eslint-disable-next-line @next/next/no-img-element -- art sprite at stage height */}
+      <img className="rc-wall-hit" src={WALL_ART.hit} alt="" draggable={false} />
+    </div>
+  );
+}
+
+/**
+ * The crash: the wall rushes in and the car slides to meet it (see `CrashWall`), the stage shakes, then the picked frames play in order over the car (flash,
  * crumpled front with debris, held to the end); `CRASH_ART` holds them. With no frames the basic flash and debris play. Reduced motion
  * shows the crumpled front only, faded in and out. Shown for `CRASH_MS` before the Result.
  */
