@@ -38,6 +38,15 @@ describe("the Railcar screen in Practice", () => {
     expect(t).not.toContain("You get");
   });
 
+  it("the Result, Practice or real, has a way back to the games list at its top", () => {
+    const v = practiceView(practiceJump(worked(), 99_000), 120_000);
+    for (const h of [practice(v), renderToStaticMarkup(<RailcarScreen view={v} actions={{ onShare: () => {} }} />)]) {
+      const head = h.slice(0, h.indexOf("rc-res-title"));
+      const link = head.match(/<a [^>]*aria-label="Back to games"[^>]*>/)?.[0];
+      expect(link).toContain('href="/play"');
+    }
+  });
+
   it("a real ride's Result never says Practice", () => {
     const t = text(renderToStaticMarkup(<RailcarScreen view={practiceView(practiceJump(worked(), 99_000), 120_000)} actions={{ onShare: () => {} }} />));
     expect(t).not.toContain("Practice");
