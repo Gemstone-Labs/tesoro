@@ -48,7 +48,7 @@ function chainReads(conn: Connection): ChainReads {
       const lamports = r.value.accounts?.[0]?.lamports;
       return { err: r.value.err, lamports: lamports === undefined ? null : BigInt(lamports) };
     },
-    send: (raw) => sendConfirmed(conn, raw),
+    send: (raw, o) => sendConfirmed(conn, raw, o),
   };
 }
 

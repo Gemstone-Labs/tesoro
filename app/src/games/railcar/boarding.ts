@@ -35,14 +35,37 @@ export async function backerSeatedIn(read: Reader, car: PublicKey, backer: Publi
 }
 
 
+/** Anchor's ConstraintSeeds, and Railcar's CarBoarding (6000 + its index 5): see `isStaleBoard`. */
+const CONSTRAINT_SEEDS = 2006;
+const CAR_BOARDING = 6005;
+
+/**
+ * The custom program error codes an error message carries, in every form they arrive in: the structured status
+ * (`{"InstructionError":[2,{"Custom":2006}]}`, `InstructionError [2, Custom 2006]`, `Custom(6005)`), the simulation's
+ * `custom program error: 0x7d6`, and the same in decimal.
+ */
+export function customErrorCodes(message: string): number[] {
+  const codes: number[] = [];
+  for (const m of message.matchAll(/\bCustom\W+(\d+)\b/gi)) codes.push(Number(m[1]));
+  for (const m of message.matchAll(/custom program error:?\s*(?:0x([0-9a-f]+)|(\d+))\b/gi)) codes.push(m[1] !== undefined ? parseInt(m[1], 16) : Number(m[2]));
+  return codes;
+}
+
 /**
  * Errors a board gets when it was built from a snapshot another rider's transaction has since changed: `open_car` names the car
- * address from the config's next number (Anchor ConstraintSeeds, 0x7d6) and the boarding car (CarBoarding, 0x1775), and a join
- * names a seat page. None of them sends anything, so the board can be built again from fresh state.
+ * address from the config's next number (ConstraintSeeds, 2006 = 0x7d6) and the boarding car (CarBoarding, 6005 = 0x1775).
+ * The transaction passed its preflight against the state it was built from and failed when it ran, so it is built again from
+ * fresh state.
  */
-export const isStaleBoard = (e: unknown): boolean => e instanceof Error && /0x7d6|0x1775|ConstraintSeeds|A car is still boarding/i.test(e.message);
+export const isStaleBoard = (e: unknown): boolean =>
+  e instanceof Error && (customErrorCodes(e.message).some((c) => c === CONSTRAINT_SEEDS || c === CAR_BOARDING) || /ConstraintSeeds|A car is still boarding/i.test(e.message));
 
-const BOARD_ATTEMPTS = 3;
+/**
+ * A failed transaction shows its error once it finalizes (about 13 s on devnet), by which time the rider whose open won has
+ * landed, so the second read already shows the car. Five attempts, waiting 0.7 s longer each time, cover a read that still
+ * misses it on a fast local validator (5 riders in 1 s: one open, four joins that no longer race).
+ */
+const BOARD_ATTEMPTS = 5;
 
 /** Runs a board, building it again from fresh state (the attempt reads the chain itself) when only a stale snapshot failed it. */
 export async function boardWithRetry(attempt: () => Promise<void>, o: { waitMs?: (n: number) => number } = {}): Promise<void> {
