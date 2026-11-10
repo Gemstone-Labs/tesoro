@@ -5,12 +5,13 @@ const acct = vi.hoisted(() => ({ snapshot: null as { waiting?: unknown[] } | nul
 vi.mock("@/lib/account", async (orig) => ({ ...(await orig<typeof import("@/lib/account")>()), useAccount: () => ({ auth: { signer: null }, snapshot: acct.snapshot, refresh: async () => undefined }) }));
 import { DEE, workedResult } from "./fixtures";
 import { RailcarScreen } from "./RailcarScreen";
+import { RailcarWaiting } from "./RailcarWaiting";
 
 const k = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
 const CAR = k(9);
 const record = (n: number, match: PublicKey, gemas: bigint) => ({ address: k(n), owner: k(2), payer: k(3), kind: 0, match, gemas, lines: 1, storeLines: [], sources: [k(4)] });
 const html = (props: { practice?: boolean; match?: PublicKey | null; view?: ReturnType<typeof workedResult> } = {}) =>
-  renderToStaticMarkup(<RailcarScreen view={props.view ?? workedResult(DEE)} match={props.match === undefined ? CAR : props.match} practice={props.practice} />);
+  renderToStaticMarkup(<RailcarScreen view={props.view ?? workedResult(DEE)} waiting={<RailcarWaiting match={props.match === undefined ? CAR : props.match} />} practice={props.practice} />);
 
 describe("Railcar Result: Gemas waiting for room", () => {
   afterEach(() => {

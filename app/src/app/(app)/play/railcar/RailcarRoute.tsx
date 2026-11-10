@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
+import { RailcarWaiting } from "@/games/railcar/RailcarWaiting";
 import { RailcarScreen } from "@/games/railcar/RailcarScreen";
 import { useRailcar } from "@/games/railcar/useRailcar";
 import { useAccount } from "@/lib/account";
@@ -28,7 +29,7 @@ export function RailcarRoute() {
   return (
     <RailcarScreen
       view={r.view ?? EMPTY}
-      match={r.match}
+      waiting={<RailcarWaiting match={r.match} />}
       busy={r.busy}
       error={r.error}
       brake={r.brake}
