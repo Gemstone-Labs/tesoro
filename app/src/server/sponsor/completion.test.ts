@@ -47,6 +47,7 @@ beforeAll(async () => {
   // This existing reservation represents B14's captured hold; the SQL must preserve it while adding generations.
   await db.query("insert into sponsor_hold(key,lamports) values ($1,300000)", [capturedMatch.toBase58()]);
   await db.exec(readFileSync(new URL("../../../supabase/migrations/0017_sponsor_completion.sql", import.meta.url), "utf8"));
+  for (const file of ["0019_sponsor_closure_seeds.sql", "0028_sponsor_join_pending_open.sql"]) await db.exec(readFileSync(new URL(`../../../supabase/migrations/${file}`, import.meta.url), "utf8"));
   sql = completionStore(async (fn, args) => {
     const values = Object.values(args);
     const result = await db.query<{ value: unknown }>(`select ${fn}(${values.map((_, i) => `$${i + 1}`).join(",")}) as value`, values);

@@ -103,7 +103,7 @@ export class MemoryUsageStore implements UsageStore {
     const keys = [...new Set([...input.creates, ...input.ensures])];
     for (const key of keys) {
       if (input.creates.includes(key) && this.holds.has(key)) throw new Error("Reservation already exists; reconcile its close before reuse");
-      if ([...this.journals.values()].some((j) => j.state === "pending" && [...j.acquired, ...j.closes].some((r) => r.key === key && r.generation === this.generations.get(key)))) throw new Error("Reservation has an unresolved transaction");
+      if ([...this.journals.values()].some((j) => j.state === "pending" && j.closes.some((r) => r.key === key && r.generation === this.generations.get(key)))) throw new Error("Reservation has an unresolved transaction");
     }
     const acquired = [];
     for (const key of keys) {
