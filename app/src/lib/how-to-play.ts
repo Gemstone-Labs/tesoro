@@ -1,4 +1,10 @@
+import { GAME_NAMES } from "./mock/data";
 import type { GameId } from "./mock/types";
+
+/** A Game with a guide: the four head-to-head Games and Railcar. */
+export type GuideGame = GameId | "railcar";
+
+export const guideGameName = (g: GuideGame): string => (g === "railcar" ? "Railcar" : GAME_NAMES[g]);
 
 export interface GuideStep {
   title: string;
@@ -6,7 +12,7 @@ export interface GuideStep {
 }
 
 /** The approved guide: five steps per Game (spec .scratch/how-to-play/spec.md). */
-export const GUIDE_STEPS: Record<GameId, readonly GuideStep[]> = {
+export const GUIDE_STEPS: Record<GuideGame, readonly GuideStep[]> = {
   "block-puzzle": [
     { title: "Same pieces, same time", line: "After the countdown you and your opponent get the same pieces." },
     { title: "Drag pieces onto the board", line: "Place each piece anywhere it fits." },
@@ -35,13 +41,20 @@ export const GUIDE_STEPS: Record<GameId, readonly GuideStep[]> = {
     { title: "Every rank has a power", line: "Select a piece to see what it can do, then tap a square or its power." },
     { title: "Capture the Supply Truck", line: "Take the enemy's Supply Truck to win." },
   ],
+  railcar: [
+    { title: "One car, one hidden wall", line: "Up to 100 Players ride together toward a wall nobody can see." },
+    { title: "Watch for the Tells", line: "Screws, then a panel, then sparks: each one means the wall is closer." },
+    { title: "Jump to get off", line: "Tap Jump any time. Anyone still aboard when the car hits the wall loses." },
+    { title: "One secret Brake", line: "It slows the car for 5 seconds, and only you see it." },
+    { title: "Be one of the last three off", line: "The last three Players to Jump before the wall win." },
+  ],
 };
 
 export type ClipSet = "phone" | "desktop";
 export const CLIP_EXTENSIONS = ["webm", "mp4", "webp"] as const;
 
 /** Where step `n` (1-based) of a Game's guide keeps its clip: video as webm and mp4, and a webp poster. */
-export function clipPaths(game: GameId, n: number, set: ClipSet): { webm: string; mp4: string; poster: string } {
+export function clipPaths(game: GuideGame, n: number, set: ClipSet): { webm: string; mp4: string; poster: string } {
   const base = `/art/how-to-play/${game}/${n}-${set}`;
   return { webm: `${base}.webm`, mp4: `${base}.mp4`, poster: `${base}.webp` };
 }

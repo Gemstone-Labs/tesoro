@@ -4,9 +4,7 @@ import { useEffect, useRef, useState, useSyncExternalStore, type PointerEvent } 
 import { Play } from "lucide-react";
 import { Button, Sheet } from "@/components/ui";
 import { useReducedMotion } from "@/games/fx/reduced-motion";
-import { GUIDE_STEPS, clipPaths, type ClipSet } from "@/lib/how-to-play";
-import { GAME_NAMES } from "@/lib/mock";
-import type { GameId } from "@/lib/mock";
+import { GUIDE_STEPS, clipPaths, guideGameName, type ClipSet, type GuideGame } from "@/lib/how-to-play";
 import { lastStepButton, stepAfterKey } from "./guide-nav";
 import "./how-to-play.css";
 
@@ -31,7 +29,7 @@ function useClipSet(): ClipSet {
 const SWIPE_PX = 48;
 
 export interface HowToPlayProps {
-  game: GameId;
+  game: GuideGame;
   open: boolean;
   /** Close, by Done, Start practice, the close button, Esc or the backdrop. */
   onClose: () => void;
@@ -43,7 +41,7 @@ export interface HowToPlayProps {
 /** Step-by-step guide with a looping clip per step: a bottom sheet on phones, a centred modal on wide screens. */
 export function HowToPlay({ game, open, onClose, end, practiceHref }: HowToPlayProps) {
   return (
-    <Sheet open={open} onClose={onClose} title={`How to play ${GAME_NAMES[game]}`} className="htp-sheet">
+    <Sheet open={open} onClose={onClose} title={`How to play ${guideGameName(game)}`} className="htp-sheet">
       <Guide game={game} end={end} practiceHref={practiceHref} onClose={onClose} />
     </Sheet>
   );
@@ -127,7 +125,7 @@ function Guide({ game, end, practiceHref, onClose }: Omit<HowToPlayProps, "open"
  * button shows; if the webm will not decode the mp4 is tried, then the poster stays. Reduced motion shows the poster
  * until tapped.
  */
-function Clip({ game, n, set, onProgress }: { game: GameId; n: number; set: ClipSet; onProgress: (p: number) => void }) {
+function Clip({ game, n, set, onProgress }: { game: GuideGame; n: number; set: ClipSet; onProgress: (p: number) => void }) {
   const reduced = useReducedMotion();
   const { webm, mp4, poster } = clipPaths(game, n, set);
   const [src, setSrc] = useState<string | null>(webm);

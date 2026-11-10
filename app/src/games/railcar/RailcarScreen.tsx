@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useSyncExternalStore } from "react";
-import { BookOpen, ChevronLeft, CircleMinus, Dumbbell, Hexagon, UserPlus, Vibrate, VibrateOff, Zap, type LucideIcon } from "lucide-react";
+import { BookOpen, ChevronLeft, CircleMinus, Dumbbell, Hexagon, ScrollText, UserPlus, Vibrate, VibrateOff, Zap, type LucideIcon } from "lucide-react";
+import { HowToPlayTab } from "@/components/how-to-play";
 import { PlayerAvatar, PlayerName } from "@/components/account/Player";
 import { Button, GemaAmount, GemaMark } from "@/components/ui";
 import { fmtGemas } from "@/lib/format";
@@ -35,6 +36,8 @@ export interface RailcarActions {
   onAddFriend?: (account: string) => void;
   /** A signed-out Spectator's way in before boarding. */
   onSignIn?: () => void;
+  /** Opens the How to play guide: the tab on the car while boarding, and the menu item (never while aboard a real ride). */
+  onHowTo?: () => void;
 }
 
 /** Someone watching a car they are not in: whether they can board now, and how many have boarded the next car (null: none yet). */
@@ -52,6 +55,9 @@ export interface RailcarBrake {
   activeMs: number;
   onBrake?: () => void;
 }
+
+/** The guide opens anywhere but a real ride the Player is in (never during a Match); Practice can stop for it. */
+export const guideOpens = (view: RailcarView, practice: boolean): boolean => practice || view.phase !== "ride" || !view.me;
 
 const statusOf = (b: RailcarBrake): BrakeStatus => b.status ?? (b.activeMs > 0 ? "on" : b.left === 0 ? "used" : "ready");
 
@@ -97,6 +103,8 @@ interface RailcarScreenProps {
   offer?: RailcarOffer | null;
   watch?: RailcarWatch | null;
   practice?: boolean;
+  /** A Practice ride stopped while the guide is open: the car stands still. */
+  paused?: boolean;
 }
 
 function RailcarBody({
@@ -108,6 +116,7 @@ function RailcarBody({
   offer = null,
   watch = null,
   practice = false,
+  paused = false,
   crash = false,
 }: RailcarScreenProps & { crash?: boolean }) {
   // While the car hits the wall the ride is over: nothing left to press.
@@ -121,7 +130,7 @@ function RailcarBody({
   return (
     <Arena game="railcar" autoFull={riding && view.me !== null}>
       <section className={`rc${riding ? " riding" : " boarding"}${practice ? " practice" : ""}`} aria-label="Railcar">
-        <Header entry={view.entry} practice={practice} />
+        <Header entry={view.entry} practice={practice} onHowTo={guideOpens(view, practice) ? actions.onHowTo : undefined} />
         {riding ? (
           <div className="rc-top" key="ride">
             {watch && (
@@ -171,7 +180,8 @@ function RailcarBody({
           </div>
         )}
         <div className="rc-stage-wrap">
-          <RailcarStage aboard={aboard} moving={riding && !crash} slow={riding && meAboard && !!brake && brake.activeMs > 0} tell={riding ? view.tell : 0} rideMs={riding ? view.clockMs : 0} crash={crash} />
+          {!riding && actions.onHowTo && <HowToPlayTab name="Railcar" className="rc-how" onClick={actions.onHowTo} />}
+          <RailcarStage aboard={aboard} moving={riding && !crash && !paused} slow={riding && meAboard && !!brake && brake.activeMs > 0} tell={riding ? view.tell : 0} rideMs={riding ? view.clockMs : 0} crash={crash} />
           {riding && brake && meAboard && brake.activeMs > 0 && (
             <p className="cut cut-chip rc-brake-tag">
               Your Brake <b className="mono">{Math.ceil(brake.activeMs / 1000)}s</b> · only you see this
@@ -281,7 +291,7 @@ function BackedBy({ offer, entry }: { offer: RailcarOffer; entry: bigint }) {
   );
 }
 
-function Header({ entry, practice }: { entry: bigint; practice: boolean }) {
+function Header({ entry, practice, onHowTo }: { entry: bigint; practice: boolean; onHowTo?: () => void }) {
   return (
     <header className="rc-head">
       <Link href="/play" className="cut cut-btn rc-ibtn" aria-label="Back to games">
@@ -294,17 +304,18 @@ function Header({ entry, practice }: { entry: bigint; practice: boolean }) {
         </span>
         {practice && <span className="cut cut-chip game-tag">Practice</span>}
       </div>
-      <RailcarMenu />
+      <RailcarMenu onHowTo={onHowTo} />
     </header>
   );
 }
 
-/** The game menu: how Railcar works, vibration for the Tells (where the phone can), sound, full screen. */
-function RailcarMenu() {
+/** The game menu: How to play, the rulebook, vibration for the Tells (where the phone can), sound, full screen. */
+function RailcarMenu({ onHowTo }: { onHowTo?: () => void }) {
   const vibration = useSyncExternalStore(railcarHaptics.subscribe, railcarHaptics.enabled, () => true);
   const canVibrate = useSyncExternalStore(railcarHaptics.subscribe, railcarHaptics.supported, () => false);
   const items: GameMenuItem[] = [
-    { label: "How Railcar works", icon: <BookOpen aria-hidden="true" />, href: "/docs/railcar" },
+    ...(onHowTo ? [{ label: "How to play", icon: <BookOpen aria-hidden="true" />, onSelect: onHowTo }] : []),
+    { label: "How Railcar works", icon: <ScrollText aria-hidden="true" />, href: "/docs/railcar" },
     ...(canVibrate
       ? [
           {
