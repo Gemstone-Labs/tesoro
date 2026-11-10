@@ -85,9 +85,10 @@ describe("signals per second for one car", () => {
     for (const share of [0, 0.5, 0.95]) {
       const off = Math.floor(seated * share);
       if (seated - off < 1) continue;
-      it(`${seated} seated, ${off} off: about 5 a second, never the 7 to 10 the old backups made`, () => {
+      it(`${seated} seated, ${off} off: about 5 a second (2 a second per page when 1 is aboard: the 0.5 s floor), never the 7 to 10 the old backups made`, () => {
         const rate = simulate({ seated, off, secs: 200 });
-        expect(rate).toBeGreaterThan(3.5);
+        const aboard = seated - off;
+        expect(rate).toBeGreaterThan(Math.min(5, aboard * 2) * 0.7);
         expect(rate).toBeLessThan(6.5);
       });
     }
