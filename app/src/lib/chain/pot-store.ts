@@ -26,6 +26,8 @@ export interface StoreLine {
   dueAt: bigint;
   source: PublicKey;
   amount: bigint;
+  /** Checkpoint records the line has caught up with (a merge into an older line reads the records between). */
+  ck: number;
 }
 
 export interface Store {
@@ -59,6 +61,7 @@ export function decodeStore(data: Uint8Array, bodyAt = DISC): Store {
       dueAt: i64(body, at + 3),
       source: new PublicKey(body.subarray(at + 11, at + 43)),
       amount: u64(body, at + 43),
+      ck: body.readUInt32LE(at + 91),
     };
   };
   return {
