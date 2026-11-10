@@ -1,0 +1,3 @@
+import { it } from "vitest";
+const mods = ["@solana/web3.js","react","@/games/block-puzzle/chain","@/lib/chain/basket","@/lib/chain/match-id","@/lib/chain/many-seat","@/lib/chain/many-seat-plan","@/lib/storage","./chain","./brake","./boarding","./step-off","./step-off-send","./finish","./flow","./signers","./tells","./payout","@/games/block-puzzle/table-feed","./pace","./ticker","./step-retry","./view","./RailcarScreen"];
+it("prof", async () => { for (const m of mods) { const t = Date.now(); await import(/* @vite-ignore */ m).catch((e)=>console.log("ERR",m,String(e).slice(0,60))); console.log("T", m, Date.now() - t); } }, 60000);
