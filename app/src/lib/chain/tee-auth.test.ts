@@ -1,6 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { TeeUnreachableError, clearTeeTokens, guardedFetch, invalidateTeeToken, resetTeeAuth, teeToken, type TeeAuthDeps } from "./tee-auth";
+import { TeeLoginError, TeeUnreachableError, teeLogin, clearTeeTokens, guardedFetch, invalidateTeeToken, resetTeeAuth, teeToken, type TeeAuthDeps } from "./tee-auth";
 
 const RPC = "https://tee.test";
 const pk = new PublicKey("11111111111111111111111111111112");
@@ -168,5 +168,60 @@ describe("guardedFetch", () => {
     const inner = vi.fn(async () => new Response("{}"));
     await expect(guardedFetch(RPC, inner as unknown as typeof fetch)(RPC, {})).rejects.toBeInstanceOf(TeeUnreachableError);
     expect(inner).not.toHaveBeenCalled();
+  });
+});
+
+describe("ban detection with the real error shapes", () => {
+  it("the SDK's stringified object error counts as a ban (no retry loop)", async () => {
+    const login = vi.fn(async () => {
+      throw new Error(`Failed to authenticate: ${{ code: -32005, message: "client temporarily banned" }}`); // "[object Object]"
+    });
+    await expect(teeToken(RPC, pk, sign, deps(login))).rejects.toBeInstanceOf(TeeUnreachableError);
+    expect(login).toHaveBeenCalledTimes(1);
+  });
+
+  it("teeLogin keeps the server's JSON-RPC ban answer and takes the long pause", async () => {
+    const f = vi.fn(async (url: string | URL | Request) => {
+      const u = String(url);
+      if (u.includes("/auth/challenge")) return new Response(JSON.stringify({ challenge: "hello" }), { status: 200 });
+      return new Response(JSON.stringify({ error: { code: -32005, message: "client temporarily banned" } }), { status: 403 });
+    });
+    vi.stubGlobal("fetch", f);
+    try {
+      await expect(teeLogin(RPC, pk, sign)).rejects.toMatchObject({ name: "TeeLoginError", status: 403, body: expect.stringContaining("-32005") });
+      f.mockClear();
+      const d: TeeAuthDeps = { store: memStore() };
+      const t0 = Date.now();
+      const err = await teeToken(RPC, pk, sign, d).catch((e) => e);
+      expect(err).toBeInstanceOf(TeeUnreachableError);
+      expect(err.retryAt - t0).toBeGreaterThanOrEqual(48_000);
+      expect(f).toHaveBeenCalledTimes(2); // one challenge + one login, no retry
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("a ban on the challenge step is a ban too", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: { code: -32005, message: "client temporarily banned" } }), { status: 403 })));
+    try {
+      const err = await teeToken(RPC, pk, sign, { store: memStore() }).catch((e) => e);
+      expect(err).toBeInstanceOf(TeeUnreachableError);
+      expect(err.retryAt - Date.now()).toBeGreaterThan(40_000);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("any other failure backs off: 3 tries, then a pause with no network", async () => {
+    const login = vi.fn(async () => {
+      throw new TeeLoginError("login", 500, "boom");
+    });
+    const d = deps(login);
+    const p = teeToken(RPC, pk, sign, d).catch((e) => e);
+    await vi.advanceTimersByTimeAsync(3_500);
+    expect(await p).toBeInstanceOf(TeeUnreachableError);
+    expect(login).toHaveBeenCalledTimes(3);
+    for (let i = 0; i < 20; i++) await teeToken(RPC, pk, sign, d).catch(() => {});
+    expect(login).toHaveBeenCalledTimes(3);
   });
 });
