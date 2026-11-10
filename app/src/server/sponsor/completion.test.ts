@@ -238,14 +238,18 @@ describe("persistent sponsor completion", () => {
       const open = make("o3-" + match, { creates: [match] });
       await store().prepareCompletion(open);
       await store().finishCompletion(open.signature, true);
-      await store().prepareCompletion(make("c3-" + match, { closes: [match] }));
+      const close = make("c3-" + match, { closes: [match] });
+      await store().prepareCompletion(close);
       await expect(store().prepareCompletion(make("j3-" + match, { ensures: [match] }))).rejects.toThrow("unresolved");
+      await store().finishCompletion(close.signature, false);
     });
 
     it("is fenced when the pending origin is itself a join that acquired the hold (its failure would drop it under the second join)", async () => {
       const match = key().toBase58();
-      await store().prepareCompletion(make("ana-" + match, { ensures: [match] }));
+      const ana = make("ana-" + match, { ensures: [match] });
+      await store().prepareCompletion(ana);
       await expect(store().prepareCompletion(make("ben-" + match, { ensures: [match] }))).rejects.toThrow("unresolved");
+      await store().finishCompletion(ana.signature, false);
     });
   });
 
