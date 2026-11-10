@@ -43,6 +43,7 @@ import { getChain } from "./client";
 import { MIN_SOL_LAMPORTS } from "./config";
 import { protectionsPda } from "./native";
 import { matchOverflowPda } from "./overflow";
+import { POT_AT } from "./pot-store";
 import { COUNTERS_V1_LEN, LEGACY_TICKET_BASE, growIxsFor, type RawAccount } from "./grow-counters";
 import { SponsorError, assignedSend, sponsorStatus, sponsoredSendBuilt } from "./sponsor-client";
 
@@ -104,12 +105,12 @@ export async function readEntryStores(account: PublicKey, conn: Pick<Connection,
 
 // ---- preview -------------------------------------------------------------------------------
 
-/** Rent of a Ticket / Pot account holding `lines` lines: 8 + 160 head + 128 header + 144 per line, at 6,960 lamports a byte (plus the 128 account overhead). */
-export const potLen = (lines: number) => 8 + 160 + 128 + 144 * lines;
+/** Rent of a Ticket / Pot account holding `lines` lines: the 8 + 192 head (`POT_AT`) + 128 header + 144 per line, at 6,960 lamports a byte (plus the 128 account overhead). */
+export const potLen = (lines: number) => POT_AT + 128 + 144 * lines;
 export const potRentLamports = (lines: number) => BigInt(potLen(lines) + 128) * 6_960n;
 
 /** Largest Ticket `open_ticket` can create in one go (account creation by CPI is capped at 10,240 bytes). */
-export const MAX_INITIAL_TICKET_LINES = Math.floor((10_240 - (8 + 160) - 128) / 144);
+export const MAX_INITIAL_TICKET_LINES = Math.floor((10_240 - POT_AT - 128) / 144);
 
 /** Slots a Ticket gets above the lines the draw needs: restages and splits. */
 export const TICKET_SLACK_LINES = 2;
