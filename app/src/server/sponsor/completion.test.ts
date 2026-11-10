@@ -57,6 +57,8 @@ beforeAll(async () => {
 afterAll(async () => { await db?.close(); });
 const heldSql = async () => BigInt((await db.query<{ total: string }>("select coalesce(sum(lamports),0)::text as total from sponsor_hold")).rows[0].total);
 
+const memoryStore = new MemoryUsageStore();
+
 describe("persistent sponsor completion", () => {
   it("recovers a self-paid close after restart using its successful originating admission", async () => {
     const address = key();
@@ -206,7 +208,7 @@ describe("persistent sponsor completion", () => {
 
   describe.each([
     ["Postgres", () => sql as CompletionStore, async () => heldSql()],
-    ["memory", (() => { const m = new MemoryUsageStore(); return () => m as CompletionStore; })(), async () => 0n],
+    ["memory", (() => { return () => memoryStore as CompletionStore; })(), () => memoryStore.held()],
   ] as const)("a join of a Match whose opening is unfinalised (%s)", (_name, store, held) => {
     const make = (signature: string, o: { creates?: string[]; ensures?: string[]; closes?: string[] }) => ({ signature, raw: signature, creates: [], ensures: [], closes: [], reserve: "300000", ...o });
 

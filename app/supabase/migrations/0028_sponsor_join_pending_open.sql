@@ -1,5 +1,6 @@
--- A join (ensures) of a Match whose opening is still unfinalised is admitted. The join cannot land unless that opening does,
--- so its failure gives nothing back that the opening's own journal does not; only a pending close of the reservation fences it.
+-- A join (ensures) of a Match whose opening is still unfinalised is admitted when that opening CREATES the reservation: the join
+-- cannot land unless the opening does. A pending origin that did not create it (a join that acquired the hold) still fences, since
+-- its failure would drop the hold under the second join; a pending close fences too.
 -- Before this, a second Player boarding a car within the first one's finalisation window was refused ("Reservation has an
 -- unresolved transaction"). Replaces 0019's function; the rest of it is unchanged.
 create or replace function public.sponsor_prepare_completion(p_input jsonb)
@@ -30,7 +31,8 @@ begin
     if found then
       if (p_input->'creates') ? k then raise exception 'Reservation already exists; reconcile its close before reuse'; end if;
       if exists (select 1 from public.sponsor_completion j where j.state = 'pending' and
-        j.closes @> jsonb_build_array(jsonb_build_object('key', k, 'generation', h.generation))) then
+        ((j.signature = h.origin_signature and not ((j.input->'creates') ? k))
+          or j.closes @> jsonb_build_array(jsonb_build_object('key', k, 'generation', h.generation)))) then
         raise exception 'Reservation has an unresolved transaction';
       end if;
     else
