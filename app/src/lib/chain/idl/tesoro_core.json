@@ -8702,6 +8702,10 @@
         {
           "name": "lines",
           "type": "u32"
+        },
+        {
+          "name": "target_tag",
+          "type": "u64"
         }
       ]
     },

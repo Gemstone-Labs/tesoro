@@ -195,7 +195,7 @@ export function openTicketIx(a: OpenTicketArgs): TransactionInstruction {
       counters: countersPda(a.owner),
       systemProgram: SystemProgram.programId,
     },
-    { nonce: new BN(a.nonce.toString()), kind: a.kind === "backing" ? { Backing: {} } : { Entry: {} }, game: GAME_IDS[a.game], target: new BN(a.target.toString()), lines: Math.min(a.lines, MAX_INITIAL_TICKET_LINES) },
+    { nonce: new BN(a.nonce.toString()), kind: a.kind === "backing" ? { Backing: {} } : { Entry: {} }, game: GAME_IDS[a.game], target: new BN(a.target.toString()), lines: Math.min(a.lines, MAX_INITIAL_TICKET_LINES), targetTag: new BN(0) },
   );
 }
 

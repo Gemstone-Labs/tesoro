@@ -127,7 +127,7 @@ export async function backingPairIx(relayer: PublicKey, parties: { requester?: P
   const backer = parties.backer ?? key();
   const backerAccount = accountOf(backer);
   const ticket = pda([s("ticket"), backerAccount.toBuffer(), u64(1)]);
-  const open = await coreIx("open_ticket", [new BN(1), { backing: {} }, key(), new BN(500), 4], {
+  const open = await coreIx("open_ticket", [new BN(1), { backing: {} }, key(), new BN(500), 4, new BN(0)], {
     payer: relayer,
     authority: requester,
     seatSigner: requester,
