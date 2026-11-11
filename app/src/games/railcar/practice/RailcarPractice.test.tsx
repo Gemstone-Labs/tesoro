@@ -7,7 +7,7 @@ import { practiceHref } from "@/lib/game-params";
 import { newPractice, practiceJump, practiceView, type PracticeRider } from "./session";
 
 const LONG = new Uint8Array(32);
-const rider = (name: string, planMs: number): PracticeRider => ({ id: `practice:${name}`, name, planMs, boltReactMs: null, sparkReactMs: null });
+const rider = (name: string, planMs: number): PracticeRider => ({ id: `practice:${name}`, name, planMs, screwsWaitMs: null, boltReactMs: null, sparkReactMs: null });
 const worked = () => newPractice(LONG, [rider("Ana", 25_000), rider("Ben", 97_000), rider("Cy", 95_000), rider("Eve", 1_000_000)]);
 
 const text = (h: string) => h.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");

@@ -63,7 +63,6 @@ describe("a Practice ride is the engine's ride", () => {
       const a = newPractice(s);
       expect(newPractice(s)).toEqual(a);
       expect(a.ride).toEqual(r);
-      const before = (ms: number) => practiceView(a, ms - 1);
       const at = (ms: number) => practiceView(a, ms);
       // Each Tell the ride shows appears at its engine position (no Brake: real ms = track ms); the others never do.
       const tellsAt = (ms: number) => {
