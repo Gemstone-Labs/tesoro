@@ -126,15 +126,26 @@ fn the_bolt_shows_on_3_rides_in_4_and_the_sparks_on_2_in_3_each_on_its_own() {
     assert!((share(&with_bolt, &sparks) - 2.0 / 3.0).abs() < 0.01);
     assert!((share(&without_bolt, &sparks) - 2.0 / 3.0).abs() < 0.01);
     // ...or about the crash point: short, middling and long rides show them alike.
-    for (lo, hi) in [(10_000, 20_000), (20_000, 40_000), (40_000, 80_000), (80_000, 120_001)] {
+    for (lo, hi) in [
+        (10_000, 20_000),
+        (20_000, 40_000),
+        (40_000, 80_000),
+        (80_000, 120_001),
+    ] {
         let band: Vec<&Ride> = all
             .iter()
             .copied()
             .filter(|r| (lo..hi).contains(&r.crash_ms))
             .collect();
         assert!(band.len() > 10_000, "band {lo}..{hi} too small");
-        assert!((share(&band, &bolt) - 0.75).abs() < 0.015, "bolt in {lo}..{hi}");
-        assert!((share(&band, &sparks) - 2.0 / 3.0).abs() < 0.015, "sparks in {lo}..{hi}");
+        assert!(
+            (share(&band, &bolt) - 0.75).abs() < 0.015,
+            "bolt in {lo}..{hi}"
+        );
+        assert!(
+            (share(&band, &sparks) - 2.0 / 3.0).abs() < 0.015,
+            "sparks in {lo}..{hi}"
+        );
     }
     // 1 ride in 12 warns with the screws only.
     let screws_only = share(&all, &|r| !bolt(r) && !sparks(r));
@@ -318,12 +329,14 @@ fn build_vectors() -> String {
     while draws.len() < 60 {
         draws.push(random_draw(&mut rng));
     }
-    // Every pattern of Tells, on a ride long enough for its leads and on a short one.
+    // Every pattern of Tells, on a ride long enough for its leads and on a short one (its own
+    // random stream, so the vectors below stay what they were).
+    let mut patterns = 0x7E11_5_u64;
     for bolt in [true, false] {
         for sparks in [true, false] {
             for short in [false, true] {
                 let d = loop {
-                    let d = random_draw(&mut rng);
+                    let d = random_draw(&mut patterns);
                     let r = ride(&d);
                     let length = if short {
                         r.crash_ms < 14_000

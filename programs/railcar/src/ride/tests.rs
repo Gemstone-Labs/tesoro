@@ -190,7 +190,11 @@ fn a_tell_the_ride_does_not_show_never_reaches_the_table() {
             assert!(!advance(&mut t, &v, at(secs)));
         }
         let want = if bolt { TELL_BOLT } else { 0 } | if sparks { TELL_SPARKS } else { 0 };
-        assert_eq!((t.screws, t.tell), (3, want), "bolt {bolt}, sparks {sparks}");
+        assert_eq!(
+            (t.screws, t.tell),
+            (3, want),
+            "bolt {bolt}, sparks {sparks}"
+        );
         // the wall comes where it always was
         assert!(advance(&mut t, &v, at(60.0)));
     }

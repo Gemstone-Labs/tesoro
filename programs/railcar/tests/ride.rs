@@ -1830,7 +1830,11 @@ fn a_tell_the_ride_does_not_show_never_reaches_the_public_table() {
         env.jump(car.table, &riders[ANA]).expect("jump");
         env.set_slot(last + 1);
         env.signal(car.table).expect("signal");
-        assert_eq!(env.table(car.table).phase, PHASE_OVER, "bolt {bolt}, sparks {sparks}");
+        assert_eq!(
+            env.table(car.table).phase,
+            PHASE_OVER,
+            "bolt {bolt}, sparks {sparks}"
+        );
     }
 }
 
@@ -2761,10 +2765,19 @@ fn compute_is_the_same_whether_a_tell_shows_or_not() {
         if !sparks {
             v.spark_at_ms = NEVER_MS;
         }
-        let len = env.svm.get_account(&s(vault_addr(table))).expect("vault").data.len();
+        let len = env
+            .svm
+            .get_account(&s(vault_addr(table)))
+            .expect("vault")
+            .data
+            .len();
         env.put(vault_addr(table), &v, railcar::ID);
         assert_eq!(
-            env.svm.get_account(&s(vault_addr(table))).expect("vault").data.len(),
+            env.svm
+                .get_account(&s(vault_addr(table)))
+                .expect("vault")
+                .data
+                .len(),
             len,
             "the Vault keeps its size"
         );
