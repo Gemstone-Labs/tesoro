@@ -39,6 +39,7 @@ import { mayFinish, nextRideStep, pageIntervalMs, poissonGapMs, queueChoice, rem
 import type { RailcarWatch } from "./RailcarScreen";
 import { boardingSigner, brakeRoute, finishSender, joinSeatKey, jumpSigner } from "./signers";
 import type { RailcarBrake, RailcarOffer } from "./RailcarScreen";
+import type { Tells } from "./tell-state";
 import { playTells } from "./tells";
 import { RAILCAR_FEES } from "./payout";
 import { watchAccount } from "@/games/block-puzzle/table-feed";
@@ -588,12 +589,12 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   }, [tickKey, ride?.carNo, ride?.phase, ride?.brakesBound, !!ride, signalTable, tableSeat, brakeLanded]);
 
   // The Tells as sound and vibration, from what the public Table shows.
-  const tells = useRef<{ car: bigint; tell: number; falseScrews: number } | null>(null);
+  const tells = useRef<{ car: bigint; tells: Tells } | null>(null);
   useEffect(() => {
     if (!ride || ride.phase !== "riding" || !snap?.mine) return;
-    const prev = tells.current && tells.current.car === ride.carNo ? tells.current : null;
-    tells.current = { car: ride.carNo, tell: ride.tell, falseScrews: ride.falseScrews };
-    const cues = tellCues(prev, ride);
+    const prev = tells.current && tells.current.car === ride.carNo ? tells.current.tells : null;
+    tells.current = { car: ride.carNo, tells: ride.tells };
+    const cues = tellCues(prev, ride.tells);
     if (cues.length) playTells(cues);
   }, [ride, snap?.mine]);
 

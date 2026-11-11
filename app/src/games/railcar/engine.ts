@@ -11,17 +11,25 @@ export const RIDE_CAP_MS = 600_000;
 export const SCREW_LEAD = [20_000, 40_000] as const;
 export const BOLT_LEAD = [8_000, 15_000] as const;
 export const SPARK_LEAD = [3_000, 8_000] as const;
+/**
+ * Later Tells are not promised (decisions Q39): a ride shows the bolt and panel on 3 rides in 4 and the sparks on 2 rides
+ * in 3, each on its own (`[shows, of]`). The screws show on every ride. A Tell that does not show is never announced.
+ */
+export const BOLT_SHOWS = [3, 4] as const;
+export const SPARK_SHOWS = [2, 3] as const;
 
 const MASK = (1n << 64n) - 1n;
 
 export type Ride = {
   crashMs: number;
   screwLeadMs: number;
-  boltLeadMs: number;
-  sparkLeadMs: number;
+  /** null when this ride does not show the bolt and panel. */
+  boltLeadMs: number | null;
+  /** null when this ride does not show the sparks. */
+  sparkLeadMs: number | null;
   screwAtMs: number;
-  boltAtMs: number;
-  sparkAtMs: number;
+  boltAtMs: number | null;
+  sparkAtMs: number | null;
   falseScrews: number[];
 };
 
@@ -69,13 +77,15 @@ function crashFrom(w: bigint): number {
 const lead = (w: bigint, [lo, hi]: readonly [number, number]) =>
   lo + Number(w % BigInt(hi - lo + 1));
 
-export function ride(draw: Uint8Array): Ride {
+/**
+ * The whole ride from the VRF output. `everyTell` replays a ride from before Tells could be absent (decisions Q39): the
+ * crash point, the leads and the false screws of a draw are the same either way.
+ */
+export function ride(draw: Uint8Array, o: { everyTell?: boolean } = {}): Ride {
   if (draw.length !== 32) throw new Error("draw must be 32 bytes");
   const [w0, w1, w2, w3] = [0, 1, 2, 3].map((i) => word(draw, i));
   const crashMs = crashFrom(w0);
   const screwLeadMs = lead(w1, SCREW_LEAD);
-  const boltLeadMs = lead(w2, BOLT_LEAD);
-  const sparkLeadMs = lead(w3, SPARK_LEAD);
   const at = (l: number) => Math.max(0, crashMs - l);
   const screwAtMs = at(screwLeadMs);
 
@@ -86,6 +96,11 @@ export function ride(draw: Uint8Array): Ride {
     candidates.push(2_000 + Number(splitmix(s) % 16_001n));
   candidates.sort((a, b) => a - b);
   const falseScrews = candidates.filter((c) => c + 1_000 <= screwAtMs);
+  // Drawn after the false screws, in this order, as the Rust engine does.
+  const shows = ([n, of]: readonly [number, number]) => splitmix(s) % BigInt(of) < BigInt(n);
+  const [boltShows, sparkShows] = [shows(BOLT_SHOWS), shows(SPARK_SHOWS)];
+  const boltLeadMs = boltShows || o.everyTell ? lead(w2, BOLT_LEAD) : null;
+  const sparkLeadMs = sparkShows || o.everyTell ? lead(w3, SPARK_LEAD) : null;
 
   return {
     crashMs,
@@ -93,8 +108,8 @@ export function ride(draw: Uint8Array): Ride {
     boltLeadMs,
     sparkLeadMs,
     screwAtMs,
-    boltAtMs: at(boltLeadMs),
-    sparkAtMs: at(sparkLeadMs),
+    boltAtMs: boltLeadMs === null ? null : at(boltLeadMs),
+    sparkAtMs: sparkLeadMs === null ? null : at(sparkLeadMs),
     falseScrews,
   };
 }

@@ -5,6 +5,7 @@
  */
 import { MAX_CRASH_MS, MEDIAN_MS, MIN_CRASH_MS, impactMs, placeSharesBps, positionMs, refund, ride, type Ride } from "../engine";
 import { RAILCAR_FEES, planPayout } from "../payout";
+import type { Tells } from "../tell-state";
 import type { RailcarView, ResultRow, Rider } from "../view";
 import { PLACE_WORDS } from "../words";
 
@@ -13,15 +14,20 @@ export const PRACTICE_ENTRY = 500n;
 export const SIM_RIDERS = 9;
 export const PRACTICE_ME = "practice:you";
 
-/** A simulated rider: plans a Jump at a track position, and may Jump a moment after the panel or the sparks show. */
+/**
+ * A simulated rider: plans a Jump at a track position, and reads the Tells as a Player must now that a later Tell is
+ * not promised (decisions Q39). Each wait runs from a Tell and ends when the next one shows.
+ */
 export interface PracticeRider {
   id: string;
   name: string;
   /** Track ms at which they mean to Jump. */
   planMs: number;
-  /** Ms after the bolt and panel Tell that they Jump, or null when it doesn't move them. */
+  /** Ms they give the car after a screw (false or real, they cannot tell) to show a later Tell before they Jump, or null when the screws alone never move them. */
+  screwsWaitMs: number | null;
+  /** Ms after the bolt and panel that they Jump if the sparks have not shown by then, or null when they hold for the sparks. */
   boltReactMs: number | null;
-  /** Ms after the sparks Tell that they Jump, or null when they hold through it. */
+  /** Ms after the sparks that they Jump, or null when they hold through them. */
   sparkReactMs: number | null;
 }
 
@@ -56,8 +62,17 @@ export function practiceJump(p: Practice, t: number): Practice {
 }
 
 function riderJumpMs(p: Practice, r: PracticeRider): number {
-  const react = (stageAt: number, after: number | null) => (after === null ? Infinity : realAt(p, stageAt) + after);
-  return Math.min(realAt(p, r.planMs), react(p.ride.boltAtMs, r.boltReactMs), react(p.ride.sparkAtMs, r.sparkReactMs));
+  const shows = (trackAt: number | null) => (trackAt === null ? Infinity : realAt(p, trackAt));
+  const [panelAt, sparksAt] = [shows(p.ride.boltAtMs), shows(p.ride.sparkAtMs)];
+  const onSparks = r.sparkReactMs === null ? Infinity : sparksAt + r.sparkReactMs;
+  // The wait on the panel ends when the sparks show; the wait on a screw ends at the next screw, the panel or the sparks.
+  const onPanel = r.boltReactMs === null ? Infinity : panelAt + r.boltReactMs;
+  const screws = [...p.ride.falseScrews, p.ride.screwAtMs].map((at) => realAt(p, at));
+  const onScrews = screws.map((at, i) => {
+    const jump = r.screwsWaitMs === null ? Infinity : at + r.screwsWaitMs;
+    return jump < Math.min(screws[i + 1] ?? Infinity, panelAt, sparksAt) ? jump : Infinity;
+  });
+  return Math.min(realAt(p, r.planMs), onSparks, onPanel < sparksAt ? onPanel : Infinity, ...onScrews);
 }
 
 interface Seat {
@@ -75,12 +90,13 @@ function seats(p: Practice): Seat[] {
   ];
 }
 
-/** The public Tells at ride ms `t`: stages passed and false screws heard (what the sound and vibration follow). */
-export function practiceTells(p: Practice, t: number): { tell: number; falseScrews: number } {
-  const shown = (track: number) => realAt(p, track) <= t;
+/** The public Tells at ride ms `t`, as a real car shows them: every screw heard in one count, and the later Tells this ride shows. */
+export function practiceTells(p: Practice, t: number): Tells {
+  const shown = (track: number | null) => track !== null && realAt(p, track) <= t;
   return {
-    tell: [p.ride.screwAtMs, p.ride.boltAtMs, p.ride.sparkAtMs].filter(shown).length,
-    falseScrews: p.ride.falseScrews.filter(shown).length,
+    screws: [...p.ride.falseScrews, p.ride.screwAtMs].filter(shown).length,
+    panel: shown(p.ride.boltAtMs),
+    sparks: shown(p.ride.sparkAtMs),
   };
 }
 
@@ -95,7 +111,7 @@ export function practiceView(p: Practice, t: number): RailcarView {
     phase: "ride",
     delayed: null,
     clockMs: t,
-    tell: practiceTells(p, t).tell,
+    tells: practiceTells(p, t),
     aboard: all.filter((s) => !off(s)).map((s) => s.rider),
     jumped: all.filter(off).map((s) => s.rider),
     stake: BigInt(all.length) * entry,
@@ -161,7 +177,9 @@ const NERVES: Nerve[] = ["early", "early", "steady", "steady", "steady", "steady
 
 /**
  * 9 riders who read the car like Players do: each picks a moment from the engine's own survival curve (10 s, then an
- * even chance a second, capped at 2:00), scaled by their nerve, and most Jump soon after the sparks. None Brakes.
+ * even chance a second, capped at 2:00), scaled by their nerve. Most Jump soon after the sparks when the sparks come.
+ * Since a ride may never show them, many give the panel its safe 8 s and a little more, then go, and some do the same
+ * with the screws (20 s and a little more); the greediest hold for the sparks whatever happens. None Brakes.
  */
 export function simRiders(draw: Uint8Array): PracticeRider[] {
   const rng = riderRng(draw);
@@ -174,8 +192,9 @@ export function simRiders(draw: Uint8Array): PracticeRider[] {
     const nerve = nerves[i];
     const scale = nerve === "early" ? 0.25 + 0.35 * rng() : nerve === "steady" ? 0.7 + 0.4 * rng() : 1 + 0.6 * rng();
     const planMs = Math.max(4_000, Math.round(curve * scale));
-    const boltReactMs = nerve === "early" ? maybe(0.6, 500, 4_000) : nerve === "steady" ? maybe(0.3, 800, 4_800) : null;
+    const screwsWaitMs = nerve === "early" ? maybe(0.5, 20_000, 26_000) : nerve === "steady" ? maybe(0.4, 22_000, 34_000) : null;
+    const boltReactMs = nerve === "early" ? maybe(0.7, 500, 6_000) : nerve === "steady" ? maybe(0.75, 8_000, 12_500) : maybe(0.4, 10_000, 14_500);
     const sparkReactMs = nerve === "early" ? between(300, 1_500) : nerve === "steady" ? maybe(0.75, 300, 2_500) : maybe(0.5, 800, 3_300);
-    return { id: `practice:${name}`, name, planMs, boltReactMs, sparkReactMs };
+    return { id: `practice:${name}`, name, planMs, screwsWaitMs, boltReactMs, sparkReactMs };
   });
 }

@@ -2,6 +2,7 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import type { CarView, SeatPageView, SeatView } from "../../lib/chain/many-seat";
 import type { TableView } from "./chain";
+import { NO_TELLS } from "./tell-state";
 import { boardingSteps, departureDue, mayFinish, nextRideStep, pageIntervalMs, queueChoice, signalIntervalMs, watchedRide } from "./flow";
 
 const key = () => Keypair.generate().publicKey;
@@ -99,8 +100,7 @@ const table = (o: Partial<TableView> = {}): TableView => ({
   phase: "riding",
   outcome: "none",
   reason: "none",
-  tell: 0,
-  falseScrews: 0,
+  tells: NO_TELLS,
   seated: 5,
   aboard: 5,
   jumps: 0,

@@ -103,8 +103,8 @@ pub fn pace(t: &mut Table, slot: u64, ts: i64) -> bool {
 }
 
 /// A signal, a tick or the start of a Jump at `slot`: moves the public Tells (the screws heard,
-/// false and real alike, and the later Tells shown), and says whether the car has hit the wall (or the ride reached ten minutes).
-/// Nothing changes once it has.
+/// false and real alike, and the later Tells shown), and says whether the car has hit the wall
+/// (or the ride reached ten minutes). Nothing changes once it has.
 pub fn advance(t: &mut Table, v: &Vault, slot: u64) -> bool {
     let ms = t.ride_ms(slot);
     let half = half_position(v, ms);

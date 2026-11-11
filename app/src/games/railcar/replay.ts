@@ -22,14 +22,16 @@ export interface RideRecord {
   /** Core's paid places, first place (last off) first: the seat and the forfeits it won on top of its entry. */
   places: { seat: number; won: bigint }[];
   fees: bigint;
+  /** The car rode before Tells could be absent (decisions Q39): it showed every Tell, and replays that way. */
+  everyTell?: boolean;
 }
 
 export interface ReplayTell {
   stage: "screws" | "panel" | "sparks";
-  /** Track ms before the wall the stage starts. */
-  leadMs: number;
-  /** Ride-clock ms it showed (later than its track position when a Brake ran). */
-  atMs: number;
+  /** Track ms before the wall the Tell starts; null when the ride did not show it. */
+  leadMs: number | null;
+  /** Ride-clock ms it showed (later than its track position when a Brake ran); null when the ride did not show it. */
+  atMs: number | null;
 }
 
 export interface ReplaySeat {
@@ -69,11 +71,11 @@ const STAGES: ReplayTell["stage"][] = ["screws", "panel", "sparks"];
 export function replayRide(rec: RideRecord): RideReplay {
   const presses = rec.brakes.map((b) => b.ms).sort((a, b) => a - b);
   const brakeOf = new Map(rec.brakes.map((b) => [b.seat, b.ms]));
-  const d = rec.draw ? ride(rec.draw) : null;
+  const d = rec.draw ? ride(rec.draw, { everyTell: rec.everyTell }) : null;
   const onClock = (trackMs: number) => clockAt(presses, trackMs);
   const impact = d ? onClock(d.crashMs) : null;
   const tells: ReplayTell[] = d
-    ? [d.screwLeadMs, d.boltLeadMs, d.sparkLeadMs].map((leadMs, i) => ({ stage: STAGES[i], leadMs, atMs: onClock(Math.max(0, d.crashMs - leadMs)) }))
+    ? [d.screwLeadMs, d.boltLeadMs, d.sparkLeadMs].map((leadMs, i) => ({ stage: STAGES[i], leadMs, atMs: leadMs === null ? null : onClock(Math.max(0, d.crashMs - leadMs)) }))
     : [];
   const base = (s: RideRecord["seats"][number]) => ({ seat: s.seat, player: s.player, funder: s.funder, brakeMs: brakeOf.get(s.seat) ?? null });
   const shown = (seat: number) => seat + 1;

@@ -331,7 +331,7 @@ fn build_vectors() -> String {
     }
     // Every pattern of Tells, on a ride long enough for its leads and on a short one (its own
     // random stream, so the vectors below stay what they were).
-    let mut patterns = 0x7E11_5_u64;
+    let mut patterns = 0x7_E115_u64;
     for bolt in [true, false] {
         for sparks in [true, false] {
             for short in [false, true] {

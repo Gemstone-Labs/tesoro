@@ -6,7 +6,7 @@ import { newPractice, practiceBrake, practiceJump, practiceView, simRiders, type
 const LONG = new Uint8Array(32);
 const seed = (n: number) => Uint8Array.from({ length: 32 }, (_, i) => (n * 131 + i * 17 + ((n >> 3) ^ i)) & 0xff);
 
-const rider = (name: string, planMs: number): PracticeRider => ({ id: `practice:${name}`, name, planMs, boltReactMs: null, sparkReactMs: null });
+const rider = (name: string, planMs: number, waits: Partial<PracticeRider> = {}): PracticeRider => ({ id: `practice:${name}`, name, planMs, screwsWaitMs: null, boltReactMs: null, sparkReactMs: null, ...waits });
 const NEVER = 1_000_000;
 
 type Result = Extract<ReturnType<typeof practiceView>, { phase: "result" }>;
@@ -65,13 +65,18 @@ describe("a Practice ride is the engine's ride", () => {
       expect(a.ride).toEqual(r);
       const before = (ms: number) => practiceView(a, ms - 1);
       const at = (ms: number) => practiceView(a, ms);
-      // Each Tell stage shows at its engine position (no Brake: real ms = track ms).
-      for (const [stage, ms] of [[1, r.screwAtMs], [2, r.boltAtMs], [3, r.sparkAtMs]] as const) {
-        if (ms === 0) continue;
-        const b = before(ms);
+      // Each Tell the ride shows appears at its engine position (no Brake: real ms = track ms); the others never do.
+      const tellsAt = (ms: number) => {
         const v = at(ms);
-        if (b.phase === "ride") expect(b.tell).toBe(stage - 1);
-        if (v.phase === "ride") expect(v.tell).toBe(stage);
+        return v.phase === "ride" ? v.tells : null;
+      };
+      if (r.screwAtMs > 0) {
+        expect(tellsAt(r.screwAtMs - 1)?.screws).toBe(r.falseScrews.length);
+        expect(tellsAt(r.screwAtMs)?.screws).toBe(r.falseScrews.length + 1);
+      }
+      for (const [key, ms] of [["panel", r.boltAtMs], ["sparks", r.sparkAtMs]] as const) {
+        if (ms === null) expect(tellsAt(r.crashMs - 1)?.[key]).toBe(false);
+        else if (ms > 0) expect([tellsAt(ms - 1)?.[key], tellsAt(ms)?.[key]]).toEqual([false, true]);
       }
       expect(at(r.crashMs - 1).phase).toBe("ride");
       expect(result(at(r.crashMs)).wallMs).toBe(r.crashMs);
@@ -99,6 +104,72 @@ describe("a Practice ride is the engine's ride", () => {
     expect(practiceJump(p, r.crashMs)).toEqual(p);
     const j = practiceJump(p, 1_000);
     expect(practiceJump(j, 2_000)).toEqual(j);
+  });
+});
+
+/** The first seed from `from` whose ride is at least a minute and shows the panel and the sparks or not, as asked. */
+const seedShowing = (panel: boolean, sparks: boolean, also: (r: ReturnType<typeof ride>) => boolean = () => true): Uint8Array => {
+  for (let n = 1; n < 5_000; n++) {
+    const r = ride(seed(n));
+    if (r.crashMs >= 60_000 && (r.boltAtMs !== null) === panel && (r.sparkAtMs !== null) === sparks && also(r)) return seed(n);
+  }
+  throw new Error("no such ride");
+};
+
+describe("a later Tell is not promised (decisions Q39)", () => {
+  it("a ride with the panel and no sparks: the rider who gives the panel 10 s is paid, the one who holds for the sparks is aboard at Impact", () => {
+    const s = seedShowing(true, false);
+    const r = ride(s);
+    const p = newPractice(s, [rider("Ben", NEVER, { boltReactMs: 9_000 }), rider("Cy", NEVER, { sparkReactMs: 1_000 })]);
+    const v = result(practiceView(p, r.crashMs));
+    const row = (name: string) => v.rows.find((x) => x.name === name)!;
+    // The panel is at least 8 s ahead, but 9 s is a bet: Ben is off only if this ride's panel led by more.
+    const benOff = r.crashMs - r.boltAtMs! > 9_000;
+    expect(row("Ben").kind).toBe(benOff ? "place" : "aboard");
+    if (benOff) expect(row("Ben").jumpMs).toBe(r.boltAtMs! + 9_000);
+    expect(row("Cy").kind).toBe("aboard");
+    // The panel shows and the sparks never do, to the last ms before the wall.
+    const last = practiceView(p, r.crashMs - 1);
+    expect(last.phase === "ride" && last.tells).toMatchObject({ panel: true, sparks: false });
+  });
+
+  it("a ride that shows the screws and nothing else: a rider who gives the screws 20 s is off, and no later Tell ever shows", () => {
+    const s = seedShowing(false, false);
+    const r = ride(s);
+    const p = newPractice(s, [rider("Ana", NEVER, { screwsWaitMs: 19_000 }), rider("Ben", NEVER, { boltReactMs: 1_000, sparkReactMs: 1_000 })]);
+    const v = result(practiceView(p, r.crashMs));
+    const row = (name: string) => v.rows.find((x) => x.name === name)!;
+    // Ana left 19 s after a screw: a false one if one stood alone that long, else the real ones (at least 20 s ahead).
+    expect(row("Ana").kind).toBe("place");
+    expect(row("Ana").jumpMs).toBeLessThanOrEqual(r.screwAtMs + 19_000);
+    expect(row("Ben").kind).toBe("aboard");
+    const last = practiceView(p, r.crashMs - 1);
+    expect(last.phase === "ride" && last.tells).toEqual({ screws: r.falseScrews.length + 1, panel: false, sparks: false });
+  });
+
+  it("a wait on the panel ends when the sparks show, and a wait on a screw ends at the next Tell", () => {
+    // A ride whose last false screw is under 40 s before the real ones, so no screw stands alone for 45 s.
+    const s = seedShowing(true, true, (x) => x.screwAtMs - (x.falseScrews.at(-1) ?? x.screwAtMs) < 40_000);
+    const r = ride(s);
+    // Ben would leave 30 s after the panel and Ana 45 s after a screw: the next Tell comes first, and nothing else moves them.
+    const p = newPractice(s, [rider("Ana", NEVER, { screwsWaitMs: 45_000 }), rider("Ben", NEVER, { boltReactMs: 30_000 }), rider("Cy", NEVER, { boltReactMs: 30_000, sparkReactMs: 1_200 })]);
+    const v = result(practiceView(p, r.crashMs));
+    const row = (name: string) => v.rows.find((x) => x.name === name)!;
+    expect([row("Ana").kind, row("Ben").kind]).toEqual(["aboard", "aboard"]);
+    expect(row("Cy").jumpMs).toBe(r.sparkAtMs! + 1_200);
+  });
+
+  it("every screw counts alike: the count rises by one at each false screw and at the real screws", () => {
+    for (const n of [3, 8, 21, 55]) {
+      const r = ride(seed(n));
+      const p = newPractice(seed(n), []);
+      const screws = [...r.falseScrews, r.screwAtMs];
+      screws.forEach((at, i) => {
+        if (at === 0 || at >= r.crashMs) return;
+        const v = practiceView(p, at);
+        expect(v.phase === "ride" && v.tells.screws).toBe(i + 1);
+      });
+    }
   });
 });
 
@@ -130,8 +201,18 @@ describe("the simulated riders", () => {
     expect(early).toBeLessThan(0.4);
     expect(aboard).toBeGreaterThan(0.05);
     expect(aboard).toBeLessThan(0.5);
-    // The last three off mostly read the sparks: within 8 s of the wall.
+    // The last three off mostly read the last Tell the ride showed: within 8 s of the wall.
     expect(nearWall / places).toBeGreaterThan(0.5);
+  });
+
+  it("read a ride without sparks: on such rides most of them still get off, and some Jump on the panel or the screws alone", () => {
+    const noSparks = rides.filter(({ p }) => p.ride.sparkAtMs === null);
+    expect(noSparks.length).toBeGreaterThan(RIDES / 5);
+    const rows = noSparks.flatMap(({ v }) => v.rows.filter((r) => !r.me));
+    const off = rows.filter((r) => r.kind !== "aboard").length / rows.length;
+    expect(off).toBeGreaterThan(0.5);
+    // Some hold for sparks that never come.
+    expect(off).toBeLessThan(0.95);
   });
 
   it("leave a Player who holds to the sparks a real race: most rides fill all three places without them", () => {

@@ -8,6 +8,7 @@
  */
 import { BRAKE_MS } from "./engine";
 import type { TableView } from "./chain";
+import type { Tells } from "./tell-state";
 
 /** Brake seats one bind transaction hands on: the page's own seat and the next ones. */
 export const BIND_PER_SEND = 5;
@@ -72,20 +73,18 @@ export const earlyCopyDue = (o: { route: "next-tick" | "wallet" | null; riding: 
 /** While the ride runs: an aboard Player whose seat is bound ticks (the Brake rides on it); anyone else signals. */
 export const pageSend = (f: { aboard: boolean; myBound: boolean; canSign: boolean }): "tick" | "signal" => (f.aboard && f.myBound && f.canSign ? "tick" : "signal");
 
-/** Screws (also each false screw), bolt and panel rattle, sparks and creak. */
+/** A screw (false or real, they sound alike), the bolt and panel rattle, the sparks and creak. */
 export type TellCue = "screws" | "rattle" | "sparks";
-const STAGE_CUES: TellCue[] = ["screws", "rattle", "sparks"];
 
 /** Vibration pattern per Tell (ms on, off, on...): stronger as the wall nears. */
 export const TELL_HAPTICS: Record<TellCue, number[]> = { screws: [18], rattle: [26, 40, 26], sparks: [40, 30, 40, 30, 60] };
 
-type Tells = Pick<TableView, "tell" | "falseScrews">;
-
-/** What changed between two reads of the public Tells: each new stage and each new false screw, once, in order. */
+/** What changed between two reads of the public Tells: each new screw and each Tell newly shown, once, in order. */
 export function tellCues(prev: Tells | null, next: Tells): TellCue[] {
   if (!prev) return [];
   const out: TellCue[] = [];
-  for (let k = prev.falseScrews; k < next.falseScrews; k++) out.push("screws");
-  for (let s = prev.tell; s < next.tell; s++) out.push(STAGE_CUES[s] ?? "sparks");
+  for (let k = prev.screws; k < next.screws; k++) out.push("screws");
+  if (next.panel && !prev.panel) out.push("rattle");
+  if (next.sparks && !prev.sparks) out.push("sparks");
   return out;
 }

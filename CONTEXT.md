@@ -198,7 +198,7 @@ The distance at which the car hits the wall, drawn at random when it leaves and 
 _Avoid_: multiplier, bust point
 
 **Tell**:
-A warning the car gives as the wall nears: screws pop, then a bolt and a rattling panel, then sparks and a creak. Each stage starts a random distance before the wall within published ranges, the last at least 3 seconds ahead at full speed; a few false screws come early. On a short ride whose screw stage would start before departure, the screws start when the car leaves. Tells hint, never pin the Crash point.
+A warning the car gives as the wall nears: screws pop, a bolt and a panel rattle, sparks fly with a creak. The screws show on every ride; the bolt and panel show on 3 rides in 4 and the sparks on 2 rides in 3, each on its own. A Tell that shows starts a random distance before the wall within its published range (the sparks, when they show, at least 3 seconds ahead at full speed). A Tell that does not show is never announced, so after any Tell the wall can come with no further warning. A few false screws come early and look exactly like the real ones. On a short ride whose screws would start before departure, the screws start when the car leaves. Tells hint, never pin the Crash point.
 _Avoid_: signal, hint, clue
 
 **Brake**:
