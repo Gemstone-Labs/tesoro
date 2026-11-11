@@ -244,6 +244,8 @@ const practice = (p: Practice, t: number): StoryObj => ({
 
 /** `/play/practice?game=railcar`, live: the car leaves at once with 9 simulated riders. Jump, Brake and Play again work; nothing is sent. */
 export const PracticeLive: StoryObj = { render: () => <RailcarPractice draw={PRACTICE_DRAW} /> };
+/** A later Tell is not promised: this ride shows the Screws (0:16) and the Panel (0:25) and never the Sparks; the wall is at 0:37. Live, so the chips, the car and the simulated riders can be watched to the Result. */
+export const PracticeLiveNoSparks: StoryObj = { render: () => <RailcarPractice draw={hexToBytes("0a4c74bd1eb7dd886217c7597294d3af3a16eb1314e2fd38c500a62ad96023e2")} /> };
 /** Mid-ride at 1:12: the PRACTICE tag, the riders' names, Jump and your Brake. */
 export const PracticeRiding = practice(practiceRide, 72_000);
 export const PracticeRiding390: StoryObj = { ...PracticeRiding, ...phone };
