@@ -134,22 +134,75 @@ fn the_wall_is_hit_from_the_impact_slot_and_not_a_slot_before() {
 }
 
 #[test]
-fn signals_show_each_tell_stage_and_false_screw_only_once_passed() {
+fn signals_show_each_screw_and_each_later_tell_only_once_passed() {
     let v = vault(60_000);
     let mut t = riding(5);
-    let seen = |t: &Table| (t.tell, t.false_screws);
+    let seen = |t: &Table| (t.screws, t.tell);
     advance(&mut t, &v, at(3.99));
     assert_eq!(seen(&t), (0, 0));
     advance(&mut t, &v, at(4.0));
-    assert_eq!(seen(&t), (0, 1));
+    assert_eq!(seen(&t), (1, 0));
     advance(&mut t, &v, at(29.99));
-    assert_eq!(seen(&t), (0, 2));
+    assert_eq!(seen(&t), (2, 0));
     advance(&mut t, &v, at(30.0));
-    assert_eq!(seen(&t), (1, 2));
+    assert_eq!(seen(&t), (3, 0));
     advance(&mut t, &v, at(50.0));
-    assert_eq!(seen(&t), (2, 2));
+    assert_eq!(seen(&t), (3, TELL_BOLT));
     advance(&mut t, &v, at(55.0));
-    assert_eq!(seen(&t), (3, 2));
+    assert_eq!(seen(&t), (3, TELL_BOLT | TELL_SPARKS));
+}
+
+/// Every public byte a signal can change, so a test can say two rides look alike.
+fn public_tells(t: &Table) -> (u8, u8) {
+    (t.screws, t.tell)
+}
+
+#[test]
+fn the_real_screws_change_the_table_exactly_as_a_false_screw_does() {
+    // Ride A: false screws at 4 s and 9 s, the real screws at 30 s. Ride B: three false screws
+    // at 4, 9 and 30 s, the real screws still ahead. Nothing public tells them apart at 31 s.
+    let a = vault(60_000);
+    let mut b = vault(90_000);
+    b.false_screws[..3].copy_from_slice(&[4_000, 9_000, 30_000]);
+    b.false_len = 3;
+    let (mut ta, mut tb) = (riding(5), riding(5));
+    for secs in [3.0, 4.0, 8.99, 9.0, 29.99, 30.0, 31.0] {
+        advance(&mut ta, &a, at(secs));
+        advance(&mut tb, &b, at(secs));
+        assert_eq!(public_tells(&ta), public_tells(&tb), "at {secs} s");
+    }
+    assert_eq!(public_tells(&ta), (3, 0));
+}
+
+#[test]
+fn a_tell_the_ride_does_not_show_never_reaches_the_table() {
+    use crate::engine::NEVER_MS;
+    for (bolt, sparks) in [(false, true), (true, false), (false, false)] {
+        let mut v = vault(60_000);
+        if !bolt {
+            v.bolt_at_ms = NEVER_MS;
+        }
+        if !sparks {
+            v.spark_at_ms = NEVER_MS;
+        }
+        let mut t = riding(5);
+        for secs in [0.0, 30.0, 50.0, 55.0, 59.99] {
+            assert!(!advance(&mut t, &v, at(secs)));
+        }
+        let want = if bolt { TELL_BOLT } else { 0 } | if sparks { TELL_SPARKS } else { 0 };
+        assert_eq!((t.screws, t.tell), (3, want), "bolt {bolt}, sparks {sparks}");
+        // the wall comes where it always was
+        assert!(advance(&mut t, &v, at(60.0)));
+    }
+}
+
+#[test]
+fn sparks_with_no_bolt_before_them_show_as_sparks() {
+    let mut v = vault(60_000);
+    v.bolt_at_ms = crate::engine::NEVER_MS;
+    let mut t = riding(5);
+    advance(&mut t, &v, at(55.0));
+    assert_eq!(t.tell, TELL_SPARKS);
 }
 
 #[test]

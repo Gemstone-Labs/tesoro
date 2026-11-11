@@ -18,7 +18,7 @@ use anchor_lang::{
 use litesvm::LiteSVM;
 use railcar::state::{
     BrakeSeat, Table, Vault, AUTHORITY_SEED, COUNTDOWN_SECS, OUTCOME_PLACED, OUTCOME_REFUND,
-    PHASE_DRAWING, PHASE_OVER, PHASE_RIDING, SPONSOR_SEED,
+    PHASE_DRAWING, PHASE_OVER, PHASE_RIDING, SPONSOR_SEED, TELL_BOLT, TELL_SPARKS,
 };
 use solana_sdk::account::Account;
 use solana_sdk::clock::Clock;
@@ -1773,24 +1773,65 @@ fn a_jump_names_its_car_and_its_own_seat() {
     assert_eq!(env.table(car.table).jumps, 0);
 }
 
+/// A draw whose ride is long enough for every lead and shows the bolt and the sparks or not, as asked.
+fn draw_showing(bolt: bool, sparks: bool) -> [u8; 32] {
+    draw_where(|r| {
+        r.crash_ms >= 60_000
+            && r.screw_at_ms > 25_000
+            && r.bolt_at_ms.is_some() == bolt
+            && r.spark_at_ms.is_some() == sparks
+    })
+}
+
 #[test]
 fn signals_show_the_tells_only_once_the_car_passes_them() {
-    let (mut env, car, _riders) = riding(draw_where(|r| {
-        r.crash_ms >= 60_000 && r.screw_at_ms > 25_000
-    }));
+    let (mut env, car, _riders) = riding(draw_showing(true, true));
     let v = env.vault(car.table);
+    let falses = v.false_len;
     let slot_before =
         env.table(car.table).ride_slot() + u64::from(v.screw_at_ms - 1) / (1_000 / SPS);
     env.set_slot(slot_before);
     env.signal(car.table).expect("signal");
-    assert_eq!(env.table(car.table).tell, 0);
+    let t = env.table(car.table);
+    assert_eq!((t.screws, t.tell), (falses, 0));
     env.at_ms(car.table, v.screw_at_ms);
     env.signal(car.table).expect("signal");
-    assert_eq!(env.table(car.table).tell, 1);
+    let t = env.table(car.table);
+    assert_eq!((t.screws, t.tell), (falses + 1, 0));
+    env.at_ms(car.table, v.bolt_at_ms);
+    env.signal(car.table).expect("signal");
+    assert_eq!(env.table(car.table).tell, TELL_BOLT);
     env.at_ms(car.table, v.spark_at_ms);
     env.signal(car.table).expect("signal");
     let t = env.table(car.table);
-    assert_eq!((t.tell, t.phase), (3, PHASE_RIDING));
+    assert_eq!((t.tell, t.phase), (TELL_BOLT | TELL_SPARKS, PHASE_RIDING));
+}
+
+/// Decisions Q39: a ride may show the bolt, the sparks, both or neither. Up to the last slot before the
+/// Impact the public Table shows the screws and exactly the Tells the ride shows; the wall still comes.
+#[test]
+fn a_tell_the_ride_does_not_show_never_reaches_the_public_table() {
+    for (bolt, sparks) in [(true, true), (true, false), (false, true), (false, false)] {
+        let (mut env, car, riders) = riding(draw_showing(bolt, sparks));
+        let v = env.vault(car.table);
+        assert_eq!(v.bolt_at_ms == railcar::engine::NEVER_MS, !bolt);
+        assert_eq!(v.spark_at_ms == railcar::engine::NEVER_MS, !sparks);
+        let last = env.impact_slot(car.table) - 1;
+        env.set_slot(last);
+        env.signal(car.table).expect("signal");
+        let t = env.table(car.table);
+        let want = if bolt { TELL_BOLT } else { 0 } | if sparks { TELL_SPARKS } else { 0 };
+        assert_eq!(
+            (t.screws, t.tell, t.phase),
+            (v.false_len + 1, want, PHASE_RIDING),
+            "bolt {bolt}, sparks {sparks}"
+        );
+        // Ana is still in time; the next slot is the wall.
+        env.jump(car.table, &riders[ANA]).expect("jump");
+        env.set_slot(last + 1);
+        env.signal(car.table).expect("signal");
+        assert_eq!(env.table(car.table).phase, PHASE_OVER, "bolt {bolt}, sparks {sparks}");
+    }
 }
 
 #[test]
@@ -2688,6 +2729,96 @@ fn compute_is_the_same_whatever_the_brakes_are() {
             first[1], first[2],
             "{secs} s: a tick with and without the Brake"
         );
+    }
+}
+
+/// Decisions Q39: nobody may learn during the ride that the bolt or the sparks will not come. The Vault of a ride
+/// that shows both is copied with one or both Tells taken out. Around each Tell's position and up to the wall a
+/// signal and a tick cost the same compute units in all four copies, starting from the same public Table.
+#[test]
+fn compute_is_the_same_whether_a_tell_shows_or_not() {
+    use railcar::engine::NEVER_MS;
+    let (mut env, car, riders) = braking(draw_where(|r| {
+        r.crash_ms >= 110_000 && r.bolt_at_ms.is_some() && r.spark_at_ms.is_some()
+    }));
+    let table = car.table;
+    env.at_ride(table, 20.0);
+    env.signal(table).expect("signal");
+    let shown = private_state(&env, table);
+    let public = env.svm.get_account(&s(table)).expect("table").data;
+    let whole = env.vault(table);
+    let mut variants = vec![("both show", shown.clone())];
+    for (name, bolt, sparks) in [
+        ("no bolt", false, true),
+        ("no sparks", true, false),
+        ("screws only", false, false),
+    ] {
+        restore(&mut env, &shown);
+        let mut v = env.vault(table);
+        if !bolt {
+            v.bolt_at_ms = NEVER_MS;
+        }
+        if !sparks {
+            v.spark_at_ms = NEVER_MS;
+        }
+        let len = env.svm.get_account(&s(vault_addr(table))).expect("vault").data.len();
+        env.put(vault_addr(table), &v, railcar::ID);
+        assert_eq!(
+            env.svm.get_account(&s(vault_addr(table))).expect("vault").data.len(),
+            len,
+            "the Vault keeps its size"
+        );
+        variants.push((name, private_state(&env, table)));
+    }
+    let ana = env.seat_of(table, &riders[ANA]);
+    let car_no = env.table(table).car_no();
+    let kp = riders[ANA].kp.insecure_clone();
+    let oracle = env.oracle.insecure_clone();
+    let (fee, context, magic) = env.magic_accounts();
+    let signal = ix(
+        railcar::ID,
+        railcar::accounts::Signal {
+            caller: a(oracle.pubkey()),
+            table,
+            vault: vault_addr(table),
+            sponsor: sponsor_addr(),
+            magic_fee_vault: fee,
+            magic_context: context,
+            magic_program: magic,
+        },
+        railcar::instruction::Signal {},
+        vec![],
+    );
+    let (bolt, sparks, wall) = (whole.bolt_at_ms, whole.spark_at_ms, whole.crash_ms);
+    for ms in [
+        whole.screw_at_ms + 500,
+        bolt - 100,
+        bolt,
+        bolt + 100,
+        sparks - 100,
+        sparks,
+        sparks + 100,
+        wall - 100,
+    ] {
+        let mut seen: Vec<(&str, [u64; 3])> = Vec::new();
+        for (name, state) in &variants {
+            restore(&mut env, state);
+            restore_public(&mut env, table, &public);
+            env.at_ms(table, ms);
+            let tick = |brake| env.tick_ix(table, &riders[ANA], car_no, ana, brake);
+            let (with, without) = (tick(true), tick(false));
+            let cu = [
+                env.simulate_cu(std::slice::from_ref(&signal), &oracle),
+                env.simulate_cu(&[without], &kp),
+                env.simulate_cu(&[with], &kp),
+            ];
+            seen.push((name, cu));
+        }
+        println!("{ms} ms: {seen:?}");
+        let first = seen[0].1;
+        for (name, cu) in &seen {
+            assert_eq!(*cu, first, "{ms} ms, {name} vs {}", seen[0].0);
+        }
     }
 }
 

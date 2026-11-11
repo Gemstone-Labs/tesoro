@@ -20,6 +20,13 @@ pub const RIDE_CAP_MS: u32 = 600_000;
 pub const SCREW_LEAD: (u32, u32) = (20_000, 40_000);
 pub const BOLT_LEAD: (u32, u32) = (8_000, 15_000);
 pub const SPARK_LEAD: (u32, u32) = (3_000, 8_000);
+/// Later Tells are not promised (decisions Q39): a ride shows the bolt and panel on 3 rides in
+/// 4 and the sparks on 2 rides in 3, each on its own (`(shows, of)`). The screws show on every
+/// ride. A Tell that does not show is never announced: the wall can come after the last one shown.
+pub const BOLT_SHOWS: (u64, u64) = (3, 4);
+pub const SPARK_SHOWS: (u64, u64) = (2, 3);
+/// Track position of a Tell the ride does not show: no car gets there.
+pub const NEVER_MS: u32 = u32::MAX;
 pub const MAX_FALSE_SCREWS: usize = 4;
 const FALSE_SCREW_FROM_MS: u32 = 2_000;
 const FALSE_SCREW_SPAN_MS: u32 = 16_000;
@@ -30,11 +37,13 @@ const FALSE_SCREW_GAP_MS: u32 = 1_000;
 pub struct Ride {
     pub crash_ms: u32,
     pub screw_lead_ms: u32,
-    pub bolt_lead_ms: u32,
-    pub spark_lead_ms: u32,
+    /// `None` when this ride does not show the bolt and panel.
+    pub bolt_lead_ms: Option<u32>,
+    /// `None` when this ride does not show the sparks.
+    pub spark_lead_ms: Option<u32>,
     pub screw_at_ms: u32,
-    pub bolt_at_ms: u32,
-    pub spark_at_ms: u32,
+    pub bolt_at_ms: Option<u32>,
+    pub spark_at_ms: Option<u32>,
     false_screws: [u32; MAX_FALSE_SCREWS],
     false_len: u8,
 }
@@ -95,8 +104,6 @@ pub fn ride(draw: &[u8; 32]) -> Ride {
     let (w0, w1, w2, w3) = (word(draw, 0), word(draw, 1), word(draw, 2), word(draw, 3));
     let crash_ms = crash_from(w0);
     let screw_lead_ms = lead(w1, SCREW_LEAD);
-    let bolt_lead_ms = lead(w2, BOLT_LEAD);
-    let spark_lead_ms = lead(w3, SPARK_LEAD);
     let at = |l: u32| crash_ms.saturating_sub(l);
     let screw_at_ms = at(screw_lead_ms);
 
@@ -116,6 +123,11 @@ pub fn ride(draw: &[u8; 32]) -> Ride {
             false_len += 1;
         }
     }
+    // Drawn after the false screws, so the crash point, the leads and the false screws of a
+    // draw are what they were before Tells could be absent.
+    let mut shows = |(n, of): (u64, u64)| splitmix(&mut s) % of < n;
+    let bolt_lead_ms = shows(BOLT_SHOWS).then(|| lead(w2, BOLT_LEAD));
+    let spark_lead_ms = shows(SPARK_SHOWS).then(|| lead(w3, SPARK_LEAD));
 
     Ride {
         crash_ms,
@@ -123,8 +135,8 @@ pub fn ride(draw: &[u8; 32]) -> Ride {
         bolt_lead_ms,
         spark_lead_ms,
         screw_at_ms,
-        bolt_at_ms: at(bolt_lead_ms),
-        spark_at_ms: at(spark_lead_ms),
+        bolt_at_ms: bolt_lead_ms.map(at),
+        spark_at_ms: spark_lead_ms.map(at),
         false_screws,
         false_len,
     }
