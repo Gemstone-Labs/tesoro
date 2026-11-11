@@ -358,7 +358,7 @@ export function startRideIx(payer: PublicKey, car: { carNo: bigint; table: numbe
   );
 }
 
-/** `signal`: anyone; moves the Tell stage and, from the Impact slot, ends the ride and commits the Table. */
+/** `signal`: anyone; moves the public Tells and, from the Impact slot, ends the ride and commits the Table. */
 export const signalIx = (caller: PublicKey, tableIndex: number): TransactionInstruction => {
   const table = tablePda(tableIndex);
   return railcarIx("signal", { caller, table, vault: vaultPda(table), ...magic() });

@@ -299,7 +299,7 @@ impl RideSeat {
 }
 
 /// A Table: one ride at a time, delegated to the TEE validator and kept for months. Public: who
-/// boarded and who is aboard, the Jump order, the Tell stage, the ride start, the entry (the
+/// boarded and who is aboard, the Jump order, the Tells shown, the ride start, the entry (the
 /// Gemas at stake are `entry * seated`) and the outcome. Read in place (no Borsh): a signal comes
 /// several times a second and touches a few bytes. Byte arrays only (alignment 1, no padding).
 #[account(zero_copy)]

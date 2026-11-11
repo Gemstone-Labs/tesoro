@@ -34,6 +34,7 @@ Legend: **R** required, **O** optional, **-** not read. Visibility: **public** s
 | `NEXT_PUBLIC_LAUNCH_STAGE` | public | O | O | O (default follows cluster) | `mainnet` |
 | `NEXT_PUBLIC_APP_URL` | public | O | O | O (prefix for links into the app if it moves to its own host) | `https://app.example.com` |
 | `NEXT_PUBLIC_DOCS_URL`, `NEXT_PUBLIC_GITHUB_URL`, `NEXT_PUBLIC_X_URL` | public | O | O | O | outbound links, default to `/docs`, the GitHub repo, none |
+| `NEXT_PUBLIC_RAILCAR_UNPROMISED_TELLS_FROM_CAR` | public | O | O (the Railcar car number at the upgrade that made later Tells optional; earlier cars' history replays with every Tell) | must be unset (the rule holds from car 0) | `15` |
 | `NEXT_PUBLIC_EXTEND_ADVANCE` | public | O | O (`1` once the program has Extend) | O | `1` |
 | `NEXT_PUBLIC_DEV_WALLET` | public | O (`1` for the dev wallet) | O (QA only) | must be unset | `1` |
 | `NEXT_PUBLIC_MAGICBLOCK_ER_RPC`, `_ER_WS`, `_TEE_RPC`, `_TEE_WS` (server and keeper also read the same names without `NEXT_PUBLIC_`) | public | O | O | O | override of the cluster's MagicBlock URLs, e.g. `https://eu.magicblock.app`; unset uses `cluster-settings.ts` (test: `devnet*.magicblock.app`; mainnet: `us.magicblock.app` ER, `mainnet-tee.magicblock.app` TEE). The TEE validator (`MTEWGuqx...`) is pinned there and has no env override. Bad scheme throws. |
