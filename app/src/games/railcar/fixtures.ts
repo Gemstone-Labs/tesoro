@@ -7,6 +7,7 @@ import type { CarView, SeatView } from "../../lib/chain/many-seat";
 import type { StoredRide } from "../../lib/chain/ride-record";
 import type { RideSeatView, TableView } from "./chain";
 import { refund, ride } from "./engine";
+import { NO_TELLS, tellsUpTo } from "./tell-state";
 import type { FeeRates } from "./payout";
 import { railcarView, type RailcarView } from "./view";
 
@@ -41,8 +42,7 @@ const table = (n: number, o: Partial<TableView>): TableView => ({
   phase: "riding",
   outcome: "none",
   reason: "none",
-  tell: 0,
-  falseScrews: 0,
+  tells: NO_TELLS,
   seated: n,
   aboard: n,
   jumps: 0,
@@ -84,7 +84,7 @@ export function riding(me: PublicKey | null = PLAYERS[0], o: { jumpedMe?: boolea
   const out = new Set([3, 5, 8, 11, 14, 17, 20, 23, 26, 30, 33]);
   if (o.jumpedMe) out.add(0);
   const seatsT = Array.from({ length: n }, (_, i) => (out.has(i) ? rideSeat(i, [...out].indexOf(i) + 1, i === 0 ? 25_000 : 20_000 + i * 1_000) : rideSeat(i)));
-  return view(me, coreCar({ stage: "departed", seated: n, pages: 4 }), n, table(n, { tell: 1, aboard: n - out.size, jumps: out.size, seats: seatsT }), T0 + 60 + 72, { backed: o.backed, myBrakeMs: o.myBrakeMs ?? null });
+  return view(me, coreCar({ stage: "departed", seated: n, pages: 4 }), n, table(n, { tells: tellsUpTo(1), aboard: n - out.size, jumps: out.size, seats: seatsT }), T0 + 60 + 72, { backed: o.backed, myBrakeMs: o.myBrakeMs ?? null });
 }
 
 /** The car just left: the ride clock waits for the draw (0:00), the car already rolls. */
@@ -131,23 +131,27 @@ export function liveAt(t: number, me: PublicKey = PLAYERS[0]): RailcarView {
     .filter((i) => jumpAt(i) * 1000 <= ms && i % 4 !== 1)
     .sort((a, b) => jumpAt(a) - jumpAt(b));
   order.forEach((i, k) => (seatsT[i] = rideSeat(i, k + 1, jumpAt(i) * 1000, 0n)));
-  const tell = rideT >= 37 ? 3 : rideT >= 30 ? 2 : rideT >= 15 ? 1 : 0;
+  const tells = tellsUpTo(rideT >= 37 ? 3 : rideT >= 30 ? 2 : rideT >= 15 ? 1 : 0);
   const placed = order.slice(-3).reverse();
   if (over) {
     for (const i of order.slice(0, -3)) seatsT[i] = { ...seatsT[i], refund: refund(500n, jumpAt(i) * 1000) };
   }
-  const t2 = table(n, over ? { phase: "over", outcome: "placed", reason: "played", places: [...placed, 255, 255, 255].slice(0, 3), overMs: wall * 1000, aboard: n - order.length, jumps: order.length, seats: seatsT, tell: 3 } : { tell, aboard: n - order.length, jumps: order.length, seats: seatsT, rideTs: T0 + leaves + 1 });
+  const t2 = table(n, over ? { phase: "over", outcome: "placed", reason: "played", places: [...placed, 255, 255, 255].slice(0, 3), overMs: wall * 1000, aboard: n - order.length, jumps: order.length, seats: seatsT, tells: tellsUpTo(3) } : { tells, aboard: n - order.length, jumps: order.length, seats: seatsT, rideTs: T0 + leaves + 1 });
   return view(me, coreCar({ stage: "departed", seated: n, pages: 3 }), n, t2, T0 + t);
 }
 
-/** A draw whose crash point is exactly `crashMs` (the Rust ride tests' search: words 1-3 fixed, word 0 searched). */
-export function drawWithCrash(crashMs: number): Uint8Array {
-  const withWord = (w0: bigint) => {
-    const d = new Uint8Array(32).fill(0x5a);
+/**
+ * A draw whose crash point is exactly `crashMs` and whose ride shows the panel and the sparks as asked (both, unless said
+ * otherwise). Word 0 is searched for the crash point (the Rust ride tests' search); the other words are one repeated byte,
+ * tried in turn until the ride shows what was asked.
+ */
+export function drawWithCrash(crashMs: number, shows: { panel?: boolean; sparks?: boolean } = {}): Uint8Array {
+  const withWord = (w0: bigint, fill: number) => {
+    const d = new Uint8Array(32).fill(fill);
     for (let i = 0; i < 8; i++) d[i] = Number((w0 >> BigInt(8 * i)) & 0xffn);
     return d;
   };
-  const crash = (w0: bigint) => ride(withWord(w0)).crashMs;
+  const crash = (w0: bigint) => ride(withWord(w0, 0x5a)).crashMs;
   let [lo, hi] = [0n, (1n << 64n) - 1n];
   while (lo < hi) {
     const mid = lo + (hi - lo) / 2n;
@@ -155,7 +159,11 @@ export function drawWithCrash(crashMs: number): Uint8Array {
     else hi = mid;
   }
   if (crash(lo) !== crashMs) throw new Error(`no draw gives ${crashMs} ms`);
-  return withWord(lo);
+  for (let fill = 0x5a; fill < 0x100; fill++) {
+    const r = ride(withWord(lo, fill));
+    if ((r.boltAtMs !== null) === (shows.panel ?? true) && (r.sparkAtMs !== null) === (shows.sparks ?? true)) return withWord(lo, fill);
+  }
+  throw new Error(`no draw at ${crashMs} ms shows that`);
 }
 
 const hexOf = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
@@ -163,9 +171,10 @@ const hexOf = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2,
 /**
  * The worked example as the Match history keeps it (`/api/match/<id>`): the wall at 1:44 of track, Ana off at 0:25 (350),
  * Cy, Ben, Dee off at 1:35-1:39, Eve aboard; fees 129. `brake`: Dee also Braked at 1:30, so the wall came 2.5 s later on
- * the clock. `tamper`: the record says Ana got 400 back, which the replay does not give.
+ * the clock. `tamper`: the record says Ana got 400 back, which the replay does not give. `shows`: a ride that did not show
+ * the panel or the sparks (it shows both unless said).
  */
-export function storedWorkedRide(o: { brake?: boolean; tamper?: boolean } = {}): { id: string; game: "railcar"; entry: number; status: "settled"; openedAt: number; settledAt: number; ride: StoredRide } {
+export function storedWorkedRide(o: { brake?: boolean; tamper?: boolean; shows?: { panel?: boolean; sparks?: boolean } } = {}): { id: string; game: "railcar"; entry: number; status: "settled"; openedAt: number; settledAt: number; ride: StoredRide } {
   const who = [ANA, BEN, CY, DEE, EVE].map((k) => k.toBase58());
   const seat = (i: number, order = 0, jumpMs = 0, back = 0) => ({ seat: i, player: who[i], funder: who[i], shareBps: 0, order, jumpMs, refund: back });
   return {
@@ -179,7 +188,7 @@ export function storedWorkedRide(o: { brake?: boolean; tamper?: boolean } = {}):
       carNo: "7",
       outcome: "placed",
       reason: "played",
-      draw: hexOf(drawWithCrash(104_000)),
+      draw: hexOf(drawWithCrash(104_000, o.shows)),
       brakes: o.brake ? [{ seat: 3, ms: 90_000 }] : [],
       seats: [seat(0, 1, 25_000, o.tamper ? 400 : 350), seat(1, 3, 97_000), seat(2, 2, 95_000), seat(3, 4, 99_000), seat(4)],
       places: [
@@ -192,9 +201,9 @@ export function storedWorkedRide(o: { brake?: boolean; tamper?: boolean } = {}):
   };
 }
 
-/** A ride for the Showcase: 40 aboard, the ride clock at `clockMs`, `tell` stages fired, and the seats in `jumped` already off (never the Player's seat 0). */
+/** A ride for the Showcase: 40 aboard, the ride clock at `clockMs`, the first `tell` Tells shown (every Tell shows on this ride), and the seats in `jumped` already off (never the Player's seat 0). */
 export function rideShow(clockMs: number, tell: number, jumped: readonly number[] = [], me: PublicKey = PLAYERS[0], o: { crashMs?: number } = {}): RailcarView {
   const n = 40;
   const seatsT = Array.from({ length: n }, (_, i) => (jumped.includes(i) ? rideSeat(i, jumped.indexOf(i) + 1, 20_000 + i * 1_000) : rideSeat(i)));
-  return view(me, coreCar({ stage: "departed", seated: n, pages: 4 }), n, table(n, { tell, aboard: n - jumped.length, jumps: jumped.length, seats: seatsT, rideTs: T0 + 60, ...(o.crashMs ? { revealed: true, revealDraw: drawWithCrash(o.crashMs), overMs: o.crashMs } : {}) }), T0 + 60 + clockMs / 1000);
+  return view(me, coreCar({ stage: "departed", seated: n, pages: 4 }), n, table(n, { tells: tellsUpTo(tell), aboard: n - jumped.length, jumps: jumped.length, seats: seatsT, rideTs: T0 + 60, ...(o.crashMs ? { revealed: true, revealDraw: drawWithCrash(o.crashMs), overMs: o.crashMs } : {}) }), T0 + 60 + clockMs / 1000);
 }

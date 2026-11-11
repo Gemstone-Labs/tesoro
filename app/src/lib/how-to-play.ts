@@ -43,7 +43,7 @@ export const GUIDE_STEPS: Record<GuideGame, readonly GuideStep[]> = {
   ],
   railcar: [
     { title: "One car, one hidden wall", line: "Up to 100 Players ride together toward a wall nobody can see." },
-    { title: "Watch for the Tells", line: "Screws, then a panel, then sparks: each one means the wall is closer." },
+    { title: "Watch for the Tells", line: "Screws, a panel, sparks: each means the wall is closer, and any of them can be the last warning." },
     { title: "Jump to get off", line: "Tap Jump any time. Anyone still aboard when the car hits the wall loses." },
     { title: "One secret Brake", line: "It slows the car for 5 seconds, and only you see it." },
     { title: "Be one of the last three off", line: "The last three Players to Jump before the wall win." },

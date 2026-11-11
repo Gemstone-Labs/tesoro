@@ -15,11 +15,23 @@ describe("a finished ride's page", () => {
     const d = ride(drawWithCrash(104_000));
     expect(t).toContain("Crash point 1:44");
     expect(t).toContain(`Screws ${secs(d.screwLeadMs)} before the wall`);
-    expect(t).toContain(`Panel ${secs(d.boltLeadMs)} before the wall`);
-    expect(t).toContain(`Sparks ${secs(d.sparkLeadMs)} before the wall`);
+    expect(t).toContain(`Panel ${secs(d.boltLeadMs!)} before the wall`);
+    expect(t).toContain(`Sparks ${secs(d.sparkLeadMs!)} before the wall`);
+    expect(t).not.toContain("Did not show");
     expect(t).toContain("Nobody braked");
     expect(t).toContain(storedWorkedRide().ride.draw!.slice(0, 16));
     expect(t).toContain("Replayed with the published rules: every refund and place matches what was paid.");
+  });
+
+  it("a Tell the ride did not show says so, and the replay still matches (decisions Q39)", () => {
+    const sparkless = text(renderToStaticMarkup(<RideHistory page={storedWorkedRide({ shows: { sparks: false } })} me={null} />));
+    expect(sparkless).toMatch(/Panel [\d.]+ s before the wall/);
+    expect(sparkless).toContain("Sparks Did not show");
+    expect(sparkless).toContain("Replayed with the published rules: every refund and place matches what was paid.");
+    const screwsOnly = text(renderToStaticMarkup(<RideHistory page={storedWorkedRide({ shows: { panel: false, sparks: false } })} me={null} />));
+    expect(screwsOnly).toMatch(/Screws [\d.]+ s before the wall/);
+    expect(screwsOnly).toContain("Panel Did not show");
+    expect(screwsOnly).toContain("Sparks Did not show");
   });
 
   it("a Brake: when it was pressed, and where the wall then came on the clock", () => {

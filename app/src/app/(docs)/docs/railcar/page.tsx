@@ -12,6 +12,7 @@ import {
   crashOdds,
   payoutRows,
   refundRows,
+  tellOdds,
   tellRows,
   workedExample,
 } from "@/games/railcar/rules";
@@ -25,6 +26,7 @@ export default function Page() {
   if (!RAILCAR_SHOWN) notFound();
   const odds = crashOdds();
   const tells = tellRows();
+  const tellFacts = tellOdds();
   const w = workedExample();
   const p = w.payouts;
   return (
@@ -64,14 +66,20 @@ export default function Page() {
 
       <H2 id="tells">Tells</H2>
       <p>
-        The car warns you as the wall nears, in three stages. Each stage starts a random distance before the wall, inside a published range. A few false screws also show
-        early in a ride, so counting screws alone does not work. A ride that is shorter than a stage&apos;s range starts that stage when the car leaves.
+        The car warns you as the wall nears, with up to three Tells. The screws show on every ride. The panel and the sparks each show on some rides only, and a Tell that
+        does not show is never announced: after any Tell, the wall can come with no further warning. A Tell that shows starts a random distance before the wall, inside its
+        published range.
       </p>
       <DataTable
-        head={["Tell", "Starts before the wall"]}
-        rows={tells.map((t) => [t.name, t.range])}
+        head={["Tell", "Shows on", "Starts before the wall"]}
+        rows={tells.map((t) => [t.name, t.shows, t.range])}
       />
-      <p>The last warning always comes at least 3 seconds ahead, so a slow phone connection does not decide who wins.</p>
+      <ul>
+        <li>When the sparks show, they come at least {tellFacts.sparksFloorSeconds} seconds ahead.</li>
+        <li>On {tellFacts.screwsOnly} the screws are the only Tell.</li>
+        <li>A few false screws show early in a ride. They look and sound exactly like the real ones, so counting screws alone does not work.</li>
+        <li>A ride that is shorter than a Tell&apos;s range starts that Tell when the car leaves.</li>
+      </ul>
 
       <H2 id="jump">Jump and the Early-jump refund</H2>
       <p>
@@ -86,7 +94,7 @@ export default function Page() {
 
       <H2 id="brake">Brake</H2>
       <p>
-        Each Player has one Brake per ride, usable only while aboard. It halves the car&apos;s speed for {odds.brakeSeconds} seconds, which buys time after the sparks. The Brake is secret:
+        Each Player has one Brake per ride, usable only while aboard. It halves the car&apos;s speed for {odds.brakeSeconds} seconds, which buys time once a Tell says the wall is close. The Brake is secret:
         the car slows for everyone, but only that Player sees it. Nobody sees speed, distance or a live refund on their screen.
       </p>
       <ul>

@@ -131,7 +131,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
                   Jump. The last three Players off before Impact get their entry back and share the rest of the Pot; Players still aboard lose their entry.
                 </p>
                 <p>
-                  The car warns you in three stages as the wall nears, and each Player has one secret Brake. Jump early and you get part of your entry back. Railcar is not
+                  The car warns you as the wall nears, and any warning can be the last one. Each Player has one secret Brake. Jump early and you get part of your entry back. Railcar is not
                   playable yet; the crash odds, refund steps and payouts are in the <Link href="/docs/railcar">Docs</Link>.
                 </p>
               </>

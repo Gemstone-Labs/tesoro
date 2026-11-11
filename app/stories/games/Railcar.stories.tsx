@@ -13,6 +13,7 @@ import * as fx from "@/games/railcar/fixtures";
 import { hexToBytes } from "@/games/railcar/engine";
 import { RailcarPractice } from "@/games/railcar/practice/RailcarPractice";
 import { newPractice, practiceBrake, practiceJump, practiceView, type Practice } from "@/games/railcar/practice/session";
+import { tellsUpTo, type Tells } from "@/games/railcar/tell-state";
 import type { RailcarView } from "@/games/railcar/view";
 import { PublicKey } from "@solana/web3.js";
 import { matchPda } from "@/lib/chain/basket";
@@ -70,13 +71,18 @@ export const RidingBrakeSignFirst = screen(fx.riding(), { brake: brake({ walletC
 export const RidingAnothersBrake = screen(fx.riding(fx.BEN), { brake: brake({}) });
 /** You jumped after your Brake: at least what comes back, counting your own Brake. */
 export const RidingAfterYourBrakeAndJump = screen(fx.riding(fx.PLAYERS[0], { jumpedMe: true, myBrakeMs: 15_000 }));
-const withTell = (v: RailcarView, tell: number): RailcarView => (v.phase === "ride" ? { ...v, tell } : v);
+const withTells = (v: RailcarView, tells: Tells): RailcarView => (v.phase === "ride" ? { ...v, tells } : v);
+const withTell = (v: RailcarView, stage: number): RailcarView => withTells(v, tellsUpTo(stage));
 /** The Tells change the car itself from the moment each fires: screws pop from the frame... */
 export const RidingTellScrews = screen(withTell(fx.riding(), 1));
 /** ...the panel works loose... */
 export const RidingTellPanel = screen(withTell(fx.riding(), 2));
 /** ...and sparks fly at the wheels. They all stay to the end of the ride. */
 export const RidingTellSparks = screen(withTell(fx.riding(), 3));
+/** A later Tell is not promised: this ride shows the sparks and never the panel (three screws heard, false and real alike). */
+export const RidingSparksNoPanel = screen(withTells(fx.riding(), { screws: 3, panel: false, sparks: true }));
+/** This ride shows the screws and nothing else: the wall can come with no further warning. */
+export const RidingScrewsOnly = screen(withTells(fx.riding(), { screws: 4, panel: false, sparks: false }));
 
 /** The crash: the ride turns into its Result, the car stops against the wall (shake, flash, debris, about a second), then the Result. Loops. */
 export const CrashBeforeResult: StoryObj = {
@@ -102,7 +108,7 @@ function CrashCycle() {
 export const CrashImpact: StoryObj = {
   render: () => (
     <div className="rc" style={{ maxWidth: 640 }}>
-      <RailcarStage aboard={[]} moving={false} crash tell={3} />
+      <RailcarStage aboard={[]} moving={false} crash tells={tellsUpTo(3)} />
     </div>
   ),
 };
@@ -175,7 +181,7 @@ export const TellsSoundAndVibration: StoryObj = {
     const muted = useSyncExternalStore(subscribeMuted, isMuted, () => false);
     const vibration = useSyncExternalStore(railcarHaptics.subscribe, railcarHaptics.enabled, () => true);
     const cues: [TellCue, string][] = [
-      ["screws", "Screws (and every false screw)"],
+      ["screws", "A screw (false and real sound alike)"],
       ["rattle", "Bolt and panel rattle"],
       ["sparks", "Sparks and creak"],
     ];
@@ -216,6 +222,8 @@ export const RideFromHistory390: StoryObj = { ...RideFromHistory, ...phone };
 export const RideFromHistory1440: StoryObj = { ...RideFromHistory, ...desk };
 /** Dee Braked at 1:30: the wall stays at 1:44 of track and comes at 1:46 on the clock. Seen by someone who did not ride. */
 export const RideFromHistoryWithBrake = history(fx.storedWorkedRide({ brake: true }), null);
+/** A ride that did not show the sparks: the check lists the Tell as "Did not show". */
+export const RideFromHistoryNoSparks = history(fx.storedWorkedRide({ shows: { sparks: false } }), null);
 export const RideFromHistoryWithBrake390: StoryObj = { ...RideFromHistoryWithBrake, ...phone };
 /** A car core refunded before anyone revealed its ride: nothing to replay, and the page says so. */
 export const RideRefundedUnrevealed: StoryObj = { render: () => <RideHistory page={{ id: "Opener1-7", entry: 500, ride: null, refunded: true }} me={null} actions={actions} /> };
@@ -236,6 +244,8 @@ const practice = (p: Practice, t: number): StoryObj => ({
 
 /** `/play/practice?game=railcar`, live: the car leaves at once with 9 simulated riders. Jump, Brake and Play again work; nothing is sent. */
 export const PracticeLive: StoryObj = { render: () => <RailcarPractice draw={PRACTICE_DRAW} /> };
+/** A later Tell is not promised: this ride shows the Screws (0:16) and the Panel (0:25) and never the Sparks; the wall is at 0:37. Live, so the chips, the car and the simulated riders can be watched to the Result. */
+export const PracticeLiveNoSparks: StoryObj = { render: () => <RailcarPractice draw={hexToBytes("0a4c74bd1eb7dd886217c7597294d3af3a16eb1314e2fd38c500a62ad96023e2")} /> };
 /** Mid-ride at 1:12: the PRACTICE tag, the riders' names, Jump and your Brake. */
 export const PracticeRiding = practice(practiceRide, 72_000);
 export const PracticeRiding390: StoryObj = { ...PracticeRiding, ...phone };

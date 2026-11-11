@@ -12,7 +12,7 @@
 //!   `start_ride` copies the seats and asks MagicBlock VRF for one output; the callback keeps it
 //!   and the ride it gives in the Table's Vault (a rollup-only account behind a private
 //!   permission with no member) and starts the ride clock. `signal` (anyone) and `jump` (a Player)
-//!   move the public Tell stage and, from the Impact slot on, end the ride and commit the Table,
+//!   move the public Tells and, from the Impact slot on, end the ride and commit the Table,
 //!   paid by the Sponsor. A Jump at or after the Impact slot ends the ride with that Player aboard.
 //! * **Brakes (ticket 07).** `bind_brake` hands each seat's private Brake seat to its Player at
 //!   the start of the ride; a Player's page sends `tick` instead of `signal`, with `brake` set when
@@ -21,7 +21,7 @@
 //!   `.scratch/railcar/07-brake-decision.md`.
 //!
 //! Privacy rules this file keeps: nothing derived from the draw is written to the Table except
-//! the Tell stage and false screws already passed and, at the end, the ride's end; nothing from
+//! the Tells already shown (the screws heard, the later Tells) and, at the end, the ride's end; nothing from
 //! the Vault is logged or reaches an error code; `signal` before the Impact succeeds the same way
 //! whether or not a stage moved; no error depends on the Vault or a Brake seat, and the work done
 //! on them is the same whatever they hold (`ride` module).
@@ -1260,7 +1260,7 @@ pub mod railcar {
     /// Rollup, the Player of Table seat `seat` (wallet or seat key, as `jump`): a Player page's
     /// signal, about every second, with `brake` = 1 when the Player presses their Brake (a `u8`,
     /// not a `bool`: Borsh's bool decoding branches, so a press would cost one compute unit less). It moves
-    /// the Tell stage and ends the ride from the Impact slot on, as `signal` does; before that, a
+    /// the public Tells and ends the ride from the Impact slot on, as `signal` does; before that, a
     /// Brake by a Player aboard who has not Braked on this ride sets the slow period's end to
     /// max(now, end) + 5 s. Anything else about the Brake does nothing (no error): a refusal would
     /// tell anyone who simulates the transaction that this Player has Braked. A Brake at or after

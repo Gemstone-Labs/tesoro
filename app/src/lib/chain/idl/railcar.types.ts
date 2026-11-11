@@ -3063,7 +3063,7 @@ export type Railcar = {
         "Rollup, the Player of Table seat `seat` (wallet or seat key, as `jump`): a Player page's",
         "signal, about every second, with `brake` = 1 when the Player presses their Brake (a `u8`,",
         "not a `bool`: Borsh's bool decoding branches, so a press would cost one compute unit less). It moves",
-        "the Tell stage and ends the ride from the Impact slot on, as `signal` does; before that, a",
+        "the public Tells and ends the ride from the Impact slot on, as `signal` does; before that, a",
         "Brake by a Player aboard who has not Braked on this ride sets the slow period's end to",
         "max(now, end) + 5 s. Anything else about the Brake does nothing (no error): a refusal would",
         "tell anyone who simulates the transaction that this Player has Braked. A Brake at or after",
@@ -4982,7 +4982,7 @@ export type Railcar = {
       "name": "table",
       "docs": [
         "A Table: one ride at a time, delegated to the TEE validator and kept for months. Public: who",
-        "boarded and who is aboard, the Jump order, the Tell stage, the ride start, the entry (the",
+        "boarded and who is aboard, the Jump order, the Tells shown, the ride start, the entry (the",
         "Gemas at stake are `entry * seated`) and the outcome. Read in place (no Borsh): a signal comes",
         "several times a second and touches a few bytes. Byte arrays only (alignment 1, no padding)."
       ],
@@ -5025,14 +5025,16 @@ export type Railcar = {
           {
             "name": "tell",
             "docs": [
-              "Tell stages passed (0 none, 1 screws, 2 bolt and panel, 3 sparks and creak)."
+              "The later Tells shown so far (`TELL_BOLT`, `TELL_SPARKS`). A ride may show either, both",
+              "or neither, and nothing here says one will not come."
             ],
             "type": "u8"
           },
           {
-            "name": "falseScrews",
+            "name": "screws",
             "docs": [
-              "False screws passed."
+              "Screws heard so far: the false ones and the real ones in one count, so nothing public",
+              "says which screw was real."
             ],
             "type": "u8"
           },
@@ -5389,6 +5391,10 @@ export type Railcar = {
           },
           {
             "name": "boltAtMs",
+            "docs": [
+              "`engine::NEVER_MS` when the ride does not show the Tell: `ride::advance` then compares",
+              "as for any other position and never passes it, so its work says nothing."
+            ],
             "type": "u32"
           },
           {

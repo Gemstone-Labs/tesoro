@@ -2,6 +2,7 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import type { CarView, SeatView } from "../../lib/chain/many-seat";
 import type { RideSeatView, TableView } from "./chain";
+import { NO_TELLS } from "./tell-state";
 import { planPayout } from "./payout";
 import { DELAYED_AFTER_SECS, railcarView } from "./view";
 
@@ -22,8 +23,7 @@ const table = (o: Partial<TableView> = {}): TableView => ({
   phase: "riding",
   outcome: "none",
   reason: "none",
-  tell: 0,
-  falseScrews: 0,
+  tells: NO_TELLS,
   seated: 5,
   aboard: 5,
   jumps: 0,
@@ -104,12 +104,12 @@ describe("one screen from boarding to the result", () => {
   });
 
   it("riding: the clock since the ride started, Tells, who is still aboard, and what I got back after my Jump", () => {
-    const t = table({ tell: 1, aboard: 4, jumps: 1, seats: players.map((_, i) => (i === 0 ? rideSeat(0, 1, 25_000) : rideSeat(i, 0, 0))) });
+    const t = table({ tells: { screws: 2, panel: false, sparks: true }, aboard: 4, jumps: 1, seats: players.map((_, i) => (i === 0 ? rideSeat(0, 1, 25_000) : rideSeat(i, 0, 0))) });
     const v = railcarView({ me: ana.toBase58(), core: coreCar({ stage: "departed" }), seats, table: t, fees: FEES, nowMs: (T0 + 40) * 1000 + 72_000 });
     expect(v.phase).toBe("ride");
     if (v.phase !== "ride") return;
     expect(v.clockMs).toBe(72_000);
-    expect(v.tell).toBe(1);
+    expect(v.tells).toEqual({ screws: 2, panel: false, sparks: true });
     expect(v.aboard.map((r) => r.account)).toEqual([ben, cy, dee, eve].map((k) => k.toBase58()));
     expect(v.me).toEqual({ aboard: false, jumpMs: 25_000, back: 350n });
     // The stake is every entry in the car; it never shows a live refund percentage.

@@ -13,6 +13,7 @@ import { Arena, GameMenu, type GameMenuItem } from "../fx";
 import type { BrakeStatus } from "./brake";
 import { useCrashMoment } from "./crash";
 import { RailcarStage } from "./RailcarStage";
+import { NO_TELLS, type Tells } from "./tell-state";
 import { railcarHaptics } from "./tells";
 import type { RailcarView, ResultRow, Rider } from "./view";
 import { clock } from "./words";
@@ -21,12 +22,17 @@ import "./railcar.css";
 export { clock };
 const g = (v: bigint) => Number(v);
 
-/** The Tells: the line icon (history) and the picked image (`public/art/final/railcar/tell-*.webp`) the chips show. */
-export const TELLS: { name: string; Icon: LucideIcon; art: string }[] = [
-  { name: "Screws", Icon: CircleMinus, art: "/art/final/railcar/tell-screws.webp" },
-  { name: "Panel", Icon: Hexagon, art: "/art/final/railcar/tell-panel.webp" },
-  { name: "Sparks", Icon: Zap, art: "/art/final/railcar/tell-sparks.webp" },
+/**
+ * The Tells: the line icon (history), the picked image (`public/art/final/railcar/tell-*.webp`) the chips show, and whether
+ * the ride has shown it. The Screws chip lights at the first screw heard, false or real: nothing on screen says which.
+ */
+export const TELLS: { name: string; Icon: LucideIcon; art: string; on: (t: Tells) => boolean }[] = [
+  { name: "Screws", Icon: CircleMinus, art: "/art/final/railcar/tell-screws.webp", on: (t) => t.screws > 0 },
+  { name: "Panel", Icon: Hexagon, art: "/art/final/railcar/tell-panel.webp", on: (t) => t.panel },
+  { name: "Sparks", Icon: Zap, art: "/art/final/railcar/tell-sparks.webp", on: (t) => t.sparks },
 ];
+/** The Tell nearest the wall that has shown (-1 before any). */
+export const latestTell = (t: Tells) => TELLS.reduce((last, tell, i) => (tell.on(t) ? i : last), -1);
 
 export interface RailcarActions {
   onBoard?: () => void;
@@ -157,8 +163,8 @@ function RailcarBody({
               </>
             )}
             <ol className="rc-tells" aria-label="Tells">
-              {TELLS.map(({ name, art }, i) => (
-                <li key={name} className={`cut cut-chip rc-tell${view.tell > i ? " on" : ""}`} aria-current={view.tell === i + 1 ? "step" : undefined}>
+              {TELLS.map(({ name, art, on }, i) => (
+                <li key={name} className={`cut cut-chip rc-tell${on(view.tells) ? " on" : ""}`} aria-current={latestTell(view.tells) === i ? "step" : undefined}>
                   {/* eslint-disable-next-line @next/next/no-img-element -- small picked image, 2x file */}
                   <img src={art} alt="" width={34} height={34} draggable={false} />
                   {name}
@@ -195,7 +201,7 @@ function RailcarBody({
         )}
         <div className="rc-stage-wrap">
           {!riding && actions.onHowTo && <HowToPlayTab name="Railcar" className="rc-how" onClick={actions.onHowTo} />}
-          <RailcarStage aboard={aboard} moving={riding && !crash && !paused && !delayed} slow={riding && meAboard && !!brake && brake.activeMs > 0} tell={riding ? view.tell : 0} rideMs={riding ? view.clockMs : 0} crash={crash} />
+          <RailcarStage aboard={aboard} moving={riding && !crash && !paused && !delayed} slow={riding && meAboard && !!brake && brake.activeMs > 0} tells={riding ? view.tells : NO_TELLS} rideMs={riding ? view.clockMs : 0} crash={crash} />
           {riding && brake && meAboard && brake.activeMs > 0 && (
             <p className="cut cut-chip rc-brake-tag">
               Your Brake <b className="mono">{Math.ceil(brake.activeMs / 1000)}s</b> · only you see this

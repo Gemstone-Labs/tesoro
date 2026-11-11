@@ -84,57 +84,88 @@ fn crash_point_odds_match_the_published_ones() {
 // ---- tells ----
 
 #[test]
-fn tell_leads_stay_in_their_published_ranges_and_in_order() {
+fn tells_that_show_keep_their_published_ranges_and_their_order() {
     let mut rng = 99u64;
     for _ in 0..50_000 {
         let r = ride(&random_draw(&mut rng));
         assert!((20_000..=40_000).contains(&r.screw_lead_ms));
-        assert!((8_000..=15_000).contains(&r.bolt_lead_ms));
-        assert!((3_000..=8_000).contains(&r.spark_lead_ms));
-        // Last Tell never under 3 s before the crash.
-        assert!(r.crash_ms - r.spark_at_ms >= 3_000);
-        assert!(r.screw_at_ms <= r.bolt_at_ms && r.bolt_at_ms <= r.spark_at_ms);
-        assert!(r.spark_at_ms <= r.crash_ms);
-    }
-}
-
-#[test]
-fn short_rides_start_the_screws_at_departure() {
-    let mut rng = 5u64;
-    let mut short = 0;
-    for _ in 0..50_000 {
-        let r = ride(&random_draw(&mut rng));
-        if r.crash_ms < r.screw_lead_ms {
-            short += 1;
-            assert_eq!(r.screw_at_ms, 0);
-        } else {
-            assert_eq!(r.screw_at_ms, r.crash_ms - r.screw_lead_ms);
+        assert_eq!(r.bolt_lead_ms.is_some(), r.bolt_at_ms.is_some());
+        assert_eq!(r.spark_lead_ms.is_some(), r.spark_at_ms.is_some());
+        let mut last = r.screw_at_ms;
+        if let (Some(lead), Some(at)) = (r.bolt_lead_ms, r.bolt_at_ms) {
+            assert!((8_000..=15_000).contains(&lead));
+            assert_eq!(at, r.crash_ms.saturating_sub(lead));
+            assert!(last <= at);
+            last = at;
+        }
+        if let (Some(lead), Some(at)) = (r.spark_lead_ms, r.spark_at_ms) {
+            assert!((3_000..=8_000).contains(&lead));
+            // The sparks, when they show, are never under 3 s before the crash.
+            assert!(r.crash_ms - at >= 3_000);
+            assert!(last <= at && at <= r.crash_ms);
         }
     }
-    assert!(short > 1000, "the sample must contain short rides");
 }
 
 #[test]
-fn false_screws_come_early_and_before_the_real_ones() {
-    let mut rng = 11u64;
-    let mut seen = [0u32; 5];
-    for _ in 0..20_000 {
-        let r = ride(&random_draw(&mut rng));
-        let f = r.false_screws();
-        seen[f.len()] += 1;
-        assert!(f.windows(2).all(|w| w[0] <= w[1]));
-        for p in f {
-            assert!((2_000..=18_000).contains(p));
-            assert!(p + 1_000 <= r.screw_at_ms);
-        }
+fn the_bolt_shows_on_3_rides_in_4_and_the_sparks_on_2_in_3_each_on_its_own() {
+    let mut rng = 2026u64;
+    let n = 200_000usize;
+    let rides: Vec<Ride> = (0..n).map(|_| ride(&random_draw(&mut rng))).collect();
+    let share = |of: &[&Ride], f: &dyn Fn(&Ride) -> bool| {
+        of.iter().filter(|r| f(r)).count() as f64 / of.len() as f64
+    };
+    let bolt = |r: &Ride| r.bolt_at_ms.is_some();
+    let sparks = |r: &Ride| r.spark_at_ms.is_some();
+    let all: Vec<&Ride> = rides.iter().collect();
+    assert!((share(&all, &bolt) - 0.75).abs() < 0.01);
+    assert!((share(&all, &sparks) - 2.0 / 3.0).abs() < 0.01);
+    // Neither says anything about the other...
+    let with_bolt: Vec<&Ride> = all.iter().copied().filter(|r| bolt(r)).collect();
+    let without_bolt: Vec<&Ride> = all.iter().copied().filter(|r| !bolt(r)).collect();
+    assert!((share(&with_bolt, &sparks) - 2.0 / 3.0).abs() < 0.01);
+    assert!((share(&without_bolt, &sparks) - 2.0 / 3.0).abs() < 0.01);
+    // ...or about the crash point: short, middling and long rides show them alike.
+    for (lo, hi) in [
+        (10_000, 20_000),
+        (20_000, 40_000),
+        (40_000, 80_000),
+        (80_000, 120_001),
+    ] {
+        let band: Vec<&Ride> = all
+            .iter()
+            .copied()
+            .filter(|r| (lo..hi).contains(&r.crash_ms))
+            .collect();
+        assert!(band.len() > 10_000, "band {lo}..{hi} too small");
+        assert!(
+            (share(&band, &bolt) - 0.75).abs() < 0.015,
+            "bolt in {lo}..{hi}"
+        );
+        assert!(
+            (share(&band, &sparks) - 2.0 / 3.0).abs() < 0.015,
+            "sparks in {lo}..{hi}"
+        );
     }
-    assert!(seen[2] > 0 && seen[3] > 0 && seen[4] > 0, "{seen:?}");
+    // 1 ride in 12 warns with the screws only.
+    let screws_only = share(&all, &|r| !bolt(r) && !sparks(r));
+    assert!((screws_only - 1.0 / 12.0).abs() < 0.005, "{screws_only}");
 }
 
+/// The crash point, the leads of the Tells that show and the false screws of a draw are what
+/// they were when every ride showed every Tell (rides recorded before then still replay).
 #[test]
-fn ride_is_a_pure_function_of_the_draw() {
-    let d = random_draw(&mut 3u64);
-    assert_eq!(ride(&d), ride(&d));
+fn absent_tells_changed_nothing_else_about_a_draw() {
+    // The first rides of the vectors file as committed before Tells could be absent.
+    let zero = ride(&[0u8; 32]);
+    assert_eq!((zero.crash_ms, zero.screw_lead_ms), (120_000, 20_000));
+    assert_eq!(zero.false_screws(), [14_473, 14_911, 17_651]);
+    assert_eq!(zero.bolt_lead_ms.unwrap_or(8_000), 8_000);
+    assert_eq!(zero.spark_lead_ms.unwrap_or(3_000), 3_000);
+    let ones = ride(&[0xff; 32]);
+    assert_eq!((ones.crash_ms, ones.screw_lead_ms), (10_000, 20_594));
+    assert_eq!(ones.bolt_lead_ms.unwrap_or(10_393), 10_393);
+    assert_eq!(ones.spark_lead_ms.unwrap_or(6_210), 6_210);
 }
 
 // ---- track position under Brakes ----
@@ -298,14 +329,38 @@ fn build_vectors() -> String {
     while draws.len() < 60 {
         draws.push(random_draw(&mut rng));
     }
+    // Every pattern of Tells, on a ride long enough for its leads and on a short one (its own
+    // random stream, so the vectors below stay what they were).
+    let mut patterns = 0x7_E115_u64;
+    for bolt in [true, false] {
+        for sparks in [true, false] {
+            for short in [false, true] {
+                let d = loop {
+                    let d = random_draw(&mut patterns);
+                    let r = ride(&d);
+                    let length = if short {
+                        r.crash_ms < 14_000
+                    } else {
+                        r.crash_ms >= 45_000
+                    };
+                    if r.bolt_at_ms.is_some() == bolt && r.spark_at_ms.is_some() == sparks && length
+                    {
+                        break d;
+                    }
+                };
+                draws.push(d);
+            }
+        }
+    }
     let rides: Vec<String> = draws
         .iter()
         .map(|d| {
             let r = ride(d);
+            let opt = |v: Option<u32>| v.map_or("null".to_string(), |x| x.to_string());
             format!(
                 "{{\"draw\":\"{}\",\"crash\":{},\"screwLead\":{},\"boltLead\":{},\"sparkLead\":{},\"screwAt\":{},\"boltAt\":{},\"sparkAt\":{},\"falseScrews\":{}}}",
-                hex(d), r.crash_ms, r.screw_lead_ms, r.bolt_lead_ms, r.spark_lead_ms,
-                r.screw_at_ms, r.bolt_at_ms, r.spark_at_ms, u32s(r.false_screws())
+                hex(d), r.crash_ms, r.screw_lead_ms, opt(r.bolt_lead_ms), opt(r.spark_lead_ms),
+                r.screw_at_ms, opt(r.bolt_at_ms), opt(r.spark_at_ms), u32s(r.false_screws())
             )
         })
         .collect();

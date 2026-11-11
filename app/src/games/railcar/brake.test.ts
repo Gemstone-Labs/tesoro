@@ -82,20 +82,28 @@ describe("what a page sends while the ride runs", () => {
 });
 
 describe("Tells as sound and touch", () => {
-  it("each new stage and each false screw cues once; nothing for a stage already passed", () => {
-    expect(tellCues(null, { tell: 0, falseScrews: 0 })).toEqual([]);
-    expect(tellCues({ tell: 0, falseScrews: 0 }, { tell: 0, falseScrews: 1 })).toEqual(["screws"]);
-    expect(tellCues({ tell: 0, falseScrews: 1 }, { tell: 1, falseScrews: 1 })).toEqual(["screws"]);
-    expect(tellCues({ tell: 1, falseScrews: 1 }, { tell: 2, falseScrews: 1 })).toEqual(["rattle"]);
-    expect(tellCues({ tell: 2, falseScrews: 1 }, { tell: 3, falseScrews: 1 })).toEqual(["sparks"]);
-    expect(tellCues({ tell: 3, falseScrews: 1 }, { tell: 3, falseScrews: 1 })).toEqual([]);
+  const t = (screws: number, panel = false, sparks = false) => ({ screws, panel, sparks });
+
+  it("each new screw and each Tell newly shown cues once; nothing for what already showed", () => {
+    expect(tellCues(null, t(0))).toEqual([]);
+    expect(tellCues(t(0), t(1))).toEqual(["screws"]);
+    // the real screws sound exactly as a false screw does: one more screw
+    expect(tellCues(t(1), t(2))).toEqual(["screws"]);
+    expect(tellCues(t(2), t(2, true))).toEqual(["rattle"]);
+    expect(tellCues(t(2, true), t(2, true, true))).toEqual(["sparks"]);
+    expect(tellCues(t(2, true, true), t(2, true, true))).toEqual([]);
   });
 
   it("a page that opens mid-ride does not replay what already passed", () => {
-    expect(tellCues(null, { tell: 2, falseScrews: 3 })).toEqual([]);
+    expect(tellCues(null, t(3, true))).toEqual([]);
   });
 
-  it("two stages passed between reads cue both, in order", () => {
-    expect(tellCues({ tell: 1, falseScrews: 0 }, { tell: 3, falseScrews: 0 })).toEqual(["rattle", "sparks"]);
+  it("two Tells shown between reads cue both, in order; two screws cue twice", () => {
+    expect(tellCues(t(1), t(1, true, true))).toEqual(["rattle", "sparks"]);
+    expect(tellCues(t(0), t(2))).toEqual(["screws", "screws"]);
+  });
+
+  it("a ride that shows the sparks and never the panel plays the sparks alone: no rattle (decisions Q39)", () => {
+    expect(tellCues(t(1), t(1, false, true))).toEqual(["sparks"]);
   });
 });

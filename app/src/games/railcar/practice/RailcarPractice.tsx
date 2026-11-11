@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { HowToPlay } from "@/components/how-to-play";
 import { brakeState, tellCues } from "../brake";
 import { RailcarScreen, type RailcarBrake } from "../RailcarScreen";
+import type { Tells } from "../tell-state";
 import { playTells } from "../tells";
 import { newPractice, practiceBrake, practiceImpactMs, practiceJump, practiceTells, practiceView, type Practice } from "./session";
 
@@ -21,7 +22,7 @@ export function RailcarPractice({ draw }: { draw?: Uint8Array }) {
   // The crash point is drawn on mount (a draw on the server would mismatch hydration and show up in the page).
   const [ride, setRide] = useState<{ p: Practice; start: number } | null>(null);
   const [now, setNow] = useState(0);
-  const heard = useRef<{ tell: number; falseScrews: number } | null>(null);
+  const heard = useRef<Tells | null>(null);
   // While the guide is open the ride stands still: closing it moves the start on by the time it was open.
   const [howAt, setHowAt] = useState<number | null>(null);
   const openHow = () => setHowAt(performance.now());
@@ -53,7 +54,7 @@ export function RailcarPractice({ draw }: { draw?: Uint8Array }) {
   }, [ride, over, paused]);
 
   const t = ride ? Math.max(0, now - ride.start) : 0;
-  // Each new Tell stage and false screw plays once, as on a real ride.
+  // Each new screw and each Tell newly shown plays once, as on a real ride.
   useEffect(() => {
     if (!ride || over) return;
     const next = practiceTells(ride.p, t);

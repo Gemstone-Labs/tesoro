@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { PLAYERS, boardingCountdown, riding, rideShow } from "./fixtures";
 import { CRASH_MS } from "./crash";
+import { tellsUpTo, type Tells } from "./tell-state";
 import { BOLT_ART, BoltPop, boltsDue, CarDamage, CRASH_ART, CrashMoment, CrashWall, DAMAGE_ART, DAMAGE_STAGES, MY_WINDOW, RailcarStage, WALL_ART, windowRiders } from "./RailcarStage";
 import { RailcarScreen, TELLS } from "./RailcarScreen";
 import { art } from "@/lib/art";
@@ -52,7 +53,8 @@ describe("the avatars in the windows", () => {
 });
 
 describe("the Tells on the train", () => {
-  const stages = (tell: number) => [...renderToStaticMarkup(<CarDamage tell={tell} />).matchAll(/data-tell="(\w+)"/g)].map((m) => m[1]);
+  const marks = (tells: Tells) => [...renderToStaticMarkup(<CarDamage tells={tells} />).matchAll(/data-tell="(\w+)"/g)].map((m) => m[1]);
+  const stages = (n: number) => marks(tellsUpTo(n));
 
   it("each Tell changes the car from the moment it fires, and stays", () => {
     expect(stages(0)).toEqual([]);
@@ -62,8 +64,18 @@ describe("the Tells on the train", () => {
     expect([...DAMAGE_STAGES]).toEqual(["screws", "panel", "sparks"]);
   });
 
-  it("the stage draws them from the ride's Tell count; Boarding never does", () => {
-    const html = (tell: number) => renderToStaticMarkup(<RailcarStage aboard={[]} moving tell={tell} />);
+  it("a Tell the ride never shows never marks the car: sparks with no panel, screws alone (decisions Q39)", () => {
+    expect(marks({ screws: 1, panel: false, sparks: true })).toEqual(["screws", "sparks"]);
+    expect(marks({ screws: 4, panel: false, sparks: false })).toEqual(["screws"]);
+    expect(marks({ screws: 1, panel: true, sparks: false })).toEqual(["screws", "panel"]);
+  });
+
+  it("the first screw heard marks the car, false or real: nothing on the car says which", () => {
+    expect(marks({ screws: 1, panel: false, sparks: false })).toEqual(marks({ screws: 3, panel: false, sparks: false }));
+  });
+
+  it("the stage draws them from the ride's Tells; Boarding never does", () => {
+    const html = (n: number) => renderToStaticMarkup(<RailcarStage aboard={[]} moving tells={tellsUpTo(n)} />);
     expect(html(2)).toContain('data-tell="panel"');
     expect(html(1)).not.toContain('data-tell="panel"');
     expect(renderToStaticMarkup(<RailcarScreen view={boardingCountdown()} />)).not.toContain("data-tell");
@@ -71,7 +83,7 @@ describe("the Tells on the train", () => {
   });
 
   it("picked art replaces a stage's basic visual with an overlay of the car's size", () => {
-    const h = renderToStaticMarkup(<CarDamage tell={3} art={{ panel: "/art/final/railcar/panel-loose.webp" }} />);
+    const h = renderToStaticMarkup(<CarDamage tells={tellsUpTo(3)} art={{ panel: "/art/final/railcar/panel-loose.webp" }} />);
     expect(h).toMatch(/<img[^>]*data-tell="panel"[^>]*src="\/art\/final\/railcar\/panel-loose\.webp"/);
     expect(h).toMatch(/<span[^>]*data-tell="screws"/);
   });
@@ -108,7 +120,7 @@ describe("the wall", () => {
   const css = readFileSync(new URL("./railcar.css", import.meta.url), "utf8");
 
   it("does not exist before the Impact; it enters with the crash, behind the car", () => {
-    for (const h of [renderToStaticMarkup(<RailcarStage aboard={[]} moving tell={3} />), renderToStaticMarkup(<RailcarScreen view={riding()} />), renderToStaticMarkup(<RailcarScreen view={boardingCountdown()} />)]) {
+    for (const h of [renderToStaticMarkup(<RailcarStage aboard={[]} moving tells={tellsUpTo(3)} />), renderToStaticMarkup(<RailcarScreen view={riding()} />), renderToStaticMarkup(<RailcarScreen view={boardingCountdown()} />)]) {
       expect(h).not.toContain("rc-wall");
       expect(h).not.toContain("wall-v1");
       expect(h).not.toContain("wall-impact");
@@ -152,12 +164,12 @@ describe("the Screws bolts", () => {
     for (const src of BOLT_ART) expect(h).toContain(src);
   });
 
-  it("they pop when the Screws Tell fires while watching; not on a page that opens past it, not under reduced motion", () => {
+  it("they pop at every screw heard while watching, false or real alike; not on a page that opens past it, not under reduced motion", () => {
     expect(boltsDue(0, 1, false)).toBe(true);
-    expect(boltsDue(1, 2, false)).toBe(false);
+    expect(boltsDue(1, 2, false)).toBe(true);
     expect(boltsDue(1, 1, false)).toBe(false);
     expect(boltsDue(0, 1, true)).toBe(false);
-    expect(renderToStaticMarkup(<RailcarStage aboard={[]} moving tell={1} />)).not.toContain("rc-bolt");
+    expect(renderToStaticMarkup(<RailcarStage aboard={[]} moving tells={tellsUpTo(1)} />)).not.toContain("rc-bolt");
   });
 
   it("the CSS tumbles them back and down over about a second, and hides them under reduced motion", () => {
@@ -174,12 +186,12 @@ describe("the picked art is wired", () => {
   });
 
   it("each fired Tell adds its overlay and they stack; the sparks sit behind the wheels", () => {
-    const h = renderToStaticMarkup(<RailcarStage aboard={[]} moving tell={3} />);
+    const h = renderToStaticMarkup(<RailcarStage aboard={[]} moving tells={tellsUpTo(3)} />);
     for (const s of DAMAGE_STAGES) expect(h).toMatch(new RegExp(`damage-${s}(-v2)?\\.webp`));
     const at = (cls: string) => h.indexOf(`class="${cls}`);
     expect(at("rc-dmg rc-dmg-art rc-dmg-sparks")).toBeLessThan(at("rc-wheel"));
     expect(at("rc-dmg rc-dmg-art rc-dmg-screws")).toBeGreaterThan(at("rc-wheel"));
-    expect(renderToStaticMarkup(<RailcarStage aboard={[]} moving tell={1} />)).not.toContain("damage-panel");
+    expect(renderToStaticMarkup(<RailcarStage aboard={[]} moving tells={tellsUpTo(1)} />)).not.toContain("damage-panel");
   });
 
   it("the Tell chips show the picked image: dimmed until fired, full colour after", () => {

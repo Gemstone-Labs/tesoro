@@ -1,17 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { crashOdds, payoutRows, refundRows, tellRows, workedExample } from "./rules";
+import { crashOdds, payoutRows, refundRows, tellOdds, tellRows, workedExample } from "./rules";
 
 describe("Railcar published rules", () => {
   it("publishes the crash odds from the spec", () => {
     expect(crashOdds()).toEqual({ safeSeconds: 10, medianSeconds: 40, certainSeconds: 120, brakeSeconds: 5 });
   });
 
-  it("publishes the Tell ranges from the spec", () => {
-    expect(tellRows().map((r) => [r.range, r.lastWarningFloor])).toEqual([
-      ["20 to 40 seconds", false],
-      ["8 to 15 seconds", false],
-      ["3 to 8 seconds", true],
+  it("publishes how often each Tell shows and its range (decisions Q39)", () => {
+    expect(tellRows().map((r) => [r.shows, r.range])).toEqual([
+      ["Every ride", "20 to 40 seconds"],
+      ["3 rides in 4", "8 to 15 seconds"],
+      ["2 rides in 3", "3 to 8 seconds"],
     ]);
+    expect(tellOdds()).toEqual({ sparksFloorSeconds: 3, screwsOnly: "1 ride in 12" });
   });
 
   it("publishes the Early-jump refund schedule from the spec", () => {

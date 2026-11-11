@@ -6,6 +6,12 @@ import { fmtGemas } from "../format";
 import type { HistoryRow } from "./history";
 import type { StoredRide } from "./ride-record";
 
+/**
+ * The first car that rode under "later Tells are not promised" (decisions Q39). Cars before it showed every Tell, and their
+ * history replays that way. 0 where the rule was there from the first car; on devnet it is the next car at the upgrade.
+ */
+export const UNPROMISED_TELLS_FROM_CAR = BigInt(process.env.NEXT_PUBLIC_RAILCAR_UNPROMISED_TELLS_FROM_CAR || "0");
+
 /** The replayable record of a stored ride, or null when the Match is not a ride. */
 export function rideRecordOf(m: { entry: number; ride?: StoredRide | null }): RideRecord | null {
   const r = m.ride;
@@ -19,6 +25,7 @@ export function rideRecordOf(m: { entry: number; ride?: StoredRide | null }): Ri
     seats: r.seats.map((s) => ({ seat: s.seat, player: s.player, funder: s.funder, order: s.order, jumpMs: s.jumpMs, refund: BigInt(s.refund) })),
     places: r.places.map((p) => ({ seat: p.seat, won: BigInt(p.won) })),
     fees: BigInt(r.fees[0] + r.fees[1] + r.fees[2]),
+    everyTell: BigInt(r.carNo) < UNPROMISED_TELLS_FROM_CAR,
   };
 }
 
