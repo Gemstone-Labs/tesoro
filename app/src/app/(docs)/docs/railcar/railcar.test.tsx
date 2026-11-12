@@ -27,9 +27,12 @@ describe("Railcar docs page", () => {
     expect(html).toContain("certain by 2 minutes");
   });
 
-  it("publishes the Tell ranges and the 3 second last warning", () => {
-    for (const r of ["20 to 40 seconds", "8 to 15 seconds", "3 to 8 seconds"]) expect(html).toContain(r);
-    expect(html).toContain("at least 3 seconds");
+  it("publishes how often each Tell shows, its range, and that a later Tell is not promised", () => {
+    for (const r of ["Every ride 20 to 40 seconds", "3 rides in 4 8 to 15 seconds", "2 rides in 3 3 to 8 seconds"]) expect(html).toContain(r);
+    expect(html).toContain("When the sparks show, they come at least 3 seconds ahead");
+    expect(html).toContain("On 1 ride in 12 the screws are the only Tell");
+    expect(html).toContain("the wall can come with no further warning");
+    expect(html).not.toContain("The last warning always comes");
   });
 
   it("publishes the refund schedule, payout rule, Brake rule and outage rule", () => {

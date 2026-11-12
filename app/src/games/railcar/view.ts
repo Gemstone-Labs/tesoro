@@ -4,6 +4,7 @@
  */
 import type { CarView, SeatView } from "../../lib/chain/many-seat";
 import { NO_SEAT, type TableView } from "./chain";
+import { NO_TELLS, type Tells } from "./tell-state";
 import { placeSharesBps, positionMs, refund as scheduleRefund } from "./engine";
 import { departsAt } from "./flow";
 import { planPayout, type FeeRates } from "./payout";
@@ -71,8 +72,8 @@ export type RailcarView =
       phase: "ride";
       /** Real ms since the ride clock started (0 until the draw arrives). */
       clockMs: number;
-      /** Tell stages passed: 0 none, 1 screws, 2 bolt and panel, 3 sparks and creak. */
-      tell: number;
+      /** The Tells shown so far. */
+      tells: Tells;
       aboard: Rider[];
       jumped: Rider[];
       /** Every entry in the car. */
@@ -164,7 +165,7 @@ export function railcarView(f: RailcarFacts): RailcarView {
   return {
     phase: "ride",
     clockMs: t && t.phase === "riding" ? Math.max(0, f.nowMs - t.rideTs * 1000) : 0,
-    tell: t?.tell ?? 0,
+    tells: t?.tells ?? NO_TELLS,
     aboard: seated.filter((x) => x.s.order === 0).map((x) => x.rider),
     jumped: seated.filter((x) => x.s.order !== 0).map((x) => x.rider),
     stake: n * entry,

@@ -50,6 +50,10 @@ pub const PHASE_RIDING: u8 = 2;
 /// The result is written; the Table waits for core to freeze the car before the next one.
 pub const PHASE_OVER: u8 = 3;
 
+/// The later Tells in `Table::tell`: the bolt and rattling panel, the sparks and creak.
+pub const TELL_BOLT: u8 = 1;
+pub const TELL_SPARKS: u8 = 2;
+
 /// Ride outcomes.
 pub const OUTCOME_NONE: u8 = 0;
 /// The last Players off are placed, early Jumpers refunded by the schedule.
@@ -140,6 +144,8 @@ pub struct Vault {
     pub draw: [u8; 32],
     pub crash_ms: u32,
     pub screw_at_ms: u32,
+    /// `engine::NEVER_MS` when the ride does not show the Tell: `ride::advance` then compares
+    /// as for any other position and never passes it, so its work says nothing.
     pub bolt_at_ms: u32,
     pub spark_at_ms: u32,
     pub false_screws: [u32; 4],
@@ -197,8 +203,8 @@ impl Vault {
         self.draw = draw;
         self.crash_ms = r.crash_ms;
         self.screw_at_ms = r.screw_at_ms;
-        self.bolt_at_ms = r.bolt_at_ms;
-        self.spark_at_ms = r.spark_at_ms;
+        self.bolt_at_ms = r.bolt_at_ms.unwrap_or(crate::engine::NEVER_MS);
+        self.spark_at_ms = r.spark_at_ms.unwrap_or(crate::engine::NEVER_MS);
         self.false_screws = [0; 4];
         self.false_screws[..falses.len()].copy_from_slice(falses);
         self.false_len = falses.len() as u8;
@@ -293,7 +299,7 @@ impl RideSeat {
 }
 
 /// A Table: one ride at a time, delegated to the TEE validator and kept for months. Public: who
-/// boarded and who is aboard, the Jump order, the Tell stage, the ride start, the entry (the
+/// boarded and who is aboard, the Jump order, the Tells shown, the ride start, the entry (the
 /// Gemas at stake are `entry * seated`) and the outcome. Read in place (no Borsh): a signal comes
 /// several times a second and touches a few bytes. Byte arrays only (alignment 1, no padding).
 #[account(zero_copy)]
@@ -305,10 +311,12 @@ pub struct Table {
     pub phase: u8,
     pub outcome: u8,
     pub reason: u8,
-    /// Tell stages passed (0 none, 1 screws, 2 bolt and panel, 3 sparks and creak).
+    /// The later Tells shown so far (`TELL_BOLT`, `TELL_SPARKS`). A ride may show either, both
+    /// or neither, and nothing here says one will not come.
     pub tell: u8,
-    /// False screws passed.
-    pub false_screws: u8,
+    /// Screws heard so far: the false ones and the real ones in one count, so nothing public
+    /// says which screw was real.
+    pub screws: u8,
     pub seated: u8,
     pub aboard: u8,
     pub jumps: u8,

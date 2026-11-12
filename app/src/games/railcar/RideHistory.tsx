@@ -69,13 +69,19 @@ export function RideHistory({ page, me, actions = {} }: { page: RidePage; me: st
                   <li key={t.stage} className="cut cut-card rc-check-tell">
                     <Icon aria-hidden="true" />
                     <b>{name}</b>
-                    <span>{secs(t.leadMs)} before the wall</span>
-                    <span className="mono rc-check-at">{clock(t.atMs)}</span>
+                    {t.leadMs === null || t.atMs === null ? (
+                      <span>Did not show</span>
+                    ) : (
+                      <>
+                        <span>{secs(t.leadMs)} before the wall</span>
+                        <span className="mono rc-check-at">{clock(t.atMs)}</span>
+                      </>
+                    )}
                   </li>
                 );
               })}
             </ol>
-            {r.falseScrewsMs.length > 0 && <p className="rc-check-note">False screws at {r.falseScrewsMs.map(clock).join(", ")}</p>}
+            {r.falseScrewsMs.length > 0 && <p className="rc-check-note">False screws at {r.falseScrewsMs.map(clock).join(", ")} (shown as screws during the ride)</p>}
           </>
         )}
         <h3 className="rc-check-sub">Brakes</h3>

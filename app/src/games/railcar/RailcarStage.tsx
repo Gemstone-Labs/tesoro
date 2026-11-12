@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { PlayerAvatar } from "@/components/account/Player";
 import { WHEEL_DEG_PER_PX, newRoll, rollFrame } from "./roll";
+import { NO_TELLS, type Tells } from "./tell-state";
 import type { Rider } from "./view";
 
 /** The railcar art (art-source/railcar/round2, founder-approved prototype): the car and its window and wheel positions in source pixels. */
@@ -26,9 +27,10 @@ export function windowRiders(riders: Rider[]): (Rider | null)[] {
   return out;
 }
 
-/** The Tell stages that change the car itself, in the order they fire (`view.tell` counts how many have). */
+/** The Tells that change the car itself. A ride shows the screws, and the panel and the sparks only if they come. */
 export const DAMAGE_STAGES = ["screws", "panel", "sparks"] as const;
 export type DamageStage = (typeof DAMAGE_STAGES)[number];
+const shown = (t: Tells, stage: DamageStage) => (stage === "screws" ? t.screws > 0 : t[stage]);
 
 /**
  * Art hook for the Tells on the train: a transparent overlay per stage, the same size and frame as `car.webp` (1068 × 351), drawn
@@ -48,7 +50,7 @@ export const CRASH_ART: string[] = [1, 2].map((i) => `${ART}/crash-f${i}.webp`);
 /** The wall the car hits: the intact sprite while it rushes in, the cracked one from the contact (400 x 300 art, drawn at stage height, its left face at 44/400). */
 export const WALL_ART = { intact: `${ART}/wall-v1.webp`, hit: `${ART}/wall-impact-v1.webp` };
 
-/** The loose bolts that pop off the car when the Screws Tell fires (small sprites, not car-sized). */
+/** The loose bolts that pop off the car at every screw heard, false or real alike (small sprites, not car-sized). */
 export const BOLT_ART = [`${ART}/bolt-a.webp`, `${ART}/bolt-b.webp`];
 /** Where the bolts leave the car (x in car art px, along the sill) and how long they take to tumble away. */
 const BOLTS = [
@@ -61,7 +63,8 @@ export const BOLT_POP_MS = 1000;
 const BOLT_LAST_DELAY_MS = 240;
 
 /** The bolts pop only when the Screws Tell fires while this page watches, never when the page opens on a ride already past it. */
-export const boltsDue = (was: number, now: number, reducedMotion: boolean) => was < 1 && now >= 1 && !reducedMotion;
+/** Bolts pop at each new screw (`was` and `now` are the screws heard). */
+export const boltsDue = (was: number, now: number, reducedMotion: boolean) => now > was && !reducedMotion;
 
 const reduced = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -75,10 +78,10 @@ interface Leap {
 /**
  * The side-view railcar in the cave. Still while Boarding; `moving` starts it rolling right (the cave scrolls left)
  * without remounting, so Boarding turns into the Ride in place. Players who leave `aboard` leap off their window.
- * The car gets faster with `rideMs` (the ride clock; see `roll.ts`); `slow` halves the speed (the Player's own Brake, ticket 11); nothing else on screen shows speed. `tell` is how many Tell stages
- * have fired: each changes the car itself (see `CarDamage`). `crash` stops the car and plays the impact (see `CrashMoment`).
+ * The car gets faster with `rideMs` (the ride clock; see `roll.ts`); `slow` halves the speed (the Player's own Brake, ticket 11); nothing else on screen shows speed. `tells` are the Tells
+ * shown so far: each changes the car itself (see `CarDamage`). `crash` stops the car and plays the impact (see `CrashMoment`).
  */
-export function RailcarStage({ aboard, moving, slow = false, tell = 0, crash = false, rideMs = 0 }: { aboard: Rider[]; moving: boolean; slow?: boolean; tell?: number; crash?: boolean; rideMs?: number }) {
+export function RailcarStage({ aboard, moving, slow = false, tells = NO_TELLS, crash = false, rideMs = 0 }: { aboard: Rider[]; moving: boolean; slow?: boolean; tells?: Tells; crash?: boolean; rideMs?: number }) {
   const root = useRef<HTMLDivElement>(null);
   const windows = windowRiders(aboard);
   const [leaps, setLeaps] = useState<Leap[]>([]);
@@ -104,15 +107,15 @@ export function RailcarStage({ aboard, moving, slow = false, tell = 0, crash = f
   useEffect(() => {
     slowNow.current = slow;
   });
-  // The Screws Tell firing pops bolts off the car for a moment.
+  // Each screw heard pops bolts off the car for a moment.
   const [pops, setPops] = useState<number[]>([]);
-  const prevTell = useRef(tell);
+  const prevScrews = useRef(tells.screws);
   const nextPop = useRef(0);
   useEffect(() => {
-    const was = prevTell.current;
-    prevTell.current = tell;
-    if (boltsDue(was, tell, reduced())) setPops((p) => [...p, nextPop.current++]);
-  }, [tell]);
+    const was = prevScrews.current;
+    prevScrews.current = tells.screws;
+    if (boltsDue(was, tells.screws, reduced())) setPops((p) => [...p, nextPop.current++]);
+  }, [tells.screws]);
   useEffect(() => {
     clock.current = { rideMs, at: performance.now() };
   }, [rideMs]);
@@ -150,11 +153,11 @@ export function RailcarStage({ aboard, moving, slow = false, tell = 0, crash = f
           </span>
         ))}
         {/* the sparks fly from under the wheels: drawn before them */}
-        <CarDamage tell={tell} stages={["sparks"]} />
+        <CarDamage tells={tells} stages={["sparks"]} />
         {WHEEL_X.map((x) => (
           <span key={x} className="rc-wheel" style={{ left: `${(x / CAR_W) * 100}%`, top: `${(WHEEL_Y / CAR_H) * 100}%`, backgroundImage: `url(${ART}/wheel.webp)` }} />
         ))}
-        <CarDamage tell={tell} stages={["screws", "panel"]} />
+        <CarDamage tells={tells} stages={["screws", "panel"]} />
         {pops.map((id) => (
           <BoltPop key={id} onDone={() => setPops((all) => all.filter((x) => x !== id))} />
         ))}
@@ -194,14 +197,14 @@ const PANEL = { x: 575, y: 208, w: 120, h: 36 };
 
 /**
  * The Tells on the train: from the moment each Tell fires until the end of the ride the car itself shows it (screws popping from
- * the frame, a panel hanging loose, sparks at the wheels). `tell` is how many stages have fired (`view.tell`). Each stage is
+ * the frame, a panel hanging loose, sparks at the wheels). A Tell the ride never shows never marks the car. Each stage is
  * one element in the car's frame, so the basic visual swaps for an image overlay through `DAMAGE_ART` without touching the rest.
  */
-export function CarDamage({ tell, art = DAMAGE_ART, stages = DAMAGE_STAGES }: { tell: number; art?: Partial<Record<DamageStage, string>>; stages?: readonly DamageStage[] }) {
+export function CarDamage({ tells, art = DAMAGE_ART, stages = DAMAGE_STAGES }: { tells: Tells; art?: Partial<Record<DamageStage, string>>; stages?: readonly DamageStage[] }) {
   return (
     <>
-      {DAMAGE_STAGES.map((stage, i) => {
-        if (tell <= i || !stages.includes(stage)) return null;
+      {DAMAGE_STAGES.map((stage) => {
+        if (!shown(tells, stage) || !stages.includes(stage)) return null;
         const overlay = art[stage];
         if (overlay) {
           return (

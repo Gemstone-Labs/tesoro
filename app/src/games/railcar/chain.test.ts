@@ -54,8 +54,8 @@ describe("a Table reads as the program writes it", () => {
       phase: 3,
       outcome: 1,
       reason: 1,
-      tell: 3,
-      false_screws: 2,
+      tell: 2,
+      screws: 3,
       seated: 5,
       aboard: 1,
       jumps: 4,
@@ -89,7 +89,9 @@ describe("a Table reads as the program writes it", () => {
       seats: Array.from({ length: 100 }, (_, i) => seat(i)),
     });
     const t = decodeTable(data);
-    expect([t.index, t.phase, t.outcome, t.reason, t.tell, t.falseScrews]).toEqual([1, "over", "placed", "played", 3, 2]);
+    expect([t.index, t.phase, t.outcome, t.reason]).toEqual([1, "over", "placed", "played"]);
+    // three screws heard (false and real in one count); the sparks showed and the panel never did
+    expect(t.tells).toEqual({ screws: 3, panel: false, sparks: true });
     expect([t.seated, t.aboard, t.jumps]).toEqual([5, 1, 4]);
     expect(t.places).toEqual([3, 1, 2]);
     expect([t.carNo, t.nextCar, t.entry, t.rideSlot]).toEqual([9n, 11n, 500n, 1_300n]);

@@ -22,6 +22,21 @@ The metadata-only inventory (`collect --metadata-only`, followed by `check --inv
 
 Regression commands: `cargo test -p tesoro_core --lib predeploy_layouts -- --nocapture` writes/reads both the historical 178-byte and current 327-byte custody fixtures in LiteSVM; `python3 scripts/test-predeploy-size-check.py` exercises mismatch, unknown discriminator, dynamic capacity and version refusals. Preserve the LiteSVM fixture rows and use them in the Python test as described by its skip message.
 
+## Railcar upgrade: later Tells are not promised (2026-11-11)
+
+The founder approved it on 2026-11-11 (Railcar decisions Q39, ticket 27). Railcar only: no core, keeper or migration change. The public Table `tell` became flags (1 bolt, 2 sparks) and `false_screws` became `screws` (every screw heard), at the same offsets and size.
+
+| Step | Value |
+|---|---|
+| Build | `rc/27-tells-not-promised-11-11-2026` 7d03256d (int faf8fad9 has the same tree); `railcar.so` 923,872 B, sha e9e74892…, carries the Railcar program id |
+| Precheck | both Tables over (car 13 placed, car 14 refunded) on the rollup and on devnet, no car boarding, `next_car` 15 |
+| Railcar extend | +10,240 B (data 923,216 → 933,456) |
+| Railcar upgrade | slot 521061440, `4QThskFp…neqhtZ2G`; dump == ELF sha e9e74892…; rollback `~/.cache/tesoro-tmp/deploy-27-2026-11-11/rollback-railcar-before-27.so` (sha f0447eb1…, the 11-08 program) |
+| Staging env | `NEXT_PUBLIC_RAILCAR_UNPROMISED_TELLS_FROM_CAR=15` for Preview (staging), set before the staging build. Production needs the same value when Railcar ships to main (prod reads the same devnet program); mainnet leaves it unset |
+| Deployer | 24.30 → 24.24 SOL |
+
+Rollback: upgrade Railcar from the rollback file, then put staging back on int 34454a6c and remove the env var. Cars opened under the new program would then replay with every Tell.
+
 ## Railcar W3 core and Railcar on devnet (2026-11-08)
 
 The founder approved it on 2026-11-08 (Railcar decisions Q33/Q33a): core and Railcar ship together, staging first, and main only after the founder validates on staging. Staging and production share devnet programs and prod Supabase, so main first got a compatibility patch, e6a5f1a5 (Offers at 174 and 191 B, the Protections on cancel_offer / expire_offer / close_match), which works on both cores. The VPS keeper is on e6a5f1a5 (599/599 tests).

@@ -15,6 +15,7 @@ import { idlIxBuilder } from "../../lib/chain/core-ix";
 import { seatPagePda } from "../../lib/chain/many-seat";
 import { MAGICBLOCK } from "../../lib/cluster-settings";
 import idl from "../../lib/chain/idl/railcar.json";
+import { tellsOf, type Tells } from "./tell-state";
 
 const railcar = idlIxBuilder(idl as { address: string; instructions: unknown[] });
 /** Placeholder until the real program keypair exists (ticket 15). */
@@ -148,9 +149,8 @@ export interface TableView {
   phase: TablePhase;
   outcome: RideOutcome;
   reason: RideReason;
-  /** Tell stages passed: 0 none, 1 screws, 2 bolt and panel, 3 sparks and creak. */
-  tell: number;
-  falseScrews: number;
+  /** The Tells shown so far. */
+  tells: Tells;
   seated: number;
   aboard: number;
   jumps: number;
@@ -211,8 +211,7 @@ export function decodeTable(data: Uint8Array): TableView {
     phase: PHASES[data[b + 4]] ?? "idle",
     outcome: OUTCOMES[data[b + 5]] ?? "none",
     reason: REASONS[data[b + 6]] ?? "none",
-    tell: data[b + 7],
-    falseScrews: data[b + 8],
+    tells: tellsOf(data[b + 8], data[b + 7]),
     seated,
     aboard: data[b + 10],
     jumps: data[b + 11],
@@ -359,7 +358,7 @@ export function startRideIx(payer: PublicKey, car: { carNo: bigint; table: numbe
   );
 }
 
-/** `signal`: anyone; moves the Tell stage and, from the Impact slot, ends the ride and commits the Table. */
+/** `signal`: anyone; moves the public Tells and, from the Impact slot, ends the ride and commits the Table. */
 export const signalIx = (caller: PublicKey, tableIndex: number): TransactionInstruction => {
   const table = tablePda(tableIndex);
   return railcarIx("signal", { caller, table, vault: vaultPda(table), ...magic() });

@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { RailcarShowcase, SHOWCASE_CRASH_MS, SHOWCASE_MS, showcaseAt, showcaseMoment, showcaseStep } from "./showcase";
+import { tellsUpTo } from "./tell-state";
 
 describe("the Railcar showcase (a short ride that plays itself)", () => {
   it("is 12 to 15 seconds long, ending in the Result after the crash", () => {
@@ -11,7 +12,7 @@ describe("the Railcar showcase (a short ride that plays itself)", () => {
   });
 
   it("departs and speeds up, then fires Screws, Panel and Sparks a few seconds apart", () => {
-    expect(showcaseAt(0).view).toMatchObject({ phase: "ride", tell: 0, clockMs: 0 });
+    expect(showcaseAt(0).view).toMatchObject({ phase: "ride", tells: tellsUpTo(0), clockMs: 0 });
     const clock = (ms: number) => (showcaseAt(ms).view as { clockMs: number }).clockMs;
     expect(clock(6_000)).toBeGreaterThan(clock(2_000));
     const firstAt = (n: number) => {
@@ -20,8 +21,8 @@ describe("the Railcar showcase (a short ride that plays itself)", () => {
     };
     const [s, p, k] = [1, 2, 3].map(firstAt);
     for (const [n, ms] of [[1, s], [2, p], [3, k]]) {
-      expect(showcaseAt(ms).view).toMatchObject({ phase: "ride", tell: n });
-      expect(showcaseAt(ms - 100).view).toMatchObject({ tell: n - 1 });
+      expect(showcaseAt(ms).view).toMatchObject({ phase: "ride", tells: tellsUpTo(n) });
+      expect(showcaseAt(ms - 100).view).toMatchObject({ tells: tellsUpTo(n - 1) });
     }
     expect(s).toBeGreaterThan(0);
     expect(p - s).toBeGreaterThanOrEqual(2_000);

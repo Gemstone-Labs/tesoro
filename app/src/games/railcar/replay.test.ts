@@ -61,7 +61,35 @@ describe("replaying a finished ride from its record", () => {
     const d = ride(draw);
     const r = replayRide(workedExample(draw));
     expect(r.tells.map((t) => t.leadMs)).toEqual([d.screwLeadMs, d.boltLeadMs, d.sparkLeadMs]);
-    expect(r.tells.map((t) => t.atMs)).toEqual([104_000 - d.screwLeadMs, 104_000 - d.boltLeadMs, 104_000 - d.sparkLeadMs]);
+    expect(r.tells.map((t) => t.atMs)).toEqual([d.screwLeadMs, d.boltLeadMs, d.sparkLeadMs].map((lead) => (lead === null ? null : 104_000 - lead)));
+  });
+
+  it("a Tell the ride did not show has no lead and no time (decisions Q39)", () => {
+    // Crash points a second apart until one draw shows the panel and not the sparks, and one the other way round.
+    const find = (panel: boolean, sparks: boolean) => {
+      for (let crash = 60_000; crash < 110_000; crash += 1_000) {
+        const d = ride(drawWithCrash(crash));
+        if ((d.boltLeadMs !== null) === panel && (d.sparkLeadMs !== null) === sparks) return crash;
+      }
+      throw new Error("no such draw");
+    };
+    for (const [panel, sparks] of [[true, false], [false, true], [false, false]] as const) {
+      const crash = find(panel, sparks);
+      const r = replayRide(workedExample(drawWithCrash(crash)));
+      expect(r.crashMs).toBe(crash);
+      expect(r.tells.map((t) => t.stage)).toEqual(["screws", "panel", "sparks"]);
+      expect(r.tells.map((t) => t.leadMs !== null && t.atMs !== null)).toEqual([true, panel, sparks]);
+    }
+  });
+
+  it("a ride from before Tells could be absent replays with every Tell, and the same wall and refunds", () => {
+    const draw = drawWithCrash(104_000);
+    const now = replayRide(workedExample(draw));
+    const before = replayRide({ ...workedExample(draw), everyTell: true });
+    const old = ride(draw, { everyTell: true });
+    expect(before.tells.map((t) => t.leadMs)).toEqual([old.screwLeadMs, old.boltLeadMs, old.sparkLeadMs]);
+    expect(before.tells.every((t) => t.leadMs !== null && t.atMs !== null)).toBe(true);
+    expect([before.crashMs, before.impactMs, before.agrees, before.seats]).toEqual([now.crashMs, now.impactMs, now.agrees, now.seats]);
   });
 
   it("a Brake moves the wall and the Tells on the clock, never on the track (the spec's Brake example)", () => {

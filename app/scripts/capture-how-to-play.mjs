@@ -771,6 +771,10 @@ const vgTagMoved = (page, before) => page.evaluate((b) => {
  *   riders Jump at 10.5, 11.8, 12.1 (early), 26.3 (the Panel scares one), 30.2, 30.4, 31.2 (after the Sparks); two stay aboard.
  * Chosen because the Tells come 20.7 / 12.0 / 8.0 s before the wall (the 12.7 s from Screws to Sparks is about the shortest a ride can
  * show), three riders leap together at 10.5 s before the first Tell, and three more Jump after the Sparks.
+ *
+ * STALE since later Tells are not promised (decisions Q39, ticket 27): under the current engine this draw shows no Sparks and the riders
+ * Jump at other times. The clips on file were recorded before that and still show a ride with all three Tells. Before re-recording, pick
+ * a draw whose ride shows the Screws, the Panel and the Sparks and rewrite the times above.
  */
 const RC_DRAW = "0a4c74bd1eb7dd886217c7597294d3af3a16eb1314e2fd38c500a62ad96023e2";
 const RC_ROUTE = `/play/practice?game=railcar&draw=${RC_DRAW}`;

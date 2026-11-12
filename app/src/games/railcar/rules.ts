@@ -2,12 +2,14 @@
 // Every figure comes from the engine, so a page can never drift from the rules.
 import {
   BOLT_LEAD,
+  BOLT_SHOWS,
   BRAKE_MS,
   MAX_CRASH_MS,
   MEDIAN_MS,
   MIN_CRASH_MS,
   SCREW_LEAD,
   SPARK_LEAD,
+  SPARK_SHOWS,
   placeSharesBps,
   refund,
   refundPct,
@@ -32,13 +34,28 @@ export function crashOdds() {
   };
 }
 
+const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+/** "3 rides in 4" for a chance of `n` in `of`, in lowest terms. */
+const ridesIn = (n: number, of: number) => {
+  const d = gcd(n, of);
+  return `${n / d} ride${n / d === 1 ? "" : "s"} in ${of / d}`;
+};
+
+/** The Tells: how often a ride shows each (later Tells are not promised, decisions Q39) and how far ahead of the wall. */
 export function tellRows() {
   const range = ([lo, hi]: readonly [number, number]) => `${s(lo)} to ${s(hi)} seconds`;
   return [
-    { name: "Loose screws", range: range(SCREW_LEAD), lastWarningFloor: false },
-    { name: "A loose bolt and a rattling panel", range: range(BOLT_LEAD), lastWarningFloor: false },
-    { name: "Sparks and a creak", range: range(SPARK_LEAD), lastWarningFloor: true },
+    { name: "Loose screws", shows: "Every ride", range: range(SCREW_LEAD) },
+    { name: "A loose bolt and a rattling panel", shows: ridesIn(...BOLT_SHOWS), range: range(BOLT_LEAD) },
+    { name: "Sparks and a creak", shows: ridesIn(...SPARK_SHOWS), range: range(SPARK_LEAD) },
   ];
+}
+
+/** What a Player can count on from the Tells: the sparks' floor when they show, and how often the screws are the only Tell. */
+export function tellOdds() {
+  const [bolt, boltOf] = BOLT_SHOWS;
+  const [spark, sparkOf] = SPARK_SHOWS;
+  return { sparksFloorSeconds: s(SPARK_LEAD[0]), screwsOnly: ridesIn((boltOf - bolt) * (sparkOf - spark), boltOf * sparkOf) };
 }
 
 /** Rows of [seconds travelled, refund], read from the engine's schedule at each step. */

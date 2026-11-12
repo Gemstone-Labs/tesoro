@@ -102,9 +102,9 @@ pub fn pace(t: &mut Table, slot: u64, ts: i64) -> bool {
     false
 }
 
-/// A signal, a tick or the start of a Jump at `slot`: moves the public Tell stage and the false
-/// screws passed, and says whether the car has hit the wall (or the ride reached ten minutes).
-/// Nothing changes once it has.
+/// A signal, a tick or the start of a Jump at `slot`: moves the public Tells (the screws heard,
+/// false and real alike, and the later Tells shown), and says whether the car has hit the wall
+/// (or the ride reached ten minutes). Nothing changes once it has.
 pub fn advance(t: &mut Table, v: &Vault, slot: u64) -> bool {
     let ms = t.ride_ms(slot);
     let half = half_position(v, ms);
@@ -113,16 +113,16 @@ pub fn advance(t: &mut Table, v: &Vault, slot: u64) -> bool {
     if hit == 1 {
         return true;
     }
-    let tells = at_least(half, 2 * i64::from(v.screw_at_ms))
-        + at_least(half, 2 * i64::from(v.bolt_at_ms))
-        + at_least(half, 2 * i64::from(v.spark_at_ms));
+    // A Tell the ride does not show sits at `NEVER_MS`: the same comparison, never passed.
+    let bolt = at_least(half, 2 * i64::from(v.bolt_at_ms));
+    let sparks = at_least(half, 2 * i64::from(v.spark_at_ms));
     let len = i64::from(v.false_len);
-    let mut falses = 0i64;
+    let mut screws = at_least(half, 2 * i64::from(v.screw_at_ms));
     for (k, at) in v.false_screws.iter().enumerate() {
-        falses += at_least(half, 2 * i64::from(*at)) & below(k as i64, len);
+        screws += at_least(half, 2 * i64::from(*at)) & below(k as i64, len);
     }
-    t.tell = t.tell.max(tells as u8);
-    t.false_screws = t.false_screws.max(falses as u8);
+    t.tell |= (bolt * i64::from(TELL_BOLT) + sparks * i64::from(TELL_SPARKS)) as u8;
+    t.screws = t.screws.max(screws as u8);
     false
 }
 
