@@ -44,10 +44,10 @@ export const DAMAGE_ART: Record<DamageStage, string> = {
 };
 /**
  * The explosion from inside the car (art-source/railcar/round6b B3-a): three frames in one box, the car's width and 520 / 1068 of it
- * tall, its car part registered to the car with `BLAST_TOP` above it. Played in order over the crash hold: windows blow out, the blast, the wreck.
+ * tall, its car part registered to the car (`BLAST_TOP` px down in the frame); the stage lets the frame out above itself while it plays. Played in order over the crash hold: windows blow out, the blast, the wreck.
  */
 export const BLAST_ART: string[] = [1, 2, 3].map((i) => `${ART}/bomb-blast-${i}.webp`);
-/** The blast frames' car sits 160 px below the frame's top (art px), so the frame reaches this far above the car box. */
+/** The blast frames' car sits 160 px below the frame's top (art px). */
 export const BLAST_TOP = 160;
 export const BLAST_H = 520;
 

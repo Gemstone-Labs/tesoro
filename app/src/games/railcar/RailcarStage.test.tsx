@@ -132,11 +132,13 @@ describe("the explosion", () => {
     expect(h).not.toMatch(/rc-crash-frame f2 last/);
   });
 
-  it("the frames live in the car's box (registered to it), reaching BLAST_TOP above it", () => {
+  it("the frames live in the car's box (registered to it), reaching BLAST_TOP above it, which the stage lets out while it plays", () => {
     const h = renderToStaticMarkup(<RailcarStage aboard={[]} moving={false} crash />);
     expect(h.indexOf("rc-car-art")).toBeLessThan(h.indexOf("rc-crash-frame"));
     expect(h).toMatch(/<div class="rc-car">.*rc-crash-frame.*<\/div><\/div>$/s);
     expect(css).toContain(`top: -${((BLAST_TOP / 351) * 100).toFixed(2)}%`);
+    expect(css).toContain(`aspect-ratio: 1068 / ${BLAST_H}`);
+    expect(css).toMatch(/\.rc-stage\.crash \{ overflow-x: clip; overflow-y: visible; \}/);
     expect(css).toContain(`aspect-ratio: 1068 / ${BLAST_H}`);
   });
 
