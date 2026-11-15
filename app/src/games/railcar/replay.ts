@@ -127,7 +127,7 @@ export function replayView(rec: RideRecord, r: RideReplay, me: string | null): E
     .sort((a, b) => (a.jumpMs ?? 0) - (b.jumpMs ?? 0))
     .map((s) => ({ account: s.player, ms: s.jumpMs ?? 0, me: s.player === me }));
   const m = rows.find((x) => x.me);
-  const headline = (x: ResultRow) => (x.kind === "place" ? PLACE_WORDS[(x.place ?? 1) - 1] : x.kind === "early" ? "Jumped early" : x.kind === "aboard" ? "Aboard at Impact" : rec.reason === "nobody-jumped" ? "Nobody jumped" : "Ride void");
+  const headline = (x: ResultRow) => (x.kind === "place" ? PLACE_WORDS[(x.place ?? 1) - 1] : x.kind === "early" ? "Jumped early" : x.kind === "aboard" ? "Aboard at the blast" : rec.reason === "nobody-jumped" ? "Nobody jumped" : "Ride void");
   return {
     phase: "result",
     rows,

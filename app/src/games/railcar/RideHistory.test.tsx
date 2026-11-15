@@ -8,15 +8,15 @@ const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/&#x27;/g, 
 const secs = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
 
 describe("a finished ride's page", () => {
-  it("shows the result as the Player saw it, then the wall, the Tells and the draw, and says the replay matches", () => {
+  it("shows the result as the Player saw it, then the bomb, the warnings and the draw, and says the replay matches", () => {
     const t = text(renderToStaticMarkup(<RideHistory page={storedWorkedRide()} me={DEE.toBase58()} />));
     expect(t).toContain("Last off");
     expect(t).toContain("You get 813");
     const d = ride(drawWithCrash(104_000));
-    expect(t).toContain("Crash point 1:44");
-    expect(t).toContain(`Screws ${secs(d.screwLeadMs)} before the wall`);
-    expect(t).toContain(`Panel ${secs(d.boltLeadMs!)} before the wall`);
-    expect(t).toContain(`Sparks ${secs(d.sparkLeadMs!)} before the wall`);
+    expect(t).toContain("Bomb time 1:44");
+    expect(t).toContain(`Glow ${secs(d.screwLeadMs)} before the bomb`);
+    expect(t).toContain(`Hot seams ${secs(d.boltLeadMs!)} before the bomb`);
+    expect(t).toContain(`White-hot ${secs(d.sparkLeadMs!)} before the bomb`);
     expect(t).not.toContain("Did not show");
     expect(t).toContain("Nobody braked");
     expect(t).toContain(storedWorkedRide().ride.draw!.slice(0, 16));
@@ -25,19 +25,19 @@ describe("a finished ride's page", () => {
 
   it("a Tell the ride did not show says so, and the replay still matches (decisions Q39)", () => {
     const sparkless = text(renderToStaticMarkup(<RideHistory page={storedWorkedRide({ shows: { sparks: false } })} me={null} />));
-    expect(sparkless).toMatch(/Panel [\d.]+ s before the wall/);
-    expect(sparkless).toContain("Sparks Did not show");
+    expect(sparkless).toMatch(/Hot seams [\d.]+ s before the bomb/);
+    expect(sparkless).toContain("White-hot Did not show");
     expect(sparkless).toContain("Replayed with the published rules: every refund and place matches what was paid.");
     const screwsOnly = text(renderToStaticMarkup(<RideHistory page={storedWorkedRide({ shows: { panel: false, sparks: false } })} me={null} />));
-    expect(screwsOnly).toMatch(/Screws [\d.]+ s before the wall/);
-    expect(screwsOnly).toContain("Panel Did not show");
-    expect(screwsOnly).toContain("Sparks Did not show");
+    expect(screwsOnly).toMatch(/Glow [\d.]+ s before the bomb/);
+    expect(screwsOnly).toContain("Hot seams Did not show");
+    expect(screwsOnly).toContain("White-hot Did not show");
   });
 
-  it("a Brake: when it was pressed, and where the wall then came on the clock", () => {
+  it("a Brake: when it was pressed, and where the bomb then went off on the clock", () => {
     const t = text(renderToStaticMarkup(<RideHistory page={storedWorkedRide({ brake: true })} me={null} />));
-    expect(t).toContain("Crash point 1:44");
-    expect(t).toContain("Impact on the clock 1:46");
+    expect(t).toContain("Bomb time 1:44");
+    expect(t).toContain("Blast on the clock 1:46");
     expect(t).toMatch(/Braked at 1:30/);
     // A spectator: no "You get", the headline is the ride's.
     expect(t).not.toContain("You get");
@@ -54,6 +54,6 @@ describe("a finished ride's page", () => {
     const t = text(renderToStaticMarkup(<RideHistory page={{ id: "Opener1-7", entry: 500, ride: null, refunded: true }} me={ANA.toBase58()} />));
     expect(t).toContain("This car was refunded before its ride was revealed, so there is no ride to check. Every entry went back to whoever paid it.");
     expect(t).not.toContain("not a Railcar ride");
-    expect(t).not.toContain("Crash point");
+    expect(t).not.toContain("Bomb time");
   });
 });

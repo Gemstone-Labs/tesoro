@@ -208,7 +208,7 @@ describe("a Backed seat on the result: the Backer's entry back first, the Player
 
   it("aboard at Impact under a Backing: Bob loses the 500, Eve owes nothing", () => {
     const v = result(4, backedSeats(4));
-    expect(v.mine).toMatchObject({ headline: "Aboard at Impact", gets: 0n, backer: { gets: 0n } });
+    expect(v.mine).toMatchObject({ headline: "Aboard at the blast", gets: 0n, backer: { gets: 0n } });
   });
 
   it("nobody jumped under a Backing: the full entry goes back to the Backer", () => {

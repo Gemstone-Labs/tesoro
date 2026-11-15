@@ -50,7 +50,7 @@ describe("the Ride, in the same screen", () => {
   it("shows the clock, the Tells, who is aboard, the Gemas at stake and Jump; never speed, distance or a refund percentage", () => {
     const t = text(html(riding()));
     expect(t).toContain("1:12");
-    expect(t).toMatch(/Screws.*Panel.*Sparks/);
+    expect(t).toMatch(/Glow.*Hot seams.*White-hot/);
     expect(t).toContain("Aboard 29");
     expect(t).toContain("At stake");
     expect(t).toContain("20,000");
@@ -163,7 +163,7 @@ describe("my secret Brake", () => {
 });
 
 describe("the Result", () => {
-  it("the worked example: 813 / 630 / 578 / 350 / 0, fees 129, the wall at 1:44", () => {
+  it("the worked example: 813 / 630 / 578 / 350 / 0, fees 129, the bomb at 1:44", () => {
     const t = text(html(workedResult()));
     expect(t).toContain("Last off");
     expect(t).toMatch(/You get .*813/);
@@ -172,14 +172,14 @@ describe("the Result", () => {
     expect(t).toMatch(/jumped early .*350/);
     expect(t).toMatch(/aboard .*0/);
     expect(t).toMatch(/Fees .*129/);
-    expect(t).toContain("Wall 1:44");
+    expect(t).toContain("Bomb 1:44");
     expect(t).toContain("Play again");
     expect(t).toContain("Share");
   });
 
   it("the early jumper and the Player left aboard read their own headline", () => {
     expect(text(html(workedResult(ANA)))).toContain("Jumped early");
-    expect(text(html(workedResult(EVE)))).toContain("Aboard at Impact");
+    expect(text(html(workedResult(EVE)))).toContain("Aboard at the blast");
   });
 
   it("nobody jumped: every entry back and no fees line", () => {

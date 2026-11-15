@@ -43,7 +43,7 @@ describe("a Practice ride pays what a 500 entry would have", () => {
     let p = newPractice(LONG, [rider("Ana", 25_000), rider("Ben", 97_000), rider("Cy", 95_000), rider("Dee", 99_000)]);
     p = practiceJump(p, 120_000);
     const v = result(practiceView(p, 121_000));
-    expect(v.mine).toMatchObject({ headline: "Aboard at Impact", gets: 0n });
+    expect(v.mine).toMatchObject({ headline: "Aboard at the blast", gets: 0n });
     expect(gets(v)).toMatchObject({ Dee: 813, Ben: 630, Cy: 578, Ana: 350, You: 0 });
   });
 

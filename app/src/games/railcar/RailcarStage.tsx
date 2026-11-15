@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PlayerAvatar } from "@/components/account/Player";
 import { WHEEL_DEG_PER_PX, newRoll, rollFrame } from "./roll";
 import { NO_TELLS, type Tells } from "./tell-state";
@@ -27,44 +27,34 @@ export function windowRiders(riders: Rider[]): (Rider | null)[] {
   return out;
 }
 
-/** The Tells that change the car itself. A ride shows the screws, and the panel and the sparks only if they come. */
+/** The Tells that change the car itself: the bomb inside warns in three steps (screws -> W1, panel -> W2, sparks -> W3). A ride shows the first, and the others only if they come. */
 export const DAMAGE_STAGES = ["screws", "panel", "sparks"] as const;
 export type DamageStage = (typeof DAMAGE_STAGES)[number];
 const shown = (t: Tells, stage: DamageStage) => (stage === "screws" ? t.screws > 0 : t[stage]);
 
 /**
- * Art hook for the Tells on the train: a transparent overlay per stage, the same size and frame as `car.webp` (1068 × 351), drawn
- * over the car in place of the basic visual. Leave a stage out to keep its basic visual.
+ * The bomb's warnings as light on the real car: a transparent layer per stage, the same size and frame as `car.webp` (1068 x 351),
+ * holding only the added light (art-source/railcar/round6b B2-b, registered to the car). Only the latest stage shows: each layer
+ * already carries the glow of the ones before it. The bomb itself is never drawn.
  */
-export const DAMAGE_ART: Partial<Record<DamageStage, string>> = {
-  screws: `${ART}/damage-screws-v2.webp`,
-  panel: `${ART}/damage-panel.webp`,
-  sparks: `${ART}/damage-sparks.webp`,
+export const DAMAGE_ART: Record<DamageStage, string> = {
+  screws: `${ART}/bomb-warn-1.webp`,
+  panel: `${ART}/bomb-warn-2.webp`,
+  sparks: `${ART}/bomb-warn-3.webp`,
 };
 /**
- * Art hook for the crash: frames registered to the car (1068 x 351), played in order over the crash hold (flash, then the
- * crumpled front with debris, held to the end) in place of the basic flash and debris. An empty list keeps the basic visual.
+ * The explosion from inside the car (art-source/railcar/round6b B3-a): three frames in one box, the car's width and 520 / 1068 of it
+ * tall, its car part registered to the car with `BLAST_TOP` above it. Played in order over the crash hold: windows blow out, the blast, the wreck.
  */
-export const CRASH_ART: string[] = [1, 2].map((i) => `${ART}/crash-f${i}.webp`);
+export const BLAST_ART: string[] = [1, 2, 3].map((i) => `${ART}/bomb-blast-${i}.webp`);
+/** The blast frames' car sits 160 px below the frame's top (art px), so the frame reaches this far above the car box. */
+export const BLAST_TOP = 160;
+export const BLAST_H = 520;
 
-/** The wall the car hits: the intact sprite while it rushes in, the cracked one from the contact (400 x 300 art, drawn at stage height, its left face at 44/400). */
-export const WALL_ART = { intact: `${ART}/wall-v1.webp`, hit: `${ART}/wall-impact-v1.webp` };
+export const GLOW_PULSE_MS = 1000;
 
-/** The loose bolts that pop off the car at every screw heard, false or real alike (small sprites, not car-sized). */
-export const BOLT_ART = [`${ART}/bolt-a.webp`, `${ART}/bolt-b.webp`];
-/** Where the bolts leave the car (x in car art px, along the sill) and how long they take to tumble away. */
-const BOLTS = [
-  { x: 350, delay: 0, dx: -900, dy: 1100, rot: -520 },
-  { x: 625, delay: 0.12, dx: -650, dy: 1250, rot: 420 },
-  { x: 900, delay: 0.24, dx: -1000, dy: 1000, rot: -380 },
-];
-const BOLT_Y = 245;
-export const BOLT_POP_MS = 1000;
-const BOLT_LAST_DELAY_MS = 240;
-
-/** The bolts pop only when the Screws Tell fires while this page watches, never when the page opens on a ride already past it. */
-/** Bolts pop at each new screw (`was` and `now` are the screws heard). */
-export const boltsDue = (was: number, now: number, reducedMotion: boolean) => now > was && !reducedMotion;
+/** The glow flares at each new screw heard while this page watches, never when the page opens on a ride already past it (`was` and `now` are the screws heard). */
+export const pulseDue = (was: number, now: number, reducedMotion: boolean) => now > was && !reducedMotion;
 
 const reduced = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -79,7 +69,7 @@ interface Leap {
  * The side-view railcar in the cave. Still while Boarding; `moving` starts it rolling right (the cave scrolls left)
  * without remounting, so Boarding turns into the Ride in place. Players who leave `aboard` leap off their window.
  * The car gets faster with `rideMs` (the ride clock; see `roll.ts`); `slow` halves the speed (the Player's own Brake, ticket 11); nothing else on screen shows speed. `tells` are the Tells
- * shown so far: each changes the car itself (see `CarDamage`). `crash` stops the car and plays the impact (see `CrashMoment`).
+ * shown so far: the car glows for the latest (see `CarDamage`). `crash` stops the car and plays the explosion (see `CrashMoment`).
  */
 export function RailcarStage({ aboard, moving, slow = false, tells = NO_TELLS, crash = false, rideMs = 0 }: { aboard: Rider[]; moving: boolean; slow?: boolean; tells?: Tells; crash?: boolean; rideMs?: number }) {
   const root = useRef<HTMLDivElement>(null);
@@ -107,14 +97,14 @@ export function RailcarStage({ aboard, moving, slow = false, tells = NO_TELLS, c
   useEffect(() => {
     slowNow.current = slow;
   });
-  // Each screw heard pops bolts off the car for a moment.
+  // Each screw heard makes the first glow flare for a moment.
   const [pops, setPops] = useState<number[]>([]);
   const prevScrews = useRef(tells.screws);
   const nextPop = useRef(0);
   useEffect(() => {
     const was = prevScrews.current;
     prevScrews.current = tells.screws;
-    if (boltsDue(was, tells.screws, reduced())) setPops((p) => [...p, nextPop.current++]);
+    if (pulseDue(was, tells.screws, reduced())) setPops((p) => [...p, nextPop.current++]);
   }, [tells.screws]);
   useEffect(() => {
     clock.current = { rideMs, at: performance.now() };
@@ -143,23 +133,20 @@ export function RailcarStage({ aboard, moving, slow = false, tells = NO_TELLS, c
       <div className="rc-lay rc-mid" style={{ backgroundImage: `url(${ART}/mid.webp)` }} />
       <div className="rc-lay rc-trk" style={{ backgroundImage: `url(${ART}/track.webp)` }} />
       <div className="rc-car">
-        {/* the wall exists only from the Impact: nothing on screen hints at it before */}
-        {crash && <CrashWall />}
         {/* eslint-disable-next-line @next/next/no-img-element -- a sprite drawn over by the windows and wheels */}
         <img className="rc-car-art" src={`${ART}/car.webp`} alt="" width={CAR_W} height={CAR_H} draggable={false} />
+        {/* the bomb's light sits on the car, under the riders' windows */}
+        <CarDamage tells={tells} />
+        {pops.map((id) => (
+          <GlowPulse key={id} onDone={() => setPops((all) => all.filter((x) => x !== id))} />
+        ))}
         {windows.map((r, i) => (
           <span key={i} className={`rc-win${r ? " on" : ""}${r?.me ? " me" : ""}`} style={{ left: `${(WINDOW_X[i] / CAR_W) * 100}%` }}>
             {r && <PlayerAvatar account={r.account} size={56} />}
           </span>
         ))}
-        {/* the sparks fly from under the wheels: drawn before them */}
-        <CarDamage tells={tells} stages={["sparks"]} />
         {WHEEL_X.map((x) => (
           <span key={x} className="rc-wheel" style={{ left: `${(x / CAR_W) * 100}%`, top: `${(WHEEL_Y / CAR_H) * 100}%`, backgroundImage: `url(${ART}/wheel.webp)` }} />
-        ))}
-        <CarDamage tells={tells} stages={["screws", "panel"]} />
-        {pops.map((id) => (
-          <BoltPop key={id} onDone={() => setPops((all) => all.filter((x) => x !== id))} />
         ))}
         {leaps.map((l) => (
           <LeapOff key={l.id} leap={l} onDone={() => setLeaps((all) => all.filter((x) => x.id !== l.id))} />
@@ -170,99 +157,45 @@ export function RailcarStage({ aboard, moving, slow = false, tells = NO_TELLS, c
   );
 }
 
-/** Three bolts pop off along the sill and tumble back and down off the car (about a second), then are gone. */
-export function BoltPop({ onDone }: { onDone?: () => void }) {
+/** The first glow flares and fades (about a second) at each screw heard. */
+export function GlowPulse({ onDone }: { onDone?: () => void }) {
   const done = useRef(onDone);
   useEffect(() => {
     done.current = onDone;
   });
   useEffect(() => {
-    const id = setTimeout(() => done.current?.(), BOLT_POP_MS + BOLT_LAST_DELAY_MS + 50);
+    const id = setTimeout(() => done.current?.(), GLOW_PULSE_MS + 50);
     return () => clearTimeout(id);
   }, []);
-  return (
-    <>
-      {BOLTS.map((b, i) => (
-        // eslint-disable-next-line @next/next/no-img-element -- small sprite, animated by CSS
-        <img key={i} className="rc-bolt" data-testid="rc-bolt" src={BOLT_ART[i % BOLT_ART.length]} alt="" draggable={false} style={{ left: `${(b.x / CAR_W) * 100}%`, top: `${(BOLT_Y / CAR_H) * 100}%`, "--d": `${b.delay}s`, "--dx": `${b.dx}%`, "--dy": `${b.dy}%`, "--rot": `${b.rot}deg` } as CSSProperties} />
-      ))}
-    </>
-  );
+  // eslint-disable-next-line @next/next/no-img-element -- art overlay, the car's size
+  return <img className="rc-dmg rc-glow-pulse" data-testid="rc-glow-pulse" src={DAMAGE_ART.screws} alt="" draggable={false} />;
 }
 
-/** Screws: loose rivets along the sill under the windows, x in car art px. */
-const SCREW_X = [190, 330, 480, 640, 790, 930];
-/** The panel that works loose: a plate in the lower body, x and width in car art px. */
-const PANEL = { x: 575, y: 208, w: 120, h: 36 };
-
 /**
- * The Tells on the train: from the moment each Tell fires until the end of the ride the car itself shows it (screws popping from
- * the frame, a panel hanging loose, sparks at the wheels). A Tell the ride never shows never marks the car. Each stage is
- * one element in the car's frame, so the basic visual swaps for an image overlay through `DAMAGE_ART` without touching the rest.
+ * The bomb's warning on the train: from the moment a Tell fires until the end of the ride the car glows for the latest one shown
+ * (a faint light under the car, then glowing seams, then white-hot). A Tell the ride never shows never marks the car.
  */
-export function CarDamage({ tells, art = DAMAGE_ART, stages = DAMAGE_STAGES }: { tells: Tells; art?: Partial<Record<DamageStage, string>>; stages?: readonly DamageStage[] }) {
+export function CarDamage({ tells, art = DAMAGE_ART }: { tells: Tells; art?: Record<DamageStage, string> }) {
+  const stage = DAMAGE_STAGES.filter((s) => shown(tells, s)).pop();
+  if (!stage) return null;
   return (
-    <>
-      {DAMAGE_STAGES.map((stage) => {
-        if (!shown(tells, stage) || !stages.includes(stage)) return null;
-        const overlay = art[stage];
-        if (overlay) {
-          return (
-            // eslint-disable-next-line @next/next/no-img-element -- art overlay, the car's size
-            <img key={stage} className={`rc-dmg rc-dmg-art rc-dmg-${stage}`} data-tell={stage} src={overlay} alt="" draggable={false} />
-          );
-        }
-        return (
-          <span key={stage} className={`rc-dmg rc-dmg-${stage}`} data-tell={stage}>
-            {stage === "screws" && SCREW_X.map((x, k) => <i key={x} style={{ left: `${(x / CAR_W) * 100}%`, animationDelay: `${k * 0.07}s` }} />)}
-            {stage === "panel" && <b style={{ left: `${(PANEL.x / CAR_W) * 100}%`, top: `${(PANEL.y / CAR_H) * 100}%`, width: `${(PANEL.w / CAR_W) * 100}%`, height: `${(PANEL.h / CAR_H) * 100}%` }} />}
-            {stage === "sparks" &&
-              WHEEL_X.flatMap((x) =>
-                [0, 1, 2].map((k) => <i key={`${x}-${k}`} style={{ left: `${(x / CAR_W) * 100}%`, top: `${((WHEEL_Y + 30) / CAR_H) * 100}%`, animationDelay: `${k * 0.18 + (x % 7) * 0.03}s` }} />)
-              )}
-          </span>
-        );
-      })}
-    </>
+    // eslint-disable-next-line @next/next/no-img-element -- art overlay, the car's size
+    <img key={stage} className={`rc-dmg rc-dmg-${stage}`} data-tell={stage} src={art[stage]} alt="" draggable={false} />
   );
 }
 
 /**
- * The wall rushes in from the right (about 0.3 s) while the car slides left to meet it, its face landing at the car's front; at the
- * contact the intact sprite swaps for the cracked one. Under reduced motion the cracked wall just appears and fades with the frames.
+ * The explosion from inside the car: the three picked frames play in order over the crash hold (windows blow out, the blast, the
+ * wreck) while the stage shakes, and the car itself is hidden under them. Reduced motion shows the wreck only, faded in and out.
+ * Shown for `CRASH_MS` before the Result.
  */
-export function CrashWall() {
-  return (
-    <div className="rc-wall" data-testid="rc-wall" aria-hidden="true">
-      {/* eslint-disable-next-line @next/next/no-img-element -- art sprite at stage height */}
-      <img className="rc-wall-intact" src={WALL_ART.intact} alt="" draggable={false} />
-      {/* eslint-disable-next-line @next/next/no-img-element -- art sprite at stage height */}
-      <img className="rc-wall-hit" src={WALL_ART.hit} alt="" draggable={false} />
-    </div>
-  );
-}
-
-/**
- * The crash: the wall rushes in and the car slides to meet it (see `CrashWall`), the stage shakes, then the picked frames play in order over the car (flash,
- * crumpled front with debris, held to the end); `CRASH_ART` holds them. With no frames the basic flash and debris play. Reduced motion
- * shows the crumpled front only, faded in and out. Shown for `CRASH_MS` before the Result.
- */
-export function CrashMoment({ art = CRASH_ART }: { art?: string[] }) {
+export function CrashMoment({ art = BLAST_ART }: { art?: string[] }) {
   return (
     <div className="rc-crash" data-testid="rc-crash">
-      {art.length ? (
-        art.map((src, i) => (
-          // eslint-disable-next-line @next/next/no-img-element -- art frame, the car's size
-          <img key={src} className={`rc-crash-frame f${i + 1}${i === Math.floor(art.length / 2) ? " mid" : ""}`} data-frame={i + 1} src={src} alt="" draggable={false} />
-        ))
-      ) : (
-        <>
-          <i className="rc-crash-flash" />
-          {[0, 1, 2, 3, 4, 5, 6].map((k) => (
-            <b key={k} className="rc-crash-bit" style={{ "--k": k } as CSSProperties} />
-          ))}
-        </>
-      )}
+      {art.map((src, i) => (
+        // eslint-disable-next-line @next/next/no-img-element -- art frame in the car's frame
+        <img key={src} className={`rc-crash-frame f${i + 1}${i === art.length - 1 ? " last" : ""}`} data-frame={i + 1} src={src} alt="" draggable={false} />
+      ))}
     </div>
   );
 }

@@ -24,14 +24,14 @@ const g = (v: bigint) => Number(v);
 
 /**
  * The Tells: the line icon (history), the picked image (`public/art/final/railcar/tell-*.webp`) the chips show, and whether
- * the ride has shown it. The Screws chip lights at the first screw heard, false or real: nothing on screen says which.
+ * the ride has shown it. The Glow chip lights at the first glow heard, false or real: nothing on screen says which.
  */
 export const TELLS: { name: string; Icon: LucideIcon; art: string; on: (t: Tells) => boolean }[] = [
-  { name: "Screws", Icon: CircleMinus, art: "/art/final/railcar/tell-screws.webp", on: (t) => t.screws > 0 },
-  { name: "Panel", Icon: Hexagon, art: "/art/final/railcar/tell-panel.webp", on: (t) => t.panel },
-  { name: "Sparks", Icon: Zap, art: "/art/final/railcar/tell-sparks.webp", on: (t) => t.sparks },
+  { name: "Glow", Icon: CircleMinus, art: "/art/final/railcar/bomb-tell-1.webp", on: (t) => t.screws > 0 },
+  { name: "Hot seams", Icon: Hexagon, art: "/art/final/railcar/bomb-tell-2.webp", on: (t) => t.panel },
+  { name: "White-hot", Icon: Zap, art: "/art/final/railcar/bomb-tell-3.webp", on: (t) => t.sparks },
 ];
-/** The Tell nearest the wall that has shown (-1 before any). */
+/** The Tell nearest the bomb that has shown (-1 before any). */
 export const latestTell = (t: Tells) => TELLS.reduce((last, tell, i) => (tell.on(t) ? i : last), -1);
 
 export interface RailcarActions {
@@ -162,7 +162,7 @@ function RailcarBody({
                 </p>
               </>
             )}
-            <ol className="rc-tells" aria-label="Tells">
+            <ol className="rc-tells" aria-label="Warnings">
               {TELLS.map(({ name, art, on }, i) => (
                 <li key={name} className={`cut cut-chip rc-tell${on(view.tells) ? " on" : ""}`} aria-current={latestTell(view.tells) === i ? "step" : undefined}>
                   {/* eslint-disable-next-line @next/next/no-img-element -- small picked image, 2x file */}
@@ -536,12 +536,12 @@ function BackedSplit({ b, me }: { b: NonNullable<ResultRow["backing"]>; me: bool
   );
 }
 
-/** Where the wall stood and when each Player Jumped, on one strip from 0:00 to the end. */
+/** Where the bomb went off and when each Player Jumped, on one strip from 0:00 to the end. */
 function Track({ wallMs, jumps, outcome }: { wallMs: number; jumps: { account: string; ms: number; me: boolean }[]; outcome: "placed" | "refund" }) {
   const end = Math.max(wallMs, ...jumps.map((j) => j.ms), 1);
   const at = (ms: number) => `${(ms / end) * 100}%`;
   return (
-    <figure className="rc-track" aria-label={`The wall at ${clock(wallMs)}`}>
+    <figure className="rc-track" aria-label={`The bomb at ${clock(wallMs)}`}>
       <div className="rc-track-line">
         {jumps.map((j) => (
           <span key={j.account} className={`rc-track-jump${j.me ? " me" : ""}`} style={{ left: at(j.ms) }} title={clock(j.ms)} />
@@ -550,7 +550,7 @@ function Track({ wallMs, jumps, outcome }: { wallMs: number; jumps: { account: s
       </div>
       <figcaption className="rc-track-ends">
         <span className="mono">0:00</span>
-        <span className="mono">{outcome === "placed" ? `Wall ${clock(wallMs)}` : clock(wallMs)}</span>
+        <span className="mono">{outcome === "placed" ? `Bomb ${clock(wallMs)}` : clock(wallMs)}</span>
       </figcaption>
     </figure>
   );
