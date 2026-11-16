@@ -120,7 +120,7 @@ dialog.sheet.dep-sheet.packs .sheet-head h2 { font-family: var(--f-display); fon
   .dep-ack-foot .btn { width: 100%; min-width: 0; }
   .dep-packs { grid-template-columns: 1fr; gap: 12px; padding-top: 0; }
   .dep-card { grid-template-columns: 110px 1fr; grid-template-rows: auto auto auto; column-gap: 14px; row-gap: 8px; text-align: left; justify-items: start; align-items: center; padding: 28px 14px 14px; }
-  .dep-card.feat { order: -1; margin-block: 0; padding: 28px 14px 14px; }
+  .dep-card.feat { margin-block: 0; padding: 28px 14px 14px; }
   .dep-card .dep-name, .dep-card.feat .dep-name { font-size: var(--fs-24); grid-column: 2; grid-row: 1; }
   .dep-card .dep-art, .dep-card.feat .dep-art { grid-column: 1; grid-row: 1 / span 2; width: 110px; }
   .dep-card .dep-gemas { grid-column: 2; grid-row: 2; justify-items: start; }
