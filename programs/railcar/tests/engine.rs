@@ -30,6 +30,25 @@ fn draw_with_first_word(w: u64) -> [u8; 32] {
     d
 }
 
+fn crash_of_word(w: u64) -> u32 {
+    ride(&draw_with_first_word(w)).crash_ms
+}
+
+/// The largest first word whose crash point is still the cap (the crash point falls as the
+/// word grows).
+fn last_capped_word() -> u64 {
+    let (mut lo, mut hi) = (0u64, u64::MAX);
+    while lo < hi {
+        let mid = lo + (hi - lo + 1) / 2;
+        if crash_of_word(mid) == MAX_CRASH_MS {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    lo
+}
+
 fn hex(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
@@ -38,17 +57,44 @@ fn hex(b: &[u8]) -> String {
 
 #[test]
 fn smallest_and_largest_words_hit_the_floor_and_the_cap() {
-    // w = u64::MAX: U = 1, no exponential part.
-    assert_eq!(ride(&draw_with_first_word(u64::MAX)).crash_ms, 10_000);
-    // w = 0: U = 2^-64, exponential part far above the cap.
-    assert_eq!(ride(&draw_with_first_word(0)).crash_ms, 120_000);
+    // w = u64::MAX: U = 1, no random part: the safe 5 s and nothing more.
+    assert_eq!(crash_of_word(u64::MAX), MIN_CRASH_MS);
+    assert_eq!(MIN_CRASH_MS, 5_000);
+    // U within a few 2^-64 of 1 still gives the floor.
+    assert_eq!(crash_of_word(u64::MAX - 1), MIN_CRASH_MS);
+    assert_eq!(crash_of_word(u64::MAX - 2), MIN_CRASH_MS);
+    // w = 0: U = 2^-64, the random part (8 x 20 s) is far above the cap.
+    assert_eq!(crash_of_word(0), MAX_CRASH_MS);
+    assert_eq!(crash_of_word(1), MAX_CRASH_MS);
+    assert_eq!(crash_of_word(2), MAX_CRASH_MS);
+    assert_eq!(MAX_CRASH_MS, 120_000);
 }
 
 #[test]
-fn half_word_gives_the_30s_median_of_the_exponential_part() {
-    // U = 0.5 exactly (w + 1 = 2^63): exponential part is the 30 s median.
-    let r = ride(&draw_with_first_word((1u64 << 63) - 1));
-    assert_eq!(r.crash_ms, 40_000);
+fn the_cap_binds_on_about_one_draw_in_nine_billion() {
+    let last = last_capped_word();
+    assert_eq!(crash_of_word(last), MAX_CRASH_MS);
+    assert!(crash_of_word(last + 1) < MAX_CRASH_MS);
+    // -log2 U >= (115 / 20)^2 = 33.0625: U <= 2^-33.06, about one draw in 8.8 billion.
+    let share = (last as f64 + 1.0) / 2f64.powi(64);
+    assert!((share * 8.8e9 - 1.0).abs() < 0.05, "capped share {share}");
+}
+
+#[test]
+fn half_word_gives_the_25s_median() {
+    // U = 0.5 exactly (w + 1 = 2^63): -log2 U = 1, its root 1, so the safe 5 s plus the 20 s median.
+    assert_eq!(crash_of_word((1u64 << 63) - 1), 25_000);
+}
+
+#[test]
+fn the_crash_point_falls_as_the_word_grows() {
+    let mut rng = 11u64;
+    let mut words: Vec<u64> = (0..2_000).map(|_| splitmix(&mut rng)).collect();
+    words.extend([0, 1, 2, (1 << 63) - 1, 1 << 63, u64::MAX - 1, u64::MAX]);
+    words.sort_unstable();
+    for pair in words.windows(2) {
+        assert!(crash_of_word(pair[0]) >= crash_of_word(pair[1]));
+    }
 }
 
 #[test]
@@ -58,26 +104,38 @@ fn crash_point_odds_match_the_published_ones() {
     let mut crashes: Vec<u32> = (0..n)
         .map(|_| ride(&random_draw(&mut rng)).crash_ms)
         .collect();
-    assert!(crashes.iter().all(|c| (10_000..=120_000).contains(c)));
+    assert!(crashes
+        .iter()
+        .all(|c| (MIN_CRASH_MS..=MAX_CRASH_MS).contains(c)));
     crashes.sort_unstable();
+    let share_by = |ms: u32| crashes.iter().filter(|c| **c < ms).count() as f64 / n as f64;
+    // Half of all rides are over by 25 s, 9 in 10 by 41 s, about 1 in 190 passes 60 s.
     let median = crashes[n / 2] as f64 / 1000.0;
-    assert!((median - 40.0).abs() < 0.6, "median {median}");
-    let capped = crashes.iter().filter(|c| **c == 120_000).count() as f64 / n as f64;
-    assert!((capped - 0.0787).abs() < 0.004, "capped {capped}");
-    // Even chance per second: P(crash in second k | survived to k) is constant.
-    let expect = 1.0 - 2f64.powf(-1.0 / 30.0);
-    for k in [0u32, 10, 20, 40, 60, 80] {
-        let lo = 10_000 + k * 1000;
+    assert!((median - 25.0).abs() < 0.3, "median {median}");
+    assert!((share_by(41_000) - 0.894).abs() < 0.005, "{}", share_by(41_000));
+    let past_60 = 1.0 - share_by(60_000);
+    assert!((past_60 - 1.0 / 190.0).abs() < 0.0015, "past 60 s {past_60}");
+    assert_eq!(share_by(MIN_CRASH_MS), 0.0, "no Bomb in the safe part");
+    // The chance of the Bomb in the next whole second, for a car that got this far: 1.9, 6.9 and
+    // 13.1 in 100 at 10, 25 and 45 s (Weibull shape 2: it rises in a straight line with time).
+    let hazard = |sec: u32| {
+        let lo = sec * 1000;
         let alive = crashes.iter().filter(|c| **c >= lo).count() as f64;
         let hit = crashes
             .iter()
             .filter(|c| **c >= lo && **c < lo + 1000)
             .count() as f64;
-        let h = hit / alive;
-        assert!(
-            (h - expect).abs() < 0.006,
-            "hazard at +{k}s was {h}, want {expect}"
-        );
+        hit / alive
+    };
+    for (sec, want) in [(10, 0.019), (25, 0.069), (45, 0.131)] {
+        let h = hazard(sec);
+        assert!((h - want).abs() < 0.01, "chance at {sec} s was {h}, want {want}");
+    }
+    let mut last = 0.0;
+    for sec in [6, 10, 15, 20, 25, 30, 35, 40] {
+        let h = hazard(sec);
+        assert!(h > last, "the chance at {sec} s ({h}) fell below {last}");
+        last = h;
     }
 }
 
@@ -88,21 +146,25 @@ fn tells_that_show_keep_their_published_ranges_and_their_order() {
     let mut rng = 99u64;
     for _ in 0..50_000 {
         let r = ride(&random_draw(&mut rng));
-        assert!((20_000..=40_000).contains(&r.screw_lead_ms));
+        assert!((9_000..=18_000).contains(&r.screw_lead_ms));
         assert_eq!(r.bolt_lead_ms.is_some(), r.bolt_at_ms.is_some());
         assert_eq!(r.spark_lead_ms.is_some(), r.spark_at_ms.is_some());
         let mut last = r.screw_at_ms;
         if let (Some(lead), Some(at)) = (r.bolt_lead_ms, r.bolt_at_ms) {
-            assert!((8_000..=15_000).contains(&lead));
+            assert!((5_000..=9_000).contains(&lead));
             assert_eq!(at, r.crash_ms.saturating_sub(lead));
             assert!(last <= at);
             last = at;
         }
         if let (Some(lead), Some(at)) = (r.spark_lead_ms, r.spark_at_ms) {
-            assert!((3_000..=8_000).contains(&lead));
-            // The sparks, when they show, are never under 3 s before the crash.
+            assert!((3_000..=5_000).contains(&lead));
+            // The sparks, when they show, are never under 3 s before the Bomb.
             assert!(r.crash_ms - at >= 3_000);
             assert!(last <= at && at <= r.crash_ms);
+        }
+        for f in r.false_screws() {
+            assert!((1_000..=9_000).contains(f));
+            assert!(f + 1_000 <= r.screw_at_ms);
         }
     }
 }
@@ -127,10 +189,10 @@ fn the_bolt_shows_on_3_rides_in_4_and_the_sparks_on_2_in_3_each_on_its_own() {
     assert!((share(&without_bolt, &sparks) - 2.0 / 3.0).abs() < 0.01);
     // ...or about the crash point: short, middling and long rides show them alike.
     for (lo, hi) in [
-        (10_000, 20_000),
-        (20_000, 40_000),
-        (40_000, 80_000),
-        (80_000, 120_001),
+        (5_000, 15_000),
+        (15_000, 25_000),
+        (25_000, 40_000),
+        (40_000, 120_001),
     ] {
         let band: Vec<&Ride> = all
             .iter()
@@ -152,20 +214,19 @@ fn the_bolt_shows_on_3_rides_in_4_and_the_sparks_on_2_in_3_each_on_its_own() {
     assert!((screws_only - 1.0 / 12.0).abs() < 0.005, "{screws_only}");
 }
 
-/// The crash point, the leads of the Tells that show and the false screws of a draw are what
-/// they were when every ride showed every Tell (rides recorded before then still replay).
 #[test]
-fn absent_tells_changed_nothing_else_about_a_draw() {
-    // The first rides of the vectors file as committed before Tells could be absent.
-    let zero = ride(&[0u8; 32]);
-    assert_eq!((zero.crash_ms, zero.screw_lead_ms), (120_000, 20_000));
-    assert_eq!(zero.false_screws(), [14_473, 14_911, 17_651]);
-    assert_eq!(zero.bolt_lead_ms.unwrap_or(8_000), 8_000);
-    assert_eq!(zero.spark_lead_ms.unwrap_or(3_000), 3_000);
-    let ones = ride(&[0xff; 32]);
-    assert_eq!((ones.crash_ms, ones.screw_lead_ms), (10_000, 20_594));
-    assert_eq!(ones.bolt_lead_ms.unwrap_or(10_393), 10_393);
-    assert_eq!(ones.spark_lead_ms.unwrap_or(6_210), 6_210);
+fn a_short_ride_starts_its_screws_at_departure() {
+    let mut rng = 5u64;
+    let mut seen = 0;
+    for _ in 0..200_000 {
+        let r = ride(&random_draw(&mut rng));
+        if r.crash_ms < r.screw_lead_ms {
+            seen += 1;
+            assert_eq!(r.screw_at_ms, 0);
+            assert!(r.false_screws().is_empty());
+        }
+    }
+    assert!(seen > 1_000, "short rides are common enough to matter: {seen}");
 }
 
 // ---- track position under Brakes ----
@@ -209,7 +270,7 @@ fn position_is_never_lowered_by_brakes_and_impact_is_the_first_time_at_the_crash
             .map(|_| (splitmix(&mut rng) % 120_000) as u32)
             .collect();
         brakes.sort_unstable();
-        let crash = 10_000 + (splitmix(&mut rng) % 110_001) as u32;
+        let crash = MIN_CRASH_MS + (splitmix(&mut rng) % 115_001) as u32;
         let t = impact_ms(&brakes, crash);
         assert!(position_ms(&brakes, t) >= crash);
         assert!(t == 0 || position_ms(&brakes, t - 1) < crash);
@@ -229,59 +290,37 @@ fn ride_never_lasts_more_than_ten_minutes() {
     assert_eq!(impact_ms(&[0; 0], 120_000), 120_000);
 }
 
-// ---- Early-jump refund ----
+// ---- no Early-jump refund (decisions Q40) ----
 
 #[test]
-fn refund_follows_the_schedule_at_every_edge() {
-    let table = [
-        (0, 80),
-        (19_999, 80),
-        (20_000, 70),
-        (29_999, 70),
-        (30_000, 60),
-        (40_000, 50),
-        (50_000, 40),
-        (60_000, 30),
-        (70_000, 20),
-        (79_999, 20),
-        (80_000, 10),
-        (89_999, 10),
-        (90_000, 5),
-        (99_999, 5),
-        (100_000, 0),
-        (120_000, 0),
-    ];
-    for (pos, pct) in table {
-        assert_eq!(refund_pct(pos), pct, "at {pos}");
-        assert_eq!(refund(500, pos), 500 * pct as u64 / 100, "at {pos}");
+fn a_jump_before_the_last_three_pays_nothing_wherever_it_lands() {
+    for pos in [0, 1, 4_999, 5_000, 19_999, 20_000, 60_000, 100_000, 120_000, u32::MAX] {
+        assert_eq!(refund_pct(pos), 0, "at {pos}");
+        assert_eq!(refund(100, pos), 0, "at {pos}");
+        assert_eq!(refund(777, pos), 0, "at {pos}");
     }
-}
-
-#[test]
-fn refund_is_measured_in_track_position_so_brakes_never_lower_it() {
-    // Same real time, a Brake lowers the position, so the refund can only rise.
-    let t = 41_000;
-    assert_eq!(refund_at(500, &[], t), 250);
-    assert_eq!(refund_at(500, &[30_000], t), 300); // position 38.5 s
-    assert_eq!(refund_at(500, &[30_000], 5_000), 400);
-    // Real 21.999 s, but the Brake held position under the 20 s edge: still 80%.
-    assert_eq!(refund_at(500, &[18_000], 21_999), 400);
+    // Brakes change the position, never the refund.
+    assert_eq!(refund_at(100, &[], 41_000), 0);
+    assert_eq!(refund_at(100, &[30_000], 41_000), 0);
+    assert_eq!(refund_at(100, &[0], 0), 0);
 }
 
 // ---- payouts ----
 
 #[test]
 fn split_matches_the_worked_example() {
-    // 2,150 - 129 fees - 1,500 entries back = 521.
-    assert_eq!(split(521, 3), [313, 130, 78]);
-    assert_eq!(split(521, 3).iter().sum::<u64>(), 521);
+    // 500 - 30 fees - 300 entries back = 170: Dee 103, Ben 42, Cy 25.
+    assert_eq!(split(170, 3), [103, 42, 25]);
+    assert_eq!(split(170, 3).iter().sum::<u64>(), 170);
 }
 
 #[test]
 fn two_off_split_70_30_and_one_off_takes_all() {
-    assert_eq!(split(1000, 2), [700, 300, 0]);
+    // Two off: 500 - 30 - 200 = 270.
+    assert_eq!(split(270, 2), [189, 81, 0]);
     assert_eq!(split(1001, 2), [701, 300, 0]);
-    assert_eq!(split(777, 1), [777, 0, 0]);
+    // One off: 500 - 30 - 100 = 370.
+    assert_eq!(split(370, 1), [370, 0, 0]);
     assert_eq!(split(0, 3), [0, 0, 0]);
     assert_eq!(split(100, 0), [0, 0, 0]);
 }
@@ -302,6 +341,7 @@ proptest! {
     fn engine_never_panics(w in any::<[u8; 32]>(), t in 0u32..2_000_000, mut b in proptest::collection::vec(0u32..600_000, 0..100)) {
         b.sort_unstable();
         let r = ride(&w);
+        prop_assert!((MIN_CRASH_MS..=MAX_CRASH_MS).contains(&r.crash_ms));
         let i = impact_ms(&b, r.crash_ms);
         prop_assert!(i <= RIDE_CAP_MS);
         let _ = position_ms(&b, t);
@@ -319,12 +359,22 @@ fn u32s(v: &[u32]) -> String {
 
 fn build_vectors() -> String {
     let mut rng = 0xC0FFEE_u64;
+    let cap_edge = last_capped_word();
+    // The boundary draws of the smooth draw: the floor (U = 1 and just under), the cap (U = 2^-64
+    // and just over), both sides of the cap's edge and the median.
     let mut draws: Vec<[u8; 32]> = vec![
         [0; 32],
         [0xff; 32],
         draw_with_first_word(u64::MAX),
-        draw_with_first_word((1u64 << 63) - 1),
+        draw_with_first_word(u64::MAX - 1),
+        draw_with_first_word(u64::MAX - 2),
+        draw_with_first_word(0),
         draw_with_first_word(1),
+        draw_with_first_word(2),
+        draw_with_first_word(cap_edge),
+        draw_with_first_word(cap_edge + 1),
+        draw_with_first_word((1u64 << 63) - 1),
+        draw_with_first_word(1u64 << 63),
     ];
     while draws.len() < 60 {
         draws.push(random_draw(&mut rng));
@@ -339,9 +389,9 @@ fn build_vectors() -> String {
                     let d = random_draw(&mut patterns);
                     let r = ride(&d);
                     let length = if short {
-                        r.crash_ms < 14_000
+                        r.crash_ms < 8_000
                     } else {
-                        r.crash_ms >= 45_000
+                        r.crash_ms >= 25_000
                     };
                     if r.bolt_at_ms.is_some() == bolt && r.spark_at_ms.is_some() == sparks && length
                     {
@@ -387,7 +437,7 @@ fn build_vectors() -> String {
             .map(|_| (splitmix(&mut rng) % 200_000) as u32)
             .collect();
         let positions: Vec<u32> = times.iter().map(|t| position_ms(b, *t)).collect();
-        let crashes: Vec<u32> = vec![10_000, 40_000, 77_777, 120_000];
+        let crashes: Vec<u32> = vec![5_000, 25_000, 41_000, 77_777, 120_000];
         let impacts: Vec<u32> = crashes.iter().map(|c| impact_ms(b, *c)).collect();
         tracks.push(format!(
             "{{\"brakes\":{},\"times\":{},\"positions\":{},\"crashes\":{},\"impacts\":{}}}",
@@ -400,29 +450,41 @@ fn build_vectors() -> String {
     }
 
     let mut refunds = Vec::new();
-    for edge in (0..=12).map(|i| i * 10_000u32) {
-        for pos in [edge.saturating_sub(1), edge, edge + 1] {
-            for entry in [500u64, 1000, 777] {
-                refunds.push(format!(
-                    "{{\"position\":{pos},\"entry\":{entry},\"pct\":{},\"refund\":{}}}",
-                    refund_pct(pos),
-                    refund(entry, pos)
-                ));
-            }
+    for pos in [0u32, 4_999, 5_000, 19_999, 20_000, 60_000, 100_000, 120_000, u32::MAX] {
+        for entry in [100u64, 500, 777] {
+            refunds.push(format!(
+                "{{\"position\":{pos},\"entry\":{entry},\"pct\":{},\"refund\":{}}}",
+                refund_pct(pos),
+                refund(entry, pos)
+            ));
         }
     }
-    let splits: Vec<String> = [0u64, 1, 2, 3, 99, 100, 521, 1001, 12_345, 9_999_999_999]
-        .iter()
-        .flat_map(|a| {
-            (0..=3usize).map(move |n| {
-                let s = split(*a, n);
-                format!(
-                    "{{\"amount\":\"{a}\",\"places\":{n},\"shares\":[\"{}\",\"{}\",\"{}\"]}}",
-                    s[0], s[1], s[2]
-                )
-            })
+    let splits: Vec<String> = [
+        0u64,
+        1,
+        2,
+        3,
+        99,
+        100,
+        170,
+        270,
+        370,
+        521,
+        1001,
+        12_345,
+        9_999_999_999,
+    ]
+    .iter()
+    .flat_map(|a| {
+        (0..=3usize).map(move |n| {
+            let s = split(*a, n);
+            format!(
+                "{{\"amount\":\"{a}\",\"places\":{n},\"shares\":[\"{}\",\"{}\",\"{}\"]}}",
+                s[0], s[1], s[2]
+            )
         })
-        .collect();
+    })
+    .collect();
 
     format!(
         "{{\"rides\":[{}],\"tracks\":[{}],\"refunds\":[{}],\"splits\":[{}]}}",

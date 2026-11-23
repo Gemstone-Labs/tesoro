@@ -17,6 +17,8 @@ export interface StoredRide {
   places: { place: number; seat: number; player: string; funder: string; shareBps: number; won: number }[];
   /** Platform, Studio, Leaderboard. */
   fees: [number, number, number];
+  /** The rules the car left under (1 round 1, 2 Q39, 3 round 2); missing on rides revealed before the program recorded it. */
+  rules?: 1 | 2 | 3;
 }
 
 /** One party's part in a ride, as its history row carries it. */

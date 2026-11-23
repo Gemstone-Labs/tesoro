@@ -1,9 +1,10 @@
 /**
  * A finished ride replayed from its record: the draw gives the crash point, the Tell leads and the false screws; the
- * revealed Brakes turn track positions into ride-clock times; the Jump times give each early refund and the places. The
- * replay is held against what the chain recorded (the program's refunds, core's places), so anyone can check a ride.
+ * revealed Brakes turn track positions into ride-clock times; the Jump times give the places (and, on a round 1 car, each
+ * early refund). The replay is held against what the chain recorded (the program's refunds, core's places), so anyone
+ * can check a ride.
  */
-import { impactMs as clockAt, positionMs, refund, refundPct, ride } from "./engine";
+import { RULES_CURRENT, impactMs as clockAt, positionMs, refund, refundPct, ride, type RulesVersion } from "./engine";
 import type { RideReason } from "./chain";
 import type { RailcarView, ResultRow } from "./view";
 import { PLACE_WORDS, clock as rideClock } from "./words";
@@ -22,8 +23,8 @@ export interface RideRecord {
   /** Core's paid places, first place (last off) first: the seat and the forfeits it won on top of its entry. */
   places: { seat: number; won: bigint }[];
   fees: bigint;
-  /** The car rode before Tells could be absent (decisions Q39): it showed every Tell, and replays that way. */
-  everyTell?: boolean;
+  /** The rules the car left under (today's when not said): its odds, Tells and refunds replay under them. */
+  rules?: RulesVersion;
 }
 
 export interface ReplayTell {
@@ -44,7 +45,7 @@ export interface ReplaySeat {
   jumpMs?: number;
   /** Track ms at the Jump. */
   positionMs?: number;
-  /** Early-jump refund step at the Jump's track position. */
+  /** Early-jump refund step at the Jump's track position (0 since rules round 2). */
   refundPct?: number;
   /** The Player's own Brake, ride ms of the press. */
   brakeMs: number | null;
@@ -71,7 +72,8 @@ const STAGES: ReplayTell["stage"][] = ["screws", "panel", "sparks"];
 export function replayRide(rec: RideRecord): RideReplay {
   const presses = rec.brakes.map((b) => b.ms).sort((a, b) => a - b);
   const brakeOf = new Map(rec.brakes.map((b) => [b.seat, b.ms]));
-  const d = rec.draw ? ride(rec.draw, { everyTell: rec.everyTell }) : null;
+  const rules = rec.rules ?? RULES_CURRENT;
+  const d = rec.draw ? ride(rec.draw, { rules }) : null;
   const onClock = (trackMs: number) => clockAt(presses, trackMs);
   const impact = d ? onClock(d.crashMs) : null;
   const tells: ReplayTell[] = d
@@ -99,9 +101,9 @@ export function replayRide(rec: RideRecord): RideReplay {
     if (place) return { ...base(s), kind: "place", place, jumpMs: s.jumpMs, gets: rec.entry + (wonOf.get(s.seat) ?? 0n) };
     if (s.order === 0) return { ...base(s), kind: "aboard", gets: 0n };
     const at = positionMs(presses, s.jumpMs);
-    const back = refund(rec.entry, at);
+    const back = refund(rec.entry, at, rules);
     if (back !== s.refund) differences.push(`Seat ${shown(s.seat)} was refunded ${s.refund}, the replay gives ${back}.`);
-    return { ...base(s), kind: "early", jumpMs: s.jumpMs, positionMs: at, refundPct: refundPct(at), gets: back };
+    return { ...base(s), kind: "early", jumpMs: s.jumpMs, positionMs: at, refundPct: refundPct(at, rules), gets: back };
   });
   const places = Math.max(placed.length, rec.places.length);
   for (let i = 0; i < places; i++) {

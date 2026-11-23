@@ -2,20 +2,20 @@ import { describe, expect, it } from "vitest";
 import { backingTerms, railcarOfferOutcomes } from "./railcar";
 
 describe("what a Railcar Offer means for the Backer and the Player (the spec's worked example)", () => {
-  it("last off of 5 wins 313 after fees: at 40% to the Player, the Backer nets +188 and the Player +125", () => {
+  it("last off of 5 wins 103 after fees: at 40% to the Player, the Backer nets +62 and the Player +41", () => {
     const o = railcarOfferOutcomes(4_000);
-    expect(o.exampleWon).toBe(313n);
-    expect(o.place).toEqual({ backer: 188n, player: 125n });
+    expect(o.exampleWon).toBe(103n);
+    expect(o.place).toEqual({ backer: 62n, player: 41n });
   });
 
-  it("an early Jump returns 80% down to 5% of the entry to the Backer; aboard at Impact the Backer loses 500 and the Player nothing", () => {
+  it("an early Jump returns nothing to the Backer (no Early-jump refund since rules round 2); aboard at Impact the Backer loses 100 and the Player nothing", () => {
     const o = railcarOfferOutcomes(4_000);
-    expect(o.early).toEqual({ mostBack: 400n, leastBack: 25n, player: 0n });
-    expect(o.aboard).toEqual({ backer: -500n, player: 0n });
+    expect(o.early).toEqual({ mostBack: 0n, leastBack: 0n, player: 0n });
+    expect(o.aboard).toEqual({ backer: -100n, player: 0n });
   });
 
   it("the Player's share rounds down, the Backer keeps the rest", () => {
-    expect(railcarOfferOutcomes(9_000).place).toEqual({ backer: 32n, player: 281n });
+    expect(railcarOfferOutcomes(9_000).place).toEqual({ backer: 11n, player: 92n });
   });
 
   it("the terms a backed Player reads: Railcar names the early Jump and Impact, head-to-head the win and the loss", () => {

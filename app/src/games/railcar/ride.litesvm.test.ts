@@ -2,7 +2,7 @@
  * A Railcar ride end to end in LiteSVM, driven by the app's own builders and the shared many-seat planner: five Players
  * board through the Queue choice, the car departs, the ride runs (Jumps, a signal at Impact), Railcar's `finalize` sends
  * core the result, every settle chunk the planner sizes runs, and every seat and the car close. The worked example must
- * pay to the Gema: Dee 813, Ben 630, Cy 578, Ana 350, Eve 0, Studio Fee 64.
+ * pay to the Gema: Dee 203, Ben 142, Cy 125, Ana 0, Eve 0, Studio Fee 15.
  *
  * Needs the built programs (`pnpm build:programs --throwaway-keys`): `target/deploy/{tesoro_core,railcar}.so`, or the
  * directory in RAILCAR_SO_DIR. Skipped when they are missing.
@@ -543,9 +543,9 @@ class World {
     return choice.kind;
   }
 
-  /** The Backing flow as the Backing page sends it: the Player's Request for Railcar at 500, the Backer's Offer, the Player accepting. */
+  /** The Backing flow as the Backing page sends it: the Player's Request for Railcar at 100, the Backer's Offer, the Player accepting. */
   backing(player: Person, backer: Person, shareBps: number): BoardingBacking {
-    const request = createRequestIx({ player: player.key, game: RAILCAR_PROGRAM_ID, entry: 500n, nonce: backingNonce() });
+    const request = createRequestIx({ player: player.key, game: RAILCAR_PROGRAM_ID, entry: 100n, nonce: backingNonce() });
     this.send([request.ix], player.kp);
     const offer = createOfferIx({ backer: backer.key, request: request.address, game: RAILCAR_PROGRAM_ID, shareBps, nonce: backingNonce() });
     this.send([offer.ix], backer.kp);
@@ -560,8 +560,8 @@ class World {
   async stageBacking(p: Person, backing: BoardingBacking, seatKey: Keypair): Promise<TicketView> {
     const conn = this.reader();
     if (!(await backingTicketOf(conn, backing.offer, backing.backerAccount))) {
-      const lines = previewEntry(await readEntryStores(backing.backerAccount, conn), 500n, { backing: true }).ticketLines;
-      const built = await openBackingTicketIxs({ payer: this.relayer.publicKey, requester: p.key, seat: seatKey.publicKey, backerAccount: backing.backerAccount, offer: backing.offer, game: RAILCAR_PROGRAM_ID, entry: 500n, lines, sponsored: true }, conn);
+      const lines = previewEntry(await readEntryStores(backing.backerAccount, conn), 100n, { backing: true }).ticketLines;
+      const built = await openBackingTicketIxs({ payer: this.relayer.publicKey, requester: p.key, seat: seatKey.publicKey, backerAccount: backing.backerAccount, offer: backing.offer, game: RAILCAR_PROGRAM_ID, entry: 100n, lines, sponsored: true }, conn);
       this.send(sponsoredInstructions({ cu: 700_000, grows: [], ixs: built.ixs, assignment: null }), this.relayer, [p.kp, seatKey]);
     }
     for (let i = 0; i < 20; i++) {
@@ -1016,23 +1016,23 @@ async function sweepUntilGone(w: World, match: PublicKey, tableIndex: number, ke
 
 describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders and the shared planner", () => {
   it("the worked example pays to the Gema: boarding, departure, the ride, finalize, every chunk and close", { timeout: 120_000 }, async () => {
-    const r = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), [
-      [ANA, 25],
-      [CY, 95],
-      [BEN, 97],
-      [DEE, 99],
+    const r = await rideCar(5, drawWhere((x) => x.crashMs >= 30_000), [
+      [ANA, 8],
+      [CY, 27],
+      [BEN, 28],
+      [DEE, 29],
     ]);
-    // What each got back for the 500 they boarded with.
-    expect(r.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
-    expect(r.studioFee).toBe(64n);
+    // What each got back for the 100 they boarded with.
+    expect(r.deltas).toEqual([0n, 142n, 125n, 203n, 0n]);
+    expect(r.studioFee).toBe(15n);
     // The result screen shows what the chain paid.
     expect(r.shown).toEqual(r.deltas);
-    // 11 steps in all (4 entries home, Ana's 150 cut three ways then to Dee, Eve's 500 to Dee, Ben, Cy).
-    expect(r.credits).toBe(11);
+    // 10 steps in all (3 entries home, Eve's 100 cut three ways then to Dee, Ana's 100 to Dee, Ben, Cy).
+    expect(r.credits).toBe(10);
     // The wallets signed boarding (5) and nothing else: the seat keys played the Jumps, the relayer and page key the finish.
     expect(r.walletSigs).toEqual({ boarding: 5 });
     // The Match history, from the finish's own events: every rider's row, and a replay that agrees with the chain.
-    expect(r.history.deltas).toEqual([-150, 130, 78, 313, -500]);
+    expect(r.history.deltas).toEqual([-100, 42, 25, 103, -100]);
     expect(r.history.replay.differences).toEqual([]);
     expect(r.history.replay.seats.map((s) => s.gets)).toEqual(r.deltas);
   });
@@ -1040,12 +1040,12 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
   it("the devnet setup script's steps set Railcar up from nothing, a re-run finds nothing to do, and the worked example rides on it", { timeout: 120_000 }, async () => {
     const r = await rideCar(
       5,
-      drawWhere((x) => x.crashMs >= 101_000),
+      drawWhere((x) => x.crashMs >= 30_000),
       [
-        [ANA, 25],
-        [CY, 95],
-        [BEN, 97],
-        [DEE, 99],
+        [ANA, 8],
+        [CY, 27],
+        [BEN, 28],
+        [DEE, 29],
       ],
       { setup: "script" },
     );
@@ -1053,8 +1053,8 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     const ids = ["register-game", "list-game", "tee-only", "set-config", "create-sponsor", "create-fuel-0", "delegate-sponsor", "delegate-fuel-0", "create-table-0", "delegate-table-0", "create-table-1", "delegate-table-1", "init-vault-0", "init-vault-1"];
     expect(run.first.map((s) => [s.id, s.status])).toEqual(ids.map((id) => [id, "to do"]));
     expect(run.again.map((s) => [s.id, s.status])).toEqual(ids.map((id) => [id, "done"]));
-    expect(r.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
-    expect(r.studioFee).toBe(64n);
+    expect(r.deltas).toEqual([0n, 142n, 125n, 203n, 0n]);
+    expect(r.studioFee).toBe(15n);
     expect(r.history.replay.differences).toEqual([]);
   });
 
@@ -1114,31 +1114,31 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     expect(r.walletSigs).toEqual({ boarding: 5, brakes: 1, jumps: 1 });
   });
 
-  it("Ben rides backed by Bob (40% to Ben): Bob's 500 board for him, second place splits 52 to Ben and 578 to Bob", { timeout: 120_000 }, async () => {
+  it("Ben rides backed by Bob (40% to Ben): Bob's 100 board for him, second place splits 16 to Ben and 126 to Bob", { timeout: 120_000 }, async () => {
     const r = await rideCar(
       5,
-      drawWhere((x) => x.crashMs >= 101_000),
+      drawWhere((x) => x.crashMs >= 30_000),
       [
-        [ANA, 25],
-        [CY, 95],
-        [BEN, 97],
-        [DEE, 99],
+        [ANA, 8],
+        [CY, 27],
+        [BEN, 28],
+        [DEE, 29],
       ],
       { backed: { seat: BEN, shareBps: 4_000 } },
     );
-    // Ben's place pays 630: Bob's 500 back first, then 130 split 40/60 (Ben floor(52), Bob 78). The others as unbacked.
-    expect(r.deltas).toEqual([350n, 52n, 578n, 813n, 0n]);
-    expect(r.backer!.delta).toBe(578n);
-    expect(r.studioFee).toBe(64n);
+    // Ben's place pays 142: Bob's 100 back first, then 42 split 40/60 (Ben floor(16), Bob 26). The others as unbacked.
+    expect(r.deltas).toEqual([0n, 16n, 125n, 203n, 0n]);
+    expect(r.backer!.delta).toBe(126n);
+    expect(r.studioFee).toBe(15n);
     // The result screen shows the split the chain paid.
     expect(r.shown).toEqual(r.deltas);
-    expect(r.backer!.shown).toEqual({ backerGets: 578n, playerGets: 52n });
+    expect(r.backer!.shown).toEqual({ backerGets: 126n, playerGets: 16n });
     // Ben signed his Request, the acceptance, the opening of his Backing Ticket and his boarding (6 in boarding: his two
     // and the four others'); Bob nothing after his Offer; the seat keys played the Jumps.
     expect(r.walletSigs).toEqual({ setup: 2, boarding: 6 });
   });
 
-  it("a backed step-off sends the Backer's 500 home and leaves the Player free to board again", { timeout: 120_000 }, async () => {
+  it("a backed step-off sends the Backer's 100 home and leaves the Player free to board again", { timeout: 120_000 }, async () => {
     const w = await World.create();
     const ben = w.person();
     const bob = w.rider();
@@ -1152,10 +1152,10 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     expect(seat.player).toEqual(ben.account);
     expect(seat.funder).toEqual(bob.account);
     expect(seat.shareBps).toBe(4_000);
-    expect(w.gemas(bob)).toBe(bobAtStart - 500n);
+    expect(w.gemas(bob)).toBe(bobAtStart - 100n);
     expect(w.gemas(ben)).toBe(0n);
 
-    // Ben steps off with the page's builder: Bob's 500 come home, unreserved; the Offer stays used.
+    // Ben steps off with the page's builder: Bob's 100 come home, unreserved; the Offer stays used.
     const core = new Program(coreIdl as Idl, { connection: {} } as unknown as AnchorProvider);
     w.send([cu(1_000_000), await stepOffFor(core, w.reader(), { caller: ben.key, loaded, seat })], ben.kp);
     expect(w.gemas(bob)).toBe(bobAtStart);
@@ -1169,7 +1169,7 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     console.log(`Railcar transactions, a Backed opener and step-off, no lookup table:\n${[...w.sizes].map(([k, s]) => `  ${s.bytes} B, ${s.accounts} accounts: ${k}`).join("\n")}`);
   });
 
-  it("Ben steps off with his seat key through the sponsor: only the relayer and the seat key sign, and his 500 come home", { timeout: 120_000 }, async () => {
+  it("Ben steps off with his seat key through the sponsor: only the relayer and the seat key sign, and his 100 come home", { timeout: 120_000 }, async () => {
     const w = await World.create();
     const ben = w.rider();
     const before = w.gemas(ben);
@@ -1179,7 +1179,7 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     const loaded = (await loadCar(w.reader(), match))!;
     const seat = loaded.seats.find((s) => s.seated)!;
     expect(seat.signer).toEqual(ben.seat.publicKey);
-    expect(w.gemas(ben)).toBe(before - 500n);
+    expect(w.gemas(ben)).toBe(before - 100n);
     const core = new Program(coreIdl as Idl, { connection: {} } as unknown as AnchorProvider);
     const signers = await seatSignedSend(sponsorOn(w), ben, match, [await stepOffFor(core, w.reader(), { caller: ben.seat.publicKey, loaded, seat })]);
     expect(signers.sort()).toEqual([w.relayer.publicKey.toBase58(), ben.seat.publicKey.toBase58()].sort());
@@ -1198,16 +1198,16 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
   });
 
   it("100 Players: the car leaves full, 90 Jump, every page and chunk the planner sizes settles it to the Gema", { timeout: 600_000 }, async () => {
-    // Seat i Jumps at 10 + 0.9 i seconds for i < 90; the last ten stay aboard.
-    const jumps: [number, number][] = Array.from({ length: 90 }, (_, i) => [i, 10 + 0.9 * i]);
-    const r = await rideCar(100, drawWhere((x) => x.crashMs >= 92_000), jumps);
+    // Seat i Jumps at 10 + 0.4 i seconds for i < 90; the last ten stay aboard.
+    const jumps: [number, number][] = Array.from({ length: 90 }, (_, i) => [i, 10 + 0.4 * i]);
+    const r = await rideCar(100, drawWhere((x) => x.crashMs >= 50_000), jumps);
     expect(r.shown).toEqual(r.deltas);
     // Places: the last three off (seats 89, 88, 87) get their entry back and more; the ten aboard lose theirs.
-    expect(r.deltas.slice(87, 90).every((d) => d > 500n)).toBe(true);
+    expect(r.deltas.slice(87, 90).every((d) => d > 100n)).toBe(true);
     expect(r.deltas.slice(90)).toEqual(Array(10).fill(0n));
     // Every Gema is accounted for: what came back plus the fees is every entry.
     const back = r.deltas.reduce((a, b) => a + b, 0n);
-    expect(back + r.studioFee).toBeLessThan(50_000n);
+    expect(back + r.studioFee).toBeLessThan(10_000n);
     expect(r.studioFee).toBeGreaterThan(0n);
     expect(r.walletSigs).toEqual({ boarding: 100 });
     // First place's stores could not hold every credit: the page reserved its overflow record before the forfeits moved.
@@ -1217,7 +1217,7 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     console.log(`chunks: ${r.chunkUnits.length}, worst ${Math.max(...r.chunkUnits)} CU, steps ${[...new Set(r.chunkSteps)].sort().join("/")}`);
     expect(r.chunkUnits.filter((u, i) => u > CHUNK_CU_TARGET && r.chunkSteps[i] > 1)).toEqual([]);
     // The history names all 100 and the replay agrees with the chain to the Gema; finalize still fits one transaction.
-    expect(r.history.deltas).toEqual(r.deltas.map((d) => Number(d) - 500));
+    expect(r.history.deltas).toEqual(r.deltas.map((d) => Number(d) - 100));
     expect(r.history.replay.differences).toEqual([]);
     expect(r.history.replay.seats.map((s) => s.gets)).toEqual(r.deltas);
     console.log(`reveal_ride, 100 seats: ${r.revealUnits} CU; finalize: ${r.finalizeUnits} CU`);
@@ -1227,24 +1227,24 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
   // ---- the finish as it is really sent: a page through the sponsor, and the keeper's sweep ------------------------------
 
   const WORKED: [number, number][] = [
-    [ANA, 25],
-    [CY, 95],
-    [BEN, 97],
-    [DEE, 99],
+    [ANA, 8],
+    [CY, 27],
+    [BEN, 28],
+    [DEE, 29],
   ];
 
   it("Dee's page finishes the worked example through the sponsor, vouched for by her seat key alone: reveal, finalize, room, chunks, closes", { timeout: 120_000 }, async () => {
-    const r = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, { viaSponsor: DEE });
+    const r = await rideCar(5, drawWhere((x) => x.crashMs >= 30_000), WORKED, { viaSponsor: DEE });
     expect(r.finishSteps.slice(0, 2)).toEqual(["reveal", "finalize"]);
-    expect(r.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
-    expect(r.studioFee).toBe(64n);
+    expect(r.deltas).toEqual([0n, 142n, 125n, 203n, 0n]);
+    expect(r.studioFee).toBe(15n);
     // Dee's wallet signed her boarding and nothing after it.
     expect(r.walletSigs).toEqual({ boarding: 5 });
-    expect(r.history.deltas).toEqual([-150, 130, 78, 313, -500]);
+    expect(r.history.deltas).toEqual([-100, 42, 25, 103, -100]);
   });
 
   it("every page left before the Impact: the keeper's sweep applies it, reveals the ride, finalizes and pays the worked example", { timeout: 120_000 }, async () => {
-    const c = await rideToImpact(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, { noImpact: true });
+    const c = await rideToImpact(5, drawWhere((x) => x.crashMs >= 30_000), WORKED, { noImpact: true });
     const keeper = Keypair.generate();
     c.w.svm.airdrop(keeper.publicKey, 100n * SOL);
     c.w.setTime(c.w.now + 15 * 60);
@@ -1254,7 +1254,7 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     expect(steps.at(-1)).toBe("close-car");
     expect(c.w.info(c.match)).toBeNull();
     expect(c.w.info(carPda(c.carNo))).toBeNull();
-    expect(c.riders.map((p, i) => c.w.gemas(p, c.id) - c.before[i])).toEqual([350n, 630n, 578n, 813n, 0n]);
+    expect(c.riders.map((p, i) => c.w.gemas(p, c.id) - c.before[i])).toEqual([0n, 142n, 125n, 203n, 0n]);
   });
 
   // ---- a fee cut that lands yield into checkpoint pages the Source's book never had (devnet car 2, 2026-11-08) ----------
@@ -1265,21 +1265,21 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
    * checkpoint pages for the yield it lands.
    */
   const SECOND = async (o: RideOpts = {}) => {
-    const first = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, { native: true });
-    expect(first.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
+    const first = await rideCar(5, drawWhere((x) => x.crashMs >= 30_000), WORKED, { native: true });
+    expect(first.deltas).toEqual([0n, 142n, 125n, 203n, 0n]);
     return { native: true, aged: 10 * 60, again: { world: first.world, riders: first.riders }, ...o } satisfies RideOpts;
   };
 
   it("a second car after a month of yield: the page's finish creates the checkpoint pages Ana's Lock needs and pays the worked example to the Gema", { timeout: 180_000 }, async () => {
-    const r = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, await SECOND());
-    expect(r.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
-    expect(r.studioFee).toBe(64n);
+    const r = await rideCar(5, drawWhere((x) => x.crashMs >= 30_000), WORKED, await SECOND());
+    expect(r.deltas).toEqual([0n, 142n, 125n, 203n, 0n]);
+    expect(r.studioFee).toBe(15n);
     expect(r.walletSigs).toEqual({ boarding: 10 });
   });
 
   it("the same second car finished by Dee's page through the sponsor, vouched for by her seat key alone", { timeout: 180_000 }, async () => {
-    const r = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, await SECOND({ viaSponsor: DEE }));
-    expect(r.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
+    const r = await rideCar(5, drawWhere((x) => x.crashMs >= 30_000), WORKED, await SECOND({ viaSponsor: DEE }));
+    expect(r.deltas).toEqual([0n, 142n, 125n, 203n, 0n]);
     expect(r.walletSigs).toEqual({ boarding: 10 });
   });
 
@@ -1294,26 +1294,26 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
       refused++;
     };
     // The first car's fee cut is the one that needs Ana's pages: both cars finish through Dee's seat key.
-    const first = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, { native: true, viaSponsor: DEE, beforePages });
+    const first = await rideCar(5, drawWhere((x) => x.crashMs >= 30_000), WORKED, { native: true, viaSponsor: DEE, beforePages });
     expect(refused).toBe(1);
     expect(first.finishSteps).toContain("pages");
-    expect(first.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
-    const second = await rideCar(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, { native: true, aged: 10 * 60, again: { world: first.world, riders: first.riders }, viaSponsor: DEE, beforePages });
-    expect(second.deltas).toEqual([350n, 630n, 578n, 813n, 0n]);
+    expect(first.deltas).toEqual([0n, 142n, 125n, 203n, 0n]);
+    const second = await rideCar(5, drawWhere((x) => x.crashMs >= 30_000), WORKED, { native: true, aged: 10 * 60, again: { world: first.world, riders: first.riders }, viaSponsor: DEE, beforePages });
+    expect(second.deltas).toEqual([0n, 142n, 125n, 203n, 0n]);
   });
 
   it("the same second car with every page gone: the keeper's sweep finishes it and pays the worked example", { timeout: 180_000 }, async () => {
-    const c = await rideToImpact(5, drawWhere((x) => x.crashMs >= 101_000), WORKED, await SECOND({ noImpact: true }));
+    const c = await rideToImpact(5, drawWhere((x) => x.crashMs >= 30_000), WORKED, await SECOND({ noImpact: true }));
     const keeper = Keypair.generate();
     c.w.svm.airdrop(keeper.publicKey, 100n * SOL);
     c.w.setTime(c.w.now + 15 * 60);
     const steps = await sweepUntilGone(c.w, c.match, c.carAcct.table, keeper);
     expect(steps.at(-1)).toBe("close-car");
-    expect(c.riders.map((p, i) => c.w.gemas(p, c.id) - c.before[i])).toEqual([350n, 630n, 578n, 813n, 0n]);
+    expect(c.riders.map((p, i) => c.w.gemas(p, c.id) - c.before[i])).toEqual([0n, 142n, 125n, 203n, 0n]);
   });
 
   it("a ride over on base that nobody finalized: from 24 h after departure the sweep refunds it through core, closes it and its Car", { timeout: 120_000 }, async () => {
-    const c = await rideToImpact(5, drawWhere((x) => x.crashMs >= 101_000), WORKED);
+    const c = await rideToImpact(5, drawWhere((x) => x.crashMs >= 30_000), WORKED);
     const keeper = Keypair.generate();
     c.w.svm.airdrop(keeper.publicKey, 100n * SOL);
     c.w.setTime((await loadCar(c.w.reader(), c.match))!.car.refundAfter);
@@ -1324,7 +1324,7 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     expect(c.w.info(c.match)).toBeNull();
     expect(c.w.info(carPda(c.carNo))).toBeNull();
     // Every entry home in full: a refund charges no fee.
-    expect(c.riders.map((p, i) => c.w.gemas(p, c.id) - c.before[i])).toEqual(Array(5).fill(500n));
+    expect(c.riders.map((p, i) => c.w.gemas(p, c.id) - c.before[i])).toEqual(Array(5).fill(100n));
   });
 
   it("four boarded and the fifth never came: once core's boarding ends the sweep steps all four off home, closes the car and frees the Table", { timeout: 120_000 }, async () => {
@@ -1337,7 +1337,7 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     const car = decodeCarAccount(w.info(carPda(carNo))!.data);
     const loaded = (await loadCar(w.reader(), car.tesoroMatch))!;
     expect([loaded.car.stage, loaded.car.seated]).toEqual(["boarding", 4]);
-    expect(riders.map((p, i) => atStart[i] - w.gemas(p))).toEqual(Array(4).fill(500n));
+    expect(riders.map((p, i) => atStart[i] - w.gemas(p))).toEqual(Array(4).fill(100n));
     const keeper = Keypair.generate();
     w.svm.airdrop(keeper.publicKey, 100n * SOL);
     // An hour before the car's deadline nobody may join or depart it any more.

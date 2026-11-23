@@ -65,7 +65,8 @@ describe("a Table reads as the program writes it", () => {
       req_pending: 0,
       req_count: 1,
       commit_tries: 0,
-      reserved0: zeros(4),
+      rules: 3,
+      reserved0: zeros(3),
       car_no: le(9, 8),
       next_car: le(11, 8),
       car: Array.from(car.toBytes()),
@@ -94,6 +95,7 @@ describe("a Table reads as the program writes it", () => {
     expect(t.tells).toEqual({ screws: 3, panel: false, sparks: true });
     expect([t.seated, t.aboard, t.jumps]).toEqual([5, 1, 4]);
     expect(t.places).toEqual([3, 1, 2]);
+    expect(t.rules).toBe(3);
     expect([t.carNo, t.nextCar, t.entry, t.rideSlot]).toEqual([9n, 11n, 500n, 1_300n]);
     expect([t.rideTs, t.overMs, t.overAt]).toEqual([1_762_300_000, 104_000, 1_762_300_104]);
     expect([t.dirty, t.commitAt]).toEqual([true, 1_762_300_090]);

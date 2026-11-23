@@ -11,7 +11,6 @@ import {
   MIN_PLAYERS,
   crashOdds,
   payoutRows,
-  refundRows,
   tellOdds,
   tellRows,
   workedExample,
@@ -90,7 +89,6 @@ export default function Page() {
         Jump before the last three and you get an <b>Early-jump refund</b>: part of your entry back, free of fees. It falls the longer the car has travelled. It is
         measured in distance, not in time, so a Brake never lowers it.
       </p>
-      <DataTable head={["Distance travelled", "Refund"]} rows={refundRows()} />
 
       <H2 id="brake">Brake</H2>
       <p>
@@ -117,11 +115,10 @@ export default function Page() {
 
       <H2 id="example">A worked example</H2>
       <p>
-        Ana, Ben, Cy, Dee and Eve each enter {g(w.entry)}. The Pot is {g(w.pot)}. Ana Jumps at 25 seconds and gets an Early-jump refund of 70%: {g(w.anaRefund)} back, free of fees. The Pot after
-        refunds is {g(w.potAfterRefunds)}, and fees are 6% of it: {g(w.fees)}.
+        Ana, Ben, Cy, Dee and Eve each enter {g(w.entry)}. The Pot is {g(w.pot)}. Ana Jumps at 8 seconds and gets nothing back. Fees are 6% of the Pot: {g(w.fees)}.
       </p>
       <p>
-        Cy, then Ben, then Dee Jump between 95 and 100 seconds. Eve is still aboard at Impact. Dee, Ben and Cy each get {g(w.entry)} back, {g(w.entry * 3n)} in all. What is left is{" "}
+        Cy, then Ben, then Dee Jump between 27 and 29 seconds. Eve is still aboard at Impact. Dee, Ben and Cy each get {g(w.entry)} back, {g(w.entry * 3n)} in all. What is left is{" "}
         {g(w.rest)}, split 60% / 25% / 15%.
       </p>
       <DataTable

@@ -1582,18 +1582,18 @@ const EVE: usize = 4;
 
 #[test]
 fn the_worked_example_pays_to_the_gema() {
-    let draw = draw_where(|r| r.crash_ms >= 101_000);
+    let draw = draw_where(|r| r.crash_ms >= 30_000);
     let (mut env, car, riders) = riding(draw);
     let before: Vec<u64> = riders.iter().map(|p| env.gemas(p)).collect();
     let studio_before = env.fee_gemas(&env.studio);
-    for (who, secs) in [(ANA, 25.0), (CY, 95.0), (BEN, 97.0), (DEE, 99.0)] {
+    for (who, secs) in [(ANA, 8.0), (CY, 27.0), (BEN, 28.0), (DEE, 29.0)] {
         env.at_ride(car.table, secs);
         env.jump(car.table, &riders[who]).expect("jump");
     }
     let t = env.table(car.table);
     assert_eq!((t.jumps, t.aboard, t.phase), (4, 1, PHASE_RIDING));
     // Eve is aboard: the first signal from the Impact slot ends the ride and commits it
-    env.at_ride(car.table, 100.0);
+    env.at_ride(car.table, 29.5);
     env.signal(car.table).expect("signal");
     assert_eq!(env.table(car.table).phase, PHASE_RIDING);
     let impact = env.impact_slot(car.table);
@@ -1620,11 +1620,11 @@ fn the_worked_example_pays_to_the_gema() {
         .zip(&before)
         .map(|(p, b)| env.gemas(p) as i64 - *b as i64)
         .collect();
-    // what each gets back for the 500 they boarded with: Dee 813, Ben 630, Cy 578, Ana 350, Eve 0
-    assert_eq!(delta, vec![350, 630, 578, 813, 0]);
+    // what each gets back for the 100 they boarded with: Dee 203, Ben 142, Cy 125, Ana 0, Eve 0
+    assert_eq!(delta, vec![0, 142, 125, 203, 0]);
     assert_eq!(
         env.fee_gemas(&env.studio) - studio_before,
-        64,
+        15,
         "Studio Fee 3%"
     );
     assert_eq!(env.stage(&car), ManyStage::Paid);
@@ -1666,7 +1666,7 @@ fn nobody_jumping_refunds_every_entry_with_no_fee() {
     assert_eq!(env.table(car.table).outcome, OUTCOME_REFUND);
     assert_eq!(
         settle_deltas(&mut env, &car, &riders, &before),
-        vec![500; 5]
+        vec![100; 5]
     );
     assert_eq!(env.fee_gemas(&env.studio), studio_before);
     env.write_ahead_fixture("refund");
@@ -1675,7 +1675,7 @@ fn nobody_jumping_refunds_every_entry_with_no_fee() {
 #[test]
 fn one_jumper_takes_the_rest_and_two_split_seventy_thirty() {
     let draw = draw_where(|r| r.crash_ms >= 40_000);
-    // one: Dee off at 12 s takes everything after fees (2,500 - 150 - her 500 = 1,850)
+    // one: Dee off at 12 s takes everything after fees (500 - 30 - her 100 = 370)
     let (mut env, car, riders) = riding(draw);
     let before: Vec<u64> = riders.iter().map(|p| env.gemas(p)).collect();
     env.at_ride(car.table, 12.0);
@@ -1683,9 +1683,9 @@ fn one_jumper_takes_the_rest_and_two_split_seventy_thirty() {
     end_by_signal(&mut env, &car);
     assert_eq!(
         settle_deltas(&mut env, &car, &riders, &before),
-        vec![0, 0, 0, 2_350, 0]
+        vec![0, 0, 0, 470, 0]
     );
-    // two: Cy at 30 s, Ben at 31 s; the 1,350 after fees and entries splits 945 / 405
+    // two: Cy at 30 s, Ben at 31 s; the 270 after fees and entries splits 189 / 81
     let (mut env, car, riders) = riding(draw);
     let before: Vec<u64> = riders.iter().map(|p| env.gemas(p)).collect();
     env.at_ride(car.table, 30.0);
@@ -1695,7 +1695,7 @@ fn one_jumper_takes_the_rest_and_two_split_seventy_thirty() {
     end_by_signal(&mut env, &car);
     assert_eq!(
         settle_deltas(&mut env, &car, &riders, &before),
-        vec![0, 1_445, 905, 0, 0]
+        vec![0, 289, 181, 0, 0]
     );
 }
 
@@ -1709,11 +1709,11 @@ fn when_everyone_jumps_the_ride_ends_at_the_last_jump() {
     }
     let t = env.table(car.table);
     assert_eq!((t.phase, t.aboard, t.over_ms()), (PHASE_OVER, 0, 9_000));
-    // Ana and Ben get 80% back (400 each); the Pot after refunds is 1,700 and its 6% fees 102 come
-    // from their 200 forfeited; the 98 left split 60/25/15 with the rounding to Eve: 60, 24, 14
+    // Ana and Ben, off first, get nothing back (no Early-jump refund); the 6% fees 30 come from
+    // their 200 forfeited; the 170 left split 60/25/15 with the rounding to Eve: 103, 42, 25
     assert_eq!(
         settle_deltas(&mut env, &car, &riders, &before),
-        vec![400, 400, 514, 524, 560]
+        vec![0, 0, 125, 142, 203]
     );
 }
 
@@ -1862,7 +1862,7 @@ fn a_draw_that_never_comes_refunds_the_car() {
     );
     assert_eq!(
         settle_deltas(&mut env, &car, &riders, &before),
-        vec![500; 5]
+        vec![100; 5]
     );
 }
 
@@ -1992,7 +1992,7 @@ fn a_hundred_players_ride_one_car_and_the_hundred_and_first_boards_the_next() {
         env.last_cu,
         256 - u32::from(receipt_bump)
     );
-    // ticket 19 case A: 13 Jumps (10 early refunds, 3 places), no Brake
+    // ticket 19 case A: 13 Jumps (10 early, 3 places), no Brake
     assert!(
         env.last_cu < FINALIZE_CU_BUDGET,
         "finalize, 100 seats, 13 Jumps: {} CU",
@@ -2015,23 +2015,20 @@ fn a_hundred_players_ride_one_car_and_the_hundred_and_first_boards_the_next() {
         .zip(&before)
         .map(|(p, b)| env.gemas(p) as i64 - *b as i64)
         .collect();
-    // early Jumpers every 4 s from 2 s to 38 s: 80% to 20 s, 70% to 30 s, 60% to 40 s
-    let refunds = [400, 400, 400, 400, 400, 350, 350, 300, 300, 300];
-    for (k, r) in refunds.iter().enumerate() {
-        assert_eq!(delta[k], *r, "early Jumper {k}");
-    }
+    // early Jumpers every 4 s from 2 s to 38 s get nothing back, like the seats aboard at Impact
+    assert!(delta[..10].iter().all(|d| *d == 0), "early Jumpers");
     assert!(delta[13..].iter().all(|d| *d == 0), "aboard at Impact");
-    // refunds 3,600: the Pot after refunds is 46,400 and its 6% fees 2,784
-    let fees: i64 = 2_784;
-    assert_eq!(delta.iter().sum::<i64>(), 50_000 - fees);
+    // no refunds: the Pot is 10,000 and its 6% fees 600
+    let fees: i64 = 600;
+    assert_eq!(delta.iter().sum::<i64>(), 10_000 - fees);
     assert!(
-        delta[12] > delta[11] && delta[11] > delta[10],
+        delta[12] > delta[11] && delta[11] > delta[10] && delta[10] > 100,
         "last off first"
     );
     assert_eq!(
         env.fee_gemas(&env.studio) - studio_before,
-        1_392,
-        "Studio Fee: 3% of 46,400"
+        300,
+        "Studio Fee: 3% of 10,000"
     );
 }
 
@@ -2434,10 +2431,10 @@ fn the_spec_brake_example_moves_the_wall_and_orders_the_jumps() {
     assert_eq!((t.phase, t.over_ms()), (PHASE_OVER, 54_500));
     let order = |p: &Person| t.seats[usize::from(env.seat_of(car.table, p))].order;
     assert_eq!((order(&riders[BEN]), order(&riders[ANA])), (1, 2));
-    // two off: Ana last, 70% of 2,500 - 150 fees - 1,000 entries; Ben 30%
+    // two off: Ana last, 70% of 500 - 30 fees - 200 entries; Ben 30%
     assert_eq!(
         settle_deltas(&mut env, &car, &riders, &before),
-        vec![1_445, 905, 0, 0, 0]
+        vec![289, 181, 0, 0, 0]
     );
 }
 
@@ -2458,12 +2455,12 @@ fn overlapping_brakes_extend_the_slow_period() {
 }
 
 #[test]
-fn a_refund_after_a_brake_is_by_track_position() {
+fn an_early_jump_after_a_brake_still_pays_nothing() {
     let (mut env, car, riders) = braking(draw_with_crash(80_000));
     let before: Vec<u64> = riders.iter().map(|p| env.gemas(p)).collect();
     env.at_ride(car.table, 15.0);
     env.brake(car.table, &riders[ANA]).expect("brake");
-    // 21 s on the clock, 18.5 s of track: 80% (real time would say 70%)
+    // 21 s on the clock, 18.5 s of track: wherever the Jump lands, nothing comes back
     env.at_ride(car.table, 21.0);
     env.jump(car.table, &riders[BEN]).expect("Ben");
     for (who, secs) in [(CY, 60.0), (DEE, 61.0), (EVE, 62.0)] {
@@ -2472,7 +2469,9 @@ fn a_refund_after_a_brake_is_by_track_position() {
     }
     end_by_signal(&mut env, &car);
     let delta = settle_deltas(&mut env, &car, &riders, &before);
-    assert_eq!((delta[ANA], delta[BEN]), (0, 400));
+    assert_eq!((delta[ANA], delta[BEN]), (0, 0));
+    // the three placed share the 500 - 30 - 300 = 170: 103, 42, 25
+    assert_eq!((delta[EVE], delta[DEE], delta[CY]), (203, 142, 125));
 }
 
 #[test]
@@ -2571,18 +2570,10 @@ fn the_revealed_table_lets_the_engine_recompute_the_whole_ride() {
     assert_eq!(brakes, vec![10_000, 12_000, 60_000]);
     let r = railcar::engine::ride(&t.reveal_draw);
     assert_eq!(railcar::engine::impact_ms(&brakes, r.crash_ms), t.over_ms());
-    for s in &t.seats[..5] {
-        if s.refund() > 0 {
-            assert_eq!(
-                railcar::engine::refund_at(ENTRY, &brakes, s.jump_ms()),
-                s.refund()
-            );
-        }
-    }
+    assert!(t.seats[..5].iter().all(|s| s.refund() == 0));
+    assert_eq!(t.rules, railcar::state::RULES_Q40, "the rules the car left under");
     env.settle(&car);
 }
-
-const ENTRY: u64 = railcar::state::ENTRY_GEMAS;
 
 #[test]
 fn ticks_need_their_seat_bound_and_a_repeat_bind_does_nothing() {
@@ -2662,7 +2653,7 @@ fn restore_public(env: &mut Env, table: APk, public: &[u8]) {
 
 #[test]
 fn compute_is_the_same_whatever_the_brakes_are() {
-    let (mut env, car, riders) = braking(draw_where(|r| r.crash_ms >= 110_000));
+    let (mut env, car, riders) = braking(draw_where(|r| r.crash_ms >= 70_000));
     let table = car.table;
     // every false screw is behind and no screw yet: the public Table stays as it is below
     env.at_ride(table, 20.0);
@@ -2743,7 +2734,7 @@ fn compute_is_the_same_whatever_the_brakes_are() {
 fn compute_is_the_same_whether_a_tell_shows_or_not() {
     use railcar::engine::NEVER_MS;
     let (mut env, car, riders) = braking(draw_where(|r| {
-        r.crash_ms >= 110_000 && r.bolt_at_ms.is_some() && r.spark_at_ms.is_some()
+        r.crash_ms >= 70_000 && r.bolt_at_ms.is_some() && r.spark_at_ms.is_some()
     }));
     let table = car.table;
     env.at_ride(table, 20.0);
@@ -2854,7 +2845,7 @@ fn a_hundred_brakes_and_ninety_nine_jumps_end_inside_one_default_transaction() {
         env.at_ride(car.table, 7.0 + k as f64);
         env.jump(car.table, p).expect("jump");
     }
-    // the ending transaction: 96 refunds walked over 100 presses, the reveal, the commit
+    // the ending transaction: the places, the reveal of 100 Brakes, the commit
     end_by_signal(&mut env, &car);
     println!("impact signal, 100 Brakes, 99 Jumps: {} CU", env.last_cu);
     assert!(env.last_cu < 200_000);
@@ -2885,7 +2876,7 @@ fn a_hundred_brakes_and_ninety_nine_jumps_end_inside_one_default_transaction() {
     })
     .expect("finalize");
     println!("finalize after 100 Brakes revealed: {} CU", env.last_cu);
-    // ticket 19 case B, the worst: 99 Jumps (96 early refunds, 3 places) after 100 Brakes
+    // ticket 19 case B, the worst: 99 Jumps (96 early, 3 places) after 100 Brakes
     assert!(
         env.last_cu < FINALIZE_CU_BUDGET,
         "finalize, 100 seats, 99 Jumps, 100 Brakes: {} CU",
@@ -2929,7 +2920,7 @@ fn a_void_ride_after_brakes_reveals_them_refunds_in_full_with_no_fee_and_no_poin
     env.all_events.clear();
     assert_eq!(
         settle_deltas(&mut env, &car, &riders, &before),
-        vec![500; 5],
+        vec![100; 5],
         "every entry back in full"
     );
     assert_eq!(env.fee_gemas(&env.studio), studio_before, "no Studio Fee");
@@ -3212,7 +3203,7 @@ fn an_outage_voids_the_ride_and_refunds_every_entry_with_no_fee() {
     );
     assert_eq!(
         settle_deltas(&mut env, &car, &riders, &before),
-        vec![500; 5],
+        vec![100; 5],
         "Ana jumped before the outage and still gets her whole entry"
     );
     assert_eq!(env.fee_gemas(&env.studio), studio_before, "no Studio Fee");
@@ -3443,5 +3434,5 @@ fn a_car_closes_only_once_core_froze_it_and_its_rent_goes_back() {
     let before: Vec<u64> = riders.iter().map(|p| env.gemas(p)).collect();
     env.run_car(&car);
     let after: Vec<u64> = riders.iter().map(|p| env.gemas(p)).collect();
-    assert!(after.iter().zip(&before).all(|(a, b)| a - b == 500));
+    assert!(after.iter().zip(&before).all(|(a, b)| a - b == 100));
 }

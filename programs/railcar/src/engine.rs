@@ -1,35 +1,37 @@
-//! Pure Railcar rules: everything is a function of the 32-byte VRF output, the
-//! Brake presses and the entry. Integer math only; the TypeScript engine in
+//! Pure Railcar rules (rules round 2, decisions Q40): everything is a function of the 32-byte
+//! VRF output, the Brake presses and the entry. Integer math only; the TypeScript engine in
 //! `app/src/games/railcar/engine.ts` matches it bit for bit (`tests/vectors.json`).
 //!
-//! Units: times are milliseconds, track positions are milliseconds at full
-//! speed ("track ms"). Full speed advances one track ms per real ms; while a
-//! Brake is active, half of one.
+//! Units: times are milliseconds, track positions are milliseconds at full speed ("track ms").
+//! Full speed advances one track ms per real ms; while a Brake is active, half of one.
 
-/// Fastest a ride can end, in track ms.
-pub const MIN_CRASH_MS: u32 = 10_000;
-/// Slowest a ride can end, in track ms.
+/// No Bomb before this, in track ms (the safe part of every ride).
+pub const MIN_CRASH_MS: u32 = 5_000;
+/// Slowest a ride can end, in track ms (the cap almost never binds: about 1 draw in 9 billion).
 pub const MAX_CRASH_MS: u32 = 120_000;
-/// Median of the exponential part, in ms.
-pub const MEDIAN_MS: u64 = 30_000;
+/// Median of the random part, in ms: after the safe part the Bomb's time is a Weibull draw of
+/// shape 2 (its chance per second rises in a straight line), so half of all rides end by
+/// `MIN_CRASH_MS + MEDIAN_MS` = 25 s, 9 in 10 by 41 s and about 1 in 190 passes 60 s.
+pub const MEDIAN_MS: u64 = 20_000;
 /// One Brake slows the car for this long (real ms).
 pub const BRAKE_MS: u32 = 5_000;
 /// A ride ends no later than this in real time.
 pub const RIDE_CAP_MS: u32 = 600_000;
 
-pub const SCREW_LEAD: (u32, u32) = (20_000, 40_000);
-pub const BOLT_LEAD: (u32, u32) = (8_000, 15_000);
-pub const SPARK_LEAD: (u32, u32) = (3_000, 8_000);
+pub const SCREW_LEAD: (u32, u32) = (9_000, 18_000);
+pub const BOLT_LEAD: (u32, u32) = (5_000, 9_000);
+pub const SPARK_LEAD: (u32, u32) = (3_000, 5_000);
 /// Later Tells are not promised (decisions Q39): a ride shows the bolt and panel on 3 rides in
 /// 4 and the sparks on 2 rides in 3, each on its own (`(shows, of)`). The screws show on every
-/// ride. A Tell that does not show is never announced: the wall can come after the last one shown.
+/// ride. A Tell that does not show is never announced: the Bomb can go off after the last one shown.
 pub const BOLT_SHOWS: (u64, u64) = (3, 4);
 pub const SPARK_SHOWS: (u64, u64) = (2, 3);
 /// Track position of a Tell the ride does not show: no car gets there.
 pub const NEVER_MS: u32 = u32::MAX;
 pub const MAX_FALSE_SCREWS: usize = 4;
-const FALSE_SCREW_FROM_MS: u32 = 2_000;
-const FALSE_SCREW_SPAN_MS: u32 = 16_000;
+/// False screws fall between 1 and 9 s of track, at least `FALSE_SCREW_GAP_MS` before the real ones.
+const FALSE_SCREW_FROM_MS: u32 = 1_000;
+const FALSE_SCREW_SPAN_MS: u32 = 8_000;
 const FALSE_SCREW_GAP_MS: u32 = 1_000;
 
 /// Everything the 32 random bytes decide for one ride.
@@ -89,10 +91,28 @@ fn neg_log2_q32(w: u64) -> u64 {
     (64u64 << 32) - (((k as u64) << 32) + frac)
 }
 
-/// Crash point in track ms from the first word of the draw.
+/// `floor(sqrt(n))` by Newton's method (integer only, converges from above).
+fn isqrt(n: u128) -> u128 {
+    if n < 2 {
+        return n;
+    }
+    let mut x = 1u128 << ((128 - n.leading_zeros()).div_ceil(2));
+    loop {
+        let y = (x + n / x) >> 1;
+        if y >= x {
+            return x;
+        }
+        x = y;
+    }
+}
+
+/// Crash point in track ms from the first word of the draw: the safe part, then
+/// `MEDIAN_MS * sqrt(-log2 U)` (a Weibull of shape 2 whose median is `MEDIAN_MS`), capped.
+/// `sqrt(-log2 U)` is taken in Q32: the square root of the Q32 log shifted up by 32 bits.
 fn crash_from(w: u64) -> u32 {
-    let extra = (MEDIAN_MS * neg_log2_q32(w)) >> 32;
-    (MIN_CRASH_MS as u64 + extra).min(MAX_CRASH_MS as u64) as u32
+    let root_q32 = isqrt(u128::from(neg_log2_q32(w)) << 32);
+    let extra = (u128::from(MEDIAN_MS) * root_q32) >> 32;
+    (u128::from(MIN_CRASH_MS) + extra).min(u128::from(MAX_CRASH_MS)) as u32
 }
 
 fn lead(w: u64, (lo, hi): (u32, u32)) -> u32 {
@@ -190,14 +210,11 @@ pub fn impact_ms(brakes: &[u32], crash_ms: u32) -> u32 {
     t.min(RIDE_CAP_MS as u64) as u32
 }
 
-/// Early-jump refund in percent of the entry, by track position (track ms).
-pub fn refund_pct(position_ms: u32) -> u32 {
-    match position_ms {
-        0..=19_999 => 80,
-        20_000..=89_999 => 70 - 10 * ((position_ms - 20_000) / 10_000),
-        90_000..=99_999 => 5,
-        _ => 0,
-    }
+/// Early-jump refund in percent of the entry, by track position (track ms). None since rules
+/// round 2 (decisions Q40): a Jump before the last three pays 0 wherever it lands, exactly like a
+/// seat aboard at Impact. The result keeps its per-seat `refund` for the shape core settles.
+pub fn refund_pct(_position_ms: u32) -> u32 {
+    0
 }
 
 /// Gemas returned to a Player who Jumps at `position_ms`.

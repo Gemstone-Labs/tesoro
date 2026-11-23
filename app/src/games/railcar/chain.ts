@@ -24,7 +24,7 @@ export const railcarIx = railcar.build;
 
 // ---- Constants (programs/railcar/src/state.rs) ----------------------------------------------------------------------
 
-export const ENTRY_GEMAS = 500;
+export const ENTRY_GEMAS = 100;
 export const MIN_SEATS = 5;
 export const MAX_SEATS = 100;
 export const COUNTDOWN_SECS = 30;
@@ -156,6 +156,8 @@ export interface TableView {
   jumps: number;
   /** Table seats of the places, last Player off first (`NO_SEAT` unused). */
   places: number[];
+  /** The rules the car left under (`RulesVersion`); 0 on cars from before the field existed. */
+  rules: number;
   carNo: bigint;
   nextCar: bigint;
   car: PublicKey;
@@ -216,6 +218,7 @@ export function decodeTable(data: Uint8Array): TableView {
     aboard: data[b + 10],
     jumps: data[b + 11],
     places: [data[b + 12], data[b + 13], data[b + 14]],
+    rules: data[b + 20],
     carNo: v.getBigUint64(b + 24, true),
     nextCar: v.getBigUint64(b + 32, true),
     car: new PublicKey(data.subarray(b + 40, b + 72)),
@@ -248,7 +251,7 @@ export interface OpenCarArgs {
   n: bigint;
 }
 
-/** `open_car`: opens the next car (core's many-seat Match for 500 Gemas, 5 to 100 seats) when none can take seats. */
+/** `open_car`: opens the next car (core's many-seat Match for 100 Gemas, 5 to 100 seats) when none can take seats. */
 export function openCarIx(a: OpenCarArgs): TransactionInstruction {
   const account = coreAccountOf(a.opener);
   return railcarIx(
