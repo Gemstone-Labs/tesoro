@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Makes a private copy of the SBF SDK that ships next to cargo-build-sbf, with its platform tools pinned to one
-# directory, for `cargo build-sbf --sbf-sdk <copy>`. The SDK's scripts/install.sh (run by env.sh, which strip.sh
+# directory, for a build with `--sbf-sdk <copy>`. The SDK's scripts/install.sh (run by env.sh, which strip.sh
 # sources after every program build) re-points `dependencies/platform-tools` to its built-in version AND re-links the
 # machine-wide `solana` rustup toolchain whenever its marker files are missing, so the copy carries the markers and
 # the criterion link too; scripts/test-check-sbf-toolchain.py runs that install.sh against a copy to prove it stays idle.

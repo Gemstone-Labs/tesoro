@@ -110,7 +110,7 @@ class PrivateSdk(unittest.TestCase):
 
     def run_install(self, sdk: Path, tripwire: Path):
         bin_dir = tripwire / "bin"
-        bin_dir.mkdir()
+        bin_dir.mkdir(parents=True)
         for tool in ("rustup", "wget", "curl"):
             (bin_dir / tool).write_text(f"#!/bin/sh\necho {tool} $* >> {tripwire}/calls\nexit 1\n")
             (bin_dir / tool).chmod(0o755)
