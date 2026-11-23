@@ -7,6 +7,7 @@ import { Button, Select } from "@/components/ui";
 import { fmtWhen } from "@/lib/format";
 import { entryLimitChange, entryLimitOptions, entryLimitSummary, entryPendingNote, type EntryLimitView } from "@/lib/chain/entry-limit";
 import type { ExtendLimitView } from "@/lib/chain/extend-limit";
+import type { StillBoarding } from "@/lib/chain/away-flow";
 import {
   breakEnd,
   breakLabel,
@@ -33,7 +34,7 @@ export interface LimitsViewProps {
   busy: string | null;
   error: string | null;
   /** A Break or Self-Exclusion just started but the Player could not be stepped off their boarding Railcar car. */
-  stillBoarding?: boolean;
+  stillBoarding?: StillBoarding;
   onSetEntry: (gemas: number) => void;
   onSetExtend: (months: number) => void;
   onStartBreak: (days: number) => void;
@@ -49,7 +50,7 @@ const CHANGE_NOTE = {
 } as const;
 
 /** The Limits screen: the Entry Limit and the Extend Limit together, what is in force and what is waiting. */
-export function LimitsView({ entry, extend, away, now, busy, error, stillBoarding = false, onSetEntry, onSetExtend, onStartBreak, onStartSelfExclusion, onRetry }: LimitsViewProps) {
+export function LimitsView({ entry, extend, away, now, busy, error, stillBoarding = null, onSetEntry, onSetExtend, onStartBreak, onStartSelfExclusion, onRetry }: LimitsViewProps) {
   return (
     <div className="stack lim">
       <section className="stack" aria-labelledby="lim-entry-h">
@@ -106,7 +107,7 @@ export function LimitsView({ entry, extend, away, now, busy, error, stillBoardin
       {away && awayNotice(away) && <p className="status" role="status">{awayNotice(away)}</p>}
       {stillBoarding && (
         <p className="status err" role="alert">
-          You are still in a Railcar car: <Link href="/play/railcar">Step off</Link>
+          {stillBoarding === "yes" ? "You are still in a Railcar car" : "You may still be in a Railcar car"}: <Link href="/play/railcar">Step off</Link>
         </p>
       )}
       {error && <p className="status err" role="alert">{error}</p>}

@@ -11,9 +11,15 @@ const text = (h: string) => h.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 
 describe("starting a Break or Self-Exclusion while a Railcar car boards (Q40 review #2)", () => {
   it("when the step-off failed the Player is told they are still in the car, with the way to Step off", () => {
-    const h = renderToStaticMarkup(<LimitsView {...props} stillBoarding />);
+    const h = renderToStaticMarkup(<LimitsView {...props} stillBoarding="yes" />);
     expect(text(h)).toContain("You are still in a Railcar car: Step off");
     expect(h).toMatch(/<a href="\/play\/railcar">Step off<\/a>/);
+  });
+
+  it("when the boarding car could not be read, the line only says they may still be in it", () => {
+    const t = text(renderToStaticMarkup(<LimitsView {...props} stillBoarding="maybe" />));
+    expect(t).toContain("You may still be in a Railcar car: Step off");
+    expect(t).not.toContain("You are still");
   });
 
   it("says nothing when the step-off went through or there was no car", () => {

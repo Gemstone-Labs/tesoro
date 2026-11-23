@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth/context";
 import { fetchEntryLimit, entryLimitView, type EntryLimitData } from "@/lib/chain/entry-limit";
 import { fetchExtendLimit, extendLimitView, type ExtendLimitData } from "@/lib/chain/extend-limit";
 import { getChain } from "@/lib/chain/client";
+import type { StillBoarding } from "@/lib/chain/away-flow";
 import { setEntryLimit, setExtendLimit, startBreak, startSelfExclusion } from "@/lib/chain/native-flow";
 import { awayView, fetchAway, type AwayData } from "@/lib/chain/protections";
 import { forgetAway } from "@/lib/chain/useAway";
@@ -36,7 +37,7 @@ function LimitsPanel() {
   const [tick, setTick] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [stillBoarding, setStillBoarding] = useState(false);
+  const [stillBoarding, setStillBoarding] = useState<StillBoarding>(null);
 
   useEffect(() => {
     if (!owner) return;
@@ -53,11 +54,11 @@ function LimitsPanel() {
 
   async function run(name: string, send: () => Promise<unknown>) {
     setError(null);
-    setStillBoarding(false);
+    setStillBoarding(null);
     setBusy(name);
     try {
       const r = await send();
-      if (r && typeof r === "object" && "stillBoarding" in r) setStillBoarding(!!r.stillBoarding);
+      if (r && typeof r === "object" && "stillBoarding" in r) setStillBoarding(r.stillBoarding as StillBoarding);
       forgetAway();
       setTick((t) => t + 1);
     } catch (e) {

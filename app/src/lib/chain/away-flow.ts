@@ -126,8 +126,13 @@ export async function sendAwayBundles<T>(
   return { signature, cleaned, failed: failedItems.length, failedItems };
 }
 
-/** The Player still holds a seat in a boarding car: a step-off failed, or their boarding car could not be read at all. */
-export const stillBoarding = (r: { seatsRead: boolean; failedItems: AwayItem[] }): boolean => !r.seatsRead || r.failedItems.some((i) => i.kind === "step-off");
+/**
+ * Whether the Player may still hold a seat in a boarding car: "yes" when a step-off failed, "maybe" when their boarding car
+ * could not be read at all (no step-off was tried), null when neither.
+ */
+export type StillBoarding = "yes" | "maybe" | null;
+export const stillBoarding = (r: { seatsRead: boolean; failedItems: AwayItem[] }): StillBoarding =>
+  r.failedItems.some((i) => i.kind === "step-off") ? "yes" : r.seatsRead ? null : "maybe";
 
 /**
  * Starts a Break or Self-Exclusion and cleans up in the same transaction: the Player steps off any Railcar car still
@@ -145,7 +150,7 @@ export async function startAwayWithCleanup(
   signer: ChainSigner,
   getToken: GetToken,
   setIx: TransactionInstruction,
-): Promise<{ signature: string; cleaned: number; failed: number; stillBoarding: boolean }> {
+): Promise<{ signature: string; cleaned: number; failed: number; stillBoarding: StillBoarding }> {
   const owner = signer.publicKey;
   const account = BlockPuzzleChain.coreAccount(owner);
   const chain = { core: getChain().core as Core, read: connReader(getChain().base) };
