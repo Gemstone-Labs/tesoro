@@ -112,9 +112,16 @@ fn crash_point_odds_match_the_published_ones() {
     // Half of all rides are over by 25 s, 9 in 10 by 41 s, about 1 in 190 passes 60 s.
     let median = crashes[n / 2] as f64 / 1000.0;
     assert!((median - 25.0).abs() < 0.3, "median {median}");
-    assert!((share_by(41_000) - 0.894).abs() < 0.005, "{}", share_by(41_000));
+    assert!(
+        (share_by(41_000) - 0.894).abs() < 0.005,
+        "{}",
+        share_by(41_000)
+    );
     let past_60 = 1.0 - share_by(60_000);
-    assert!((past_60 - 1.0 / 190.0).abs() < 0.0015, "past 60 s {past_60}");
+    assert!(
+        (past_60 - 1.0 / 190.0).abs() < 0.0015,
+        "past 60 s {past_60}"
+    );
     assert_eq!(share_by(MIN_CRASH_MS), 0.0, "no Bomb in the safe part");
     // The chance of the Bomb in the next whole second, for a car that got this far: 1.9, 6.9 and
     // 13.1 in 100 at 10, 25 and 45 s (Weibull shape 2: it rises in a straight line with time).
@@ -129,7 +136,10 @@ fn crash_point_odds_match_the_published_ones() {
     };
     for (sec, want) in [(10, 0.019), (25, 0.069), (45, 0.131)] {
         let h = hazard(sec);
-        assert!((h - want).abs() < 0.01, "chance at {sec} s was {h}, want {want}");
+        assert!(
+            (h - want).abs() < 0.01,
+            "chance at {sec} s was {h}, want {want}"
+        );
     }
     let mut last = 0.0;
     for sec in [6, 10, 15, 20, 25, 30, 35, 40] {
@@ -226,7 +236,10 @@ fn a_short_ride_starts_its_screws_at_departure() {
             assert!(r.false_screws().is_empty());
         }
     }
-    assert!(seen > 1_000, "short rides are common enough to matter: {seen}");
+    assert!(
+        seen > 1_000,
+        "short rides are common enough to matter: {seen}"
+    );
 }
 
 // ---- track position under Brakes ----
@@ -294,7 +307,18 @@ fn ride_never_lasts_more_than_ten_minutes() {
 
 #[test]
 fn a_jump_before_the_last_three_pays_nothing_wherever_it_lands() {
-    for pos in [0, 1, 4_999, 5_000, 19_999, 20_000, 60_000, 100_000, 120_000, u32::MAX] {
+    for pos in [
+        0,
+        1,
+        4_999,
+        5_000,
+        19_999,
+        20_000,
+        60_000,
+        100_000,
+        120_000,
+        u32::MAX,
+    ] {
         assert_eq!(refund_pct(pos), 0, "at {pos}");
         assert_eq!(refund(100, pos), 0, "at {pos}");
         assert_eq!(refund(777, pos), 0, "at {pos}");
@@ -450,7 +474,17 @@ fn build_vectors() -> String {
     }
 
     let mut refunds = Vec::new();
-    for pos in [0u32, 4_999, 5_000, 19_999, 20_000, 60_000, 100_000, 120_000, u32::MAX] {
+    for pos in [
+        0u32,
+        4_999,
+        5_000,
+        19_999,
+        20_000,
+        60_000,
+        100_000,
+        120_000,
+        u32::MAX,
+    ] {
         for entry in [100u64, 500, 777] {
             refunds.push(format!(
                 "{{\"position\":{pos},\"entry\":{entry},\"pct\":{},\"refund\":{}}}",

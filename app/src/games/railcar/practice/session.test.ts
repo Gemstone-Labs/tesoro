@@ -117,16 +117,15 @@ const seedShowing = (panel: boolean, sparks: boolean, also: (r: ReturnType<typeo
 };
 
 describe("a later Tell is not promised (decisions Q39)", () => {
-  it("a ride with the panel and no sparks: the rider who gives the panel 6 s is paid, the one who holds for the sparks is aboard at Impact", () => {
+  it("a ride with the panel and no sparks: the rider who gives the panel 4.5 s is paid, the one who holds for the sparks is aboard at Impact", () => {
     const s = seedShowing(true, false);
     const r = ride(s);
-    const p = newPractice(s, [rider("Ben", NEVER, { boltReactMs: 6_000 }), rider("Cy", NEVER, { sparkReactMs: 1_000 })]);
+    const p = newPractice(s, [rider("Ben", NEVER, { boltReactMs: 4_500 }), rider("Cy", NEVER, { sparkReactMs: 1_000 })]);
     const v = result(practiceView(p, r.crashMs));
     const row = (name: string) => v.rows.find((x) => x.name === name)!;
-    // The panel is at least 5 s ahead, but 6 s is a bet: Ben is off only if this ride's panel led by more.
-    const benOff = r.crashMs - r.boltAtMs! > 6_000;
-    expect(row("Ben").kind).toBe(benOff ? "place" : "aboard");
-    if (benOff) expect(row("Ben").jumpMs).toBe(r.boltAtMs! + 6_000);
+    // The panel is at least 5 s ahead, so 4.5 s after it is always before the Bomb.
+    expect(row("Ben").kind).toBe("place");
+    expect(row("Ben").jumpMs).toBe(r.boltAtMs! + 4_500);
     expect(row("Cy").kind).toBe("aboard");
     // The panel shows and the sparks never do, to the last ms before the wall.
     const last = practiceView(p, r.crashMs - 1);

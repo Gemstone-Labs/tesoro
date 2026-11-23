@@ -2,7 +2,7 @@
 //! funds one seat through an accepted Offer; refunds and the entry go back to the Backer, a place's
 //! winnings split by the Offer's share, the Player never risks a Gema of their own.
 
-use super::settle::{result, ANA, BEN, CY, DEE, EVE};
+use super::settle::{result, Sent, ANA, BEN, CY, DEE, EVE};
 use super::*;
 use tesoro_core::error::MatchError;
 use tesoro_core::ledger::many_seat::ManySeatResult;
@@ -285,6 +285,109 @@ fn backed_seats_settle_the_worked_example_to_the_backers_and_the_players_shares(
             );
         }
     }
+}
+
+/// Rules round 2's worst 100-seat car (Railcar ticket 31): no seat refunded, so 97 whole entries
+/// are forfeited; every rider's entry staged in an Entry Ticket of 10 lines from 10 shared Sources
+/// of `kind`; the three places backed, their Backers' Gemas as fragmented. The client sends
+/// chunks at the cap or sized to the planner's target; returns the worst chunk, the number of
+/// chunks and the settle start's compute.
+fn hundred_seats_round_two(kind: SourceKind, sized: bool) -> (Sent, usize, u64) {
+    let mut env = Env::with_kind(kind);
+    env.enable_leaderboard(100);
+    let sources: Vec<APk> = (0..10)
+        .map(|i| env.forge_kind(200 + i as u8, kind))
+        .collect();
+    let fund = |env: &mut Env| {
+        let p = env.person();
+        env.grow_basket_to(&p, 24);
+        env.give_lines(&p, &sources, 50, |i| i as i64);
+        p
+    };
+    let riders: Vec<Person> = (0..100).map(|_| fund(&mut env)).collect();
+    let backers: Vec<Person> = (0..3).map(|_| fund(&mut env)).collect();
+    let car = env.open_car(&riders[0], (5, 100));
+    for (i, p) in riders.iter().enumerate() {
+        if i >= 97 {
+            let b = &backers[i - 97];
+            let offer = env.backing(p, b, 1, SHARE);
+            env.board_backed(p, b, offer, car).expect("backed");
+            continue;
+        }
+        let nonce = env.next_ticket(p.account);
+        env.open_ticket(p, nonce, CAR_ENTRY, 12).expect("ticket");
+        let kp = p.kp.insecure_clone();
+        while env.load_ticket_staged(p, nonce) < CAR_ENTRY {
+            env.stage_with(&kp, p, nonce, 255, vec![]).expect("stage");
+        }
+        let page = env.page_with_room(car);
+        env.board_ix(
+            p,
+            car,
+            page,
+            (nonce, 1, ticket_pda(p.account, nonce)),
+            vec![],
+        )
+        .expect("board with a Ticket");
+    }
+    let studio = env.studio.kp.insecure_clone();
+    let studio_account = env.studio.account;
+    env.ensure_spill(&studio, studio_account, 64);
+    env.depart(car).expect("depart");
+    env.settle_car(car, result(&[(99, 6000), (98, 2500), (97, 1500)], &[]))
+        .expect("settle");
+    let start_cu = env.last_cu;
+    let max = tesoro_core::MAX_SEAT_CHUNK_STEPS;
+    let mut sent = vec![];
+    while env.car(car).inner.stage() != ManyStage::Paid {
+        sent.push(if sized {
+            env.sized_car_chunk(car, max)
+        } else {
+            env.car_chunk(car, max).expect("chunk")
+        });
+        assert!(sent.len() < 5_000);
+    }
+    let worst = sent.iter().max_by_key(|s| s.cu).copied().expect("chunks");
+    // every Gema is where the payout says: 97 entries forfeited, fees 6% of the whole Pot
+    let fees = 100 * CAR_ENTRY * 6 / 100;
+    let held: u64 = riders
+        .iter()
+        .chain(&backers)
+        .map(|p| env.total_gemas(p))
+        .sum();
+    assert_eq!(held + fees, 103 * CAR_ENTRY);
+    for (i, p) in riders.iter().enumerate().take(97) {
+        assert_eq!(env.total_gemas(p), 0, "rider {i} lost the entry");
+    }
+    for b in &backers {
+        assert!(
+            env.total_gemas(b) > CAR_ENTRY,
+            "a Backer's entry came back first"
+        );
+    }
+    env.close_paid_car(car);
+    (worst, sent.len(), start_cu)
+}
+
+#[test]
+fn a_round_two_hundred_seat_car_with_backed_places_settles_inside_the_planners_target() {
+    let max = tesoro_core::MAX_SEAT_CHUNK_STEPS;
+    let mut over = vec![];
+    for kind in [SourceKind::NotOpen, SourceKind::Stake] {
+        let (at_cap, chunks, start_cu) = hundred_seats_round_two(kind, false);
+        let (sized, sized_chunks, _) = hundred_seats_round_two(kind, true);
+        println!(
+            "ROW round 2, 100 seats {kind:?}, no refunds, 3 backed places: settle start {start_cu} CU; chunks of {max}: {chunks} chunks, worst {} CU ({} steps, {} accounts); sized to {KEEPER_CHUNK_CU_TARGET}: {sized_chunks} chunks, worst {} CU ({} steps)",
+            at_cap.cu, at_cap.steps, at_cap.accounts, sized.cu, sized.steps
+        );
+        if sized.cu > KEEPER_CHUNK_CU_TARGET {
+            over.push((kind, sized));
+        }
+    }
+    assert!(
+        over.is_empty(),
+        "round 2 sized chunks over the target: {over:?}"
+    );
 }
 
 #[test]

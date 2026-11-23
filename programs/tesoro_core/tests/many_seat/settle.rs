@@ -25,9 +25,9 @@ pub(super) fn result(places: &[(u8, u16)], refunds: &[(u8, u64)]) -> ManySeatRes
 /// One chunk as sent: its compute units and the accounts it named.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Sent {
-    cu: u64,
-    accounts: usize,
-    steps: u8,
+    pub(super) cu: u64,
+    pub(super) accounts: usize,
+    pub(super) steps: u8,
 }
 
 impl Env {

@@ -60,8 +60,8 @@ describe("the payout a result gives (core's plan_payout)", () => {
 
   it("a round 1 car with an early refund of 70 (replayed history): fees on the Pot after the refund", () => {
     const p = planPayout({ entry: 100n, seated: 5, shares: [6000, 2500, 1500], refunded: 70n, ...FEES });
-    expect(p.fees).toEqual([8n, 12n, 4n]);
-    expect(p.won).toEqual([64n, 26n, 16n]);
+    expect(p.fees).toEqual([9n, 12n, 4n]);
+    expect(p.won).toEqual([64n, 26n, 15n]);
   });
 });
 
@@ -242,9 +242,9 @@ describe("a Backed Player before the result: where the Backer's Gemas go", () =>
     expect(own.phase === "boarding" && own.myBacker).toBeNull();
   });
 
-  it("riding: after Ben's early Jump the refund is Bob's", () => {
+  it("riding: after Ben's early Jump nothing comes back, and the seat still names Bob", () => {
     const t = table({ aboard: 4, jumps: 1, seats: players.map((_, i) => (i === 1 ? rideSeat(1, 1, 25_000) : rideSeat(i, 0, 0))) });
     const v = railcarView({ me: ben.toBase58(), core: coreCar({ stage: "departed" }), seats: backed, table: t, fees: FEES, nowMs: (T0 + 70) * 1000 });
-    expect(v.phase === "ride" && v.me).toEqual({ aboard: false, jumpMs: 25_000, back: 350n, backer: bob.toBase58() });
+    expect(v.phase === "ride" && v.me).toEqual({ aboard: false, jumpMs: 25_000, back: 0n, backer: bob.toBase58() });
   });
 });

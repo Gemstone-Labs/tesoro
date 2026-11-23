@@ -2571,7 +2571,11 @@ fn the_revealed_table_lets_the_engine_recompute_the_whole_ride() {
     let r = railcar::engine::ride(&t.reveal_draw);
     assert_eq!(railcar::engine::impact_ms(&brakes, r.crash_ms), t.over_ms());
     assert!(t.seats[..5].iter().all(|s| s.refund() == 0));
-    assert_eq!(t.rules, railcar::state::RULES_Q40, "the rules the car left under");
+    assert_eq!(
+        t.rules,
+        railcar::state::RULES_Q40,
+        "the rules the car left under"
+    );
     env.settle(&car);
 }
 
