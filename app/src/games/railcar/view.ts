@@ -5,9 +5,9 @@
 import type { CarView, SeatView } from "../../lib/chain/many-seat";
 import { NO_SEAT, type TableView } from "./chain";
 import { NO_TELLS, type Tells } from "./tell-state";
-import { placeSharesBps, positionMs, refund as scheduleRefund } from "./engine";
+import { placeSharesBps } from "./engine";
 import { departsAt } from "./flow";
-import { planPayout, type FeeRates } from "./payout";
+import { planPayout, prizeOf, type FeeRates } from "./payout";
 import { PLACE_WORDS } from "./words";
 
 export interface Rider {
@@ -31,8 +31,9 @@ export interface RowBacking {
 }
 
 /**
- * Core's split of what a Backed seat gets back (03's walk): an early-jump refund or a full refund goes to the Backer; a
- * place returns the entry to the Backer, then the Player gets their share of the winnings, floored, and the Backer the rest.
+ * Core's split of what a Backed seat gets back (03's walk): a full refund (and a round 1 car's early refund) goes to the
+ * Backer; a place returns the entry to the Backer, then the Player gets their share of the winnings, floored, and the
+ * Backer the rest. An early Jump or a seat aboard at Impact gets nothing to split.
  */
 export function seatSplit(a: { gets: bigint; entry: bigint; placed: boolean; shareBps: number }): { backerGets: bigint; playerGets: bigint } {
   if (!a.placed) return { backerGets: a.gets, playerGets: 0n };
@@ -47,7 +48,7 @@ export interface ResultRow extends Rider {
   place?: number;
   /** Ride ms of the Jump (none for a Player aboard at Impact). */
   jumpMs?: number;
-  /** Gemas back in all: entry plus winnings for a place, the refund for an early Jump, 0 aboard at Impact. */
+  /** Gemas back in all: entry plus winnings for a place, 0 for an early Jump or aboard at Impact (a round 1 car's early refund). */
   gets: bigint;
   /** A Backed seat: who funded it and how `gets` splits between them. */
   backing?: RowBacking;
@@ -76,15 +77,19 @@ export type RailcarView =
       tells: Tells;
       aboard: Rider[];
       jumped: Rider[];
-      /** Every entry in the car. */
-      stake: bigint;
+      /**
+       * What the last three off share: every entry less the fees, fixed when the car left (5 x 100 -> 470). It never changes
+       * during the ride: a Jump moves that Player's entry onto the pile, it adds nothing to the Prize.
+       */
+      prize: bigint;
+      /** Entries dropped on the pile so far: one per Player who Jumped. */
+      pile: number;
       entry: bigint;
       /**
-       * Null for a spectator. After my Jump, `back` is at least what I get: the schedule at my position counting only my own
-       * Brake (another Player's Brake would add to it, and only shows at the end). `backer`: a Backed seat's refund goes
-       * back to them.
+       * Null for a spectator. After my Jump, `after` is how many have Jumped after me so far: under three I hold a paid place
+       * (place `after + 1`), from three on I get nothing. `backer`: who funded my seat.
        */
-      me: { aboard: true; backer?: string } | { aboard: false; jumpMs: number; back: bigint; backer?: string } | null;
+      me: { aboard: true; backer?: string } | { aboard: false; jumpMs: number; after: number; backer?: string } | null;
       /** The car left but its ride has not started in time: every entry refunds from `refundAt` (unix secs, core's). */
       delayed: { refundAt: number; refundOpen: boolean } | null;
     }
@@ -94,7 +99,7 @@ export type RailcarView =
       fees: bigint;
       pot: bigint;
       entry: bigint;
-      /** Ride ms where the wall stood (the end of the ride). */
+      /** Ride ms when the bomb went off (the end of the ride). */
       wallMs: number;
       jumps: { account: string; ms: number; me: boolean }[];
       /** `gets` and `won` are the Player's own: under a Backing, their share; `backer` is what goes back to the Backer. */
@@ -161,16 +166,19 @@ export function railcarView(f: RailcarFacts): RailcarView {
   if (t && t.phase === "over" && t.outcome !== "none") return withBackings(resultOf(t, f.me, f.fees, core), t, backingsOf(f));
   const seated = t?.seats.length ? t.seats.map((s) => ({ s, rider: { account: s.account.toBase58(), seat: s.seat + 1, me: s.account.toBase58() === f.me } })) : f.seats.filter((s) => s.seated).map((s) => ({ s: { order: 0, jumpMs: 0 }, rider: { account: s.player.toBase58(), seat: s.index + 1, me: s.player.toBase58() === f.me } }));
   const mine = seated.find((x) => x.rider.me);
-  const n = BigInt(t?.seated || core?.seated || seated.length);
+  const n = t?.seated || core?.seated || seated.length;
+  const jumped = seated.filter((x) => x.s.order !== 0);
+  const after = (order: number) => jumped.filter((x) => x.s.order > order).length;
   return {
     phase: "ride",
     clockMs: t && t.phase === "riding" ? Math.max(0, f.nowMs - t.rideTs * 1000) : 0,
     tells: t?.tells ?? NO_TELLS,
     aboard: seated.filter((x) => x.s.order === 0).map((x) => x.rider),
-    jumped: seated.filter((x) => x.s.order !== 0).map((x) => x.rider),
-    stake: n * entry,
+    jumped: jumped.map((x) => x.rider),
+    prize: prizeOf({ entry, seated: n, ...f.fees }),
+    pile: jumped.length,
     entry,
-    me: !mine ? null : { ...(mine.s.order === 0 ? { aboard: true as const } : { aboard: false as const, jumpMs: mine.s.jumpMs, back: earlyBack(entry, mine.s.jumpMs, f.myBrakeMs ?? null) }), ...withBacker(backerOfMine(f)) },
+    me: !mine ? null : { ...(mine.s.order === 0 ? { aboard: true as const } : { aboard: false as const, jumpMs: mine.s.jumpMs, after: after(mine.s.order) }), ...withBacker(backerOfMine(f)) },
     delayed: delayedOf(core, t, f.nowMs),
   };
 }
@@ -196,9 +204,6 @@ function withBackings(v: Extract<RailcarView, { phase: "result" }>, t: TableView
   const mine = v.mine && m?.backing ? { ...v.mine, gets: m.backing.playerGets, won: m.backing.playerGets, backer: { account: m.backing.backer, gets: m.backing.backerGets } } : v.mine;
   return { ...v, rows, mine };
 }
-
-/** The least an early Jump gets back: the published schedule at the Jump's position counting my own Brake only. */
-const earlyBack = (entry: bigint, jumpMs: number, myBrakeMs: number | null) => scheduleRefund(entry, positionMs(myBrakeMs === null || myBrakeMs > jumpMs ? [] : [myBrakeMs], jumpMs));
 
 function resultOf(t: TableView, me: string | null, rates: FeeRates, core: CarView | null): Extract<RailcarView, { phase: "result" }> {
   const entry = t.entry;

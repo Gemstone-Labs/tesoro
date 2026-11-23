@@ -16,7 +16,7 @@ import { RailcarStage } from "./RailcarStage";
 import { NO_TELLS, type Tells } from "./tell-state";
 import { railcarHaptics } from "./tells";
 import type { RailcarView, ResultRow, Rider } from "./view";
-import { clock } from "./words";
+import { PLACE_WORDS, clock } from "./words";
 import "./railcar.css";
 
 export { clock };
@@ -129,7 +129,7 @@ function RailcarBody({
   waiting = null,
   crash = false,
 }: RailcarScreenProps & { crash?: boolean }) {
-  // While the car hits the wall the ride is over: nothing left to press.
+  // While the bomb goes off the ride is over: nothing left to press.
   const brake = crash ? null : brakeProp;
   if (view.phase === "result") return <RailcarResult view={view} actions={actions} watch={watch} practice={practice} waiting={waiting} />;
   const riding = view.phase === "ride";
@@ -208,12 +208,7 @@ function RailcarBody({
             </p>
           )}
         </div>
-        {riding && !practice && (
-          <div className="cut cut-card rc-stake">
-            <span>At stake</span>
-            <GemaAmount value={g(view.stake)} size="lg" />
-          </div>
-        )}
+        {riding && !practice && <PrizePile prize={view.prize} pile={view.pile} />}
         <Riders riders={aboard} label={riding ? `Aboard ${aboard.length}` : null} />
         <div className="rc-acts">
           {delayed ? (
@@ -223,16 +218,25 @@ function RailcarBody({
           ) : riding ? (
             view.me?.aboard ? (
               <>
-                <Button variant="money" size="lg" block onClick={actions.onJump} disabled={!!busy || crash}>
-                  {busy === "jump" ? "Jumping…" : "Jump"}
-                </Button>
+                <div className="rc-jump">
+                  <Button variant="money" size="lg" block onClick={actions.onJump} disabled={!!busy || crash}>
+                    {busy === "jump" ? "Jumping…" : "Jump"}
+                    <small>last three off paid</small>
+                  </Button>
+                </div>
                 {brake && <BrakeButton brake={brake} />}
                 {brake && statusOf(brake) === "sign" && <p className="rc-brake-note">Sign once so your Brake stays secret on this device</p>}
               </>
             ) : view.me ? (
               <p className="cut cut-card rc-jumped">
-                You jumped at <span className="mono">{clock(view.me.jumpMs)}</span> · at least
-                <GemaAmount value={g(view.me.back)} size="md" /> back{view.me.backer && <> to <PlayerName account={view.me.backer} /></>}
+                You jumped at <span className="mono">{clock(view.me.jumpMs)}</span> ·{" "}
+                {view.me.after < PLACE_WORDS.length ? (
+                  <b>{PLACE_WORDS[view.me.after]} so far</b>
+                ) : (
+                  <>
+                    {view.me.after} jumped after you: <GemaAmount value={0} size="md" />
+                  </>
+                )}
               </p>
             ) : null
           ) : view.mySeat !== null ? (
@@ -276,6 +280,38 @@ function RailcarBody({
         )}
       </section>
     </Arena>
+  );
+}
+
+/** Entries drawn on the pile; more show as "+N". */
+const PILE_SHOWN = 8;
+
+/**
+ * The Prize on the car and the pile of dropped entries. The Prize was fixed when the car left (every entry less the fees)
+ * and its number never moves: a Jump drops that Player's entry onto the pile beside it, it never adds to the Prize (Q40
+ * review #13). The newest entry drops in; reduced motion shows it in place.
+ */
+export function PrizePile({ prize, pile }: { prize: bigint; pile: number }) {
+  const shown = Math.min(pile, PILE_SHOWN);
+  return (
+    <div className="cut cut-card rc-prize" role="group" aria-label={`Prize ${fmtGemas(g(prize))} Gemas, fixed when the car left. ${pile} on the pile.`}>
+      <p className="rc-prize-main">
+        <span className="rc-prize-label">Prize</span>
+        <GemaAmount value={g(prize)} size="lg" />
+        <small>Fixed when the car left</small>
+      </p>
+      <p className="rc-pile" aria-hidden="true">
+        <span className="rc-pile-gems">
+          {Array.from({ length: shown }, (_, i) => (
+            <span key={i} className={`rc-pile-gem${i === shown - 1 ? " drop" : ""}`} style={{ zIndex: i }}>
+              <GemaMark size={14} />
+            </span>
+          ))}
+          {pile > shown && <span className="rc-pile-more">+{pile - shown}</span>}
+        </span>
+        <small>{pile} on the pile</small>
+      </p>
+    </div>
   );
 }
 

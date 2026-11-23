@@ -53,8 +53,25 @@
 .rc-brake-tag b { color: var(--em); }
 
 /* ——— At stake, riders, seat ——— */
-.rc-stake { display: flex; justify-content: space-between; align-items: center; padding: 6px 14px; background: var(--surface); font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
-.rc-stake .gema-amount { color: var(--em); }
+/* The Prize (fixed at departure) and the pile of dropped entries beside it: the number never animates, only the pile does. */
+.rc-prize { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 6px 14px; background: var(--surface); }
+.rc-prize p { margin: 0; }
+.rc-prize small { display: block; font-size: var(--fs-11); font-weight: 600; color: var(--fg-2); letter-spacing: 0; text-transform: none; }
+.rc-prize-main { display: grid; grid-template-columns: auto auto; align-items: center; column-gap: 10px; }
+.rc-prize-main small { grid-column: 1 / -1; }
+.rc-prize-label { font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
+.rc-prize-main .gema-amount { color: var(--em); }
+.rc-pile { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; min-width: 0; }
+.rc-pile-gems { display: flex; align-items: flex-end; min-height: 18px; padding-left: 6px; }
+.rc-pile-gem { display: inline-flex; margin-left: -6px; position: relative; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.6)); }
+.rc-pile-gem:nth-child(even) { transform: translateY(-3px); }
+.rc-pile-gem.drop { animation: rc-drop 0.45s cubic-bezier(0.3, 1.4, 0.6, 1) both; }
+.rc-pile-more { margin-left: 4px; font: 800 var(--fs-12) / 1 var(--f-body); color: var(--fg-2); }
+@keyframes rc-drop { from { transform: translateY(-16px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .rc-pile-gem.drop { animation: none; } }
+.rc-jump { flex: 1 1 200px; }
+.rc-jump .btn { width: 100%; flex-direction: column; gap: 0; min-height: 56px; }
+.rc-jump small { display: block; font-size: var(--fs-11); font-weight: 600; opacity: 0.8; text-transform: none; letter-spacing: 0; }
 .rc-riders-h { display: flex; justify-content: space-between; margin: 0 0 6px; font: 700 var(--fs-12) / 1.2 var(--f-body); letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-2); }
 .rc-strip { display: flex; gap: 8px; margin: 0; padding: 0 0 4px; list-style: none; overflow-x: auto; scrollbar-width: none; }
 .rc-rider { flex: 0 0 auto; width: 56px; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: var(--fs-11); font-weight: 700; animation: rc-in 0.3s ease-out both; }

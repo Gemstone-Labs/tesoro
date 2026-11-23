@@ -86,7 +86,8 @@ describe("one screen from boarding to the result", () => {
     expect(v.phase).toBe("ride");
     if (v.phase !== "ride") return;
     expect(v.clockMs).toBe(0);
-    expect(v.stake).toBe(500n);
+    // The Prize is fixed when the car leaves: 5 entries of 100 less 6% fees; nothing is on the pile yet.
+    expect([v.prize, v.pile]).toEqual([470n, 0]);
     expect(v.aboard).toHaveLength(5);
   });
 
@@ -106,7 +107,7 @@ describe("one screen from boarding to the result", () => {
     expect(v.phase === "ride" && v.delayed).toBeNull();
   });
 
-  it("riding: the clock since the ride started, Tells, who is still aboard, and that my early Jump brings nothing back", () => {
+  it("riding: the clock since the ride started, Tells, who is still aboard, and my place so far after my Jump", () => {
     const t = table({ tells: { screws: 2, panel: false, sparks: true }, aboard: 4, jumps: 1, seats: players.map((_, i) => (i === 0 ? rideSeat(0, 1, 8_000) : rideSeat(i, 0, 0))) });
     const v = railcarView({ me: ana.toBase58(), core: coreCar({ stage: "departed" }), seats, table: t, fees: FEES, nowMs: (T0 + 40) * 1000 + 22_000 });
     expect(v.phase).toBe("ride");
@@ -114,16 +115,25 @@ describe("one screen from boarding to the result", () => {
     expect(v.clockMs).toBe(22_000);
     expect(v.tells).toEqual({ screws: 2, panel: false, sparks: true });
     expect(v.aboard.map((r) => r.account)).toEqual([ben, cy, dee, eve].map((k) => k.toBase58()));
-    expect(v.me).toEqual({ aboard: false, jumpMs: 8_000, back: 0n });
-    // The stake is every entry in the car.
-    expect(v.stake).toBe(500n);
+    expect(v.me).toEqual({ aboard: false, jumpMs: 8_000, after: 0 });
+    // Ana's 100 is on the pile; the Prize stays what it was when the car left.
+    expect([v.prize, v.pile]).toEqual([470n, 1]);
   });
 
-  it("after a Jump the screen says nothing comes back, with or without my own Brake", () => {
-    const t = table({ seats: players.map((_, i) => (i === 0 ? rideSeat(0, 1, 21_000) : rideSeat(i, 0, 0))), aboard: 4, jumps: 1 });
+  it("after a Jump: how many Jumped after me so far (three or more and I am out of the paid places), never a refund", () => {
+    const order = [1, 2, 3, 4, 0];
+    const t = table({ seats: players.map((_, i) => rideSeat(i, order[i], order[i] ? 20_000 + order[i] * 1_000 : 0)), aboard: 1, jumps: 4 });
     const at = { core: coreCar({ stage: "departed" }), seats, table: t, fees: FEES, nowMs: (T0 + 40) * 1000 + 30_000 };
-    expect(railcarView({ ...at, me: ana.toBase58(), myBrakeMs: 15_000 })).toMatchObject({ me: { back: 0n } });
-    expect(railcarView({ ...at, me: ana.toBase58() })).toMatchObject({ me: { back: 0n } });
+    const me = (k: PublicKey, myBrakeMs?: number) => {
+      const v = railcarView({ ...at, me: k.toBase58(), myBrakeMs });
+      return v.phase === "ride" ? v.me : null;
+    };
+    expect(me(ana, 15_000)).toEqual({ aboard: false, jumpMs: 21_000, after: 3 });
+    expect(me(ben)).toEqual({ aboard: false, jumpMs: 22_000, after: 2 });
+    expect(me(dee)).toEqual({ aboard: false, jumpMs: 24_000, after: 0 });
+    expect(me(eve)).toEqual({ aboard: true });
+    const v = railcarView({ ...at, me: eve.toBase58() });
+    expect(v.phase === "ride" && [v.prize, v.pile]).toEqual([470n, 4]);
   });
 
   it("another Player's Brake changes nothing on my screen: the public Table is all it reads", () => {
@@ -245,6 +255,6 @@ describe("a Backed Player before the result: where the Backer's Gemas go", () =>
   it("riding: after Ben's early Jump nothing comes back, and the seat still names Bob", () => {
     const t = table({ aboard: 4, jumps: 1, seats: players.map((_, i) => (i === 1 ? rideSeat(1, 1, 25_000) : rideSeat(i, 0, 0))) });
     const v = railcarView({ me: ben.toBase58(), core: coreCar({ stage: "departed" }), seats: backed, table: t, fees: FEES, nowMs: (T0 + 70) * 1000 });
-    expect(v.phase === "ride" && v.me).toEqual({ aboard: false, jumpMs: 25_000, back: 0n, backer: bob.toBase58() });
+    expect(v.phase === "ride" && v.me).toEqual({ aboard: false, jumpMs: 25_000, after: 0, backer: bob.toBase58() });
   });
 });
