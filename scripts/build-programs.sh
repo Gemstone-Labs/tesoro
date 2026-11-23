@@ -36,11 +36,8 @@ else
   done
 fi
 tools=$(python3 scripts/check-sbf-toolchain.py tools)
-sdk_src="$(dirname "$(readlink -f "$(command -v cargo-build-sbf)")")/platform-tools-sdk/sbf"
 sdk=$(mktemp -d "$TMPDIR/tesoro-sbf-sdk.XXXXXX")
-cp -r "$sdk_src/c" "$sdk_src/scripts" "$sdk_src/env.sh" "$sdk_src/syscalls.txt" "$sdk/"
-mkdir "$sdk/dependencies"
-ln -s "$tools" "$sdk/dependencies/platform-tools"
+scripts/sbf-private-sdk.sh "$tools" "$sdk"
 rustc_log=$(mktemp "$TMPDIR/tesoro-sbf-rustc.XXXXXX.log")
 build_log=$(mktemp "$TMPDIR/tesoro-sbf-build.XXXXXX.log")
 PATH="$tools/rust/bin:$PATH" RUSTC_WRAPPER="$PWD/scripts/sbf-rustc-wrapper.sh" TESORO_SBF_TOOLS="$tools" TESORO_SBF_RUSTC_LOG="$rustc_log" \
@@ -48,6 +45,10 @@ PATH="$tools/rust/bin:$PATH" RUSTC_WRAPPER="$PWD/scripts/sbf-rustc-wrapper.sh" T
 # LLVM can report an unsafe frame while Cargo still exits zero.
 python3 scripts/check-sbf-build-log.py "$build_log"
 python3 scripts/check-sbf-toolchain.py rustc-log "$rustc_log"
+if [ "$(readlink "$sdk/dependencies/platform-tools")" != "$tools" ]; then
+  echo "error: the SDK copy's platform-tools link moved to $(readlink "$sdk/dependencies/platform-tools") during the build (its install.sh ran); the programs were stripped with other tools. See scripts/sbf-private-sdk.sh." >&2
+  exit 1
+fi
 rm -rf "$sdk"
 for dir in programs/*/; do
   grep -q cdylib "$dir/Cargo.toml" || continue

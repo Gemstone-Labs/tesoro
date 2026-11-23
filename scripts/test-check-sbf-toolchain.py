@@ -1,5 +1,6 @@
 import importlib.util
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -10,6 +11,7 @@ spec = importlib.util.spec_from_file_location("guard", HERE / "check-sbf-toolcha
 guard = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(guard)
 WRAPPER = HERE / "sbf-rustc-wrapper.sh"
+PRIVATE_SDK = HERE / "sbf-private-sdk.sh"
 
 VERSION_MD = """daa3af4a1110ec3f10ce08083bb0b7855a88416f  https://github.com/anza-xyz/rust.git
 d96b806368b1a00ea55a3e2f08876edc4e86bc3e  https://github.com/anza-xyz/cargo.git
@@ -101,10 +103,46 @@ class Wrapper(unittest.TestCase):
             self.assertEqual(len(guard.rustc_log_problems(log.read_text().splitlines(), tools)), 1)
 
 
+@unittest.skipUnless(shutil.which("cargo-build-sbf"), "needs the Solana SBF SDK next to cargo-build-sbf")
+class PrivateSdk(unittest.TestCase):
+    """The copy must keep the SDK's install.sh idle: on 2026-11-23 a copy without the marker files made it re-point
+    platform-tools to v1.48 and re-link the machine-wide `solana` rustup toolchain at the first program's strip."""
+
+    def run_install(self, sdk: Path, tripwire: Path):
+        bin_dir = tripwire / "bin"
+        bin_dir.mkdir()
+        for tool in ("rustup", "wget", "curl"):
+            (bin_dir / tool).write_text(f"#!/bin/sh\necho {tool} $* >> {tripwire}/calls\nexit 1\n")
+            (bin_dir / tool).chmod(0o755)
+        env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+        r = subprocess.run(["bash", str(sdk / "scripts/install.sh")], env=env, capture_output=True, text=True)
+        calls = (tripwire / "calls").read_text() if (tripwire / "calls").exists() else ""
+        return r.returncode, calls
+
+    def test_install_sh_stays_idle_on_the_copy(self):
+        with tempfile.TemporaryDirectory() as d:
+            tools = fake_tools(Path(d))
+            sdk = Path(d) / "sdk"
+            subprocess.run([str(PRIVATE_SDK), str(tools), str(sdk)], check=True, capture_output=True, text=True)
+            code, calls = self.run_install(sdk, Path(d) / "trip")
+            self.assertEqual((code, calls), (0, ""))
+            self.assertEqual(os.readlink(sdk / "dependencies/platform-tools"), str(tools))
+
+    def test_without_the_markers_install_sh_acts(self):
+        with tempfile.TemporaryDirectory() as d:
+            tools = fake_tools(Path(d))
+            sdk = Path(d) / "sdk"
+            subprocess.run([str(PRIVATE_SDK), str(tools), str(sdk)], check=True, capture_output=True, text=True)
+            for marker in (sdk / "dependencies").glob("*.md"):
+                marker.unlink()
+            code, calls = self.run_install(sdk, Path(d) / "trip")
+            self.assertTrue(code != 0 or calls, "install.sh did nothing without its markers: the tripwire is dead")
+
+
 class BuildScript(unittest.TestCase):
     def test_build_script_pins_the_tools(self):
         text = (HERE / "build-programs.sh").read_text()
-        for needle in ("check-sbf-toolchain.py tools", "RUSTC_WRAPPER=\"$PWD/scripts/sbf-rustc-wrapper.sh\"", "--no-rustup-override --skip-tools-install --sbf-sdk", "check-sbf-toolchain.py rustc-log"):
+        for needle in ("check-sbf-toolchain.py tools", "scripts/sbf-private-sdk.sh \"$tools\" \"$sdk\"", "RUSTC_WRAPPER=\"$PWD/scripts/sbf-rustc-wrapper.sh\"", "--no-rustup-override --skip-tools-install --sbf-sdk", "check-sbf-toolchain.py rustc-log", "readlink \"$sdk/dependencies/platform-tools\""):
             self.assertIn(needle, text)
 
 
