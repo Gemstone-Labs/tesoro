@@ -2,10 +2,10 @@
 # Builds all Solana programs and their IDLs.
 # Anchor's default platform tools ship Cargo 1.84, which cannot parse edition-2024 crates in the
 # current dependency tree, so programs build with platform tools v1.54 and IDLs build separately.
-# The tools are pinned by path: `cargo build-sbf` normally resolves rustc through the one `solana` rustup toolchain,
-# which every `cargo build-sbf` on the machine re-points to its own `--tools-version`, so a concurrent v1.52 build in
-# another project swaps the compiler under this one (scripts/check-sbf-toolchain.py has the story). Here the compiler
-# runs from its own directory, nothing shared is read or written, and every rustc run is logged and checked.
+# The tools are pinned by path: an SBF build normally resolves rustc through the one `solana` rustup toolchain, which
+# every SBF build on the machine re-points to its own tools version, so a concurrent v1.52 build in another project
+# swaps the compiler under this one (scripts/check-sbf-toolchain.py has the story). Here the compiler runs from its
+# own directory, nothing shared is read or written, and every rustc run is logged and checked.
 # --throwaway-keys: for CI-style test builds only. Skips the deploy-key copy, so anchor makes fresh program keypairs; the
 # .so files and IDLs it writes are NOT FOR DEPLOY. Without the flag a missing deploy-keys folder is an error.
 set -euo pipefail

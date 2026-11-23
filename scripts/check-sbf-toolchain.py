@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Pins the SBF compiler by path and proves the build used it.
 
-`cargo build-sbf` resolves rustc through one rustup toolchain, `solana`, that every run on the machine re-points to
+An SBF build resolves rustc through one rustup toolchain, `solana`, that every SBF build on the machine re-points to
 the platform-tools version it was asked for, and cargo fingerprints only `rustc -vV`, which platform tools v1.52 and
-v1.54 print identically. A build in another project with `--tools-version v1.52` therefore swaps the compiler under a
-running v1.54 build, crate by crate, and cargo notices nothing (2026-11-23: railcar.so failed every LiteSVM ride at
+v1.54 print identically. A v1.52 build in another project therefore swaps the compiler under a running v1.54 build,
+crate by crate, and cargo notices nothing (2026-11-23: railcar.so failed every LiteSVM ride at
 the first instruction; Railcar ticket 37). scripts/build-programs.sh now runs the compiler from its own directory and
 passes every rustc through scripts/sbf-rustc-wrapper.sh, which logs the path it ran; this script checks both ends.
 
@@ -23,7 +23,7 @@ COMMITS = {
     "newlib": "f0f8003daa3f71a1a3e2f067f8d5bb46e2756514",
 }
 BINARIES = ("rust/bin/rustc", "rust/bin/cargo", "llvm/bin/clang", "llvm/bin/llvm-objcopy")
-INSTALL = f"install them once with `cargo build-sbf --tools-version {PINNED} --manifest-path programs/sim_lst/Cargo.toml`"
+INSTALL = "install them once with `cargo build-sbf --tools-version v1.54 --manifest-path programs/sim_lst/Cargo.toml`"
 
 
 def tools_dir() -> Path:
@@ -49,7 +49,7 @@ def rustc_log_problems(lines: list[str], tools: Path) -> list[str]:
     if not ran:
         return ["no rustc ran through scripts/sbf-rustc-wrapper.sh: RUSTC_WRAPPER was not applied, the build cannot be trusted"]
     prefix = str(tools.resolve()) + os.sep
-    return [f"{path}: not the pinned platform tools {PINNED} at {tools}; another `cargo build-sbf --tools-version {PINNED}` or a v1.52 build swapped the compiler mid-build, rebuild with pnpm build:programs" for path in ran if not path.startswith(prefix)]
+    return [f"{path}: not the pinned platform tools {PINNED} at {tools}; another SBF build on this machine swapped the compiler mid-build, rebuild with pnpm build:programs" for path in ran if not path.startswith(prefix)]
 
 
 def main(argv: list[str]) -> int:
