@@ -1750,10 +1750,10 @@ fn jumps_are_ordered_as_they_arrive_even_in_the_same_slot() {
     let order = |p: &Person| t.seats[usize::from(env.seat_of(car.table, p))].order;
     assert_eq!((order(&riders[BEN]), order(&riders[ANA])), (1, 2));
     end_by_signal(&mut env, &car);
-    // Ana was last off: 70% of the 1,350 left, Ben 30%
+    // Ana was last off: 70% of the 270 left, Ben 30%
     assert_eq!(
         settle_deltas(&mut env, &car, &riders, &before),
-        vec![1_445, 905, 0, 0, 0]
+        vec![289, 181, 0, 0, 0]
     );
 }
 
@@ -3292,7 +3292,7 @@ fn a_ride_every_page_left_ends_at_its_impact_from_anyones_late_signal() {
         .map(|(p, b)| env.gemas(p) as i64 - *b as i64)
         .collect();
     // Ana, the one Jumper, takes everything after fees (as in one_jumper)
-    assert_eq!(deltas, vec![2_350, 0, 0, 0, 0]);
+    assert_eq!(deltas, vec![470, 0, 0, 0, 0]);
 }
 
 #[test]

@@ -187,7 +187,7 @@ impl Env {
     }
 
     /// One chunk of up to `steps` steps, fewer when the accounts would pass 60.
-    fn car_chunk(
+    pub(super) fn car_chunk(
         &mut self,
         car: Car,
         steps: u8,
@@ -210,7 +210,7 @@ impl Env {
 
     /// One chunk as the page and the keeper send it (`planSeatChunk` with a simulator): dry-run
     /// `steps`, and while it uses more than the target, take the steps the measured cost allows.
-    fn sized_car_chunk(&mut self, car: Car, steps: u8) -> Sent {
+    pub(super) fn sized_car_chunk(&mut self, car: Car, steps: u8) -> Sent {
         let mut n = steps;
         loop {
             let saved = self.svm.clone();
