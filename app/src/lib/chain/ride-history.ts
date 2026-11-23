@@ -26,8 +26,8 @@ export function rideRecordOf(m: { entry: number; ride?: StoredRide | null }): Ri
     reason: r.reason,
     draw: r.draw ? hexToBytes(r.draw) : null,
     brakes: r.brakes,
-    seats: r.seats.map((s) => ({ seat: s.seat, player: s.player, funder: s.funder, order: s.order, jumpMs: s.jumpMs, refund: BigInt(s.refund) })),
-    places: r.places.map((p) => ({ seat: p.seat, won: BigInt(p.won) })),
+    seats: r.seats.map((s) => ({ seat: s.seat, player: s.player, funder: s.funder, shareBps: s.shareBps, order: s.order, jumpMs: s.jumpMs, refund: BigInt(s.refund) })),
+    places: r.places.map((p) => ({ seat: p.seat, won: BigInt(p.won), shareBps: p.shareBps })),
     fees: BigInt(r.fees[0] + r.fees[1] + r.fees[2]),
     rules: rulesOf(r),
   };
@@ -41,13 +41,16 @@ export function rideOfOffer(rows: HistoryRow[], offer: { player: string; useBy: 
   return rows.filter((r) => r.game === "railcar" && r.role === "backer" && r.backing?.other === offer.player && r.at <= offer.useBy * 1000).reduce<HistoryRow | null>((best, r) => (!best || r.at > best.at ? r : best), null);
 }
 
-/** What a ride did with the Backer's Gemas: the entry back first, then their share of any winnings. */
+/**
+ * What a ride did with the Backer's Gemas: the entry back first, then their share of any winnings. Out of the last three
+ * the entry is lost (a round 1 car's early Jump returned part of it).
+ */
 export function backerRideLine(r: HistoryRow): string {
   const entry = fmtGemas(r.entry);
   const ride = r.ride;
   if (!ride || ride.kind === "refund") return `Ride refunded: your ${entry} back`;
   const how = rideLine(ride);
   if (ride.kind === "place") return `${how}: your ${entry} back, then +${fmtGemas(r.delta)} of the winnings`;
-  if (ride.kind === "early") return `${how}: ${fmtGemas(r.entry + r.delta)} of your ${entry} back`;
+  if (ride.kind === "early" && r.entry + r.delta > 0) return `${how}: ${fmtGemas(r.entry + r.delta)} of your ${entry} back`;
   return `${how}: your ${entry} is lost`;
 }

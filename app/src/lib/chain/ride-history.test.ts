@@ -21,9 +21,14 @@ describe("the Backer's line of a ride", () => {
   it("a place: the entry comes back first, then the Backer's share of the winnings", () => {
     expect(backerRideLine(row({}))).toBe("Second-last off at 1:37: your 500 back, then +78 of the winnings");
   });
-  it("an early Jump returns the refund to the Backer; aboard at Impact the Backer loses the entry; a refund returns it", () => {
+  it("an early Jump or aboard at the blast loses the Backer's entry (rules round 2); a refund returns it", () => {
+    const r2 = (o: Partial<HistoryRow>) => row({ entry: 100, ...o });
+    expect(backerRideLine(r2({ result: "lost", delta: -100, ride: { seated: 5, kind: "early", jumpMs: 8_000 } }))).toBe("Jumped at 0:08: your 100 is lost");
+    expect(backerRideLine(r2({ result: "lost", delta: -100, ride: { seated: 5, kind: "aboard" } }))).toBe("Aboard at the blast: your 100 is lost");
+    expect(backerRideLine(r2({ result: "refunded", delta: 0, ride: { seated: 5, kind: "refund" } }))).toBe("Ride refunded: your 100 back");
+  });
+
+  it("a round 1 car's early Jump still reads the part of the entry it returned", () => {
     expect(backerRideLine(row({ result: "lost", delta: -150, ride: { seated: 5, kind: "early", jumpMs: 25_000 } }))).toBe("Jumped at 0:25: 350 of your 500 back");
-    expect(backerRideLine(row({ result: "lost", delta: -500, ride: { seated: 5, kind: "aboard" } }))).toBe("Aboard at Impact: your 500 is lost");
-    expect(backerRideLine(row({ result: "refunded", delta: 0, ride: { seated: 5, kind: "refund" } }))).toBe("Ride refunded: your 500 back");
   });
 });

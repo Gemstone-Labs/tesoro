@@ -20,14 +20,15 @@ describe("a finished ride's page", () => {
     expect(t).not.toContain("Did not show");
     expect(t).toContain("Nobody braked");
     expect(t).toContain(storedWorkedRide().ride.draw!.slice(0, 16));
-    expect(t).toContain("Replayed with the published rules: every refund and place matches what was paid.");
+    expect(t).toContain("Replayed with the published rules: every place, every amount and the fees match what was paid.");
+    expect(t).toContain("Rules Round 2");
   });
 
   it("a Tell the ride did not show says so, and the replay still matches (decisions Q39)", () => {
     const sparkless = text(renderToStaticMarkup(<RideHistory page={storedWorkedRide({ shows: { sparks: false } })} me={null} />));
     expect(sparkless).toMatch(/Hot seams [\d.]+ s before the bomb/);
     expect(sparkless).toContain("White-hot Did not show");
-    expect(sparkless).toContain("Replayed with the published rules: every refund and place matches what was paid.");
+    expect(sparkless).toContain("Replayed with the published rules: every place, every amount and the fees match what was paid.");
     const screwsOnly = text(renderToStaticMarkup(<RideHistory page={storedWorkedRide({ shows: { panel: false, sparks: false } })} me={null} />));
     expect(screwsOnly).toMatch(/Glow [\d.]+ s before the bomb/);
     expect(screwsOnly).toContain("Hot seams Did not show");

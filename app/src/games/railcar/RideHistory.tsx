@@ -6,8 +6,16 @@ import { CheckIcon, XIcon } from "@/components/ui";
 import { rideRecordOf } from "@/lib/chain/ride-history";
 import type { StoredRide } from "@/lib/chain/ride-record";
 import { RailcarScreen, TELLS, type RailcarActions } from "./RailcarScreen";
+import { RULES_CURRENT, RULES_Q39, RULES_Q40, RULES_ROUND1, type RulesVersion } from "./engine";
 import { replayRide, replayView } from "./replay";
 import { clock } from "./words";
+
+/** The rules a car left under, as the round history names them. */
+export const RULES_NAMES: Record<RulesVersion, string> = {
+  [RULES_ROUND1]: "Round 1",
+  [RULES_Q39]: "Round 1, later Tells not promised",
+  [RULES_Q40]: "Round 2",
+};
 
 /** What the ride page reads from the Match history (`/api/match/<id>`). */
 export interface RidePage {
@@ -51,6 +59,10 @@ export function RideHistory({ page, me, actions = {} }: { page: RidePage; me: st
         ) : (
           <>
             <dl className="cut cut-card rc-check-facts">
+              <div>
+                <dt>Rules</dt>
+                <dd>{RULES_NAMES[rec.rules ?? RULES_CURRENT]}</dd>
+              </div>
               <div>
                 <dt>Bomb time</dt>
                 <dd className="mono">{clock(r.crashMs)}</dd>
@@ -109,7 +121,7 @@ export function RideHistory({ page, me, actions = {} }: { page: RidePage; me: st
         {r.agrees ? (
           <p className="rc-check-verdict ok">
             <CheckIcon aria-hidden="true" />
-            <span>Replayed with the published rules: every refund and place matches what was paid.</span>
+            <span>Replayed with the published rules: every place, every amount and the fees match what was paid.</span>
           </p>
         ) : (
           <div className="rc-check-verdict bad" role="alert">
