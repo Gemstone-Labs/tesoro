@@ -17,7 +17,7 @@ describe("Boarding", () => {
     expect(t).toContain("3 aboard of 100 seats");
     expect(t).toContain("Your seat 3");
     expect(t).toContain("Step off");
-    expect(t).toMatch(/Full .*500 back/);
+    expect(t).toMatch(/Full .*100 back/);
     expect(t).not.toContain("Jump");
   });
 
@@ -53,7 +53,7 @@ describe("the Ride, in the same screen", () => {
     expect(t).toMatch(/Screws.*Panel.*Sparks/);
     expect(t).toContain("Aboard 29");
     expect(t).toContain("At stake");
-    expect(t).toContain("20,000");
+    expect(t).toContain("4,000");
     expect(t).toContain("Jump");
     expect(t).not.toMatch(/%|km|speed|distance/i);
   });
@@ -61,7 +61,7 @@ describe("the Ride, in the same screen", () => {
   it("after my Jump: what I got back, and I keep watching", () => {
     const t = text(html(riding(PLAYERS[0], { jumpedMe: true })));
     expect(t).toContain("You jumped at 0:25");
-    expect(t).toContain("350");
+    expect(t).toContain("at least 0 Gemas back");
     expect(t).not.toMatch(/>\s*Jump\s*</);
   });
 
@@ -158,21 +158,21 @@ describe("my secret Brake", () => {
   });
 
   it("after my Jump: at least what comes back", () => {
-    expect(text(html(riding(PLAYERS[0], { jumpedMe: true })))).toMatch(/You jumped at 0:25 · at least 350 Gemas back/);
+    expect(text(html(riding(PLAYERS[0], { jumpedMe: true })))).toMatch(/You jumped at 0:25 · at least 0 Gemas back/);
   });
 });
 
 describe("the Result", () => {
-  it("the worked example: 813 / 630 / 578 / 350 / 0, fees 129, the wall at 1:44", () => {
+  it("the worked example: 203 / 142 / 125 / 0 / 0, fees 30, the wall at 0:30", () => {
     const t = text(html(workedResult()));
     expect(t).toContain("Last off");
-    expect(t).toMatch(/You get .*813/);
-    expect(t.indexOf("813")).toBeLessThan(t.indexOf("630"));
-    expect(t.indexOf("630")).toBeLessThan(t.indexOf("578"));
-    expect(t).toMatch(/jumped early .*350/);
+    expect(t).toMatch(/You get .*203/);
+    expect(t.indexOf("203")).toBeLessThan(t.indexOf("142"));
+    expect(t.indexOf("142")).toBeLessThan(t.indexOf("125"));
+    expect(t).toMatch(/jumped early .*0 Gemas/);
     expect(t).toMatch(/aboard .*0/);
-    expect(t).toMatch(/Fees .*129/);
-    expect(t).toContain("Wall 1:44");
+    expect(t).toMatch(/Fees .*30/);
+    expect(t).toContain("Wall 0:30");
     expect(t).toContain("Play again");
     expect(t).toContain("Share");
   });
@@ -231,7 +231,7 @@ describe("Backing: a Player boards with a Backer's Gemas", () => {
   it("before boarding: whose Gemas board, the Player's share, and a step-off that goes back to the Backer", () => {
     const t = text(board());
     expect(t).toContain("funds your entry");
-    expect(t).toMatch(/Their .*500 board for you\. Place and you keep 40% of the winnings; you never owe anything\./);
+    expect(t).toMatch(/Their .*100 board for you\. Place and you keep 40% of the winnings; you never owe anything\./);
     expect(t).toContain("the full entry goes back to your Backer");
   });
 
@@ -241,16 +241,16 @@ describe("Backing: a Player boards with a Backer's Gemas", () => {
     expect(h).toMatch(/<button[^>]*disabled[^>]*>[^<]*Board/);
   });
 
-  it("aboard with the Backer's Gemas: Step off sends the full 500 back to them", () => {
-    expect(text(html(boardingCountdown(BEN, backed)))).toMatch(/Full .*500 back to /);
+  it("aboard with the Backer's Gemas: Step off sends the full 100 back to them", () => {
+    expect(text(html(boardingCountdown(BEN, backed)))).toMatch(/Full .*100 back to /);
   });
 
-  it("the result as Ben: he gets 52, Bob 578 with his entry back first, and Ben's plate shows the split", () => {
+  it("the result as Ben: he gets 16, Bob 126 with his entry back first, and Ben's plate shows the split", () => {
     const t = text(html(workedResult(BEN, backed)));
-    expect(t).toMatch(/You get .*52/);
-    expect(t).toMatch(/gets .*578/);
+    expect(t).toMatch(/You get .*16/);
+    expect(t).toMatch(/gets .*126/);
     expect(t).toContain("entry comes back first");
-    expect(t).toMatch(/578[^·]*· you[^·]*52/);
+    expect(t).toMatch(/126[^·]*· you[^·]*16/);
   });
 
   it("aboard at Impact backed: the Backer bears the loss", () => {

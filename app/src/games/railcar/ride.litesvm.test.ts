@@ -1092,7 +1092,7 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     });
     // Ana's Jump at 53 s counted (without her Brake the wall stood at 52 s): two off, Ana last
     expect(r.over.overMs).toBe(54_500);
-    expect(r.deltas).toEqual([1_445n, 905n, 0n, 0n, 0n]);
+    expect(r.deltas).toEqual([289n, 181n, 0n, 0n, 0n]);
     expect(r.shown).toEqual(r.deltas);
     // the end made every Brake public: the engine recomputes the wall from the draw and the Brakes
     expect(r.over.revealed).toBe(true);
@@ -1108,7 +1108,7 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
       [ANA, 53],
     ], { brakes: [[ANA, 48]], noSeatKey: [ANA] });
     expect(r.over.overMs).toBe(54_500);
-    expect(r.deltas).toEqual([1_445n, 905n, 0n, 0n, 0n]);
+    expect(r.deltas).toEqual([289n, 181n, 0n, 0n, 0n]);
     expect(r.over.seats.map((x) => x.brakeMs)).toEqual([48_000, null, null, null, null]);
     // her wallet signed boarding, the Brake and her Jump; everyone else's seat key played for them
     expect(r.walletSigs).toEqual({ boarding: 5, brakes: 1, jumps: 1 });

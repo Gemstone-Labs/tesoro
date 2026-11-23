@@ -25,13 +25,13 @@ describe("the Railcar screen in Practice", () => {
     expect(t).not.toMatch(/Sign in|wallet/i);
   });
 
-  it("the Result shows the place and what a 500 entry would have paid, then Play again; no Share", () => {
+  it("the Result shows the place and what a 100 entry would have paid, then Play again; no Share", () => {
     const t = text(practice(practiceView(practiceJump(worked(), 99_000), 120_000)));
     expect(t).toContain("Practice");
     expect(t).toContain("Last off");
-    expect(t).toMatch(/A .*500 entry would have paid .*813/);
-    expect(t).toMatch(/Ben .*630/);
-    expect(t).toMatch(/Fees .*129/);
+    expect(t).toMatch(/A .*100 entry would have paid .*203/);
+    expect(t).toMatch(/Ben .*142/);
+    expect(t).toMatch(/Fees .*30/);
     expect(t).toContain("Play again");
     expect(t).toContain("Ride for real");
     expect(t).not.toContain("Share");

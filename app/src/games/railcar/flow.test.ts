@@ -105,6 +105,7 @@ const table = (o: Partial<TableView> = {}): TableView => ({
   aboard: 5,
   jumps: 0,
   places: [255, 255, 255],
+  rules: 3,
   carNo: 3n,
   nextCar: 5n,
   car: key(),
