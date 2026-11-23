@@ -2,6 +2,10 @@
 # Builds all Solana programs and their IDLs.
 # Anchor's default platform tools ship Cargo 1.84, which cannot parse edition-2024 crates in the
 # current dependency tree, so programs build with platform tools v1.54 and IDLs build separately.
+# The tools are pinned by path: an SBF build normally resolves rustc through the one `solana` rustup toolchain, which
+# every SBF build on the machine re-points to its own tools version, so a concurrent v1.52 build in another project
+# swaps the compiler under this one (scripts/check-sbf-toolchain.py has the story). Here the compiler runs from its
+# own directory, nothing shared is read or written, and every rustc run is logged and checked.
 # --throwaway-keys: for CI-style test builds only. Skips the deploy-key copy, so anchor makes fresh program keypairs; the
 # .so files and IDLs it writes are NOT FOR DEPLOY. Without the flag a missing deploy-keys folder is an error.
 set -euo pipefail
@@ -31,10 +35,21 @@ else
     [ -f "target/deploy/$(basename "$key")" ] || cp "$key" target/deploy/
   done
 fi
+tools=$(python3 scripts/check-sbf-toolchain.py tools)
+sdk=$(mktemp -d "$TMPDIR/tesoro-sbf-sdk.XXXXXX")
+scripts/sbf-private-sdk.sh "$tools" "$sdk"
+rustc_log=$(mktemp "$TMPDIR/tesoro-sbf-rustc.XXXXXX.log")
 build_log=$(mktemp "$TMPDIR/tesoro-sbf-build.XXXXXX.log")
-anchor build --no-idl -- --tools-version v1.54 2>&1 | tee "$build_log"
+PATH="$tools/rust/bin:$PATH" RUSTC_WRAPPER="$PWD/scripts/sbf-rustc-wrapper.sh" TESORO_SBF_TOOLS="$tools" TESORO_SBF_RUSTC_LOG="$rustc_log" \
+  anchor build --no-idl -- --tools-version v1.54 --no-rustup-override --skip-tools-install --sbf-sdk "$sdk" 2>&1 | tee "$build_log"
 # LLVM can report an unsafe frame while Cargo still exits zero.
 python3 scripts/check-sbf-build-log.py "$build_log"
+python3 scripts/check-sbf-toolchain.py rustc-log "$rustc_log"
+if [ "$(readlink "$sdk/dependencies/platform-tools")" != "$tools" ]; then
+  echo "error: the SDK copy's platform-tools link moved to $(readlink "$sdk/dependencies/platform-tools") during the build (its install.sh ran); the programs were stripped with other tools. See scripts/sbf-private-sdk.sh." >&2
+  exit 1
+fi
+rm -rf "$sdk"
 for dir in programs/*/; do
   grep -q cdylib "$dir/Cargo.toml" || continue
   so="target/deploy/$(basename "$dir").so"
