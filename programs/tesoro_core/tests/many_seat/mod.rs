@@ -6,7 +6,17 @@ use tesoro_core::error::ManySeatError;
 use tesoro_core::ledger::draw::PotPages;
 use tesoro_core::ledger::many_seat::{ManyStage, SeatState, SEATS_PER_PAGE};
 
-const CAR_ENTRY: u64 = 500;
+thread_local! {
+    /// The entry the fixtures of this test thread board with: 500 (the older fixtures) unless
+    /// the test calls `with_car_entry` first (Railcar's 100 since rules round 2).
+    static CAR_ENTRY_OF_TEST: std::cell::Cell<u64> = const { std::cell::Cell::new(500) };
+}
+fn car_entry() -> u64 {
+    CAR_ENTRY_OF_TEST.with(|c| c.get())
+}
+fn with_car_entry(entry: u64) {
+    CAR_ENTRY_OF_TEST.with(|c| c.set(entry));
+}
 
 fn seat_err(e: ManySeatError) -> u32 {
     6500 + e as u32
@@ -61,7 +71,7 @@ impl Env {
                 system_program: anchor_lang::system_program::ID,
             },
             instruction::OpenManySeatMatch {
-                entry: CAR_ENTRY,
+                entry: car_entry(),
                 n,
                 min_seats: min,
                 max_seats: max,
@@ -418,7 +428,7 @@ fn five_players_board_and_the_game_departs_the_car() {
     let car = env.open_car(&riders[0], (5, 100));
     let st = env.car(car);
     assert_eq!(st.inner.stage(), ManyStage::Boarding);
-    assert_eq!((st.inner.seated, st.inner.entry()), (0, CAR_ENTRY));
+    assert_eq!((st.inner.seated, st.inner.entry()), (0, car_entry()));
     for (i, p) in riders.iter().enumerate() {
         let t = 1_000_000 + i as i64;
         env.set_time(t);
@@ -692,9 +702,9 @@ fn an_entry_staged_in_an_entry_ticket_boards_and_comes_back_over_several_calls()
     // 500 Gemas in 25 lines of 20: more than one transaction draws, so an Entry Ticket stages it
     let sources: Vec<APk> = (0..25).map(|i| env.forge_source(60 + i as u8, 0)).collect();
     env.give_lines(&ana, &sources, 20, |i| i as i64);
-    env.open_ticket(&ana, 5, CAR_ENTRY, 26).expect("ticket");
+    env.open_ticket(&ana, 5, car_entry(), 26).expect("ticket");
     let kp = ana.kp.insecure_clone();
-    while env.load_ticket_staged(&ana, 5) < CAR_ENTRY {
+    while env.load_ticket_staged(&ana, 5) < car_entry() {
         env.stage_with(&kp, &ana, 5, 255, vec![]).expect("stage");
     }
     let car = env.open_car(&opener, (2, 10));
@@ -721,7 +731,7 @@ fn an_entry_staged_in_an_entry_ticket_boards_and_comes_back_over_several_calls()
         assert!(env.mark(car, &ana).is_some());
     }
     env.return_rest(&other, car, &ana, 8).expect("last");
-    assert_eq!(env.total_gemas(&ana), CAR_ENTRY);
+    assert_eq!(env.total_gemas(&ana), car_entry());
     assert!(env.mark(car, &ana).is_none());
     assert!(env
         .svm
@@ -831,9 +841,9 @@ fn step_off_cu_of(k: u8, kind: SourceKind) -> u64 {
         .map(|i| env.forge_kind(90 + i as u8, kind))
         .collect();
     env.give_lines(&ana, &sources, 25, |i| i as i64);
-    env.open_ticket(&ana, 5, CAR_ENTRY, 21).expect("ticket");
+    env.open_ticket(&ana, 5, car_entry(), 21).expect("ticket");
     let kp = ana.kp.insecure_clone();
-    while env.load_ticket_staged(&ana, 5) < CAR_ENTRY {
+    while env.load_ticket_staged(&ana, 5) < car_entry() {
         env.stage_with(&kp, &ana, 5, 255, vec![]).expect("stage");
     }
     let car = env.open_car(&opener, (2, 10));
@@ -848,7 +858,7 @@ fn step_off_cu_of(k: u8, kind: SourceKind) -> u64 {
         env.return_rest(&kp, car, &ana, k).expect("rest");
         assert!(env.last_cu < RETURN_CU_BUDGET + 10_000);
     }
-    assert_eq!(env.total_gemas(&ana), CAR_ENTRY + 20 * 5);
+    assert_eq!(env.total_gemas(&ana), car_entry() + 20 * 5);
     cu
 }
 

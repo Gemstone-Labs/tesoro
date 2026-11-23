@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { impactMs, positionMs, refund, ride } from "../engine";
 import { newPractice, practiceBrake, practiceJump, practiceView, simRiders, type PracticeRider } from "./session";
 
-/** All zeros: the engine's longest ride (crash at 120 s; screws at 1:40, panel at 1:52, sparks at 1:57). */
+/** All zeros: the engine's longest ride (the Bomb at 120 s, the cap). */
 const LONG = new Uint8Array(32);
 const seed = (n: number) => Uint8Array.from({ length: 32 }, (_, i) => (n * 131 + i * 17 + ((n >> 3) ^ i)) & 0xff);
 
@@ -16,41 +16,41 @@ const result = (v: ReturnType<typeof practiceView>): Result => {
 };
 const gets = (v: Result) => Object.fromEntries(v.rows.map((r) => [r.me ? "You" : r.name, Number(r.gets)]));
 
-describe("a Practice ride pays what a 500 entry would have", () => {
-  it("the spec's worked example, as Dee: 813 / 630 / 578 / 350 / 0, fees 129", () => {
-    // Ana Jumps at 25 s, Cy, Ben, then Dee (you) at 95-100 s; Eve stays aboard.
-    let p = newPractice(LONG, [rider("Ana", 25_000), rider("Ben", 97_000), rider("Cy", 95_000), rider("Eve", NEVER)]);
-    p = practiceJump(p, 99_000);
+describe("a Practice ride pays what a 100 entry would have", () => {
+  it("the spec's worked example, as Dee: 203 / 142 / 125 / 0 / 0, fees 30", () => {
+    // Ana Jumps at 8 s, Cy, Ben, then Dee (you) at 27-29 s; Eve stays aboard.
+    let p = newPractice(LONG, [rider("Ana", 8_000), rider("Ben", 28_000), rider("Cy", 27_000), rider("Eve", NEVER)]);
+    p = practiceJump(p, 29_000);
     const v = result(practiceView(p, 120_000));
-    expect(gets(v)).toEqual({ You: 813, Ben: 630, Cy: 578, Ana: 350, Eve: 0 });
-    expect(Number(v.fees)).toBe(129);
-    expect(v.mine).toMatchObject({ headline: "Last off", gets: 813n, won: 313n });
+    expect(gets(v)).toEqual({ You: 203, Ben: 142, Cy: 125, Ana: 0, Eve: 0 });
+    expect(Number(v.fees)).toBe(30);
+    expect(v.mine).toMatchObject({ headline: "Last off", gets: 203n, won: 103n });
     expect(v.wallMs).toBe(120_000);
   });
 
-  it("ten aboard: one early Jump at 25 s, three placed, six aboard at Impact", () => {
-    // Pot 5,000; 350 back to Ana; fees 6% of 4,650 = 279; 3,150 forfeited - 279 = 2,871 split 1,724 / 717 / 430.
-    let p = newPractice(LONG, [rider("Ana", 25_000), rider("Ben", 97_000), rider("Cy", 95_000), ...["Eve", "Fin", "Gus", "Hal", "Ivy", "Jo"].map((n) => rider(n, NEVER))]);
-    p = practiceJump(p, 99_000);
+  it("ten aboard: one early Jump at 8 s, three placed, six aboard at Impact", () => {
+    // Pot 1,000; nothing back to Ana; fees 6% = 60; 700 forfeited - 60 = 640 split 384 / 160 / 96.
+    let p = newPractice(LONG, [rider("Ana", 8_000), rider("Ben", 28_000), rider("Cy", 27_000), ...["Eve", "Fin", "Gus", "Hal", "Ivy", "Jo"].map((n) => rider(n, NEVER))]);
+    p = practiceJump(p, 29_000);
     const v = result(practiceView(p, 120_000));
-    expect(gets(v)).toMatchObject({ You: 2_224, Ben: 1_217, Cy: 930, Ana: 350, Eve: 0, Jo: 0 });
-    expect(Number(v.fees)).toBe(279);
-    expect(Number(v.pot)).toBe(5_000);
-    expect(v.rows.reduce((a, r) => a + Number(r.gets), 0) + Number(v.fees)).toBe(5_000);
+    expect(gets(v)).toMatchObject({ You: 484, Ben: 260, Cy: 196, Ana: 0, Eve: 0, Jo: 0 });
+    expect(Number(v.fees)).toBe(60);
+    expect(Number(v.pot)).toBe(1_000);
+    expect(v.rows.reduce((a, r) => a + Number(r.gets), 0) + Number(v.fees)).toBe(1_000);
   });
 
   it("you aboard at Impact get nothing; a Jump after Impact counts as aboard", () => {
-    let p = newPractice(LONG, [rider("Ana", 25_000), rider("Ben", 97_000), rider("Cy", 95_000), rider("Dee", 99_000)]);
+    let p = newPractice(LONG, [rider("Ana", 8_000), rider("Ben", 28_000), rider("Cy", 27_000), rider("Dee", 29_000)]);
     p = practiceJump(p, 120_000);
     const v = result(practiceView(p, 121_000));
     expect(v.mine).toMatchObject({ headline: "Aboard at Impact", gets: 0n });
-    expect(gets(v)).toMatchObject({ Dee: 813, Ben: 630, Cy: 578, Ana: 350, You: 0 });
+    expect(gets(v)).toMatchObject({ Dee: 203, Ben: 142, Cy: 125, Ana: 0, You: 0 });
   });
 
   it("nobody Jumps: every entry back, no fees", () => {
     const v = result(practiceView(newPractice(LONG, [rider("Ana", NEVER), rider("Ben", NEVER)]), 120_000));
     expect(v.outcome).toBe("refund");
-    expect(v.mine).toMatchObject({ headline: "Nobody jumped", gets: 500n });
+    expect(v.mine).toMatchObject({ headline: "Nobody jumped", gets: 100n });
     expect(Number(v.fees)).toBe(0);
   });
 });
@@ -82,7 +82,7 @@ describe("a Practice ride is the engine's ride", () => {
     }
   });
 
-  it("my Brake halves the car for 5 s: Impact moves by the engine's rule, and an early Jump is refunded by track position", () => {
+  it("my Brake halves the car for 5 s: Impact moves by the engine's rule, and an early Jump still brings nothing back", () => {
     const s = seed(9);
     const r = ride(s);
     let p = newPractice(s, [rider("Ana", NEVER)]);
@@ -92,7 +92,8 @@ describe("a Practice ride is the engine's ride", () => {
     expect(practiceView(p, impactMs([4_000], r.crashMs) - 1).phase).toBe("ride");
     p = practiceJump(p, 8_000);
     const v = practiceView(p, 8_500);
-    expect(v.phase === "ride" && v.me).toMatchObject({ aboard: false, jumpMs: 8_000, back: refund(500n, positionMs([4_000], 8_000)) });
+    expect(v.phase === "ride" && v.me).toMatchObject({ aboard: false, jumpMs: 8_000, back: refund(100n, positionMs([4_000], 8_000)) });
+    expect(v.phase === "ride" && v.me).toMatchObject({ back: 0n });
   });
 
   it("a Brake or a Jump after Impact does nothing, and a second Jump does nothing", () => {
@@ -106,52 +107,51 @@ describe("a Practice ride is the engine's ride", () => {
   });
 });
 
-/** The first seed from `from` whose ride is at least a minute and shows the panel and the sparks or not, as asked. */
+/** The first seed from `from` whose ride is at least 30 s and shows the panel and the sparks or not, as asked. */
 const seedShowing = (panel: boolean, sparks: boolean, also: (r: ReturnType<typeof ride>) => boolean = () => true): Uint8Array => {
   for (let n = 1; n < 5_000; n++) {
     const r = ride(seed(n));
-    if (r.crashMs >= 60_000 && (r.boltAtMs !== null) === panel && (r.sparkAtMs !== null) === sparks && also(r)) return seed(n);
+    if (r.crashMs >= 30_000 && (r.boltAtMs !== null) === panel && (r.sparkAtMs !== null) === sparks && also(r)) return seed(n);
   }
   throw new Error("no such ride");
 };
 
 describe("a later Tell is not promised (decisions Q39)", () => {
-  it("a ride with the panel and no sparks: the rider who gives the panel 10 s is paid, the one who holds for the sparks is aboard at Impact", () => {
+  it("a ride with the panel and no sparks: the rider who gives the panel 4.5 s is paid, the one who holds for the sparks is aboard at Impact", () => {
     const s = seedShowing(true, false);
     const r = ride(s);
-    const p = newPractice(s, [rider("Ben", NEVER, { boltReactMs: 9_000 }), rider("Cy", NEVER, { sparkReactMs: 1_000 })]);
+    const p = newPractice(s, [rider("Ben", NEVER, { boltReactMs: 4_500 }), rider("Cy", NEVER, { sparkReactMs: 1_000 })]);
     const v = result(practiceView(p, r.crashMs));
     const row = (name: string) => v.rows.find((x) => x.name === name)!;
-    // The panel is at least 8 s ahead, but 9 s is a bet: Ben is off only if this ride's panel led by more.
-    const benOff = r.crashMs - r.boltAtMs! > 9_000;
-    expect(row("Ben").kind).toBe(benOff ? "place" : "aboard");
-    if (benOff) expect(row("Ben").jumpMs).toBe(r.boltAtMs! + 9_000);
+    // The panel is at least 5 s ahead, so 4.5 s after it is always before the Bomb.
+    expect(row("Ben").kind).toBe("place");
+    expect(row("Ben").jumpMs).toBe(r.boltAtMs! + 4_500);
     expect(row("Cy").kind).toBe("aboard");
     // The panel shows and the sparks never do, to the last ms before the wall.
     const last = practiceView(p, r.crashMs - 1);
     expect(last.phase === "ride" && last.tells).toMatchObject({ panel: true, sparks: false });
   });
 
-  it("a ride that shows the screws and nothing else: a rider who gives the screws 20 s is off, and no later Tell ever shows", () => {
+  it("a ride that shows the screws and nothing else: a rider who gives the screws 8 s is off, and no later Tell ever shows", () => {
     const s = seedShowing(false, false);
     const r = ride(s);
-    const p = newPractice(s, [rider("Ana", NEVER, { screwsWaitMs: 19_000 }), rider("Ben", NEVER, { boltReactMs: 1_000, sparkReactMs: 1_000 })]);
+    const p = newPractice(s, [rider("Ana", NEVER, { screwsWaitMs: 8_000 }), rider("Ben", NEVER, { boltReactMs: 1_000, sparkReactMs: 1_000 })]);
     const v = result(practiceView(p, r.crashMs));
     const row = (name: string) => v.rows.find((x) => x.name === name)!;
-    // Ana left 19 s after a screw: a false one if one stood alone that long, else the real ones (at least 20 s ahead).
+    // Ana left 8 s after a screw: a false one if one stood alone that long, else the real ones (at least 9 s ahead).
     expect(row("Ana").kind).toBe("place");
-    expect(row("Ana").jumpMs).toBeLessThanOrEqual(r.screwAtMs + 19_000);
+    expect(row("Ana").jumpMs).toBeLessThanOrEqual(r.screwAtMs + 8_000);
     expect(row("Ben").kind).toBe("aboard");
     const last = practiceView(p, r.crashMs - 1);
     expect(last.phase === "ride" && last.tells).toEqual({ screws: r.falseScrews.length + 1, panel: false, sparks: false });
   });
 
   it("a wait on the panel ends when the sparks show, and a wait on a screw ends at the next Tell", () => {
-    // A ride whose last false screw is under 40 s before the real ones, so no screw stands alone for 45 s.
-    const s = seedShowing(true, true, (x) => x.screwAtMs - (x.falseScrews.at(-1) ?? x.screwAtMs) < 40_000);
+    // A ride whose last false screw is under 20 s before the real ones, so no screw stands alone for 25 s.
+    const s = seedShowing(true, true, (x) => x.screwAtMs - (x.falseScrews.at(-1) ?? x.screwAtMs) < 20_000);
     const r = ride(s);
-    // Ben would leave 30 s after the panel and Ana 45 s after a screw: the next Tell comes first, and nothing else moves them.
-    const p = newPractice(s, [rider("Ana", NEVER, { screwsWaitMs: 45_000 }), rider("Ben", NEVER, { boltReactMs: 30_000 }), rider("Cy", NEVER, { boltReactMs: 30_000, sparkReactMs: 1_200 })]);
+    // Ben would leave 30 s after the panel and Ana 25 s after a screw: the next Tell comes first, and nothing else moves them.
+    const p = newPractice(s, [rider("Ana", NEVER, { screwsWaitMs: 25_000 }), rider("Ben", NEVER, { boltReactMs: 30_000 }), rider("Cy", NEVER, { boltReactMs: 30_000, sparkReactMs: 1_200 })]);
     const v = result(practiceView(p, r.crashMs));
     const row = (name: string) => v.rows.find((x) => x.name === name)!;
     expect([row("Ana").kind, row("Ben").kind]).toEqual(["aboard", "aboard"]);
@@ -190,9 +190,9 @@ describe("the simulated riders", () => {
   });
 
   it("Jump at believable times: some early, most near the wall, some greedy enough to stay aboard", () => {
-    // On rides of a minute or more, a few riders are off in the first 20 s.
-    const longRows = rides.filter(({ v }) => v.wallMs >= 60_000).flatMap(({ v }) => v.rows.filter((r) => !r.me));
-    const early = longRows.filter((r) => r.jumpMs !== undefined && r.jumpMs < 20_000).length / longRows.length;
+    // On rides of 30 s or more, a few riders are off in the first 10 s.
+    const longRows = rides.filter(({ v }) => v.wallMs >= 30_000).flatMap(({ v }) => v.rows.filter((r) => !r.me));
+    const early = longRows.filter((r) => r.jumpMs !== undefined && r.jumpMs < 10_000).length / longRows.length;
     const aboard = riderRows.filter((r) => r.kind === "aboard").length / riderRows.length;
     const nearWall = rides.flatMap(({ v }) => v.rows.filter((r) => !r.me && r.kind === "place" && r.jumpMs !== undefined && v.wallMs - r.jumpMs < 8_000)).length;
     const places = rides.flatMap(({ v }) => v.rows.filter((r) => !r.me && r.kind === "place")).length;

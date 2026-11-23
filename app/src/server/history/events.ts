@@ -16,6 +16,16 @@ const coder = new anchor.BorshEventCoder(coreIdl as anchor.Idl);
 const RAILCAR = new PublicKey((railcarIdl as { address: string }).address);
 const RAILCAR_EVENT_AUTHORITY = PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], RAILCAR)[0].toBase58();
 const railcarCoder = new anchor.BorshEventCoder(railcarIdl as anchor.Idl);
+/** `RideRevealed` as the program emitted it before the rules byte at its tail (Railcar ticket 31): the same event, shorter. */
+function legacyRevealCoder() {
+  const idl = railcarIdl as anchor.Idl;
+  const reveal = idl.types?.find((t) => t.name === "RideRevealed");
+  if (!reveal || reveal.type.kind !== "struct" || !reveal.type.fields) throw new Error("Missing RideRevealed layout");
+  const named = reveal.type.fields;
+  if (!named.every((f): f is IdlField => typeof f === "object" && f !== null && "name" in f)) throw new Error("RideRevealed requires named fields");
+  return new anchor.BorshEventCoder({ ...idl, events: idl.events?.filter((e) => e.name === "RideRevealed"), types: idl.types?.map((t) => (t === reveal ? { ...reveal, type: { ...reveal.type, fields: named.filter((f) => f.name !== "rules") } } : t)) });
+}
+const legacyReveal = legacyRevealCoder();
 // sha256("event:<name>")[..8], pinned independently of the IDL so a missing IDL event fails closed.
 const CHUNK_DISC = "f9dcbc7080eb500a";
 const LINE_DISCS = new Set(["2c6817949b2b6a55", CHUNK_DISC]);
@@ -230,11 +240,19 @@ function rideRecords(inner: InnerInstruction[]): RideRevealedRecord[] {
     if (ix.programId !== RAILCAR.toBase58() || ix.accounts[0] !== RAILCAR_EVENT_AUTHORITY) continue;
     const data = Buffer.from(ix.data);
     if (data.length <= 8 || !data.subarray(0, 8).equals(EVENT_TAG)) continue;
+    const encoded = data.subarray(8).toString("base64");
     let event;
     try {
-      event = railcarCoder.decode(data.subarray(8).toString("base64"));
+      event = railcarCoder.decode(encoded);
     } catch {
       event = null;
+    }
+    if (!event) {
+      try {
+        event = legacyReveal.decode(encoded);
+      } catch {
+        event = null;
+      }
     }
     if (!event) throw new Error("Cannot decode a Railcar event; history cursor must wait");
     if (event.name !== "RideRevealed") continue;
@@ -253,6 +271,7 @@ function rideRecords(inner: InnerInstruction[]): RideRevealedRecord[] {
         draw: draw.some((b) => b !== 0) ? hex(draw) : null,
         brakes: d.brakes.map((b: any) => ({ seat: b.seat, ms: b.ms })),
         seats: d.seats.map((s: any) => ({ seat: s.seat, player: key(s.player), funder: key(s.backer ?? s.player), shareBps: s.share_bps, order: s.order, jumpMs: s.jump_ms, refund: num(s.refund) })),
+        ...(typeof d.rules === "number" && d.rules > 0 ? { rules: d.rules as 1 | 2 | 3 } : {}),
       },
     });
   }

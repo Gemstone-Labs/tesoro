@@ -12,8 +12,8 @@ describe("the Games a Request can name: every listed head-to-head Game, and Rail
     expect(backedGameOf(Keypair.generate().publicKey, true)).toBeNull();
   });
 
-  it("a Railcar Request is for its one entry, 500 Gemas, and names Railcar's program", () => {
-    expect(backedEntries("railcar")).toEqual([500]);
+  it("a Railcar Request is for its one entry, 100 Gemas, and names Railcar's program", () => {
+    expect(backedEntries("railcar")).toEqual([100]);
     expect(backedEntries("holdem")).toBeNull();
     expect(backedProgram("railcar").equals(RAILCAR_PROGRAM_ID)).toBe(true);
     expect(backedProgram("vanguard").equals(GAME_IDS.vanguard)).toBe(true);

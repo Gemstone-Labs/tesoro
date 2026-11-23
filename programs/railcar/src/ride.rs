@@ -167,8 +167,9 @@ pub fn jump(t: &mut Table, i: usize, slot: u64) -> Result<bool, RideError> {
 }
 
 /// Ends the ride at ride ms `over_ms`: with nobody off every entry comes back, otherwise the last
-/// three Jumps are placed (last off first) and the earlier Jumps get the schedule's refund at
-/// their Jump position.
+/// three Jumps are placed (last off first) and every other seat, off early or aboard at Impact,
+/// loses its entry (no Early-jump refund since rules round 2, decisions Q40: each seat's `refund`
+/// stays 0).
 pub fn conclude(t: &mut Table, v: &Vault, over_ms: u32, now: i64) {
     let m = usize::from(t.jumps);
     let mut by_order = [NO_SEAT; MAX_SEATS as usize];
@@ -177,7 +178,6 @@ pub fn conclude(t: &mut Table, v: &Vault, over_ms: u32, now: i64) {
             by_order[usize::from(s.order) - 1] = i as u8;
         }
     }
-    let entry = t.entry();
     t.places = [NO_SEAT; 3];
     if m == 0 {
         t.outcome = OUTCOME_REFUND;
@@ -186,13 +186,6 @@ pub fn conclude(t: &mut Table, v: &Vault, over_ms: u32, now: i64) {
         let placed = m.min(3);
         for k in 0..placed {
             t.places[k] = by_order[m - 1 - k];
-        }
-        // Jump order is ride-time order: one walk over the presses gives every position
-        let mut slow = Slowed::new(v.pressed());
-        for &i in &by_order[..m - placed] {
-            let s = &mut t.seats[usize::from(i)];
-            let refund = engine::refund(entry, slow.position_ms(s.jump_ms()));
-            s.set_refund(refund);
         }
         t.outcome = OUTCOME_PLACED;
         t.reason = REASON_PLAYED;
@@ -207,48 +200,6 @@ pub fn void(t: &mut Table, v: Option<&Vault>, reason: u8, now: i64) {
     t.outcome = OUTCOME_REFUND;
     t.reason = reason;
     finish(t, v, 0, now);
-}
-
-/// Track positions of ascending ride times under ascending presses, walking the presses once
-/// (no allocation: the ride's end must fit any transaction that ends it).
-pub struct Slowed<'a> {
-    presses: &'a [u32],
-    next: usize,
-    /// End of the last slow piece already wholly before the queried time.
-    end: u64,
-    /// Slow ms of those pieces.
-    full: u64,
-}
-
-impl<'a> Slowed<'a> {
-    pub fn new(presses: &'a [u32]) -> Self {
-        Self {
-            presses,
-            next: 0,
-            end: 0,
-            full: 0,
-        }
-    }
-
-    /// Track ms at ride ms `t`; `t` must not be below the previous query's.
-    pub fn position_ms(&mut self, t: u32) -> u32 {
-        let t = u64::from(t);
-        let brake = u64::from(BRAKE_MS);
-        let mut slowed = self.full;
-        while let Some(&p) = self.presses.get(self.next) {
-            let start = u64::from(p).max(self.end);
-            if start + brake <= t {
-                self.full += brake;
-                self.end = start + brake;
-                self.next += 1;
-                slowed = self.full;
-            } else {
-                slowed = self.full + t.saturating_sub(start);
-                break;
-            }
-        }
-        u32::try_from((2 * t - slowed) / 2).unwrap_or(u32::MAX)
-    }
 }
 
 /// What the end of a ride makes public: the draw and every Brake (from the Vault's press list),
@@ -278,7 +229,8 @@ fn finish(t: &mut Table, v: Option<&Vault>, over_ms: u32, now: i64) {
     t.set_over_at(now);
 }
 
-/// What core is told: places with their shares (last off first), refunds by core seat.
+/// What core is told: places with their shares (last off first) and the refunds by core seat
+/// (none since rules round 2: every seat's `refund` is 0 and the list stays empty).
 pub fn result(t: &Table) -> Option<ManySeatResult> {
     match t.outcome {
         OUTCOME_REFUND => Some(ManySeatResult::Refund),

@@ -1,22 +1,84 @@
-// Railcar rules, mirrored from programs/railcar/src/engine.rs.
+// Railcar rules, mirrored from programs/railcar/src/engine.rs (rules round 2, decisions Q40).
 // Integer math only; tests replay programs/railcar/tests/vectors.json and fail on drift.
 // Times are milliseconds; track positions are milliseconds at full speed.
+//
+// A car records the rules it left under (`Table.rules`), so the round history replays an old car with its own odds and
+// payouts: round 1 (every Tell shown, the Early-jump refund), Q39 (later Tells not promised) and round 2 (this file's
+// constants). The two older sets are frozen here and held to `vectors-round1.json`, which the round 1 Rust engine wrote.
 
-export const MIN_CRASH_MS = 10_000;
+/** The rules a car left under: 1 round 1, 2 later Tells not promised (Q39), 3 rules round 2 (Q40). */
+export type RulesVersion = 1 | 2 | 3;
+export const RULES_ROUND1 = 1 as const;
+export const RULES_Q39 = 2 as const;
+export const RULES_Q40 = 3 as const;
+/** What the program writes on a car today. */
+export const RULES_CURRENT: RulesVersion = RULES_Q40;
+
+export const MIN_CRASH_MS = 5_000;
 export const MAX_CRASH_MS = 120_000;
-export const MEDIAN_MS = 30_000n;
+/** Median of the random part: half of all rides end by `MIN_CRASH_MS + MEDIAN_MS`. */
+export const MEDIAN_MS = 20_000n;
 export const BRAKE_MS = 5_000;
 export const RIDE_CAP_MS = 600_000;
 
-export const SCREW_LEAD = [20_000, 40_000] as const;
-export const BOLT_LEAD = [8_000, 15_000] as const;
-export const SPARK_LEAD = [3_000, 8_000] as const;
+export const SCREW_LEAD = [9_000, 18_000] as const;
+export const BOLT_LEAD = [5_000, 9_000] as const;
+export const SPARK_LEAD = [3_000, 5_000] as const;
 /**
  * Later Tells are not promised (decisions Q39): a ride shows the bolt and panel on 3 rides in 4 and the sparks on 2 rides
  * in 3, each on its own (`[shows, of]`). The screws show on every ride. A Tell that does not show is never announced.
  */
 export const BOLT_SHOWS = [3, 4] as const;
 export const SPARK_SHOWS = [2, 3] as const;
+
+type Range = readonly [number, number];
+
+interface RuleSet {
+  minCrashMs: number;
+  medianMs: bigint;
+  /** The random part after the safe start: an exponential (round 1) or a Weibull of shape 2 (round 2). */
+  curve: "exponential" | "weibull";
+  screwLead: Range;
+  boltLead: Range;
+  sparkLead: Range;
+  /** False screws fall in `[falseFromMs, falseFromMs + falseSpanMs]`. */
+  falseFromMs: number;
+  falseSpanMs: number;
+  /** Every Tell shows (before Q39). */
+  everyTell: boolean;
+  /** The Early-jump refund schedule applies (before Q40). */
+  earlyRefund: boolean;
+}
+
+const ROUND1: RuleSet = {
+  minCrashMs: 10_000,
+  medianMs: 30_000n,
+  curve: "exponential",
+  screwLead: [20_000, 40_000],
+  boltLead: [8_000, 15_000],
+  sparkLead: [3_000, 8_000],
+  falseFromMs: 2_000,
+  falseSpanMs: 16_000,
+  everyTell: true,
+  earlyRefund: true,
+};
+
+const RULE_SETS: Record<RulesVersion, RuleSet> = {
+  1: ROUND1,
+  2: { ...ROUND1, everyTell: false },
+  3: {
+    minCrashMs: MIN_CRASH_MS,
+    medianMs: MEDIAN_MS,
+    curve: "weibull",
+    screwLead: SCREW_LEAD,
+    boltLead: BOLT_LEAD,
+    sparkLead: SPARK_LEAD,
+    falseFromMs: 1_000,
+    falseSpanMs: 8_000,
+    everyTell: false,
+    earlyRefund: false,
+  },
+};
 
 const MASK = (1n << 64n) - 1n;
 
@@ -68,39 +130,51 @@ function negLog2Q32(w: bigint): bigint {
   return (64n << 32n) - ((k << 32n) + frac);
 }
 
-function crashFrom(w: bigint): number {
-  const extra = (MEDIAN_MS * negLog2Q32(w)) >> 32n;
-  const total = BigInt(MIN_CRASH_MS) + extra;
+/** floor(sqrt(n)) by Newton's method, as the Rust engine takes it. */
+function isqrt(n: bigint): bigint {
+  if (n < 2n) return n;
+  let x = 1n << BigInt(Math.ceil(n.toString(2).length / 2));
+  for (;;) {
+    const y = (x + n / x) >> 1n;
+    if (y >= x) return x;
+    x = y;
+  }
+}
+
+/**
+ * Crash point in track ms: the safe part, then the median times `-log2 U` (an exponential, round 1) or its square root (a
+ * Weibull of shape 2, round 2), capped.
+ */
+function crashFrom(w: bigint, set: RuleSet): number {
+  const log = negLog2Q32(w);
+  const extra = set.curve === "weibull" ? (set.medianMs * isqrt(log << 32n)) >> 32n : (set.medianMs * log) >> 32n;
+  const total = BigInt(set.minCrashMs) + extra;
   return Number(total > BigInt(MAX_CRASH_MS) ? BigInt(MAX_CRASH_MS) : total);
 }
 
-const lead = (w: bigint, [lo, hi]: readonly [number, number]) =>
-  lo + Number(w % BigInt(hi - lo + 1));
+const lead = (w: bigint, [lo, hi]: Range) => lo + Number(w % BigInt(hi - lo + 1));
 
-/**
- * The whole ride from the VRF output. `everyTell` replays a ride from before Tells could be absent (decisions Q39): the
- * crash point, the leads and the false screws of a draw are the same either way.
- */
-export function ride(draw: Uint8Array, o: { everyTell?: boolean } = {}): Ride {
+/** The whole ride from the VRF output under `rules` (the rules the car left under; today's when not said). */
+export function ride(draw: Uint8Array, o: { rules?: RulesVersion } = {}): Ride {
   if (draw.length !== 32) throw new Error("draw must be 32 bytes");
+  const set = RULE_SETS[o.rules ?? RULES_CURRENT];
   const [w0, w1, w2, w3] = [0, 1, 2, 3].map((i) => word(draw, i));
-  const crashMs = crashFrom(w0);
-  const screwLeadMs = lead(w1, SCREW_LEAD);
+  const crashMs = crashFrom(w0, set);
+  const screwLeadMs = lead(w1, set.screwLead);
   const at = (l: number) => Math.max(0, crashMs - l);
   const screwAtMs = at(screwLeadMs);
 
   const s = { v: w1 ^ rotl(w2, 21n) ^ rotl(w3, 42n) ^ rotl(w0, 7n) };
   const count = 2 + Number(splitmix(s) % 3n);
   const candidates: number[] = [];
-  for (let i = 0; i < count; i++)
-    candidates.push(2_000 + Number(splitmix(s) % 16_001n));
+  for (let i = 0; i < count; i++) candidates.push(set.falseFromMs + Number(splitmix(s) % BigInt(set.falseSpanMs + 1)));
   candidates.sort((a, b) => a - b);
   const falseScrews = candidates.filter((c) => c + 1_000 <= screwAtMs);
   // Drawn after the false screws, in this order, as the Rust engine does.
-  const shows = ([n, of]: readonly [number, number]) => splitmix(s) % BigInt(of) < BigInt(n);
+  const shows = ([n, of]: Range) => splitmix(s) % BigInt(of) < BigInt(n);
   const [boltShows, sparkShows] = [shows(BOLT_SHOWS), shows(SPARK_SHOWS)];
-  const boltLeadMs = boltShows || o.everyTell ? lead(w2, BOLT_LEAD) : null;
-  const sparkLeadMs = sparkShows || o.everyTell ? lead(w3, SPARK_LEAD) : null;
+  const boltLeadMs = boltShows || set.everyTell ? lead(w2, set.boltLead) : null;
+  const sparkLeadMs = sparkShows || set.everyTell ? lead(w3, set.sparkLead) : null;
 
   return {
     crashMs,
@@ -128,8 +202,7 @@ function slowPeriods(brakes: readonly number[]): [number, number][] {
 /** Track position (track ms, rounded down) after t real ms. */
 export function positionMs(brakes: readonly number[], t: number): number {
   let slowed = 0;
-  for (const [s, e] of slowPeriods(brakes))
-    slowed += Math.max(0, Math.min(e, t) - Math.min(s, t));
+  for (const [s, e] of slowPeriods(brakes)) slowed += Math.max(0, Math.min(e, t) - Math.min(s, t));
   return Math.floor((2 * t - slowed) / 2);
 }
 
@@ -156,23 +229,21 @@ export function impactMs(brakes: readonly number[], crashMs: number): number {
   return Math.min(t, RIDE_CAP_MS);
 }
 
-/** Early-jump refund in percent of the entry, by track position. */
-export function refundPct(position: number): number {
+/**
+ * Early-jump refund in percent of the entry, by track position. None since rules round 2 (decisions Q40): a Jump before
+ * the last three pays 0 wherever it lands. Round 1 cars keep their schedule for the history's replay.
+ */
+export function refundPct(position: number, rules: RulesVersion = RULES_CURRENT): number {
+  if (!RULE_SETS[rules].earlyRefund) return 0;
   if (position < 20_000) return 80;
-  if (position < 90_000)
-    return 70 - 10 * Math.floor((position - 20_000) / 10_000);
+  if (position < 90_000) return 70 - 10 * Math.floor((position - 20_000) / 10_000);
   if (position < 100_000) return 5;
   return 0;
 }
 
-export const refund = (entry: bigint, position: number): bigint =>
-  (entry * BigInt(refundPct(position))) / 100n;
+export const refund = (entry: bigint, position: number, rules: RulesVersion = RULES_CURRENT): bigint => (entry * BigInt(refundPct(position, rules))) / 100n;
 
-export const refundAt = (
-  entry: bigint,
-  brakes: readonly number[],
-  t: number,
-): bigint => refund(entry, positionMs(brakes, t));
+export const refundAt = (entry: bigint, brakes: readonly number[], t: number, rules: RulesVersion = RULES_CURRENT): bigint => refund(entry, positionMs(brakes, t), rules);
 
 /** Place shares in basis points, last Player off first. */
 export function placeSharesBps(placed: number): [number, number, number] {
@@ -183,19 +254,11 @@ export function placeSharesBps(placed: number): [number, number, number] {
 }
 
 /** Split amount between the placed Players; the rounding remainder goes to the top share. */
-export function split(
-  amount: bigint,
-  placed: number,
-): [bigint, bigint, bigint] {
+export function split(amount: bigint, placed: number): [bigint, bigint, bigint] {
   const bps = placeSharesBps(Math.min(placed, 3));
-  const out = bps.map((b) => (amount * BigInt(b)) / 10_000n) as [
-    bigint,
-    bigint,
-    bigint,
-  ];
+  const out = bps.map((b) => (amount * BigInt(b)) / 10_000n) as [bigint, bigint, bigint];
   if (bps[0] !== 0) out[0] += amount - (out[0] + out[1] + out[2]);
   return out;
 }
 
-export const hexToBytes = (h: string): Uint8Array =>
-  Uint8Array.from(h.match(/../g) ?? [], (b) => parseInt(b, 16));
+export const hexToBytes = (h: string): Uint8Array => Uint8Array.from(h.match(/../g) ?? [], (b) => parseInt(b, 16));

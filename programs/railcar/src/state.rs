@@ -16,8 +16,8 @@ pub const VRF_REQUEST_SEED: &[u8] = b"vrfreq";
 /// The PDA registered in tesoro_core as Railcar's settle authority.
 pub const AUTHORITY_SEED: &[u8] = b"authority";
 
-/// Every car's entry (decision Q3b: one entry, one Queue).
-pub const ENTRY_GEMAS: u64 = 500;
+/// Every car's entry (decision Q3b: one entry, one Queue; 100 since rules round 2, Q40).
+pub const ENTRY_GEMAS: u64 = 100;
 pub const MIN_SEATS: u8 = 5;
 pub const MAX_SEATS: u8 = 100;
 /// The countdown from the first time the car holds `MIN_SEATS` (decision Q30).
@@ -56,7 +56,7 @@ pub const TELL_SPARKS: u8 = 2;
 
 /// Ride outcomes.
 pub const OUTCOME_NONE: u8 = 0;
-/// The last Players off are placed, early Jumpers refunded by the schedule.
+/// The last Players off are placed; every other seat loses its entry.
 pub const OUTCOME_PLACED: u8 = 1;
 /// Every entry back in full, no fees.
 pub const OUTCOME_REFUND: u8 = 2;
@@ -79,6 +79,17 @@ pub const STALL_SECS: i64 = 5;
 
 /// No Table seat.
 pub const NO_SEAT: u8 = 255;
+
+/// The rules a car leaves under, written on its Table by `start_ride` so the round history replays
+/// an old car with its own odds and payouts. 0 on cars from before the field existed (the app
+/// tells round 1 from Q39 by car number for those).
+/// Round 1: every Tell shown, the Early-jump refund.
+pub const RULES_ROUND1: u8 = 1;
+/// Later Tells not promised (decisions Q39).
+pub const RULES_Q39: u8 = 2;
+/// Rules round 2 (decisions Q40): the Bomb's smooth rising odds, entry 100, no Early-jump refund.
+pub const RULES_Q40: u8 = 3;
+pub const RULES_CURRENT: u8 = RULES_Q40;
 
 /// Railcar's settings and its one boarding line. The upgrade authority names the operator and
 /// the number of Tables (fixed once the first car opened, since a car's Table is
@@ -258,7 +269,8 @@ pub struct RideSeat {
     pub reserved0: u8,
     /// Ride time of the Jump, real ms since the ride clock started.
     jump_ms: [u8; 4],
-    /// Gemas of the entry the result refunds (written when the ride ends).
+    /// Gemas of the entry the result refunds: 0 since rules round 2 (Q40), kept for the shape
+    /// core settles and for cars that rode under round 1.
     refund: [u8; 8],
     /// The Player's core Account.
     pub account: [u8; 32],
@@ -329,7 +341,9 @@ pub struct Table {
     pub req_pending: u8,
     pub req_count: u8,
     pub commit_tries: u8,
-    pub reserved0: [u8; 4],
+    /// The rules this car left under (`RULES_*`), written by `start_ride`.
+    pub rules: u8,
+    pub reserved0: [u8; 3],
     car_no: [u8; 8],
     /// The car this Table takes next (`car_no % tables == index`, strictly in order).
     next_car: [u8; 8],

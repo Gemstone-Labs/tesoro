@@ -190,6 +190,8 @@ pub struct RideRevealed {
     pub draw: [u8; 32],
     pub brakes: Vec<RevealedBrake>,
     pub seats: Vec<RevealedSeat>,
+    /// The rules the car left under (`state::RULES_*`); last, so older readers still decode the rest.
+    pub rules: u8,
 }
 
 /// One seated Player of a finished ride.
@@ -201,7 +203,7 @@ pub struct RevealedSeat {
     pub order: u8,
     /// Ride ms of the Jump (0 aboard).
     pub jump_ms: u32,
-    /// Gemas of the entry the result refunds.
+    /// Gemas of the entry the result refunds (0 since rules round 2).
     pub refund: u64,
     /// The Player's core Account.
     pub player: Pubkey,
@@ -238,7 +240,8 @@ impl RideReveal {
             + 4
             + brakes * 5
             + 4
-            + seats.len() * REVEALED_SEAT_MAX;
+            + seats.len() * REVEALED_SEAT_MAX
+            + 1;
         let mut data = Vec::with_capacity(cap);
         data.extend_from_slice(anchor_lang::event::EVENT_IX_TAG_LE);
         data.extend_from_slice(RideRevealed::DISCRIMINATOR);
@@ -271,6 +274,12 @@ impl RideReveal {
             share_bps: core.share_bps(),
         }
         .serialize(&mut self.data)?;
+        Ok(())
+    }
+
+    /// The tail after the seats: the rules the car left under.
+    fn rules(&mut self, rules: u8) -> Result<()> {
+        rules.serialize(&mut self.data)?;
         Ok(())
     }
 
@@ -637,8 +646,8 @@ pub mod railcar {
     // Base: boarding
     // ------------------------------------------------------------------------------------
 
-    /// Base, the opening Player. Opens the next car (core's many-seat open for 500 Gemas, 5 to
-    /// 100 seats, signed by Railcar's authority) when no car can still take seats. The opener
+    /// Base, the opening Player. Opens the next car (core's many-seat open at `ENTRY_GEMAS`, 5
+    /// to 100 seats, signed by Railcar's authority) when no car can still take seats. The opener
     /// boards with core's join like everyone else, in the same transaction.
     pub fn open_car(ctx: Context<OpenCar>, n: u64) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
@@ -744,7 +753,7 @@ pub mod railcar {
     // ------------------------------------------------------------------------------------
 
     /// Base, anyone. Reads base's committed copy of the car's Table and sends core the result, by
-    /// CPI signed by Railcar's authority: the places and early refunds, or a full refund. The
+    /// CPI signed by Railcar's authority: the places (no seat is refunded since rules round 2), or a full refund. The
     /// Table must name this car and Match, be over, and hold exactly the car's seated Players.
     /// `remaining_accounts`: every seat page of the car. Closes the car (its job is done).
     pub fn finalize<'info>(ctx: Context<'_, '_, 'info, 'info, Finalize<'info>>) -> Result<()> {
@@ -792,8 +801,8 @@ pub mod railcar {
 
     /// Base, anyone, once per car, after the rollup committed the car's finished ride and before
     /// `finalize` (which waits for it). Publishes the ride for the round history: the draw, every
-    /// Brake, and every seat with its Player, Backer, Offer share, Jump and refund
-    /// (`RideRevealed`). Checks the committed Table as `finalize` does. `remaining_accounts`:
+    /// Brake, every seat with its Player, Backer, Offer share, Jump and refund, and the rules the
+    /// car left under (`RideRevealed`). Checks the committed Table as `finalize` does. `remaining_accounts`:
     /// every seat page of the car.
     pub fn reveal_ride<'info>(ctx: Context<'_, '_, 'info, 'info, RevealRide<'info>>) -> Result<()> {
         let car = &ctx.accounts.car;
@@ -817,6 +826,7 @@ pub mod railcar {
                 Ok(())
             })?;
             require!(k == usize::from(seated), RailcarError::SeatsDiffer);
+            reveal.rules(t.rules)?;
             Ok(reveal)
         })?;
         ctx.accounts.car.revealed = true;
@@ -925,6 +935,7 @@ pub mod railcar {
             t.set_car_no(car.car_no);
             t.car = car.key().to_bytes();
             t.tesoro_match = match_key.to_bytes();
+            t.rules = RULES_CURRENT;
             t.set_entry(entry);
             t.seated = seated;
             t.aboard = seated;

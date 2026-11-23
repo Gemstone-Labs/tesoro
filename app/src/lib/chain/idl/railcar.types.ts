@@ -1327,7 +1327,7 @@ export type Railcar = {
       "name": "finalize",
       "docs": [
         "Base, anyone. Reads base's committed copy of the car's Table and sends core the result, by",
-        "CPI signed by Railcar's authority: the places and early refunds, or a full refund. The",
+        "CPI signed by Railcar's authority: the places (no seat is refunded since rules round 2), or a full refund. The",
         "Table must name this car and Match, be over, and hold exactly the car's seated Players.",
         "`remaining_accounts`: every seat page of the car. Closes the car (its job is done)."
       ],
@@ -1874,8 +1874,8 @@ export type Railcar = {
     {
       "name": "openCar",
       "docs": [
-        "Base, the opening Player. Opens the next car (core's many-seat open for 500 Gemas, 5 to",
-        "100 seats, signed by Railcar's authority) when no car can still take seats. The opener",
+        "Base, the opening Player. Opens the next car (core's many-seat open at `ENTRY_GEMAS`, 5",
+        "to 100 seats, signed by Railcar's authority) when no car can still take seats. The opener",
         "boards with core's join like everyone else, in the same transaction."
       ],
       "discriminator": [
@@ -2582,8 +2582,8 @@ export type Railcar = {
       "docs": [
         "Base, anyone, once per car, after the rollup committed the car's finished ride and before",
         "`finalize` (which waits for it). Publishes the ride for the round history: the draw, every",
-        "Brake, and every seat with its Player, Backer, Offer share, Jump and refund",
-        "(`RideRevealed`). Checks the committed Table as `finalize` does. `remaining_accounts`:",
+        "Brake, every seat with its Player, Backer, Offer share, Jump and refund, and the rules the",
+        "car left under (`RideRevealed`). Checks the committed Table as `finalize` does. `remaining_accounts`:",
         "every seat page of the car."
       ],
       "discriminator": [
@@ -4537,7 +4537,7 @@ export type Railcar = {
           {
             "name": "refund",
             "docs": [
-              "Gemas of the entry the result refunds."
+              "Gemas of the entry the result refunds (0 since rules round 2)."
             ],
             "type": "u64"
           },
@@ -4656,6 +4656,13 @@ export type Railcar = {
                 }
               }
             }
+          },
+          {
+            "name": "rules",
+            "docs": [
+              "The rules the car left under (`state::RULES_*`); last, so older readers still decode the rest."
+            ],
+            "type": "u8"
           }
         ]
       }
@@ -4728,7 +4735,8 @@ export type Railcar = {
           {
             "name": "refund",
             "docs": [
-              "Gemas of the entry the result refunds (written when the ride ends)."
+              "Gemas of the entry the result refunds: 0 since rules round 2 (Q40), kept for the shape",
+              "core settles and for cars that rode under round 1."
             ],
             "type": {
               "array": [
@@ -5089,11 +5097,18 @@ export type Railcar = {
             "type": "u8"
           },
           {
+            "name": "rules",
+            "docs": [
+              "The rules this car left under (`RULES_*`), written by `start_ride`."
+            ],
+            "type": "u8"
+          },
+          {
             "name": "reserved0",
             "type": {
               "array": [
                 "u8",
-                4
+                3
               ]
             }
           },

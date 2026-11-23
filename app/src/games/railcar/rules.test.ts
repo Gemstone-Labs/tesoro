@@ -1,33 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { crashOdds, payoutRows, refundRows, tellOdds, tellRows, workedExample } from "./rules";
+import { chanceInNextSecond, chanceRows, crashOdds, payoutRows, tellOdds, tellRows, workedExample } from "./rules";
 
-describe("Railcar published rules", () => {
-  it("publishes the crash odds from the spec", () => {
-    expect(crashOdds()).toEqual({ safeSeconds: 10, medianSeconds: 40, certainSeconds: 120, brakeSeconds: 5 });
+describe("Railcar published rules (round 2, decisions Q40)", () => {
+  it("publishes the crash odds from the spec: safe 5 s, half by 25 s, 9 in 10 by 41 s, 1 in about 190 past a minute, none past 2:00", () => {
+    expect(crashOdds()).toEqual({ safeSeconds: 5, medianSeconds: 25, nineInTenSeconds: 41, pastMinuteOneIn: 189, certainSeconds: 120, brakeSeconds: 5 });
   });
 
-  it("publishes how often each Tell shows and its range (decisions Q39)", () => {
+  it("publishes the chance in the next second at 10, 25 and 45 s: 1.9, 6.9 and 13.1 in 100, rising in a straight line", () => {
+    expect(chanceRows()).toEqual([
+      ["10 s", "1.9 in 100"],
+      ["25 s", "6.9 in 100"],
+      ["45 s", "13.1 in 100"],
+    ]);
+    expect(chanceInNextSecond(4)).toBe(0);
+    expect(chanceInNextSecond(5)).toBeGreaterThan(0);
+    for (let sec = 6; sec < 100; sec++) expect(chanceInNextSecond(sec)).toBeGreaterThan(chanceInNextSecond(sec - 1));
+  });
+
+  it("publishes how often each Tell shows and its range (decisions Q39, round 2 leads)", () => {
     expect(tellRows().map((r) => [r.shows, r.range])).toEqual([
-      ["Every ride", "20 to 40 seconds"],
-      ["3 rides in 4", "8 to 15 seconds"],
-      ["2 rides in 3", "3 to 8 seconds"],
+      ["Every ride", "9 to 18 seconds"],
+      ["3 rides in 4", "5 to 9 seconds"],
+      ["2 rides in 3", "3 to 5 seconds"],
     ]);
     expect(tellOdds()).toEqual({ sparksFloorSeconds: 3, screwsOnly: "1 ride in 12" });
-  });
-
-  it("publishes the Early-jump refund schedule from the spec", () => {
-    expect(refundRows()).toEqual([
-      ["Up to 20 s", "80%"],
-      ["20 to 30 s", "70%"],
-      ["30 to 40 s", "60%"],
-      ["40 to 50 s", "50%"],
-      ["50 to 60 s", "40%"],
-      ["60 to 70 s", "30%"],
-      ["70 to 80 s", "20%"],
-      ["80 to 90 s", "10%"],
-      ["90 to 100 s", "5%"],
-      ["After 100 s", "0%"],
-    ]);
   });
 
   it("publishes the payout split by number of Players who Jumped", () => {
@@ -38,11 +34,10 @@ describe("Railcar published rules", () => {
     ]);
   });
 
-  it("reproduces the spec's worked example to the Gema", () => {
+  it("reproduces the spec's worked example to the Gema: the Prize on the car 470, Dee 203, Ben 142, Cy 125, Ana 0, Eve 0", () => {
     const w = workedExample();
-    expect(w.potAfterRefunds).toBe(2150n);
-    expect(w.fees).toBe(129n);
-    expect(w.rest).toBe(521n);
-    expect(w.payouts).toEqual({ Dee: 813n, Ben: 630n, Cy: 578n, Ana: 350n, Eve: 0n });
+    expect([w.entry, w.pot, w.fees, w.prize, w.rest, w.anaRefund]).toEqual([100n, 500n, 30n, 470n, 170n, 0n]);
+    expect(w.payouts).toEqual({ Dee: 203n, Ben: 142n, Cy: 125n, Ana: 0n, Eve: 0n });
+    expect(Object.values(w.payouts).reduce((a, b) => a + b, 0n) + w.fees).toBe(500n);
   });
 });

@@ -3,7 +3,7 @@ import { PublicKey } from "@solana/web3.js";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import railcarIdl from "@/lib/chain/idl/railcar.json";
-import { ride } from "@/games/railcar/engine";
+import { RULES_Q39, ride } from "@/games/railcar/engine";
 import { replayRide } from "@/games/railcar/replay";
 import { amountText, bannerLine, shortKey } from "@/lib/chain/history";
 import { rideRecordOf } from "@/lib/chain/ride-history";
@@ -43,11 +43,11 @@ const OPENER = ANA;
 const T0 = 1_762_000_000;
 const MATCH = (n: number) => PublicKey.findProgramAddressSync([Buffer.from("match"), OPENER.toBuffer(), new BN(n).toArrayLike(Buffer, "le", 8)], CORE)[0];
 
-/** A draw whose wall stands at or after `minMs`. */
+/** A draw whose wall stands at or after `minMs` under round 1's rules (these reveals carry no rules byte: a Q39 car). */
 function drawFrom(minMs: number): Uint8Array {
   for (let i = 1; i < 10_000; i++) {
     const d = Uint8Array.from({ length: 32 }, (_, k) => (i * 31 + k * 7) % 256);
-    if (ride(d).crashMs >= minMs) return d;
+    if (ride(d, { rules: RULES_Q39 }).crashMs >= minMs) return d;
   }
   throw new Error("no draw");
 }
@@ -158,7 +158,7 @@ describe("Railcar rides in the Match history, from the reveal, the run's start a
     const page = await matchPage(rpc, { opener: OPENER.toBase58(), n: 1n });
     const r = replayRide(rideRecordOf(page!)!);
     expect(r.agrees).toBe(true);
-    expect(r.crashMs).toBe(ride(draw).crashMs);
+    expect(r.crashMs).toBe(ride(draw, { rules: RULES_Q39 }).crashMs);
     expect(r.seats.map((s) => s.gets)).toEqual([350n, 630n, 578n, 813n, 0n]);
   });
 

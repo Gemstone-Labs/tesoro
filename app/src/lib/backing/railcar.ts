@@ -1,26 +1,25 @@
 import { ENTRY_GEMAS } from "@/games/railcar/chain";
-import { placeSharesBps, refund } from "@/games/railcar/engine";
+import { MAX_CRASH_MS, placeSharesBps, refund } from "@/games/railcar/engine";
 import { planPayout } from "@/games/railcar/payout";
 import { seatSplit } from "@/games/railcar/view";
 import type { BackedGame } from "./games";
 
 const ENTRY = BigInt(ENTRY_GEMAS);
-/** Ride ms of the last step of the Early-jump refund schedule that pays anything (5%, 90 to 100 s). */
-const LAST_REFUND_MS = 95_000;
 
 /**
- * What a Railcar Offer means for each side, by the spec's worked example (5 Players, Ana Jumps early at 25 s): last off
- * wins 313 after fees on top of the entry. A place returns the Backer's entry first, then the winnings split by the
- * Offer; an early Jump's refund is the Backer's; aboard at Impact the Backer loses the entry and the Player nothing.
+ * What a Railcar Offer means for each side, by the spec's worked example (5 Players, Ana Jumps early at 8 s): last off
+ * wins 103 after fees on top of the entry. A place returns the Backer's entry first, then the winnings split by the
+ * Offer; an early Jump pays nothing (no Early-jump refund since rules round 2), so the Backer loses the entry as when
+ * the Player is aboard at Impact, and the Player nothing.
  */
 export function railcarOfferOutcomes(shareBps: number) {
-  const { won } = planPayout({ entry: ENTRY, seated: 5, shares: placeSharesBps(3), refunded: refund(ENTRY, 25_000), platformBps: 200, studioBps: 300, leaderboardBps: 100 });
+  const { won } = planPayout({ entry: ENTRY, seated: 5, shares: placeSharesBps(3), refunded: refund(ENTRY, 8_000), platformBps: 200, studioBps: 300, leaderboardBps: 100 });
   const exampleWon = won[0];
   const split = seatSplit({ gets: ENTRY + exampleWon, entry: ENTRY, placed: true, shareBps });
   return {
     exampleWon,
     place: { backer: split.backerGets - ENTRY, player: split.playerGets },
-    early: { mostBack: refund(ENTRY, 0), leastBack: refund(ENTRY, LAST_REFUND_MS), player: 0n },
+    early: { mostBack: refund(ENTRY, 0), leastBack: refund(ENTRY, MAX_CRASH_MS), player: 0n },
     aboard: { backer: -ENTRY, player: 0n },
   };
 }

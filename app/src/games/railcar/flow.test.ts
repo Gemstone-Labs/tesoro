@@ -9,7 +9,7 @@ const key = () => Keypair.generate().publicKey;
 const T0 = 1_762_300_000;
 
 const coreCar = (o: Partial<CarView> = {}): CarView =>
-  ({ address: key(), payer: key(), opener: key(), n: 0n, game: key(), settleAuthority: key(), studioOwner: null, entry: 500n, openedAt: T0, deadlineAbs: T0 + 7 * 86_400, minSince: 0, firstMinAt: 0, departedAt: 0, platformBps: 200, studioBps: 300, listed: true, minSeats: 5, maxSeats: 100, seated: 0, pages: 0, stage: "boarding", refundAfter: 0, run: {} as CarView["run"], ...o }) as CarView;
+  ({ address: key(), payer: key(), opener: key(), n: 0n, game: key(), settleAuthority: key(), studioOwner: null, entry: 100n, openedAt: T0, deadlineAbs: T0 + 7 * 86_400, minSince: 0, firstMinAt: 0, departedAt: 0, platformBps: 200, studioBps: 300, listed: true, minSeats: 5, maxSeats: 100, seated: 0, pages: 0, stage: "boarding", refundAfter: 0, run: {} as CarView["run"], ...o }) as CarView;
 const seat = (index: number, seated = true): SeatView => ({ index, seated, shareBps: 0, placeBps: 0, place: 0, potLines: 1, hold: 0, refund: 0n, player: key(), funder: key(), pot: key(), signer: key() });
 const page = (index: number, seatedCount: number): SeatPageView => ({ index, matchKey: key(), payer: key(), seats: Array.from({ length: 10 }, (_, i) => seat(index * 10 + i, i < seatedCount)) });
 const config = (o: Partial<{ nextCar: bigint; boardingMatch: PublicKey }> = {}) => ({ operator: key(), tables: 2, nextCar: 4n, boardingMatch: PublicKey.default, ...o });
@@ -105,11 +105,12 @@ const table = (o: Partial<TableView> = {}): TableView => ({
   aboard: 5,
   jumps: 0,
   places: [255, 255, 255],
+  rules: 3,
   carNo: 3n,
   nextCar: 5n,
   car: key(),
   tesoroMatch: key(),
-  entry: 500n,
+  entry: 100n,
   startedSlot: 0n,
   rideSlot: 0n,
   rideTs: T0,
