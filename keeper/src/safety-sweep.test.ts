@@ -5,7 +5,7 @@ import anchor from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { loadIdl } from "./runtime.ts";
 import { decodeCar } from "../../app/src/lib/chain/many-seat.ts";
-import { Deferred, GRACE_SECS, carHeadAt, headOf, memorySweepStore, RIDE_TIMEOUT_SECS, safetySweep, SLICE_LEN, type Head, type SweepDeps } from "./safety-sweep.ts";
+import { Deferred, GRACE_SECS, carHeadAt, headOf, memorySweepStore, RIDE_TIMEOUT_SECS, TRIES_BEFORE_ALERT, safetySweep, SLICE_LEN, type Head, type SweepDeps } from "./safety-sweep.ts";
 
 const coder = new anchor.Program(loadIdl("tesoro_core"), new anchor.AnchorProvider(new Connection("http://127.0.0.1:1"), new anchor.Wallet(Keypair.generate()), {})).coder.accounts;
 const fixture = Buffer.from((JSON.parse(readFileSync(new URL("../fixtures/core-layouts.json", import.meta.url), "utf8")) as Record<string, string>).match, "hex");
@@ -595,27 +595,31 @@ describe("the safety sweep: a Railcar ride whose pages are all gone", () => {
     assert.deepEqual(sent, []);
   });
 
-  it("sends a car that held its minimum and never left on its way, and leaves a short car alone", async () => {
-    const due = car(3, { stage: "open" }, { departedAt: 0, firstMinAt: T0 - RIDE_TIMEOUT_SECS });
+  it("asks every Boarding car's ride step each run, short or full: it steps off a seat whose Player is away, departs a car that is due, or steps all off once boarding has ended", async () => {
+    const due = car(3, { stage: "open" }, { departedAt: 0, firstMinAt: T0 - 30 });
     const short = car(4, { stage: "open" }, { departedAt: 0, seated: 4, firstMinAt: 0 });
     const asked: string[] = [];
     const { deps } = fake([due, short]);
     deps.ride = async (h) => void asked.push(h.address.toBase58());
     await run(deps, memorySweepStore(), T0);
-    assert.deepEqual(asked, [due.address.toBase58()]);
+    assert.deepEqual(asked.sort(), [due.address.toBase58(), short.address.toBase58()].sort());
   });
 
-  it("steps a Boarding car off once its boarding has ended, short or not: nobody can join or depart it any more", async () => {
-    // Four aboard waiting for a fifth, at the car's deadline less core's one-hour boarding margin.
-    const deadline = T0 + 3_600;
-    const short = car(8, { stage: "open", deadline }, { departedAt: 0, seated: 4, firstMinAt: 0 });
-    const asked: string[] = [];
-    const { deps } = fake([short]);
-    deps.ride = async (h) => void asked.push(h.address.toBase58());
-    await run(deps, memorySweepStore(), T0 - 1);
-    assert.deepEqual(asked, [], "boarding still open: the car waits for its fifth Player");
-    await run(deps, memorySweepStore(), T0);
-    assert.deepEqual(asked, [short.address.toBase58()]);
+  it("a Boarding car with nothing due waits every run without a try, so it never raises an alert (Ana's Self-Exclusion backstop is looked for each run)", async () => {
+    const waiting = car(8, { stage: "open", deadline: T0 + 7 * 86_400 }, { departedAt: 0, seated: 4, firstMinAt: 0 });
+    let asked = 0;
+    const { deps, sent } = fake([waiting]);
+    deps.ride = async () => {
+      asked++;
+      throw new Deferred("nothing a page would send yet");
+    };
+    const store = memorySweepStore();
+    for (let k = 0; k < TRIES_BEFORE_ALERT + 3; k++) {
+      const r = await run(deps, store, T0 + k * 300);
+      assert.deepEqual([r.candidates[0]?.case, r.alerts], ["ride", []]);
+    }
+    assert.equal(asked, TRIES_BEFORE_ALERT + 3);
+    assert.deepEqual(sent, []);
   });
 
   it("finishes a car core is settling or has paid after the usual grace, through the same finisher", async () => {

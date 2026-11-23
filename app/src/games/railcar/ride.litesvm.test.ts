@@ -87,9 +87,10 @@ import { railcarView } from "./view";
 import { finishRide } from "./finish";
 import { backerSeatedIn, boardingEntry, type BoardingBacking } from "./boarding";
 import { stepOffFor } from "./step-off";
+import { awayItemIx, readOwnBoardingSeats, stepsThatFit } from "../../lib/chain/away-flow";
 import { fuelPda, programConfigPda, railcarSetupPlan, readSetupFacts, setupProblems, type AccountReader, type SetupInput, type SetupStep } from "./setup";
 import { MAGICBLOCK } from "../../lib/cluster-settings";
-import { POOL, SIM_LST_ID, SIM_SOL_MINT, TOKEN_PROGRAM_ID, faucetIx, nativeCustodyPda, nativeVaultPda, openNativePositionIx, setPriceIx, takeNativeAdvanceIx } from "../../lib/chain/native";
+import { POOL, SIM_LST_ID, SIM_SOL_MINT, TOKEN_PROGRAM_ID, faucetIx, nativeCustodyPda, nativeVaultPda, openNativePositionIx, setPriceIx, setSelfExclusionIx, takeNativeAdvanceIx } from "../../lib/chain/native";
 
 const ROOT = join(process.cwd(), "..");
 const SO_DIR = process.env.RAILCAR_SO_DIR ?? join(ROOT, "target/deploy");
@@ -1351,5 +1352,57 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     expect(decodeTable(w.get(tablePda(car.table))!.data).nextCar).toBe(carNo + BigInt(config.tables));
     // The Queue opens the next car.
     expect(await w.board(w.rider())).toBe("open");
+  });
+
+  /** Five boarded, Ana first; the countdown runs (12 s of its 30 left). */
+  async function countdownWithAna() {
+    const w = await World.create();
+    const riders = Array.from({ length: 5 }, () => w.rider());
+    const [ana] = riders;
+    const anaAtStart = w.gemas(ana);
+    for (const p of riders) await w.board(p);
+    const config = decodeConfig(w.info(configPda())!.data);
+    const carNo = config.nextCar - 1n;
+    const car = decodeCarAccount(w.info(carPda(carNo))!.data);
+    const loaded = (await loadCar(w.reader(), car.tesoroMatch))!;
+    expect([loaded.car.stage, loaded.car.seated]).toEqual(["boarding", 5]);
+    w.setTime(loaded.car.firstMinAt + 18);
+    expect(w.gemas(ana)).toBe(anaAtStart - 100n);
+    return { w, ana, anaAtStart, car, carNo };
+  }
+
+  it("Ana Self-Excludes during the countdown and closes the app: her Self-Exclusion's own transaction steps her off, her 100 come home and the car waits for a fifth (Q40 review #2)", { timeout: 120_000 }, async () => {
+    const { w, ana, anaAtStart, car, carNo } = await countdownWithAna();
+    const core = new Program(coreIdl as Idl, { connection: {} } as unknown as AnchorProvider);
+    // The clean-up the Limits sheet's flow plans (`startAwayWithCleanup`): her seat in the boarding car, first.
+    const seats = await readOwnBoardingSeats(w.reader(), ana.account);
+    expect(seats.map((s) => s.seat.player)).toEqual([ana.account]);
+    const setIx = setSelfExclusionIx(ana.key, 6);
+    const stepOff = await awayItemIx(ana.key, w.relayer.publicKey, { kind: "step-off", ...seats[0] }, { core, read: w.reader() });
+    expect(stepsThatFit(w.relayer.publicKey, [setIx], [stepOff])).toBe(1);
+    // One transaction, as the flow sends it when the sponsor cannot pay (the Player's own fee): the Self-Exclusion and the step-off.
+    w.send([cu(1_000_000), setIx, stepOff], ana.kp);
+    expect(w.gemas(ana)).toBe(anaAtStart);
+    const after = (await loadCar(w.reader(), car.tesoroMatch))!;
+    expect([after.car.stage, after.car.seated]).toEqual(["boarding", 4]);
+    expect(after.seats.some((s) => s.seated && s.player.equals(ana.account))).toBe(false);
+    // Past the departure time the car is still Boarding with four: it leaves only when a fifth boards.
+    w.setTime(after.car.firstMinAt + 60);
+    w.send([cu(400_000), checkDepartureIx(carNo, car.tesoroMatch)], w.relayer);
+    expect((await loadCar(w.reader(), car.tesoroMatch))!.car.stage).toBe("boarding");
+  });
+
+  it("Ana's Self-Exclusion went through without her step-off: the keeper's sweep steps her off before the car can leave, and nobody else", { timeout: 120_000 }, async () => {
+    const { w, ana, anaAtStart, car } = await countdownWithAna();
+    const keeper = Keypair.generate();
+    w.svm.airdrop(keeper.publicKey, 100n * SOL);
+    // Nobody is away yet: the sweep has nothing to send before the departure time.
+    expect(await rideSweepStep(sweepOn(w, car.tesoroMatch, car.table, keeper))).toEqual({ wait: "nothing a page would send yet" });
+    w.send([cu(200_000), setSelfExclusionIx(ana.key, 6)], ana.kp);
+    const r = await rideSweepStep(sweepOn(w, car.tesoroMatch, car.table, keeper));
+    expect("sent" in r && r.sent.filter((x) => x.startsWith("step_off"))).toEqual([expect.stringMatching(/^step_off seat \d+ \(the Player is away\)$/)]);
+    expect(w.gemas(ana)).toBe(anaAtStart);
+    const after = (await loadCar(w.reader(), car.tesoroMatch))!;
+    expect([after.car.stage, after.car.seated]).toEqual(["boarding", 4]);
   });
 });
