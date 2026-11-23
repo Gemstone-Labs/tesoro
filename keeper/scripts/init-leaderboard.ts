@@ -7,10 +7,15 @@
  *
  * `--dry-run` only simulates the transaction. With `--oracle` it also says whether that key is the Config's
  * `oracle_authority` (the key the keeper's season job signs with).
+ *
+ * It refuses to change the fee while any Match or Railcar car is open (`feeChangeRefusal`): fees are read at settlement, so
+ * a change would move what an open Match pays (the Prize already shown on a car). A dry run prints the refusal.
  */
 import { PublicKey, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
 import { parseLeaderboardTerms } from "../../app/src/lib/chain/leaderboard.ts";
 import { adminSigning, parseArgs, programOverrides, resolveKey } from "../src/cli-args.ts";
+import { makeScanRpc } from "../src/credits.ts";
+import { feeChangeRefusal, matchHeads } from "../src/fee-guard.ts";
 import { configPda, coreIx } from "../src/launch-admin.ts";
 
 const argv = process.argv.slice(2);
@@ -19,7 +24,7 @@ const dryRun = a.flag("dry-run");
 const bps = a.value("bps") !== undefined ? Number(a.value("bps")) : 100;
 if (!Number.isInteger(bps) || bps < 0 || bps > 5000) throw new Error("--bps must be an integer from 0 to 5000");
 
-const { conn: c, keypair: admin, program: core } = await adminSigning(a, programOverrides(a.values("program")));
+const { conn: c, rpc, keypair: admin, program: core } = await adminSigning(a, programOverrides(a.values("program")));
 const CONFIG = configPda(core);
 
 const info = await c.getAccountInfo(CONFIG);
@@ -44,6 +49,10 @@ if (terms.recipient && terms.bps === bps) {
 }
 console.log(terms.recipient ? `leaderboard exists at ${terms.bps} bps; changing the fee to ${bps} bps` : `leaderboard not set up yet; initialising at ${bps} bps`);
 
+const refusal = feeChangeRefusal(await matchHeads(makeScanRpc(rpc, fetch, (p, cfg) => c.getProgramAccounts(p, cfg) as any), core));
+if (refusal && !dryRun) throw new Error(refusal);
+if (refusal) console.log(`WOULD BE REFUSED: ${refusal}`);
+
 const ix = coreIx(core, "init_leaderboard", { admin: admin.publicKey }, { leaderboard_bps: bps });
 const tx = new Transaction().add(ix);
 
@@ -53,7 +62,7 @@ if (dryRun) {
   const sim = await c.simulateTransaction(tx);
   console.log("dry run:", sim.value.err ? `WOULD FAIL ${JSON.stringify(sim.value.err)}` : `would succeed, ${sim.value.unitsConsumed} CU`);
   for (const l of sim.value.logs ?? []) console.log("  ", l);
-  process.exit(sim.value.err ? 1 : 0);
+  process.exit(sim.value.err || refusal ? 1 : 0);
 }
 const sig = await sendAndConfirmTransaction(c, tx, [admin]);
 console.log("init_leaderboard done", sig);
