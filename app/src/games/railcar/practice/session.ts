@@ -142,7 +142,7 @@ function practiceResult(p: Practice, all: Seat[]): Extract<RailcarView, { phase:
     ...all.filter((s) => s.jumpMs === null).map((s) => ({ ...s.rider, kind: "aboard" as const, gets: 0n })),
   ];
   const m = rows.find((r) => r.me)!;
-  const headline = m.kind === "place" ? PLACE_WORDS[(m.place ?? 1) - 1] : m.kind === "early" ? "Jumped early" : "Aboard at Impact";
+  const headline = m.kind === "place" ? PLACE_WORDS[(m.place ?? 1) - 1] : m.kind === "early" ? "Jumped early" : "Aboard at the blast";
   return { phase: "result", rows, fees: pay.fees.reduce((a, b) => a + b, 0n), pot, entry, wallMs, jumps, mine: { headline, gets: m.gets, won: m.kind === "place" ? m.gets - entry : 0n }, outcome: "placed" };
 }
 

@@ -73,18 +73,18 @@ export const RidingAnothersBrake = screen(fx.riding(fx.BEN), { brake: brake({}) 
 export const RidingAfterYourBrakeAndJump = screen(fx.riding(fx.PLAYERS[0], { jumpedMe: true, myBrakeMs: 15_000 }));
 const withTells = (v: RailcarView, tells: Tells): RailcarView => (v.phase === "ride" ? { ...v, tells } : v);
 const withTell = (v: RailcarView, stage: number): RailcarView => withTells(v, tellsUpTo(stage));
-/** The Tells change the car itself from the moment each fires: screws pop from the frame... */
+/** The bomb inside warns on the car itself from the moment each Tell fires: a faint amber light under the car and at the door seams (it flares at each screw heard)... */
 export const RidingTellScrews = screen(withTell(fx.riding(), 1));
-/** ...the panel works loose... */
+/** ...then an orange glow under the chassis and through the doors, the windows dim amber... */
 export const RidingTellPanel = screen(withTell(fx.riding(), 2));
-/** ...and sparks fly at the wheels. They all stay to the end of the ride. */
+/** ...then the whole body outlined in hot light, the windows white-hot. The latest stays to the end of the ride. */
 export const RidingTellSparks = screen(withTell(fx.riding(), 3));
-/** A later Tell is not promised: this ride shows the sparks and never the panel (three screws heard, false and real alike). */
+/** A later Tell is not promised: this ride shows the white-hot step and never the seams (three glows heard, false and real alike). */
 export const RidingSparksNoPanel = screen(withTells(fx.riding(), { screws: 3, panel: false, sparks: true }));
-/** This ride shows the screws and nothing else: the wall can come with no further warning. */
+/** This ride shows the first glow and nothing else: the bomb can go off with no further warning. */
 export const RidingScrewsOnly = screen(withTells(fx.riding(), { screws: 4, panel: false, sparks: false }));
 
-/** The crash: the ride turns into its Result, the car stops against the wall (shake, flash, debris, about a second), then the Result. Loops. */
+/** The explosion: the ride turns into its Result, the bomb goes off inside the car (shake, three frames, about a second), then the Result. Loops. */
 export const CrashBeforeResult: StoryObj = {
   render: function Crash() {
     const [n, setN] = useState(0);
@@ -104,7 +104,7 @@ function CrashCycle() {
   return <RailcarScreen view={over ? fx.workedResult() : withTell(fx.riding(), 3)} actions={actions} />;
 }
 
-/** The crash held on its impact (no timer): the car stopped, the shake, and the picked frames play over the car in 1 s: f1 flash, then f2 crumpled front held to the end. */
+/** The explosion on its own (no Result timer): the car stopped, the shake, and the three picked frames play over the car in about a second: windows blow out, the blast, the wreck held to the end. */
 export const CrashImpact: StoryObj = {
   render: () => (
     <div className="rc" style={{ maxWidth: 640 }}>
@@ -113,19 +113,19 @@ export const CrashImpact: StoryObj = {
   ),
 };
 
-/** A whole ride in about 14 s, no waiting: the car leaves and speeds up, Screws (bolts pop off), your Brake (half speed for 5 s), Panel, Sparks, the crash (the wall rushes in, flash, crumpled front, shake), then the Result. Replay restarts it. The real screen on a fixture with a fast ride clock. */
+/** A whole ride in about 14 s, no waiting: the car leaves and speeds up, the first glow, your Brake (half speed for 5 s), the glowing seams, white-hot, the bomb going off (shake, three frames), then the Result. Replay restarts it. The real screen on a fixture with a fast ride clock. */
 export const Showcase: StoryObj = { render: () => <RailcarShowcase /> };
 
 /** A Player watching a car they are not in. */
 export const RidingWatching = screen(fx.riding(null));
 
-/** The worked example, as Dee (last off): 813 / 630 / 578 / 350 / 0, fees 129, the wall at 1:44. */
+/** The worked example, as Dee (last off): 813 / 630 / 578 / 350 / 0, fees 129, the bomb at 1:44. */
 export const ResultLastOff = screen(fx.workedResult());
 /** The worked example as Ben (second-last off). */
 export const ResultSecondLastOff = screen(fx.workedResult(fx.BEN));
 /** The worked example as Ana (jumped early at 0:25, 70% back). */
 export const ResultJumpedEarly = screen(fx.workedResult(fx.ANA));
-/** The worked example as Eve (aboard at Impact). */
+/** The worked example as Eve (aboard at the blast). */
 export const ResultAboardAtImpact = screen(fx.workedResult(fx.EVE));
 /** The ride paid 350 Gemas into a full Account: one line under the amount says how many wait for room, with Claim. */
 const CAR = new PublicKey(new Uint8Array(32).fill(9));
@@ -216,11 +216,11 @@ export const SpectatorResult390: StoryObj = { ...SpectatorResult, ...phone };
 // ---- Round history: a finished ride's page --------------------------------------------------------------------------
 
 const history = (page: ReturnType<typeof fx.storedWorkedRide>, me: string | null): StoryObj => ({ render: () => <RideHistory page={page} me={me} actions={actions} /> });
-/** The worked example from the history, as Dee (last off): the Result, then the wall, the Tells, the draw and the replay's check. */
+/** The worked example from the history, as Dee (last off): the Result, then the bomb, the warnings, the draw and the replay's check. */
 export const RideFromHistory = history(fx.storedWorkedRide(), fx.DEE.toBase58());
 export const RideFromHistory390: StoryObj = { ...RideFromHistory, ...phone };
 export const RideFromHistory1440: StoryObj = { ...RideFromHistory, ...desk };
-/** Dee Braked at 1:30: the wall stays at 1:44 of track and comes at 1:46 on the clock. Seen by someone who did not ride. */
+/** Dee Braked at 1:30: the bomb stays at 1:44 of track and comes at 1:46 on the clock. Seen by someone who did not ride. */
 export const RideFromHistoryWithBrake = history(fx.storedWorkedRide({ brake: true }), null);
 /** A ride that did not show the sparks: the check lists the Tell as "Did not show". */
 export const RideFromHistoryNoSparks = history(fx.storedWorkedRide({ shows: { sparks: false } }), null);

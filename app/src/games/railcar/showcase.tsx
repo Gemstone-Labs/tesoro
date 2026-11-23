@@ -3,7 +3,7 @@
 /**
  * A short ride that plays itself, for Storybook: the real `RailcarScreen` (so the real stage, Tells, Brake and crash) driven by a
  * fixture and a fake ride clock that runs about 9x faster than real time, so the whole ride (speed-up, three Tells, the Player's
- * Brake, the wall) shows in about 14 s. Only the clock is compressed: the ride rules are untouched. Nothing here ships in the app.
+ * Brake, the bomb) shows in about 14 s. Only the clock is compressed: the ride rules are untouched. Nothing here ships in the app.
  */
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui";
@@ -24,9 +24,9 @@ const JUMPS: [number, number][] = [
   [8_000, 11],
 ];
 export const SHOWCASE_CRASH_MS = 11_500;
-/** The crash (the wall rushes in, impact, shake) holds the ride screen before the Result, then the Result rests for a moment. */
+/** The crash (the bomb goes off inside, shake) holds the ride screen before the Result, then the Result rests for a moment. */
 export const SHOWCASE_MS = SHOWCASE_CRASH_MS + CRASH_MS + 1_200;
-/** The wall of the worked example is at 1:44 of ride clock: the fake clock gets there as the car hits it. */
+/** The bomb of the worked example goes off at 1:44 of ride clock: the fake clock gets there as the car blows up. */
 const CLOCK_X = 104_000 / SHOWCASE_CRASH_MS;
 
 export interface ShowcaseFrame {
@@ -34,7 +34,7 @@ export interface ShowcaseFrame {
   brake: RailcarBrake | null;
 }
 
-/** Where the showcase stands `ms` after the departure, before any screen is built: null once the car has crashed. */
+/** Where the showcase stands `ms` after the departure, before any screen is built: null once the car has blown up. */
 export function showcaseMoment(ms: number) {
   if (ms >= SHOWCASE_CRASH_MS) return null;
   const tell = ms >= SPARKS_AT ? 3 : ms >= PANEL_AT ? 2 : ms >= SCREWS_AT ? 1 : 0;

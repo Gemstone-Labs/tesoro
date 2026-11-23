@@ -227,6 +227,6 @@ function resultOf(t: TableView, me: string | null, rates: FeeRates, core: CarVie
   rows.push(...early.map((s) => ({ ...rider(s.tableSeat), kind: "early" as const, jumpMs: s.jumpMs, gets: s.refund })));
   rows.push(...t.seats.filter((s) => s.order === 0).map((s) => ({ ...rider(s.tableSeat), kind: "aboard" as const, gets: 0n })));
   const m = rows.find((r) => r.me);
-  const mine = m ? { headline: m.kind === "place" ? PLACE_WORDS[(m.place ?? 1) - 1] : m.kind === "early" ? "Jumped early" : "Aboard at Impact", gets: m.gets, won: m.kind === "place" ? m.gets - entry : 0n } : null;
+  const mine = m ? { headline: m.kind === "place" ? PLACE_WORDS[(m.place ?? 1) - 1] : m.kind === "early" ? "Jumped early" : "Aboard at the blast", gets: m.gets, won: m.kind === "place" ? m.gets - entry : 0n } : null;
   return { phase: "result", rows, fees: pay.fees.reduce((a, b) => a + b, 0n), pot, entry, wallMs: t.overMs, jumps, mine, outcome: "placed" };
 }

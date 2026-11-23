@@ -128,7 +128,7 @@ export default function Page() {
           ["Ben", "Second-last off", g(p.Ben)],
           ["Cy", "Third-last off", g(p.Cy)],
           ["Ana", "Early-jump refund", g(p.Ana)],
-          ["Eve", "Aboard at Impact", g(p.Eve)],
+          ["Eve", "Aboard at the blast", g(p.Eve)],
         ]}
       />
       <p>Fees {g(w.fees)}, and the total is {g(w.pot)}.</p>

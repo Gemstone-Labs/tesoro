@@ -52,17 +52,17 @@ export function RideHistory({ page, me, actions = {} }: { page: RidePage; me: st
           <>
             <dl className="cut cut-card rc-check-facts">
               <div>
-                <dt>Crash point</dt>
+                <dt>Bomb time</dt>
                 <dd className="mono">{clock(r.crashMs)}</dd>
               </div>
               {r.impactMs !== null && r.impactMs !== r.crashMs && (
                 <div>
-                  <dt>Impact on the clock</dt>
+                  <dt>Blast on the clock</dt>
                   <dd className="mono">{clock(r.impactMs)}</dd>
                 </div>
               )}
             </dl>
-            <ol className="rc-check-tells" aria-label="Tells">
+            <ol className="rc-check-tells" aria-label="Warnings">
               {r.tells.map((t, i) => {
                 const { name, Icon } = TELLS[i];
                 return (
@@ -73,7 +73,7 @@ export function RideHistory({ page, me, actions = {} }: { page: RidePage; me: st
                       <span>Did not show</span>
                     ) : (
                       <>
-                        <span>{secs(t.leadMs)} before the wall</span>
+                        <span>{secs(t.leadMs)} before the bomb</span>
                         <span className="mono rc-check-at">{clock(t.atMs)}</span>
                       </>
                     )}
@@ -81,7 +81,7 @@ export function RideHistory({ page, me, actions = {} }: { page: RidePage; me: st
                 );
               })}
             </ol>
-            {r.falseScrewsMs.length > 0 && <p className="rc-check-note">False screws at {r.falseScrewsMs.map(clock).join(", ")} (shown as screws during the ride)</p>}
+            {r.falseScrewsMs.length > 0 && <p className="rc-check-note">False glows at {r.falseScrewsMs.map(clock).join(", ")} (shown as a glow during the ride)</p>}
           </>
         )}
         <h3 className="rc-check-sub">Brakes</h3>

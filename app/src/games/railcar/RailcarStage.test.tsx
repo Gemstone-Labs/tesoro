@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { PLAYERS, boardingCountdown, riding, rideShow } from "./fixtures";
 import { CRASH_MS } from "./crash";
 import { tellsUpTo, type Tells } from "./tell-state";
-import { BOLT_ART, BoltPop, boltsDue, CarDamage, CRASH_ART, CrashMoment, CrashWall, DAMAGE_ART, DAMAGE_STAGES, MY_WINDOW, RailcarStage, WALL_ART, windowRiders } from "./RailcarStage";
+import { BLAST_ART, BLAST_H, BLAST_TOP, CarDamage, CrashMoment, DAMAGE_ART, DAMAGE_STAGES, GlowPulse, MY_WINDOW, pulseDue, RailcarStage, windowRiders } from "./RailcarStage";
 import { RailcarScreen, TELLS } from "./RailcarScreen";
 import { art } from "@/lib/art";
 import type { Rider } from "./view";
@@ -52,29 +52,29 @@ describe("the avatars in the windows", () => {
   });
 });
 
-describe("the Tells on the train", () => {
+describe("the bomb's warnings on the train", () => {
   const marks = (tells: Tells) => [...renderToStaticMarkup(<CarDamage tells={tells} />).matchAll(/data-tell="(\w+)"/g)].map((m) => m[1]);
   const stages = (n: number) => marks(tellsUpTo(n));
 
-  it("each Tell changes the car from the moment it fires, and stays", () => {
+  it("the car glows for the latest Tell shown, from the moment it fires; each layer already holds the earlier light", () => {
     expect(stages(0)).toEqual([]);
     expect(stages(1)).toEqual(["screws"]);
-    expect(stages(2)).toEqual(["screws", "panel"]);
-    expect(stages(3)).toEqual(["screws", "panel", "sparks"]);
+    expect(stages(2)).toEqual(["panel"]);
+    expect(stages(3)).toEqual(["sparks"]);
     expect([...DAMAGE_STAGES]).toEqual(["screws", "panel", "sparks"]);
   });
 
   it("a Tell the ride never shows never marks the car: sparks with no panel, screws alone (decisions Q39)", () => {
-    expect(marks({ screws: 1, panel: false, sparks: true })).toEqual(["screws", "sparks"]);
+    expect(marks({ screws: 1, panel: false, sparks: true })).toEqual(["sparks"]);
     expect(marks({ screws: 4, panel: false, sparks: false })).toEqual(["screws"]);
-    expect(marks({ screws: 1, panel: true, sparks: false })).toEqual(["screws", "panel"]);
+    expect(marks({ screws: 1, panel: true, sparks: false })).toEqual(["panel"]);
   });
 
-  it("the first screw heard marks the car, false or real: nothing on the car says which", () => {
+  it("the first glow heard marks the car, false or real: nothing on the car says which", () => {
     expect(marks({ screws: 1, panel: false, sparks: false })).toEqual(marks({ screws: 3, panel: false, sparks: false }));
   });
 
-  it("the stage draws them from the ride's Tells; Boarding never does", () => {
+  it("the stage draws it from the ride's Tells; Boarding never does", () => {
     const html = (n: number) => renderToStaticMarkup(<RailcarStage aboard={[]} moving tells={tellsUpTo(n)} />);
     expect(html(2)).toContain('data-tell="panel"');
     expect(html(1)).not.toContain('data-tell="panel"');
@@ -82,123 +82,103 @@ describe("the Tells on the train", () => {
     expect(renderToStaticMarkup(<RailcarScreen view={riding()} />)).toContain('data-tell="screws"');
   });
 
-  it("picked art replaces a stage's basic visual with an overlay of the car's size", () => {
-    const h = renderToStaticMarkup(<CarDamage tells={tellsUpTo(3)} art={{ panel: "/art/final/railcar/panel-loose.webp" }} />);
-    expect(h).toMatch(/<img[^>]*data-tell="panel"[^>]*src="\/art\/final\/railcar\/panel-loose\.webp"/);
-    expect(h).toMatch(/<span[^>]*data-tell="screws"/);
+  it("the light is an overlay of the car's size, under the riders' windows and the wheels, never a bomb", () => {
+    const h = renderToStaticMarkup(<RailcarStage aboard={[]} moving tells={tellsUpTo(3)} />);
+    expect(h).toContain("/art/final/railcar/bomb-warn-3.webp");
+    expect(h).not.toContain("bomb-warn-2");
+    const at = (cls: string) => h.indexOf(`class="${cls}`);
+    expect(at("rc-dmg rc-dmg-sparks")).toBeGreaterThan(at("rc-car-art"));
+    expect(at("rc-dmg rc-dmg-sparks")).toBeLessThan(at("rc-win"));
+    expect(at("rc-dmg rc-dmg-sparks")).toBeLessThan(at("rc-wheel"));
+  });
+
+  it("a custom overlay replaces the picked one", () => {
+    const h = renderToStaticMarkup(<CarDamage tells={tellsUpTo(2)} art={{ screws: "/a.webp", panel: "/b.webp", sparks: "/c.webp" }} />);
+    expect(h).toMatch(/<img[^>]*data-tell="panel"[^>]*src="\/b\.webp"/);
   });
 });
 
-describe("the crash", () => {
-  it("the stage plays the impact: the car stops (not moving) and the crash layer shows", () => {
+describe("the explosion", () => {
+  const css = readFileSync(new URL("./railcar.css", import.meta.url), "utf8");
+
+  it("the stage plays it: the car stops (not moving) and the blast layer shows", () => {
     const h = renderToStaticMarkup(<RailcarStage aboard={[]} moving={false} crash />);
     expect(h).toContain("rc-stage crash");
     expect(h).toContain('data-testid="rc-crash"');
     expect(renderToStaticMarkup(<RailcarStage aboard={[]} moving />)).not.toContain("rc-crash");
   });
 
-  it("the picked frames play in order over the car, and replace the basic flash", () => {
-    const h = renderToStaticMarkup(<CrashMoment />);
-    const frames = [...h.matchAll(/data-frame="(\d)" src="([^"]+)"/g)].map((m) => [m[1], m[2]]);
-    expect(frames.map((f) => f[0])).toEqual(["1", "2"]);
-    expect(frames.map((f) => f[1])).toEqual(CRASH_ART);
-    expect(CRASH_ART).toHaveLength(2);
-    expect(h).not.toContain("rc-crash-flash");
-    expect(h).toMatch(/rc-crash-frame f2 mid/);
-    expect(h).not.toContain("rc-crash-frame f3");
-    expect(renderToStaticMarkup(<CrashMoment art={[]} />)).toContain("rc-crash-flash");
-  });
-
-  it("the frames live in the car's box (registered to it), not the stage's", () => {
-    const h = renderToStaticMarkup(<RailcarStage aboard={[]} moving={false} crash />);
-    expect(h.indexOf("rc-car-art")).toBeLessThan(h.indexOf("rc-crash-frame"));
-    expect(h).toMatch(/<div class="rc-car">.*rc-crash-frame.*<\/div><\/div>$/s);
-  });
-});
-
-describe("the wall", () => {
-  const css = readFileSync(new URL("./railcar.css", import.meta.url), "utf8");
-
-  it("does not exist before the Impact; it enters with the crash, behind the car", () => {
-    for (const h of [renderToStaticMarkup(<RailcarStage aboard={[]} moving tells={tellsUpTo(3)} />), renderToStaticMarkup(<RailcarScreen view={riding()} />), renderToStaticMarkup(<RailcarScreen view={boardingCountdown()} />)]) {
+  it("there is no wall: not before, not during", () => {
+    for (const h of [renderToStaticMarkup(<RailcarStage aboard={[]} moving={false} crash />), renderToStaticMarkup(<RailcarScreen view={riding()} />)]) {
       expect(h).not.toContain("rc-wall");
-      expect(h).not.toContain("wall-v1");
-      expect(h).not.toContain("wall-impact");
+      expect(h).not.toContain("wall-");
     }
-    const h = renderToStaticMarkup(<RailcarStage aboard={[]} moving={false} crash />);
-    expect(h).toContain('data-testid="rc-wall"');
-    expect(h.indexOf("rc-wall")).toBeLessThan(h.indexOf("rc-car-art"));
+    expect(css).not.toContain("rc-wall");
   });
 
-  it("has the intact sprite and the cracked one (new file names, both exist)", () => {
-    const h = renderToStaticMarkup(<CrashWall />);
-    expect(h).toMatch(/rc-wall-intact" src="\/art\/final\/railcar\/wall-v1\.webp/);
-    expect(h).toMatch(/rc-wall-hit" src="\/art\/final\/railcar\/wall-impact-v1\.webp/);
-    for (const url of Object.values(WALL_ART)) expect(existsSync(join(process.cwd(), "public", url)), url).toBe(true);
-  });
-
-  it("two rides with different crash points show the same screen until the earlier Impact", () => {
+  it("two rides with different bomb times show the same screen until the earlier blast", () => {
     const early = (ms: number) => renderToStaticMarkup(<RailcarScreen view={rideShow(ms, 2, [], PLAYERS[0], { crashMs: 70_000 })} />);
     const late = (ms: number) => renderToStaticMarkup(<RailcarScreen view={rideShow(ms, 2, [], PLAYERS[0], { crashMs: 118_000 })} />);
     for (const ms of [1_000, 30_000, 60_000, 69_000]) expect(early(ms)).toBe(late(ms));
-    expect(early(60_000)).not.toContain("rc-wall");
+    expect(early(60_000)).not.toContain("rc-crash");
   });
 
-  it("the CSS: the wall rushes in 0.3 s while the car slides, the contact swaps the sprite, the hold is CRASH_MS, reduced motion has no rush", () => {
-    expect(css).toMatch(/\.rc-wall \{[^}]*animation: rc-wall-in 0\.3s /);
-    expect(css).toMatch(/\.rc-stage\.crash \.rc-car \{ animation: rc-car-slide 0\.3s /);
-    expect(css).toMatch(new RegExp(`\\.rc-wall-hit \\{[^}]*animation: rc-wall-on ${CRASH_MS / 1000}s `));
+  it("the three frames play in order: windows blow out, the blast, the wreck (the last is the reduced-motion frame)", () => {
+    const h = renderToStaticMarkup(<CrashMoment />);
+    const frames = [...h.matchAll(/data-frame="(\d)" src="([^"]+)"/g)].map((m) => [m[1], m[2]]);
+    expect(frames.map((f) => f[0])).toEqual(["1", "2", "3"]);
+    expect(frames.map((f) => f[1])).toEqual(BLAST_ART);
+    expect(h).toMatch(/rc-crash-frame f3 last/);
+    expect(h).not.toMatch(/rc-crash-frame f2 last/);
+  });
+
+  it("the frames live in the car's box (registered to it), reaching BLAST_TOP above it, which the stage lets out while it plays", () => {
+    const h = renderToStaticMarkup(<RailcarStage aboard={[]} moving={false} crash />);
+    expect(h.indexOf("rc-car-art")).toBeLessThan(h.indexOf("rc-crash-frame"));
+    expect(h).toMatch(/<div class="rc-car">.*rc-crash-frame.*<\/div><\/div>$/s);
+    expect(css).toContain(`top: -${((BLAST_TOP / 351) * 100).toFixed(2)}%`);
+    expect(css).toContain(`aspect-ratio: 1068 / ${BLAST_H}`);
+    expect(css).toMatch(/\.rc-stage\.crash \{ overflow-x: clip; overflow-y: visible; \}/);
+    expect(css).toContain(`aspect-ratio: 1068 / ${BLAST_H}`);
+  });
+
+  it("the CSS: the hold is CRASH_MS, the car is hidden under the frames, reduced motion shows the wreck only", () => {
     expect(css).toMatch(new RegExp(`\\.rc-crash-frame\\.f2 \\{ animation: rc-f2 ${CRASH_MS / 1000}s `));
-    expect(css).toMatch(/prefers-reduced-motion[^]*\.rc-stage\.crash \.rc-car \{ animation: none; transform: translateX/);
+    expect(css).toMatch(/\.rc-stage\.crash \.rc-car-art[^}]*visibility: hidden/);
+    expect(css).toMatch(/prefers-reduced-motion[^]*\.rc-crash-frame:not\(\.last\) \{ display: none; \}/);
   });
 });
 
-describe("the Screws bolts", () => {
-  it("round 4's S-a overlay is the Screws damage, under a new file name (the image cache keeps old names)", () => {
-    expect(DAMAGE_ART.screws).toBe("/art/final/railcar/damage-screws-v2.webp");
+describe("the glow flare", () => {
+  it("flares at every screw heard while watching, false or real alike; not on a page that opens past it, not under reduced motion", () => {
+    expect(pulseDue(0, 1, false)).toBe(true);
+    expect(pulseDue(1, 2, false)).toBe(true);
+    expect(pulseDue(1, 1, false)).toBe(false);
+    expect(pulseDue(0, 1, true)).toBe(false);
+    expect(renderToStaticMarkup(<RailcarStage aboard={[]} moving tells={tellsUpTo(1)} />)).not.toContain("rc-glow-pulse");
   });
 
-  it("three bolts pop off the car, with the small sprites", () => {
-    const h = renderToStaticMarkup(<BoltPop />);
-    expect(h.match(/data-testid="rc-bolt"/g)).toHaveLength(3);
-    for (const src of BOLT_ART) expect(h).toContain(src);
-  });
-
-  it("they pop at every screw heard while watching, false or real alike; not on a page that opens past it, not under reduced motion", () => {
-    expect(boltsDue(0, 1, false)).toBe(true);
-    expect(boltsDue(1, 2, false)).toBe(true);
-    expect(boltsDue(1, 1, false)).toBe(false);
-    expect(boltsDue(0, 1, true)).toBe(false);
-    expect(renderToStaticMarkup(<RailcarStage aboard={[]} moving tells={tellsUpTo(1)} />)).not.toContain("rc-bolt");
-  });
-
-  it("the CSS tumbles them back and down over about a second, and hides them under reduced motion", () => {
+  it("is the first glow's image, and the CSS fades it in a second and hides it under reduced motion", () => {
+    const h = renderToStaticMarkup(<GlowPulse />);
+    expect(h).toContain(DAMAGE_ART.screws);
     const css = readFileSync(new URL("./railcar.css", import.meta.url), "utf8");
-    expect(css).toMatch(/\.rc-bolt \{[^}]*animation: rc-bolt 1s /);
-    expect(css).toMatch(/prefers-reduced-motion[^]*\.rc-bolt \{ display: none; \}/);
+    expect(css).toMatch(/\.rc-glow-pulse \{[^}]*animation: rc-pulse 1s /);
+    expect(css).toMatch(/prefers-reduced-motion[^]*\.rc-glow-pulse \{ display: none; \}/);
   });
 });
 
 describe("the picked art is wired", () => {
-  it("every Tell stage has its overlay, and every file exists", () => {
-    for (const stage of DAMAGE_STAGES) expect(DAMAGE_ART[stage]).toMatch(new RegExp(`damage-${stage}(-v2)?\\.webp$`));
-    for (const url of [...Object.values(DAMAGE_ART), ...CRASH_ART, ...BOLT_ART, ...Object.values(WALL_ART), "/art/final/railcar/tile-v2.webp", ...TELLS.map((t) => t.art)]) expect(existsSync(join(process.cwd(), "public", url!)), url).toBe(true);
+  it("every stage has its overlay under a new file name, and every file exists", () => {
+    for (const stage of DAMAGE_STAGES) expect(DAMAGE_ART[stage]).toMatch(/bomb-warn-\d\.webp$/);
+    for (const url of [...Object.values(DAMAGE_ART), ...BLAST_ART, "/art/final/railcar/tile-v2.webp", ...TELLS.map((t) => t.art)]) expect(existsSync(join(process.cwd(), "public", url)), url).toBe(true);
   });
 
-  it("each fired Tell adds its overlay and they stack; the sparks sit behind the wheels", () => {
-    const h = renderToStaticMarkup(<RailcarStage aboard={[]} moving tells={tellsUpTo(3)} />);
-    for (const s of DAMAGE_STAGES) expect(h).toMatch(new RegExp(`damage-${s}(-v2)?\\.webp`));
-    const at = (cls: string) => h.indexOf(`class="${cls}`);
-    expect(at("rc-dmg rc-dmg-art rc-dmg-sparks")).toBeLessThan(at("rc-wheel"));
-    expect(at("rc-dmg rc-dmg-art rc-dmg-screws")).toBeGreaterThan(at("rc-wheel"));
-    expect(renderToStaticMarkup(<RailcarStage aboard={[]} moving tells={tellsUpTo(1)} />)).not.toContain("damage-panel");
-  });
-
-  it("the Tell chips show the picked image: dimmed until fired, full colour after", () => {
+  it("the chips show the picked images in bomb words: dimmed until fired, full colour after", () => {
     const h = renderToStaticMarkup(<RailcarScreen view={riding()} />);
-    expect(h.match(/<img[^>]*tell-(screws|panel|sparks)\.webp/g)).toHaveLength(3);
-    expect(h).toMatch(/rc-tell on[^>]*>.*?tell-screws/s);
-    expect(h).toMatch(/<li class="cut cut-chip rc-tell"[^>]*>(?:(?!<\/li>).)*tell-panel/s);
+    expect(h.match(/<img[^>]*bomb-tell-\d\.webp/g)).toHaveLength(3);
+    expect(h).toMatch(/rc-tell on[^>]*>.*?bomb-tell-1/s);
+    expect(h).toMatch(/<li class="cut cut-chip rc-tell"[^>]*>(?:(?!<\/li>).)*bomb-tell-2/s);
+    expect(TELLS.map((t) => t.name)).toEqual(["Glow", "Hot seams", "White-hot"]);
     expect(readFileSync(new URL("./railcar.css", import.meta.url), "utf8")).toMatch(/\.rc-tell img \{[^}]*grayscale\(1\)/);
   });
 
