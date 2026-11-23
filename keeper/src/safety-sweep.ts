@@ -202,6 +202,11 @@ export interface SweepDeps {
    * scan; without them every run scans. Throws when the database cannot be read.
    */
   dbMatches?(): Promise<PublicKey[]>;
+  /**
+   * The cars a Game is boarding now (Railcar's Config names one): read every run, so a car opened since the last hourly scan
+   * is still looked at (a seat whose Player went away steps off before it leaves).
+   */
+  boardingCars?(): Promise<PublicKey[]>;
   /** Reads these Match accounts by address; `gone` lists the ones that no longer exist. */
   readHeads?(addresses: PublicKey[]): Promise<{ heads: Head[]; gone: PublicKey[] }>;
   /** Tells the database these Match accounts no longer exist. */
@@ -298,7 +303,10 @@ async function findHeads(deps: SweepDeps, state: SweepState, now: number, dryRun
   };
   if (hasDb && dbAddresses && !full) {
     const tracked = Object.keys(state.seen).map((k) => new PublicKey(k));
-    const byId = new Map([...dbAddresses, ...tracked].map((a) => [label(a), a]));
+    const boarding = deps.boardingCars
+      ? await deps.boardingCars().catch((e) => (log("sweep", "-", `boarding car unreadable (${String((e as Error).message ?? e).slice(0, 160)})`), [] as PublicKey[]))
+      : [];
+    const byId = new Map([...dbAddresses, ...tracked, ...boarding].map((a) => [label(a), a]));
     const { heads, gone } = await deps.readHeads!([...byId.values()]);
     await tellGone(gone);
     report.mode = "db";

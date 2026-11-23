@@ -317,6 +317,29 @@ function withDb(heads: Head[], db: Head[], opts: { committed?: Set<string>; dbFa
 }
 
 describe("the safety sweep: candidates from the database", () => {
+  it("every 5-minute run also reads Railcar's boarding car, even one opened since the last hourly scan (its away seats step off)", async () => {
+    const known = head(1, { stage: "settling" });
+    const boarding: Head = { ...head(2, { stage: "open", openedAt: T0 - 120, deadline: T0 + 7 * 86_400 }), car: { seated: 3, minSeats: 5, firstMinAt: 0, departedAt: 0, refundAfter: 0 } };
+    const { deps, calls } = withDb([known, boarding], [known]);
+    deps.boardingCars = async () => [boarding.address];
+    const r = await run(deps, memorySweepStore({ seen: {}, fullScanAt: T0 - 60 }), T0);
+    assert.equal(r.mode, "db");
+    assert.equal(calls.scans, 0);
+    assert.deepEqual(calls.reads, [[known.address.toBase58(), boarding.address.toBase58()]]);
+    assert.ok(r.candidates.some((c) => c.address.equals(boarding.address) && c.case === "ride"));
+  });
+
+  it("a boarding car that cannot be read never stops the run", async () => {
+    const known = head(1, { stage: "settling" });
+    const { deps, calls } = withDb([known], [known]);
+    deps.boardingCars = async () => {
+      throw new Error("rpc down");
+    };
+    const r = await run(deps, memorySweepStore({ seen: {}, fullScanAt: T0 - 60 }), T0);
+    assert.deepEqual(calls.reads, [[known.address.toBase58()]]);
+    assert.equal(r.mode, "db");
+  });
+
   it("a 5-minute run reads only the database's Matches by address and scans nothing", async () => {
     const known = head(1, { stage: "settling" });
     const unknown = head(2, { stage: "settling" });

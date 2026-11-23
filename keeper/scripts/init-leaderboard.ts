@@ -15,7 +15,7 @@ import { PublicKey, Transaction, sendAndConfirmTransaction } from "@solana/web3.
 import { parseLeaderboardTerms } from "../../app/src/lib/chain/leaderboard.ts";
 import { adminSigning, parseArgs, programOverrides, resolveKey } from "../src/cli-args.ts";
 import { makeScanRpc } from "../src/credits.ts";
-import { feeChangeRefusal, matchHeads } from "../src/fee-guard.ts";
+import { feeChangeRefusal, matchHeads, withTimeout } from "../src/fee-guard.ts";
 import { configPda, coreIx } from "../src/launch-admin.ts";
 
 const argv = process.argv.slice(2);
@@ -49,7 +49,8 @@ if (terms.recipient && terms.bps === bps) {
 }
 console.log(terms.recipient ? `leaderboard exists at ${terms.bps} bps; changing the fee to ${bps} bps` : `leaderboard not set up yet; initialising at ${bps} bps`);
 
-const refusal = feeChangeRefusal(await matchHeads(makeScanRpc(rpc, fetch, (p, cfg) => c.getProgramAccounts(p, cfg) as any), core));
+const listed = await withTimeout(matchHeads(makeScanRpc(rpc, fetch, (p, cfg) => c.getProgramAccounts(p, cfg) as any), core), 120_000, "listing the open Matches and cars");
+const refusal = feeChangeRefusal(listed.heads, listed.unreadable);
 if (refusal && !dryRun) throw new Error(refusal);
 if (refusal) console.log(`WOULD BE REFUSED: ${refusal}`);
 
