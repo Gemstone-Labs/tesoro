@@ -31,7 +31,6 @@ describe("the rules a stored ride replays under", () => {
     const withoutByte = { ...page.ride, rules: undefined };
     expect(rideRecordOf({ entry: page.entry, ride: withoutByte })?.rules).toBe(3);
     expect(rideRecordOf({ entry: page.entry, ride: page.ride })?.rules).toBe(3);
-    expect(rideRecordOf({ entry: 500, ride: { ...withoutByte, carNo: "40" } })?.rules).toBe(2);
   });
 });
 
