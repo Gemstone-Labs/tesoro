@@ -23,9 +23,14 @@ export function planPayout(a: { entry: bigint; seated: number; shares: number[];
     room -= cut;
     return cut;
   });
-  const won = a.shares.map((s) => (room * BigInt(s)) / 10_000n);
+  return { fees, won: splitByShare(room, a.shares), forfeited };
+}
+
+/** Core's split of what is left after fees: each place's share floored, the remainder to first place. */
+export function splitByShare(room: bigint, shares: number[]): bigint[] {
+  const won = shares.map((s) => (room * BigInt(s)) / 10_000n);
   if (won.length) won[0] += room - won.reduce((x, y) => x + y, 0n);
-  return { fees, won, forfeited };
+  return won;
 }
 
 /** Railcar's fee terms (Platform 2%, Studio 3%) and core's Leaderboard Fee (1%), until the screen reads them from the Game record. */

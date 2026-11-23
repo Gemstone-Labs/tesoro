@@ -259,14 +259,8 @@ export const RideRefundedUnrevealed390: StoryObj = { ...RideRefundedUnrevealed, 
 export const RideRefundedUnrevealed1440: StoryObj = { ...RideRefundedUnrevealed, ...desk };
 /** A record the replay does not give (Ana shown 40 back where round 2 gives nothing): the page lists the difference. */
 export const RideFromHistoryDiffers = history(fx.storedWorkedRide({ tamper: true }), fx.ANA.toBase58());
-const backedHistory = (() => {
-  const page = fx.storedWorkedRide();
-  const dee = page.ride.places[0];
-  const bob = fx.BOB.toBase58();
-  const ride = { ...page.ride, seats: page.ride.seats.map((x) => (x.player === dee.player ? { ...x, funder: bob, shareBps: 5_000 } : x)), places: page.ride.places.map((x, i) => (i === 0 ? { ...x, funder: bob, shareBps: 5_000 } : x)) };
-  return { ...page, ride };
-})();
-/** Dee rode on Bob's Backing at 50%: the history checks the split too (Bob 152 with his 100 first, Dee 51). */
+const backedHistory = fx.storedWorkedRide({ deeBackedBy: { funder: fx.BOB.toBase58(), shareBps: 4_000 } });
+/** Dee rode on Bob's Backing, 40% to Dee: core paid place 1 its 60% share; the split shown by the Offer (Bob 162 with his 100 first, Dee 41). */
 export const RideFromHistoryBacked: StoryObj = { ...history(backedHistory, fx.DEE.toBase58()), ...phone };
 /** Someone paid 10 Gemas to the wrong place (Dee 193, Ben 152: places and total right): the check names both amounts. */
 export const RideFromHistoryWrongAmount: StoryObj = {

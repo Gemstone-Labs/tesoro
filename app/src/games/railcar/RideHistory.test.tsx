@@ -20,7 +20,7 @@ describe("a finished ride's page", () => {
     expect(t).not.toContain("Did not show");
     expect(t).toContain("Nobody braked");
     expect(t).toContain(storedWorkedRide().ride.draw!.slice(0, 16));
-    expect(t).toContain("Replayed with the published rules: every place, every amount and the fees match what was paid.");
+    expect(t).toContain("Replayed with the published rules: every place and every amount matches what was paid.");
     expect(t).toContain("Rules Round 2");
   });
 
@@ -28,7 +28,7 @@ describe("a finished ride's page", () => {
     const sparkless = text(renderToStaticMarkup(<RideHistory page={storedWorkedRide({ shows: { sparks: false } })} me={null} />));
     expect(sparkless).toMatch(/Hot seams [\d.]+ s before the bomb/);
     expect(sparkless).toContain("White-hot Did not show");
-    expect(sparkless).toContain("Replayed with the published rules: every place, every amount and the fees match what was paid.");
+    expect(sparkless).toContain("Replayed with the published rules: every place and every amount matches what was paid.");
     const screwsOnly = text(renderToStaticMarkup(<RideHistory page={storedWorkedRide({ shows: { panel: false, sparks: false } })} me={null} />));
     expect(screwsOnly).toMatch(/Glow [\d.]+ s before the bomb/);
     expect(screwsOnly).toContain("Hot seams Did not show");
@@ -56,5 +56,14 @@ describe("a finished ride's page", () => {
     expect(t).toContain("This car was refunded before its ride was revealed, so there is no ride to check. Every entry went back to whoever paid it.");
     expect(t).not.toContain("not a Railcar ride");
     expect(t).not.toContain("Bomb time");
+  });
+
+  it("fees read at a rate other than the published one show as a note, and the check still holds", () => {
+    const page = storedWorkedRide();
+    // A Leaderboard Fee of 2% at settlement: 35 in fees, 165 left, 100 / 41 / 24.
+    const ride = { ...page.ride, fees: [10, 15, 10] as [number, number, number], places: page.ride.places.map((p, i) => ({ ...p, won: [100, 41, 24][i] })) };
+    const t = text(renderToStaticMarkup(<RideHistory page={{ ...page, ride }} me={null} />));
+    expect(t).toContain("every place and every amount matches what was paid");
+    expect(t).toContain("Fees read when the ride settled: Platform 10, Studio 15, Leaderboard 10 (35); the published rates give 30.");
   });
 });

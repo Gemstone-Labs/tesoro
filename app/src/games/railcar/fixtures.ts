@@ -170,9 +170,9 @@ const hexOf = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2,
  * The worked example as the Match history keeps it (`/api/match/<id>`): the Bomb at 0:30 of track, Ana off at 0:08 (0 back),
  * Cy, Ben, Dee off at 0:27-0:29, Eve aboard; fees 30. `brake`: Dee also Braked at 0:20, so the Bomb came 2.5 s later on
  * the clock. `tamper`: the record says Ana got 40 back, which the replay does not give. `shows`: a ride that did not show
- * the panel or the sparks (it shows both unless said).
+ * the panel or the sparks (it shows both unless said). `deeBackedBy`: Dee rode on a Backing (the Offer's share to Dee).
  */
-export function storedWorkedRide(o: { brake?: boolean; tamper?: boolean; shows?: { panel?: boolean; sparks?: boolean } } = {}): { id: string; game: "railcar"; entry: number; status: "settled"; openedAt: number; settledAt: number; ride: StoredRide } {
+export function storedWorkedRide(o: { brake?: boolean; tamper?: boolean; shows?: { panel?: boolean; sparks?: boolean }; deeBackedBy?: { funder: string; shareBps: number } } = {}): { id: string; game: "railcar"; entry: number; status: "settled"; openedAt: number; settledAt: number; ride: StoredRide } {
   const who = [ANA, BEN, CY, DEE, EVE].map((k) => k.toBase58());
   const seat = (i: number, order = 0, jumpMs = 0, back = 0) => ({ seat: i, player: who[i], funder: who[i], shareBps: 0, order, jumpMs, refund: back });
   return {
@@ -188,11 +188,12 @@ export function storedWorkedRide(o: { brake?: boolean; tamper?: boolean; shows?:
       reason: "played",
       draw: hexOf(drawWithCrash(30_000, o.shows)),
       brakes: o.brake ? [{ seat: 3, ms: 20_000 }] : [],
-      seats: [seat(0, 1, 8_000, o.tamper ? 40 : 0), seat(1, 3, 28_000), seat(2, 2, 27_000), seat(3, 4, 29_000), seat(4)],
+      seats: [seat(0, 1, 8_000, o.tamper ? 40 : 0), seat(1, 3, 28_000), seat(2, 2, 27_000), { ...seat(3, 4, 29_000), ...(o.deeBackedBy ?? {}) }, seat(4)],
       places: [
-        { place: 1, seat: 3, player: who[3], funder: who[3], shareBps: 0, won: 103 },
-        { place: 2, seat: 1, player: who[1], funder: who[1], shareBps: 0, won: 42 },
-        { place: 3, seat: 2, player: who[2], funder: who[2], shareBps: 0, won: 25 },
+        // core's place shares; a Backed seat's Offer share is the seat's own (Railcar's reveal), never these
+        { place: 1, seat: 3, player: who[3], funder: o.deeBackedBy?.funder ?? who[3], shareBps: 6_000, won: 103 },
+        { place: 2, seat: 1, player: who[1], funder: who[1], shareBps: 2_500, won: 42 },
+        { place: 3, seat: 2, player: who[2], funder: who[2], shareBps: 1_500, won: 25 },
       ],
       fees: [10, 15, 5],
       rules: RULES_CURRENT,

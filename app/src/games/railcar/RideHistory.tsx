@@ -121,7 +121,7 @@ export function RideHistory({ page, me, actions = {} }: { page: RidePage; me: st
         {r.agrees ? (
           <p className="rc-check-verdict ok">
             <CheckIcon aria-hidden="true" />
-            <span>Replayed with the published rules: every place, every amount and the fees match what was paid.</span>
+            <span>Replayed with the published rules: every place and every amount matches what was paid.</span>
           </p>
         ) : (
           <div className="rc-check-verdict bad" role="alert">
@@ -136,6 +136,7 @@ export function RideHistory({ page, me, actions = {} }: { page: RidePage; me: st
             </div>
           </div>
         )}
+        {r.feeNote && <p className="rc-check-note">{r.feeNote}</p>}
         <p className="rc-check-note">
           <Link href="/docs/railcar">How a ride is drawn</Link>
         </p>

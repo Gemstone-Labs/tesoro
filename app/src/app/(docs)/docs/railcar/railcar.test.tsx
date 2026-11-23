@@ -23,7 +23,7 @@ describe("Railcar docs page", () => {
   it("publishes the odds as the chance in the next second (1.9 / 6.9 / 13.1 in 100 at 10 / 25 / 45 s) and the share of rides over", () => {
     expect(html).toContain("no Bomb in the first 5 seconds");
     for (const row of ["10 s 1.9 in 100", "25 s 6.9 in 100", "45 s 13.1 in 100"]) expect(html).toContain(row);
-    expect(html).toContain("Half of all rides are over by 25 seconds, and 9 in 10 by 41 seconds");
+    expect(html).toContain("Half of all rides are over by 25 seconds, and about 9 in 10 by 41 seconds");
     expect(html).toContain("About 1 ride in 190 passes a minute, and none passes 2 minutes");
     // No claim about what a clock-only Player earns or loses (Q40 review #6).
     expect(html).not.toMatch(/by the clock (loses|wins)|Gemas a ride/);

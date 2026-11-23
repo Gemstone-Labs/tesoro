@@ -32,11 +32,12 @@ const workedExample = (draw: Uint8Array): RideRecord => ({
   brakes: [],
   seats: [seat(0, ANA, 1, 8_000), seat(1, BEN, 3, 28_000), seat(2, CY, 2, 27_000), seat(3, DEE, 4, 29_000), seat(4, EVE)],
   places: [
-    { seat: 3, won: 103n },
-    { seat: 1, won: 42n },
-    { seat: 2, won: 25n },
+    { seat: 3, won: 103n, shareBps: 6_000 },
+    { seat: 1, won: 42n, shareBps: 2_500 },
+    { seat: 2, won: 25n, shareBps: 1_500 },
   ],
   fees: 30n,
+  feeParts: [10n, 15n, 5n],
 });
 
 describe("replaying a finished ride from its record", () => {
@@ -174,22 +175,42 @@ describe("the replay checks every amount paid, not only the order (Q40 review #5
     expect([by[DEE], by[BEN], by[CY]]).toEqual([203n, 142n, 125n]);
   });
 
-  it("fees the rules do not give are a difference", () => {
-    const rec = { ...workedExample(drawWithCrash(30_000)), fees: 31n };
-    expect(replayRide(rec).differences).toEqual(["Fees were 31, the replay gives 30."]);
+  it("the places are paid after the fees core recorded: a later Leaderboard Fee of 2% (read at settlement) is no difference, only a note", () => {
+    const rec = workedExample(drawWithCrash(30_000));
+    // Fees 10 / 15 / 10 = 35: the rest of the Prize is 165, split 99 + 1 left over / 41 / 24.
+    rec.feeParts = [10n, 15n, 10n];
+    rec.fees = 35n;
+    rec.places = [
+      { seat: 3, won: 100n, shareBps: 6_000 },
+      { seat: 1, won: 41n, shareBps: 2_500 },
+      { seat: 2, won: 24n, shareBps: 1_500 },
+    ];
+    const r = replayRide(rec);
+    expect(r.differences).toEqual([]);
+    expect(r.feeNote).toBe("Fees read when the ride settled: Platform 10, Studio 15, Leaderboard 10 (35); the published rates give 30.");
+    expect(replayRide(workedExample(drawWithCrash(30_000))).feeNote).toBeNull();
   });
 
-  it("a Backed place: the Backer's entry back first, then the Player's share of the winnings, checked against the Offer share", () => {
+  it("fees above the forfeited entries are a difference (core caps them there)", () => {
+    const rec = { ...workedExample(drawWithCrash(30_000)), fees: 250n, feeParts: [200n, 30n, 20n] as [bigint, bigint, bigint] };
+    expect(replayRide(rec).differences).toContain("Fees were 250, more than the 200 Gemas of entries lost.");
+  });
+
+  it("each place's share is checked against the rules' 60 / 25 / 15", () => {
     const rec = workedExample(drawWithCrash(30_000));
-    rec.seats[3] = { ...rec.seats[3], funder: "Fay", shareBps: 5_000 };
-    rec.places[0] = { ...rec.places[0], shareBps: 5_000 };
+    rec.places = rec.places.map((p, i) => ({ ...p, shareBps: [6_000, 1_500, 2_500][i] }));
+    expect(replayRide(rec).differences).toEqual(["Place 2 (seat 2) took a 15% share, the rules give 25%.", "Place 3 (seat 3) took a 25% share, the rules give 15%."]);
+  });
+
+  it("a Backed place: core's place share is 60%, the Offer's 40% to the Player; the split is shown from the Offer, not compared", () => {
+    const rec = workedExample(drawWithCrash(30_000));
+    rec.seats[3] = { ...rec.seats[3], funder: "Fay", shareBps: 4_000 };
+    rec.places[0] = { ...rec.places[0], shareBps: 6_000 };
     const r = replayRide(rec);
     expect(r.agrees).toBe(true);
     const dee = r.seats.find((s) => s.player === DEE)!;
-    expect(dee.backing).toEqual({ backer: "Fay", shareBps: 5_000, backerGets: 152n, playerGets: 51n });
-    // A place paid under another share than the seat was backed at.
-    rec.places[0] = { ...rec.places[0], shareBps: 4_000 };
-    expect(replayRide(rec).differences).toEqual(["Place 1 (seat 4) split its winnings at 40% to the Player, the seat was backed at 50%."]);
+    // 203: Fay's 100 first, then Dee 40% of the 103 won (41), Fay the rest (162).
+    expect(dee.backing).toEqual({ backer: "Fay", shareBps: 4_000, backerGets: 162n, playerGets: 41n });
   });
 
   it("a Backed seat that Jumped early or stayed aboard: the Backer loses the entry, nothing to split", () => {

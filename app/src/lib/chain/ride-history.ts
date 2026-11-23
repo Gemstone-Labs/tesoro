@@ -37,6 +37,7 @@ export function rideRecordOf(m: { entry: number; ride?: StoredRide | null }): Ri
     seats: r.seats.map((s) => ({ seat: s.seat, player: s.player, funder: s.funder, shareBps: s.shareBps, order: s.order, jumpMs: s.jumpMs, refund: BigInt(s.refund) })),
     places: r.places.map((p) => ({ seat: p.seat, won: BigInt(p.won), shareBps: p.shareBps })),
     fees: BigInt(r.fees[0] + r.fees[1] + r.fees[2]),
+    feeParts: [BigInt(r.fees[0]), BigInt(r.fees[1]), BigInt(r.fees[2])],
     rules: rulesOf({ ...r, entry: m.entry }),
   };
 }

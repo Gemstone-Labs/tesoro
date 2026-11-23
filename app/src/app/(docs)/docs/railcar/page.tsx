@@ -67,8 +67,8 @@ export default function Page() {
       <p>
         The <b>Crash point</b> is where the Bomb goes off. It is drawn at random when the car leaves, and nobody can know it during the ride: not Players, not {BRAND.name}, not
         an outsider watching. The Bomb is never shown. The Crash point is published when the ride ends so anyone can check it: every finished ride&apos;s page (from your
-        Matches) shows the crash point, each Tell&apos;s lead, every Brake and the draw, and replays the ride with these rules against what was paid: every place, every amount
-        and, on a Backed seat, the Backer&apos;s and the Player&apos;s parts.
+        Matches) shows the crash point, each Tell&apos;s lead, every Brake and the draw, and replays the ride with these rules against what was paid: every place and every amount,
+        after the fees taken when the ride settled. A Backed seat shows how its Gemas split by the Offer.
       </p>
       <p>The odds, measured at full speed, are published:</p>
       <ul>
@@ -77,7 +77,7 @@ export default function Page() {
       </ul>
       <DataTable head={["Car running for", "Chance it goes off in the next second"]} rows={chanceRows()} />
       <ul>
-        <li>Half of all rides are over by {odds.medianSeconds} seconds, and 9 in 10 by {odds.nineInTenSeconds} seconds.</li>
+        <li>Half of all rides are over by {odds.medianSeconds} seconds, and about 9 in 10 by {odds.nineInTenSeconds} seconds.</li>
         <li>About 1 ride in {pastMinute} passes a minute, and none passes {odds.certainSeconds / 60} minutes.</li>
         <li>The clock alone does not tell you when the Bomb goes off. The Tells are the warnings.</li>
       </ul>
