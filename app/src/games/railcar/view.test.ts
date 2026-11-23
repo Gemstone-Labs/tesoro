@@ -4,7 +4,7 @@ import type { CarView, SeatView } from "../../lib/chain/many-seat";
 import type { RideSeatView, TableView } from "./chain";
 import { NO_TELLS } from "./tell-state";
 import { planPayout } from "./payout";
-import { DELAYED_AFTER_SECS, railcarView } from "./view";
+import { DELAYED_AFTER_SECS, NO_CAR, railcarView } from "./view";
 
 const key = () => Keypair.generate().publicKey;
 const [ana, ben, cy, dee, eve] = [key(), key(), key(), key(), key()];
@@ -256,5 +256,11 @@ describe("a Backed Player before the result: where the Backer's Gemas go", () =>
     const t = table({ aboard: 4, jumps: 1, seats: players.map((_, i) => (i === 1 ? rideSeat(1, 1, 25_000) : rideSeat(i, 0, 0))) });
     const v = railcarView({ me: ben.toBase58(), core: coreCar({ stage: "departed" }), seats: backed, table: t, fees: FEES, nowMs: (T0 + 70) * 1000 });
     expect(v.phase === "ride" && v.me).toEqual({ aboard: false, jumpMs: 25_000, after: 0, backer: bob.toBase58() });
+  });
+});
+
+describe("before any car is read", () => {
+  it("the first rider's Board button names the round 2 entry, 100, not round 1's 500 (cross-lab S6)", () => {
+    expect(NO_CAR).toMatchObject({ phase: "boarding", seated: 0, entry: 100n });
   });
 });

@@ -3,7 +3,7 @@
  * Match, its seats and the public Table; never from anything a Brake would show (no speed, distance or live refund %).
  */
 import type { CarView, SeatView } from "../../lib/chain/many-seat";
-import { NO_SEAT, type TableView } from "./chain";
+import { ENTRY_GEMAS, NO_SEAT, type TableView } from "./chain";
 import { NO_TELLS, type Tells } from "./tell-state";
 import { placeSharesBps } from "./engine";
 import { departsAt } from "./flow";
@@ -107,6 +107,9 @@ export type RailcarView =
       outcome: "placed" | "refund";
     };
 
+/** The Boarding screen before any car is read (or none is boarding): empty, at the one Railcar entry. */
+export const NO_CAR: RailcarView = { phase: "boarding", seated: 0, maxSeats: 100, minSeats: 5, leavesInSec: null, riders: [], mySeat: null, myBacker: null, entry: BigInt(ENTRY_GEMAS) };
+
 export interface RailcarFacts {
   /** My core Account (base58), null signed out. */
   me: string | null;
@@ -146,7 +149,7 @@ function delayedOf(core: CarView | null, t: TableView | null, nowMs: number): { 
 
 export function railcarView(f: RailcarFacts): RailcarView {
   const core = f.core;
-  const entry = core?.entry ?? f.table?.entry ?? 500n;
+  const entry = core?.entry ?? f.table?.entry ?? BigInt(ENTRY_GEMAS);
   const t = f.table;
   if (!t && core?.stage === "boarding") {
     const riders = f.seats.filter((s) => s.seated).map((s) => ({ account: s.player.toBase58(), seat: s.index + 1, me: s.player.toBase58() === f.me }));
