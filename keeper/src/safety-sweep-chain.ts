@@ -18,7 +18,7 @@ import { solanaFetch } from "./runtime.ts";
 import type { Rpc } from "../../app/src/server/history/rpc.ts";
 import { historyRpc } from "./history.ts";
 import { Deferred, SLICE_LEN, anyHeadOf, carHeadAt, headOf, type Head, type SweepDeps } from "./safety-sweep.ts";
-import { RAILCAR_PROGRAM_ID } from "../../app/src/games/railcar/chain.ts";
+import { RAILCAR_PROGRAM_ID, configPda as railcarConfigPda, decodeConfig as decodeRailcarConfig } from "../../app/src/games/railcar/chain.ts";
 import { decodeCar } from "../../app/src/lib/chain/many-seat.ts";
 import { finishCarOf, railcarRideStep, rideProgress } from "./railcar-sweep.ts";
 import { fits, lookupTables, sendIxs } from "./send.ts";
@@ -183,6 +183,12 @@ export function realSweepDeps(ctx: Ctx, env: NodeJS.ProcessEnv = process.env): S
       readHeads: (addresses: PublicKey[]) => readHeadsByAddress(rpc, addresses),
       markGone: (addresses: PublicKey[]) => markGone(db, addresses),
     }),
+    boardingCars: async () => {
+      const info = await ctx.conn.getAccountInfo(railcarConfigPda());
+      if (!info) return [];
+      const car = decodeRailcarConfig(info.data).boardingMatch;
+      return car.equals(PublicKey.default) ? [] : [car];
+    },
     scan: async () => {
       const rowsOf = (name: string) => scanProgramAccounts(rpc, CORE_ID, { filters: [{ memcmp: { offset: 0, bytes: anchor.utils.bytes.bs58.encode(discriminatorOf(name)) } }], dataSlice: { offset: 0, length: SLICE_LEN } });
       const matches = (await rowsOf("MatchState")).map((r) => headOf(r.pubkey, r.account.data));

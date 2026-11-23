@@ -24,7 +24,7 @@ describe("a Railcar ride in the Matches history", () => {
   it("an early Jump, aboard at Impact and a refunded ride each say what happened", () => {
     const line = (r: Partial<HistoryRow>) => text(renderToStaticMarkup(<MatchBanner r={ride(r)} account={ME} me={ME} now={NOW} />));
     expect(line({ result: "lost", delta: -150, ride: { seated: 5, kind: "early", jumpMs: 25_000 } })).toContain("Jumped at 0:25");
-    expect(line({ result: "lost", delta: -500, ride: { seated: 5, kind: "aboard" } })).toContain("Aboard at Impact");
+    expect(line({ result: "lost", delta: -500, ride: { seated: 5, kind: "aboard" } })).toContain("Aboard at the blast");
     expect(line({ result: "refunded", delta: 0, ride: { seated: 5, kind: "refund" } })).toContain("Entry refunded");
     expect(line({ ride: { seated: 5, kind: "place", place: 3, jumpMs: 95_000 }, delta: 78 })).toContain("Third-last off at 1:35");
   });

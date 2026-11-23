@@ -4,7 +4,7 @@
  * the Player's own Brake and Jump, so the same seed replays the same ride.
  */
 import { MAX_CRASH_MS, MEDIAN_MS, MIN_CRASH_MS, impactMs, placeSharesBps, positionMs, refund, ride, type Ride } from "../engine";
-import { RAILCAR_FEES, planPayout } from "../payout";
+import { RAILCAR_FEES, planPayout, prizeOf } from "../payout";
 import type { Tells } from "../tell-state";
 import type { RailcarView, ResultRow, Rider } from "../view";
 import { PLACE_WORDS } from "../words";
@@ -114,9 +114,10 @@ export function practiceView(p: Practice, t: number): RailcarView {
     tells: practiceTells(p, t),
     aboard: all.filter((s) => !off(s)).map((s) => s.rider),
     jumped: all.filter(off).map((s) => s.rider),
-    stake: BigInt(all.length) * entry,
+    prize: prizeOf({ entry, seated: all.length, ...RAILCAR_FEES }),
+    pile: all.filter(off).length,
     entry,
-    me: off(mine) && mine.jumpMs !== null ? { aboard: false, jumpMs: mine.jumpMs, back: refund(entry, positionMs(brakes(p), mine.jumpMs)) } : { aboard: true },
+    me: off(mine) && mine.jumpMs !== null ? { aboard: false, jumpMs: mine.jumpMs, after: all.filter((s) => off(s) && s !== mine && s.jumpMs! >= mine.jumpMs!).length } : { aboard: true },
   };
 }
 
@@ -142,7 +143,7 @@ function practiceResult(p: Practice, all: Seat[]): Extract<RailcarView, { phase:
     ...all.filter((s) => s.jumpMs === null).map((s) => ({ ...s.rider, kind: "aboard" as const, gets: 0n })),
   ];
   const m = rows.find((r) => r.me)!;
-  const headline = m.kind === "place" ? PLACE_WORDS[(m.place ?? 1) - 1] : m.kind === "early" ? "Jumped early" : "Aboard at Impact";
+  const headline = m.kind === "place" ? PLACE_WORDS[(m.place ?? 1) - 1] : m.kind === "early" ? "Jumped early" : "Aboard at the blast";
   return { phase: "result", rows, fees: pay.fees.reduce((a, b) => a + b, 0n), pot, entry, wallMs, jumps, mine: { headline, gets: m.gets, won: m.kind === "place" ? m.gets - entry : 0n }, outcome: "placed" };
 }
 

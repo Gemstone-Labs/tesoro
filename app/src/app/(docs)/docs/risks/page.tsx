@@ -48,7 +48,7 @@ export default function Page() {
         <li><b>You can lose your entry.</b> Every Match is a contest of skill against another Player, and you can lose what you enter. A Backer can lose the whole entry they fund.</li>
         {RAILCAR_SHOWN && (
           <>
-          <li><b>Railcar&apos;s Crash point is random.</b> You cannot know where the wall is, and no Tell pins the moment. Waiting can win more, and can cost your whole entry. The odds are published in the <a href="/docs/railcar">Railcar rulebook</a>.</li>
+          <li><b>Railcar&apos;s Crash point is random.</b> You cannot know when the bomb goes off, and no Tell pins the moment. Only the last three off are paid: Jumping too early costs your whole entry, and so does waiting too long. The odds are published in the <a href="/docs/railcar">Railcar rulebook</a>.</li>
           <li><b>A Player&apos;s Brake is secret.</b> The car slows for everyone, but only the Player who Braked sees it, so other Players read the car with less than the full picture. All Brakes are published after the ride.</li>
           <li><b>There is no automatic Jump.</b> If your connection drops in Railcar, you stay aboard and can lose your entry.</li>
           </>

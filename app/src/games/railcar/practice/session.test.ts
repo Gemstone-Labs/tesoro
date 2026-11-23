@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { impactMs, positionMs, refund, ride } from "../engine";
+import { impactMs, ride } from "../engine";
 import { newPractice, practiceBrake, practiceJump, practiceView, simRiders, type PracticeRider } from "./session";
 
 /** All zeros: the engine's longest ride (the Bomb at 120 s, the cap). */
@@ -43,7 +43,7 @@ describe("a Practice ride pays what a 100 entry would have", () => {
     let p = newPractice(LONG, [rider("Ana", 8_000), rider("Ben", 28_000), rider("Cy", 27_000), rider("Dee", 29_000)]);
     p = practiceJump(p, 120_000);
     const v = result(practiceView(p, 121_000));
-    expect(v.mine).toMatchObject({ headline: "Aboard at Impact", gets: 0n });
+    expect(v.mine).toMatchObject({ headline: "Aboard at the blast", gets: 0n });
     expect(gets(v)).toMatchObject({ Dee: 203, Ben: 142, Cy: 125, Ana: 0, You: 0 });
   });
 
@@ -92,8 +92,10 @@ describe("a Practice ride is the engine's ride", () => {
     expect(practiceView(p, impactMs([4_000], r.crashMs) - 1).phase).toBe("ride");
     p = practiceJump(p, 8_000);
     const v = practiceView(p, 8_500);
-    expect(v.phase === "ride" && v.me).toMatchObject({ aboard: false, jumpMs: 8_000, back: refund(100n, positionMs([4_000], 8_000)) });
-    expect(v.phase === "ride" && v.me).toMatchObject({ back: 0n });
+    // Ana never Jumps: I am last off so far, and the Prize on the car stays 2 x 100 less fees with my 100 on the pile.
+    expect(v.phase === "ride" && v.me).toEqual({ aboard: false, jumpMs: 8_000, after: 0 });
+    expect(v.phase === "ride" && [v.prize, v.pile]).toEqual([188n, 1]);
+    expect(result(practiceView(p, impactMs([4_000], r.crashMs))).mine).toMatchObject({ headline: "Last off" });
   });
 
   it("a Brake or a Jump after Impact does nothing, and a second Jump does nothing", () => {

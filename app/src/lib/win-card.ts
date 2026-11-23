@@ -24,7 +24,7 @@ export interface WinCardData {
   /** 1-based, like the files in assets/share. */
   avatar: number;
   hex: string;
-  /** A Railcar ride: how many rode, when the winner (last off) jumped and when the wall came, ride-clock ms. */
+  /** A Railcar ride: how many rode, when the winner (last off) jumped and when the bomb went off (`wallMs`), ride-clock ms. */
   ride?: { seated: number; lastOffMs: number; wallMs: number };
 }
 
@@ -55,7 +55,7 @@ export function winCardData(m: ChainMatch, profile: ProfileData | null): WinCard
 
 /**
  * The card of a settled Match with a winner, as the Match history keeps it (`win_card`): the winning Player and what they
- * gained. A Railcar ride's winner is its last Player off; the ride is replayed for when they jumped and when the wall came.
+ * gained. A Railcar ride's winner is its last Player off; the ride is replayed for when they jumped and when the bomb went off.
  */
 export function winCardFromRow(card: { id: string; game: string; entry: number; winner: string; gemas: number; ride?: StoredRide | null }, profile: ProfileData | null): WinCardData | null {
   const railcar = card.game === "railcar";
@@ -77,7 +77,7 @@ export const winPath = (id: string) => `/win/${id}`;
 
 export function winShareText(w: Pick<WinCardData, "game" | "gemas" | "entry" | "ride">): string {
   const won = w.gemas > 0 ? `won ${w.gemas.toLocaleString("en-US")} Gemas` : "won";
-  if (w.ride) return `I was last off a Railcar ride and ${won} on ${BRAND.handle}. The wall was at ${clock(w.ride.wallMs)}.`;
+  if (w.ride) return `I was last off a Railcar ride and ${won} on ${BRAND.handle}. The bomb went off at ${clock(w.ride.wallMs)}.`;
   return `I just ${won} in a ${historyGameName(w.game)} Match on ${BRAND.handle}.`;
 }
 

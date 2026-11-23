@@ -3,7 +3,7 @@ import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react
 import { isMuted, subscribeMuted } from "@/games/fx/sfx";
 import { brakeState, type BrakeFacts, type TellCue } from "@/games/railcar/brake";
 import { Button } from "@/components/ui";
-import { RailcarScreen, type RailcarBrake, type RailcarOffer, type RailcarWatch } from "@/games/railcar/RailcarScreen";
+import { PrizePile, RailcarScreen, type RailcarBrake, type RailcarOffer, type RailcarWatch } from "@/games/railcar/RailcarScreen";
 import { RailcarWaiting } from "@/games/railcar/RailcarWaiting";
 import { RailcarStage } from "@/games/railcar/RailcarStage";
 import { RailcarShowcase } from "@/games/railcar/showcase";
@@ -50,10 +50,36 @@ export const RideDelayed = { ...screen(fx.rideDelayed()), ...phone };
 export const RideDelayedWatching = { ...screen(fx.rideDelayed(null), { watch: { signedIn: true, nextSeated: 3 } }), ...phone };
 /** A day after it left: the refund is open. */
 export const RideDelayedRefundOpen = { ...screen(fx.rideDelayed(fx.PLAYERS[0], true)), ...phone };
-/** Mid-ride: 1:12, screws heard, 29 of 40 still aboard. */
+/** Mid-ride: 1:12, the first glow heard, 29 of 40 still aboard; the Prize 3,760 (40 x 100 less 6% fees) with 11 entries on the pile. */
 export const Riding = screen(fx.riding());
-/** You jumped at 0:25: what came back, and you keep watching. */
+export const Riding390: StoryObj = { ...Riding, ...phone };
+/** You jumped at 0:25: last off so far, and you keep watching. Nothing comes back unless fewer than three Jump after you. */
 export const RidingAfterYourJump = screen(fx.riding(fx.PLAYERS[0], { jumpedMe: true }));
+export const RidingAfterYourJump390: StoryObj = { ...RidingAfterYourJump, ...phone };
+const outOfPlaces = (v: RailcarView): RailcarView => (v.phase === "ride" && v.me && !v.me.aboard ? { ...v, me: { ...v.me, after: 3 } } : v);
+/** Three Jumped after you: out of the last three, 0. */
+export const RidingAfterYourJumpOutOfPlaces = { ...screen(outOfPlaces(fx.riding(fx.PLAYERS[0], { jumpedMe: true }))), ...phone };
+
+// ---- The Prize and the pile (rules round 2, decisions Q40) -----------------------------------------------------------
+
+/** At departure: the Prize is fixed (5 x 100 less 6% fees = 470) and nothing is on the pile yet. */
+export const PrizePileAtDeparture: StoryObj = { render: () => <PrizePile prize={470n} pile={0} />, ...phone };
+/** Two Jumped: their entries lie on the pile; the Prize still reads 470. */
+export const PrizePileTwoJumped: StoryObj = { render: () => <PrizePile prize={470n} pile={2} />, ...phone };
+/** A 100-seat car with 37 Jumped: 8 entries drawn, the rest as +29; the Prize 9,400 never moves. */
+export const PrizePileFullCar: StoryObj = { render: () => <PrizePile prize={9_400n} pile={37} />, ...phone };
+/** Live: a Jump every 1.2 s drops one entry onto the pile (the newest falls in); the Prize number stays 470 the whole time. Loops. */
+export const PrizePileDropping: StoryObj = {
+  render: function Dropping() {
+    const [n, setN] = useState(0);
+    useEffect(() => {
+      const id = setInterval(() => setN((x) => (x >= 5 ? 0 : x + 1)), 1_200);
+      return () => clearInterval(id);
+    }, []);
+    return <PrizePile prize={470n} pile={n} />;
+  },
+  ...phone,
+};
 const brake = (o: Partial<BrakeFacts>): RailcarBrake => ({ ...brakeState({ aboard: true, allBound: true, myBound: true, canSign: true, walletCopied: true, pressMs: null, pending: false, rideMs: 72_000, ...o })!, onBrake: noop });
 /** Your Brake, ready: one per ride, halves the car for 5 s, only you see it. */
 export const RidingBrakeReady = screen(fx.riding(), { brake: brake({}) });
@@ -69,22 +95,22 @@ export const RidingBrakeWaiting = screen(fx.riding(), { brake: brake({ allBound:
 export const RidingBrakeSignFirst = screen(fx.riding(), { brake: brake({ walletCopied: false }) });
 /** Ben's screen while Ana's Brake runs: exactly the Riding screen. */
 export const RidingAnothersBrake = screen(fx.riding(fx.BEN), { brake: brake({}) });
-/** You jumped after your Brake: at least what comes back, counting your own Brake. */
+/** You jumped after your Brake: your place so far, as after any Jump (a Brake never changes what an early Jump gets: nothing). */
 export const RidingAfterYourBrakeAndJump = screen(fx.riding(fx.PLAYERS[0], { jumpedMe: true, myBrakeMs: 15_000 }));
 const withTells = (v: RailcarView, tells: Tells): RailcarView => (v.phase === "ride" ? { ...v, tells } : v);
 const withTell = (v: RailcarView, stage: number): RailcarView => withTells(v, tellsUpTo(stage));
-/** The Tells change the car itself from the moment each fires: screws pop from the frame... */
+/** The bomb inside warns on the car itself from the moment each Tell fires: a faint amber light under the car and at the door seams (it flares at each screw heard)... */
 export const RidingTellScrews = screen(withTell(fx.riding(), 1));
-/** ...the panel works loose... */
+/** ...then an orange glow under the chassis and through the doors, the windows dim amber... */
 export const RidingTellPanel = screen(withTell(fx.riding(), 2));
-/** ...and sparks fly at the wheels. They all stay to the end of the ride. */
+/** ...then the whole body outlined in hot light, the windows white-hot. The latest stays to the end of the ride. */
 export const RidingTellSparks = screen(withTell(fx.riding(), 3));
-/** A later Tell is not promised: this ride shows the sparks and never the panel (three screws heard, false and real alike). */
+/** A later Tell is not promised: this ride shows the white-hot step and never the seams (three glows heard, false and real alike). */
 export const RidingSparksNoPanel = screen(withTells(fx.riding(), { screws: 3, panel: false, sparks: true }));
-/** This ride shows the screws and nothing else: the wall can come with no further warning. */
+/** This ride shows the first glow and nothing else: the bomb can go off with no further warning. */
 export const RidingScrewsOnly = screen(withTells(fx.riding(), { screws: 4, panel: false, sparks: false }));
 
-/** The crash: the ride turns into its Result, the car stops against the wall (shake, flash, debris, about a second), then the Result. Loops. */
+/** The explosion: the ride turns into its Result, the bomb goes off inside the car (shake, three frames, about a second), then the Result. Loops. */
 export const CrashBeforeResult: StoryObj = {
   render: function Crash() {
     const [n, setN] = useState(0);
@@ -104,7 +130,7 @@ function CrashCycle() {
   return <RailcarScreen view={over ? fx.workedResult() : withTell(fx.riding(), 3)} actions={actions} />;
 }
 
-/** The crash held on its impact (no timer): the car stopped, the shake, and the picked frames play over the car in 1 s: f1 flash, then f2 crumpled front held to the end. */
+/** The explosion on its own (no Result timer): the car stopped, the shake, and the three picked frames play over the car in about a second: windows blow out, the blast, the wreck held to the end. */
 export const CrashImpact: StoryObj = {
   render: () => (
     <div className="rc" style={{ maxWidth: 640 }}>
@@ -113,19 +139,21 @@ export const CrashImpact: StoryObj = {
   ),
 };
 
-/** A whole ride in about 14 s, no waiting: the car leaves and speeds up, Screws (bolts pop off), your Brake (half speed for 5 s), Panel, Sparks, the crash (the wall rushes in, flash, crumpled front, shake), then the Result. Replay restarts it. The real screen on a fixture with a fast ride clock. */
+/** A whole ride in about 14 s, no waiting: the car leaves and speeds up, the first glow, your Brake (half speed for 5 s), the glowing seams, white-hot, the bomb going off (shake, three frames), then the Result. Replay restarts it. The real screen on a fixture with a fast ride clock. */
 export const Showcase: StoryObj = { render: () => <RailcarShowcase /> };
 
 /** A Player watching a car they are not in. */
 export const RidingWatching = screen(fx.riding(null));
 
-/** The worked example, as Dee (last off): 813 / 630 / 578 / 350 / 0, fees 129, the wall at 1:44. */
+/** The worked example, as Dee (last off): 203 / 142 / 125 / 0 / 0, fees 30, the bomb at 0:30. */
 export const ResultLastOff = screen(fx.workedResult());
+export const ResultLastOff390: StoryObj = { ...ResultLastOff, ...phone };
 /** The worked example as Ben (second-last off). */
 export const ResultSecondLastOff = screen(fx.workedResult(fx.BEN));
-/** The worked example as Ana (jumped early at 0:25, 70% back). */
+/** The worked example as Ana: jumped early at 0:08, "Jumped early" and 0, the same as a seat aboard at the blast. */
 export const ResultJumpedEarly = screen(fx.workedResult(fx.ANA));
-/** The worked example as Eve (aboard at Impact). */
+export const ResultJumpedEarly390: StoryObj = { ...ResultJumpedEarly, ...phone };
+/** The worked example as Eve (aboard at the blast). */
 export const ResultAboardAtImpact = screen(fx.workedResult(fx.EVE));
 /** The ride paid 350 Gemas into a full Account: one line under the amount says how many wait for room, with Claim. */
 const CAR = new PublicKey(new Uint8Array(32).fill(9));
@@ -148,17 +176,17 @@ export const ResultNobodyJumped = screen(fx.nobodyJumped());
 const BOB = fx.BOB.toBase58();
 const benBacked = { seat: 1, backer: fx.BOB, shareBps: 4_000 };
 
-/** `/play/railcar?backing=<offer>`: Bob's accepted Offer, before boarding. Their 500 board for you. */
+/** `/play/railcar?backing=<offer>`: Bob's accepted Offer, before boarding. Their 100 board for you. */
 export const BoardingWithBacking = screen(fx.boardingCountdown(null), { offer: { backer: BOB, sharePct: 40 } });
 /** Bob already has a seat in this car: the Offer waits for the next one (core would refuse it here). */
 export const BoardingBackerInThisCar = screen(fx.boardingCountdown(null), { offer: { backer: BOB, sharePct: 40, blocked: "Your Backer is in this car: board the next one" } });
-/** Boarded with Bob's Gemas: a step-off sends the full 500 back to Bob. */
+/** Boarded with Bob's Gemas: a step-off sends the full 100 back to Bob. */
 export const BoardingBackedAboard = screen(fx.boardingCountdown(fx.BEN, benBacked));
-/** Ben jumped early under the Backing: the refund is Bob's. */
+/** Ana jumped under Bob's Backing: her place so far; Bob gets his entry back only if she ends in the last three. */
 export const RidingBackedAfterJump = screen(fx.riding(fx.ANA, { jumpedMe: true, backed: { ...benBacked, seat: 0 } }));
-/** The worked example as Ben, backed: 630 back, Bob 578 (his 500 first), Ben 52 (40% of 130). */
+/** The worked example as Ben, backed: 142 back, Bob 126 (his 100 first), Ben 16 (40% of 42). */
 export const ResultBackedSecondLastOff = screen(fx.workedResult(fx.BEN, benBacked));
-/** Backed and aboard at Impact: Bob bears the 500, Eve owes nothing. */
+/** Backed and aboard at Impact: Bob bears the 100, Eve owes nothing. */
 export const ResultBackedAboard = screen(fx.workedResult(fx.EVE, { ...benBacked, seat: 4 }));
 /** Someone else's backed place on the result: Ben's plate shows the split. */
 export const ResultWithABackedPlace = screen(fx.workedResult(fx.DEE, benBacked));
@@ -216,25 +244,39 @@ export const SpectatorResult390: StoryObj = { ...SpectatorResult, ...phone };
 // ---- Round history: a finished ride's page --------------------------------------------------------------------------
 
 const history = (page: ReturnType<typeof fx.storedWorkedRide>, me: string | null): StoryObj => ({ render: () => <RideHistory page={page} me={me} actions={actions} /> });
-/** The worked example from the history, as Dee (last off): the Result, then the wall, the Tells, the draw and the replay's check. */
+/** The worked example from the history, as Dee (last off): the Result, then the bomb, the warnings, the draw and the replay's check. */
 export const RideFromHistory = history(fx.storedWorkedRide(), fx.DEE.toBase58());
 export const RideFromHistory390: StoryObj = { ...RideFromHistory, ...phone };
 export const RideFromHistory1440: StoryObj = { ...RideFromHistory, ...desk };
-/** Dee Braked at 1:30: the wall stays at 1:44 of track and comes at 1:46 on the clock. Seen by someone who did not ride. */
+/** Dee Braked at 0:20: the bomb stays at 0:30 of track and goes off at 0:32 on the clock. Seen by someone who did not ride. */
 export const RideFromHistoryWithBrake = history(fx.storedWorkedRide({ brake: true }), null);
 /** A ride that did not show the sparks: the check lists the Tell as "Did not show". */
 export const RideFromHistoryNoSparks = history(fx.storedWorkedRide({ shows: { sparks: false } }), null);
 export const RideFromHistoryWithBrake390: StoryObj = { ...RideFromHistoryWithBrake, ...phone };
 /** A car core refunded before anyone revealed its ride: nothing to replay, and the page says so. */
-export const RideRefundedUnrevealed: StoryObj = { render: () => <RideHistory page={{ id: "Opener1-7", entry: 500, ride: null, refunded: true }} me={null} actions={actions} /> };
+export const RideRefundedUnrevealed: StoryObj = { render: () => <RideHistory page={{ id: "Opener1-7", entry: 100, ride: null, refunded: true }} me={null} actions={actions} /> };
 export const RideRefundedUnrevealed390: StoryObj = { ...RideRefundedUnrevealed, ...phone };
 export const RideRefundedUnrevealed1440: StoryObj = { ...RideRefundedUnrevealed, ...desk };
-/** A record the replay does not give (Ana shown 400 back where the schedule gives 350): the page lists the difference. */
+/** A record the replay does not give (Ana shown 40 back where round 2 gives nothing): the page lists the difference. */
 export const RideFromHistoryDiffers = history(fx.storedWorkedRide({ tamper: true }), fx.ANA.toBase58());
+const backedHistory = fx.storedWorkedRide({ deeBackedBy: { funder: fx.BOB.toBase58(), shareBps: 4_000 } });
+/** Dee rode on Bob's Backing, 40% to Dee: core paid place 1 its 60% share; the split shown by the Offer (Bob 162 with his 100 first, Dee 41). */
+export const RideFromHistoryBacked: StoryObj = { ...history(backedHistory, fx.DEE.toBase58()), ...phone };
+/** Someone paid 10 Gemas to the wrong place (Dee 193, Ben 152: places and total right): the check names both amounts. */
+export const RideFromHistoryWrongAmount: StoryObj = {
+  ...history(
+    (() => {
+      const page = fx.storedWorkedRide();
+      return { ...page, ride: { ...page.ride, places: page.ride.places.map((x, i) => (i === 0 ? { ...x, won: x.won - 10 } : i === 1 ? { ...x, won: x.won + 10 } : x)) } };
+    })(),
+    null,
+  ),
+  ...phone,
+};
 
 // ---- Practice free (ticket 20): you and 9 simulated riders, the real engine, nothing staked ------------------------
 
-/** A fixed draw: the wall at 1:26, sparks at 1:18; three riders off in the first 25 s. */
+/** A fixed draw: the bomb at 0:36.9, the Glow at 0:22, Hot seams at 0:28, White-hot at 0:33.7; two riders off in the first 10 s, five by 0:25. */
 const PRACTICE_DRAW = hexToBytes("b8c8dcecf8081c2c38485c6c78889cacb8c8dcecf8081c2c38485c6c78889cac");
 const practiceRide = newPractice(PRACTICE_DRAW);
 const practiceBrakeOf = (p: Practice, t: number): RailcarBrake => ({ ...brakeState({ aboard: p.jumpMs === null, allBound: true, myBound: true, canSign: true, walletCopied: true, pressMs: p.brakeMs, pending: false, rideMs: t })!, onBrake: noop });
@@ -244,21 +286,21 @@ const practice = (p: Practice, t: number): StoryObj => ({
 
 /** `/play/practice?game=railcar`, live: the car leaves at once with 9 simulated riders. Jump, Brake and Play again work; nothing is sent. */
 export const PracticeLive: StoryObj = { render: () => <RailcarPractice draw={PRACTICE_DRAW} /> };
-/** A later Tell is not promised: this ride shows the Screws (0:16) and the Panel (0:25) and never the Sparks; the wall is at 0:37. Live, so the chips, the car and the simulated riders can be watched to the Result. */
+/** A later Tell is not promised: this ride shows the Glow (0:14.7) and Hot seams (0:15.6) and never White-hot; the bomb goes off at 0:24. Live, so the chips, the car and the simulated riders can be watched to the Result. */
 export const PracticeLiveNoSparks: StoryObj = { render: () => <RailcarPractice draw={hexToBytes("0a4c74bd1eb7dd886217c7597294d3af3a16eb1314e2fd38c500a62ad96023e2")} /> };
-/** Mid-ride at 1:12: the PRACTICE tag, the riders' names, Jump and your Brake. */
-export const PracticeRiding = practice(practiceRide, 72_000);
+/** Mid-ride at 0:30: the PRACTICE tag, the riders' names, Jump and your Brake (no Prize: nothing is staked). */
+export const PracticeRiding = practice(practiceRide, 30_000);
 export const PracticeRiding390: StoryObj = { ...PracticeRiding, ...phone };
 export const PracticeRiding1440: StoryObj = { ...PracticeRiding, ...desk };
 /** Your Brake running: the car slows on your screen, as in a real ride. */
-export const PracticeWithYourBrake = practice(practiceBrake(practiceRide, 70_000), 72_000);
-/** You jumped at 1:00: at least what a 500 entry would get back, and you keep watching. */
-export const PracticeAfterYourJump = practice(practiceJump(practiceRide, 60_000), 72_000);
-/** Last off at 1:20: what a 500 entry would have paid, Play again and Ride for real. */
-export const PracticeResultLastOff = practice(practiceJump(practiceRide, 80_000), 700_000);
+export const PracticeWithYourBrake = practice(practiceBrake(practiceRide, 28_000), 30_000);
+/** You jumped at 0:25: last off so far, and you keep watching. */
+export const PracticeAfterYourJump = practice(practiceJump(practiceRide, 25_000), 30_000);
+/** Last off at 0:34: what a 100 entry would have paid (484), Play again and Ride for real. */
+export const PracticeResultLastOff = practice(practiceJump(practiceRide, 34_000), 700_000);
 export const PracticeResultLastOff390: StoryObj = { ...PracticeResultLastOff, ...phone };
 export const PracticeResultLastOff1440: StoryObj = { ...PracticeResultLastOff, ...desk };
-/** Jumped early at 0:15: the refund a 500 entry would have got. */
+/** Jumped early at 0:15: five Jumped after you, so a 100 entry would have paid nothing. */
 export const PracticeResultJumpedEarly = practice(practiceJump(practiceRide, 15_000), 700_000);
 /** Held too long: aboard at Impact, 0. */
 export const PracticeResultAboard = practice(practiceRide, 700_000);

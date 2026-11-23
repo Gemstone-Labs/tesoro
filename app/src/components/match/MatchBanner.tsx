@@ -117,7 +117,7 @@ export function MatchBannerSkeleton({ count, label }: { count: number; label: st
               <SkelText>Won</SkelText>
             </b>
             <small>
-              <SkelText>Entry 500</SkelText>
+              <SkelText>Entry 100</SkelText>
             </small>
           </div>
           <div className="mb-face">

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { PublicKey } from "@solana/web3.js";
 import { log } from "./act.ts";
-import { boardingEnds, carFieldAt } from "../../app/src/lib/chain/many-seat.ts";
+import { carFieldAt } from "../../app/src/lib/chain/many-seat.ts";
 import { discriminatorOf } from "./lists.ts";
 
 /**
@@ -16,7 +16,7 @@ import { discriminatorOf } from "./lists.ts";
  *    chunks (ticket 58). No grace: the Players' pages had the same five minutes.
  * A many-seat Match (a Railcar car) is a fifth case and a second way into `finish`:
  *  - `ride`: a car that left (or is due to leave) and whose ride nobody finished, `RIDE_TIMEOUT_SECS` after it left, or a
- *    car still Boarding once core's boarding has ended (its seats step off home): the one step a Player's page would have sent (the Game's adapter picks it: start the ride, the signal that applies its Impact,
+ *    car still Boarding (a seat whose Player is away steps off; once core's boarding has ended every seat steps off home): the one step a Player's page would have sent (the Game's adapter picks it: start the ride, the signal that applies its Impact,
  *    the Table's commit, `finalize`, or core's refund once 24 h have passed), one per sweep;
  *  - `finish`: a car core is settling or has paid: its chunks, then each seat's close and the car's.
  * Every send is idempotent, so a page that did the step first costs nothing. A Match the sweep tried once and finds in the
@@ -202,6 +202,11 @@ export interface SweepDeps {
    * scan; without them every run scans. Throws when the database cannot be read.
    */
   dbMatches?(): Promise<PublicKey[]>;
+  /**
+   * The cars a Game is boarding now (Railcar's Config names one): read every run, so a car opened since the last hourly scan
+   * is still looked at (a seat whose Player went away steps off before it leaves).
+   */
+  boardingCars?(): Promise<PublicKey[]>;
   /** Reads these Match accounts by address; `gone` lists the ones that no longer exist. */
   readHeads?(addresses: PublicKey[]): Promise<{ heads: Head[]; gone: PublicKey[] }>;
   /** Tells the database these Match accounts no longer exist. */
@@ -264,8 +269,10 @@ const label = (a: PublicKey) => a.toBase58();
 function caseOf(h: Head, now: number): Case | null {
   if (h.car) {
     const c = h.car;
-    // Past core's boarding end nobody may join or depart the car: the ride step steps every seat off and closes it.
-    if (h.stage === "open") return now >= boardingEnds({ deadlineAbs: h.deadline }) || (c.seated >= c.minSeats && c.firstMinAt > 0 && now - c.firstMinAt >= RIDE_TIMEOUT_SECS) ? "ride" : null;
+    // A Boarding car is looked at every run: a seat whose Player started a Break or Self-Exclusion since boarding steps off
+    // (the ride step waits, not a try, when nobody is away and nothing else is due), past core's boarding end every seat steps
+    // off and the car closes, and a car that held its minimum and never left is sent on its way.
+    if (h.stage === "open") return "ride";
     if (h.stage === "active") return now - c.departedAt >= RIDE_TIMEOUT_SECS ? "ride" : null;
     return "finish";
   }
@@ -296,7 +303,10 @@ async function findHeads(deps: SweepDeps, state: SweepState, now: number, dryRun
   };
   if (hasDb && dbAddresses && !full) {
     const tracked = Object.keys(state.seen).map((k) => new PublicKey(k));
-    const byId = new Map([...dbAddresses, ...tracked].map((a) => [label(a), a]));
+    const boarding = deps.boardingCars
+      ? await deps.boardingCars().catch((e) => (log("sweep", "-", `boarding car unreadable (${String((e as Error).message ?? e).slice(0, 160)})`), [] as PublicKey[]))
+      : [];
+    const byId = new Map([...dbAddresses, ...tracked, ...boarding].map((a) => [label(a), a]));
     const { heads, gone } = await deps.readHeads!([...byId.values()]);
     await tellGone(gone);
     report.mode = "db";

@@ -47,21 +47,34 @@ describe("the Ride, in the same screen", () => {
     expect(html(boardingCountdown())).not.toContain("rc-stage moving");
   });
 
-  it("shows the clock, the Tells, who is aboard, the Gemas at stake and Jump; never speed, distance or a refund percentage", () => {
+  it("shows the clock, the Tells, who is aboard, the Prize and its pile, and Jump; never speed, distance or a refund percentage", () => {
     const t = text(html(riding()));
     expect(t).toContain("1:12");
-    expect(t).toMatch(/Screws.*Panel.*Sparks/);
+    expect(t).toMatch(/Glow.*Hot seams.*White-hot/);
     expect(t).toContain("Aboard 29");
-    expect(t).toContain("At stake");
-    expect(t).toContain("4,000");
+    // 40 entries of 100 less 6% fees: fixed when the car left.
+    expect(t).toMatch(/Prize .*3,760/);
+    expect(t).toContain("11 on the pile");
     expect(t).toContain("Jump");
-    expect(t).not.toMatch(/%|km|speed|distance/i);
+    expect(t).toContain("last three off paid");
+    expect(t).not.toMatch(/%|km|speed|distance|refund/i);
   });
 
-  it("after my Jump: what I got back, and I keep watching", () => {
+  it("the pile never suggests the Prize grows: the Prize is the same before and after a Jump, and no +100 shows", () => {
+    const before = html(riding());
+    const after = html(riding(PLAYERS[0], { jumpedMe: true }));
+    const prize = (h: string) => text(h).match(/Prize (\S+)/)?.[1];
+    expect(prize(before)).toBe("3,760");
+    expect(prize(after)).toBe("3,760");
+    expect(text(after)).toContain("12 on the pile");
+    expect(text(before + after)).not.toMatch(/\+\s*100|grows|growing/i);
+    expect(before).toContain("Fixed when the car left");
+  });
+
+  it("after my Jump: my place so far, never a refund, and I keep watching", () => {
     const t = text(html(riding(PLAYERS[0], { jumpedMe: true })));
-    expect(t).toContain("You jumped at 0:25");
-    expect(t).toContain("at least 0 Gemas back");
+    expect(t).toContain("You jumped at 0:25 · Last off so far");
+    expect(t).not.toMatch(/back|refund/i);
     expect(t).not.toMatch(/>\s*Jump\s*</);
   });
 
@@ -84,16 +97,17 @@ describe("staging round 1: what the screen no longer says", () => {
     expect(text(html(boardingWaiting()))).not.toMatch(/\bAboard\b[^a-z]/);
   });
 
-  it("the ride keeps its count and At stake, but not 'Names leave when they Jump'", () => {
+  it("the ride keeps its count and the Prize, but not 'Names leave when they Jump' or 'At stake'", () => {
     const t = text(html(riding()));
     expect(t).toContain("Aboard 29");
-    expect(t).toContain("At stake");
+    expect(t).toContain("Prize");
+    expect(t).not.toContain("At stake");
     expect(t).not.toContain("Names leave");
   });
 
-  it("Practice shows no At stake row", () => {
+  it("Practice shows no Prize row: nothing is staked", () => {
     const t = text(renderToStaticMarkup(<RailcarScreen view={riding()} practice />));
-    expect(t).not.toContain("At stake");
+    expect(t).not.toContain("Prize");
   });
 
   it("the Result rows are all the same width: no indent on places 2 and 3", () => {
@@ -157,13 +171,18 @@ describe("my secret Brake", () => {
     expect(html(riding(null), null)).not.toContain("rc-brake");
   });
 
-  it("after my Jump: at least what comes back", () => {
-    expect(text(html(riding(PLAYERS[0], { jumpedMe: true })))).toMatch(/You jumped at 0:25 · at least 0 Gemas back/);
+  it("after my Jump: second and third so far, then out of the last three with 0", () => {
+    const v = riding(PLAYERS[0], { jumpedMe: true });
+    if (v.phase !== "ride" || !v.me || v.me.aboard) throw new Error("not jumped");
+    const at = (after: number) => text(html({ ...v, me: { ...v.me, aboard: false, jumpMs: 25_000, after } }));
+    expect(at(1)).toContain("You jumped at 0:25 · Second-last off so far");
+    expect(at(2)).toContain("You jumped at 0:25 · Third-last off so far");
+    expect(at(3)).toMatch(/You jumped at 0:25 · 3 jumped after you: 0 Gemas/);
   });
 });
 
 describe("the Result", () => {
-  it("the worked example: 203 / 142 / 125 / 0 / 0, fees 30, the wall at 0:30", () => {
+  it("the worked example: 203 / 142 / 125 / 0 / 0, fees 30, the bomb at 0:30", () => {
     const t = text(html(workedResult()));
     expect(t).toContain("Last off");
     expect(t).toMatch(/You get .*203/);
@@ -172,14 +191,14 @@ describe("the Result", () => {
     expect(t).toMatch(/jumped early .*0 Gemas/);
     expect(t).toMatch(/aboard .*0/);
     expect(t).toMatch(/Fees .*30/);
-    expect(t).toContain("Wall 0:30");
+    expect(t).toContain("Bomb 0:30");
     expect(t).toContain("Play again");
     expect(t).toContain("Share");
   });
 
   it("the early jumper and the Player left aboard read their own headline", () => {
     expect(text(html(workedResult(ANA)))).toContain("Jumped early");
-    expect(text(html(workedResult(EVE)))).toContain("Aboard at Impact");
+    expect(text(html(workedResult(EVE)))).toContain("Aboard at the blast");
   });
 
   it("nobody jumped: every entry back and no fees line", () => {
@@ -192,13 +211,13 @@ describe("the Result", () => {
 describe("Spectators", () => {
   const watch = (signedIn: boolean, nextSeated: number | null = 12) => renderToStaticMarkup(<RailcarScreen view={riding(null)} watch={{ signedIn, nextSeated }} actions={{ onBoard: () => undefined, onSignIn: () => undefined }} />);
 
-  it("watch the live ride as a Player who has not Braked: clock, Tells, aboard, at stake; no Jump, no Brake", () => {
+  it("watch the live ride as a Player who has not Braked: clock, Tells, aboard, the Prize; no Jump, no Brake", () => {
     const h = watch(false);
     const t = text(h);
     expect(t).toContain("Live");
     expect(t).toContain("1:12");
     expect(t).toContain("Aboard 29");
-    expect(t).toContain("At stake");
+    expect(t).toMatch(/Prize .*3,760/);
     expect(h).not.toMatch(/<button[^>]*>(Jump|Brake)/);
   });
 

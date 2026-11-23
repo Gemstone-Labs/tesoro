@@ -11,6 +11,7 @@ import { protectionsPda } from "@/lib/chain/native";
 import { GAME_IDS } from "@/lib/chain/games";
 import { JITOSOL, redeemStakeIx, unlockStakeIx } from "@/lib/chain/stake";
 import { createAtaIdempotentIx, updateStakePoolBalanceIx } from "@/lib/chain/stake-pool";
+import { stepOffIx } from "@/lib/chain/many-seat";
 
 const relayer = key();
 const player = key();
@@ -526,6 +527,14 @@ describe("Break and Self-Exclusion clean-up (keeper diet ticket 27)", () => {
     refused([await playerIx.cancelRequest(player), brk], "bad-shape");
     refused([await playerIx.cancelRequest(player), await playerIx.redeem(player)], "bad-shape");
     refused([await playerIx.cancelRequest(player), await openMatchIx(relayer, player, game)], "bad-shape");
+  });
+  it("a Self-Exclusion steps the Player off the Railcar car they boarded in the same transaction, first in the bundle (Q40 review #2)", async () => {
+    const seat = { index: 3, seated: true, shareBps: 0, placeBps: 0, place: 0, potLines: 1, hold: 0, refund: 0n, player: accountOf(player), funder: accountOf(player), pot: key(), signer: key() };
+    const stepOff = stepOffIx({ caller: player, car: key(), seat, markPayer: relayer, potPayer: relayer, sponsor: true });
+    const excl = await coreIx("set_self_exclusion", [6], { ownerAuthority: player });
+    expect(plan([excl, stepOff, await playerIx.cancelRequest(player)])).toMatchObject({ names: ["set_self_exclusion", "step_off_many_seat_match", "cancel_request"], class: "exit", playerSigns: true });
+    // and as a later bundle of the same flow, without the Break
+    expect(plan([stepOff, await playerIx.cancelOffer(player)]).names).toEqual(["step_off_many_seat_match", "cancel_offer"]);
   });
   it("a bundle of another Player's items is refused: the cancel instructions need the signer to own them", async () => {
     // the chain enforces ownership; the sponsor insists the signer is a Player, never the relayer

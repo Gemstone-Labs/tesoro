@@ -17,7 +17,7 @@ describe("Railcar in the Play Now catalogue", () => {
     vi.resetModules();
     vi.stubEnv("NEXT_PUBLIC_SHOW_RAILCAR", "1");
     const shown = (await import("./catalogue")).CATALOGUE.find((c) => c.key === "railcar");
-    expect(shown).toMatchObject({ live: true, href: "/play/railcar", entries: [500] });
+    expect(shown).toMatchObject({ live: true, href: "/play/railcar", entries: [100] });
     vi.resetModules();
     vi.stubEnv("NEXT_PUBLIC_SHOW_RAILCAR", "");
     expect((await import("./catalogue")).CATALOGUE.some((c) => c.key === "railcar")).toBe(false);

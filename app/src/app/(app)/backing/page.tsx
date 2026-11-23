@@ -10,7 +10,6 @@ import {
   Button,
   Card,
   CheckIcon,
-  ClockIcon,
   toast,
   BustCard,
   Chip,
@@ -482,7 +481,7 @@ function PostRequest({
 }) {
   const [game, setGame] = useState<BackedGame>("block-puzzle");
   const [entry, setEntry] = useState<EntrySize>(1000);
-  // A Game with fixed entries (Railcar: 500) asks for one of them.
+  // A Game with fixed entries (Railcar: 100) asks for one of them.
   const fixed = backedEntries(game);
   const asked = fixed && !fixed.includes(entry) ? fixed[0] : entry;
   return (
@@ -646,7 +645,7 @@ function OfferDrawer({
   );
 }
 
-/** A Railcar Offer by the worked example: last off of 5 wins 313 after fees; an early Jump returns part of the entry to the Backer. */
+/** A Railcar Offer by the worked example: last off of 5 wins 103 after fees; out of the last three the Backer loses the entry. */
 function RailcarOutcomes({ share, entry }: { share: number; entry: number }) {
   const o = railcarOfferOutcomes(share * 100);
   return (
@@ -665,21 +664,16 @@ function RailcarOutcomes({ share, entry }: { share: number; entry: number }) {
             <td><b className="tnum">+{fmtGemas(Number(o.place.backer))}</b><small>net · your {fmtGemas(entry)} back + {100 - share}% of the winnings</small></td>
             <td><b className="tnum">+{fmtGemas(Number(o.place.player))}</b><small>{share}% of the winnings</small></td>
           </tr>
-          <tr>
-            <th scope="row"><span className="bk-ico"><ClockIcon /></span> They jump early</th>
-            <td><b className="tnum">{fmtGemas(Number(o.early.leastBack))}–{fmtGemas(Number(o.early.mostBack))}</b><small>the Early-jump refund, back to you</small></td>
-            <td><b className="tnum">0</b><small>never owe anything</small></td>
-          </tr>
           <tr className="lost">
-            <th scope="row"><span className="bk-ico lost"><XIcon /></span> Aboard at Impact</th>
-            <td><b className="tnum">−{fmtGemas(entry)}</b><small>you lose your entry</small></td>
+            <th scope="row"><span className="bk-ico lost"><XIcon /></span> They don&apos;t place</th>
+            <td><b className="tnum">−{fmtGemas(Number(-o.unplaced.backer))}</b><small>you lose your entry: an early Jump or aboard at the blast</small></td>
             <td><b className="tnum">0</b><small>never owe anything</small></td>
           </tr>
         </tbody>
       </table>
       <p className="meta">
-        Winnings depend on how many board and when they Jump: here last off of 5 Players wins {fmtGemas(Number(o.exampleWon))} after Fees. A Backing cannot be revoked once the
-        car leaves.
+        Only the last three off are paid. Winnings depend on how many board: here last off of 5 Players wins {fmtGemas(Number(o.exampleWon))} after Fees. A Backing cannot be
+        revoked once the car leaves.
       </p>
     </>
   );

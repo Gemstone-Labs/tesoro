@@ -1,6 +1,8 @@
 import "./polyfill";
 import { ComputeBudgetProgram, PublicKey, SystemProgram, type TransactionInstruction } from "@solana/web3.js";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
+import { configPda as railcarConfigPda, decodeConfig as decodeRailcarConfig } from "@/games/railcar/chain";
+import { stepOffFor } from "@/games/railcar/step-off";
 import { MAX_CLEANUP, PROTECTIONS_BYTES } from "@/server/sponsor/rules";
 import { cancelOfferIx, cancelRequestIx } from "./backing";
 import { getChain } from "./client";
@@ -8,7 +10,9 @@ import type { GetToken } from "./demo-client";
 import { planAway, type AwayStep, type OpenMatchRow } from "./away-plan";
 import { sendSponsoredOrOwn } from "./sponsored-or-own";
 import { sponsorStatus } from "./sponsor-client";
-import { fits } from "./settle-plan";
+import { loadCar, type LoadedCar } from "./many-seat-plan";
+import type { SeatView } from "./many-seat";
+import { connReader, fits, type Core, type Reader } from "./settle-plan";
 import { protectionsPda } from "./native";
 import { matchKeyOfState } from "./read";
 
@@ -48,56 +52,129 @@ export async function awayStepIx(owner: PublicKey, payer: PublicKey, step: AwayS
   return cancelOfferIx(owner, step.offer, step.request);
 }
 
+/** A seat the Player holds in a car still Boarding: starting a Break or Self-Exclusion steps them off it (Q40 review #2). */
+export interface BoardingSeat {
+  loaded: LoadedCar;
+  seat: SeatView;
+}
+
+/**
+ * The Player's seats in a car still taking seats, read fresh: Railcar's boarding car (one Queue, so one car boards at a time;
+ * a full car leaves in the transaction that opens the next). None when Railcar is not set up or they hold no seat.
+ */
+export async function readOwnBoardingSeats(read: Reader, account: PublicKey): Promise<BoardingSeat[]> {
+  const [config] = await read.many([railcarConfigPda()]);
+  if (!config) return [];
+  const match = decodeRailcarConfig(config.data).boardingMatch;
+  if (match.equals(PublicKey.default)) return [];
+  const loaded = await loadCar(read, match);
+  if (!loaded || loaded.car.stage !== "boarding") return [];
+  return loaded.seats.filter((s) => s.seated && s.player.equals(account)).map((seat) => ({ loaded, seat }));
+}
+
+/** One clean-up step of a Break: a step-off from a boarding car, or one of `planAway`'s. */
+export type AwayItem = AwayStep | ({ kind: "step-off" } & BoardingSeat);
+
+/** Step-offs first, so a seat in a car about to leave rides in the Break's own transaction whenever it fits. */
+export const cleanupOrder = (seats: BoardingSeat[], steps: AwayStep[]): AwayItem[] => [...seats.map((s) => ({ kind: "step-off" as const, ...s })), ...steps];
+
+/** The instruction of one clean-up step; a step-off is the Player's own (the wallet is the seat's Player). */
+export async function awayItemIx(owner: PublicKey, payer: PublicKey, item: AwayItem, chain: { core: Core; read: Reader }): Promise<TransactionInstruction> {
+  if (item.kind === "step-off") return stepOffFor(chain.core, chain.read, { caller: owner, loaded: item.loaded, seat: item.seat });
+  return awayStepIx(owner, payer, item);
+}
+
 /** The relayer's rent for the Protections account, sent to the Player right before their first Break (the sponsor allows exactly this). */
 const rentTopUp = (relayer: PublicKey, owner: PublicKey, lamports: number) => SystemProgram.transfer({ fromPubkey: relayer, toPubkey: owner, lamports });
 
 /**
- * Starts a Break or Self-Exclusion and cleans up in the same transaction: the Player's unpaired Matches are refunded (the
- * safety sweep runs each refund's chunks), their Requests withdrawn and their Offers released; Matches already paired play out.
- * The relayer pays the fee, and the receipt rent of each refund, when it can: a Player with no SOL still gets away. Bundles
- * hold as many steps as fit. If the first bundle fails (an item moved since it was read) the Break goes through alone, then the
- * clean-up is retried in later bundles; whatever still fails is counted for the caller, and the daily janitor catches it.
+ * Sends the Break (`lead`) with as many clean-up items as fit (`fit`), then the rest in later bundles. The Break always goes
+ * out: if the first bundle cannot be built (`fit` throws: an item's accounts could not be read) or fails (an item moved since
+ * it was read), the Break goes alone, and the clean-up is retried in later bundles. Once the Break has landed nothing throws:
+ * an item that cannot be built or sent is counted in `failed` and returned in `failedItems`.
+ */
+export async function sendAwayBundles<T>(
+  items: T[],
+  d: { fit(withLead: boolean, rest: T[]): Promise<number>; send(withLead: boolean, batch: T[]): Promise<string> },
+): Promise<{ signature: string; cleaned: number; failed: number; failedItems: T[] }> {
+  const first = await d.fit(true, items).catch(() => 0);
+  let signature: string;
+  let cleaned = first;
+  try {
+    signature = await d.send(true, items.slice(0, first));
+  } catch (e) {
+    if (!first) throw e;
+    signature = await d.send(true, []);
+    cleaned = 0;
+  }
+  const failedItems: T[] = [];
+  let rest = items.slice(cleaned);
+  while (rest.length) {
+    const fits = await d.fit(false, rest).catch(() => null);
+    const take = Math.max(1, fits ?? 1);
+    if (fits === null) failedItems.push(...rest.slice(0, take));
+    else {
+      try {
+        await d.send(false, rest.slice(0, take));
+        cleaned += take;
+      } catch {
+        failedItems.push(...rest.slice(0, take));
+      }
+    }
+    rest = rest.slice(take);
+  }
+  return { signature, cleaned, failed: failedItems.length, failedItems };
+}
+
+/** The Player still holds a seat in a boarding car: a step-off failed, or their boarding car could not be read at all. */
+export const stillBoarding = (r: { seatsRead: boolean; failedItems: AwayItem[] }): boolean => !r.seatsRead || r.failedItems.some((i) => i.kind === "step-off");
+
+/**
+ * Starts a Break or Self-Exclusion and cleans up in the same transaction: the Player steps off any Railcar car still
+ * Boarding (first, so it rides with the Break when it fits: a car in its countdown would otherwise leave with them), their
+ * unpaired Matches are refunded (the safety sweep runs each refund's chunks), their Requests withdrawn and their Offers
+ * released; Matches already paired play out. The relayer pays the fee, and the receipt rent of each refund, when it can: a
+ * Player with no SOL still gets away. Bundles hold as many steps as fit (`sendAwayBundles`); whatever still fails is counted
+ * for the caller, and the daily janitor (Matches, Requests, Offers) and the safety sweep (a seat in a boarding car) catch it.
  *
  * The first Break creates the Protections account and the program makes the Player its rent payer, so while it does not exist
  * the sponsored transaction starts with the relayer sending the Player exactly that rent. When the relayer cannot pay, the
  * Player pays everything from their own SOL (topped up on the test cluster).
  */
-export async function startAwayWithCleanup(signer: ChainSigner, getToken: GetToken, setIx: TransactionInstruction): Promise<{ signature: string; cleaned: number; failed: number }> {
+export async function startAwayWithCleanup(
+  signer: ChainSigner,
+  getToken: GetToken,
+  setIx: TransactionInstruction,
+): Promise<{ signature: string; cleaned: number; failed: number; stillBoarding: boolean }> {
   const owner = signer.publicKey;
-  const [steps, protections] = await Promise.all([readOwnOpenItems(owner), getChain().base.getAccountInfo(protectionsPda(BlockPuzzleChain.coreAccount(owner)))]);
+  const account = BlockPuzzleChain.coreAccount(owner);
+  const chain = { core: getChain().core as Core, read: connReader(getChain().base) };
+  // A Railcar car that cannot be read never holds up the Break: the Player is told to step off themselves.
+  const [seats, steps, protections] = await Promise.all([readOwnBoardingSeats(chain.read, account).catch(() => null), readOwnOpenItems(owner), getChain().base.getAccountInfo(protectionsPda(account))]);
+  const items = cleanupOrder(seats ?? [], steps);
   const feePayer = await sponsorStatus().then((s) => new PublicKey(s.relayer), () => owner);
   const rent = protections ? 0 : await getChain().base.getMinimumBalanceForRentExemption(PROTECTIONS_BYTES);
   const needsRent = !protections;
+  const ixsOf = (payer: PublicKey, batch: AwayItem[]) => Promise.all(batch.map((s) => awayItemIx(owner, payer, s, chain)));
 
-  const send = (lead: TransactionInstruction[], batch: AwayStep[]) =>
-    sendSponsoredOrOwn(signer, getToken, async (payer, sponsored) => {
-      const list = [...(sponsored && lead.length && needsRent ? [rentTopUp(payer, owner, rent)] : []), ...lead, ...(await Promise.all(batch.map((s) => awayStepIx(owner, payer, s))))];
-      return sponsored ? list : [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }), ...list];
-    });
-  const fitting = async (lead: TransactionInstruction[], rest: AwayStep[]) =>
-    stepsThatFit(feePayer, lead.length && needsRent ? [rentTopUp(feePayer, owner, rent), ...lead] : lead, await Promise.all(rest.map((s) => awayStepIx(owner, feePayer, s))));
-
-  const first = await fitting([setIx], steps);
-  let signature: string;
-  let cleaned = first;
-  try {
-    signature = await send([setIx], steps.slice(0, first));
-  } catch (e) {
-    if (!first) throw e;
-    signature = await send([setIx], []);
-    cleaned = 0;
-  }
-  let failed = 0;
-  let rest = steps.slice(cleaned);
-  while (rest.length) {
-    const take = Math.max(1, await fitting([], rest));
-    try {
-      await send([], rest.slice(0, take));
-      cleaned += take;
-    } catch {
-      failed += take;
-    }
-    rest = rest.slice(take);
-  }
-  return { signature, cleaned, failed };
+  const r = await sendAwayBundles(items, {
+    fit: async (withLead, rest) => {
+      const lead = withLead ? [...(needsRent ? [rentTopUp(feePayer, owner, rent)] : []), setIx] : [];
+      // The items that can be built, in order, up to the first that cannot (that one throws when it leads the rest).
+      const built: TransactionInstruction[] = [];
+      for (const item of rest.slice(0, MAX_CLEANUP)) {
+        const ix = await awayItemIx(owner, feePayer, item, chain).catch((e: unknown) => (built.length ? null : Promise.reject(e)));
+        if (!ix) break;
+        built.push(ix);
+      }
+      return stepsThatFit(feePayer, lead, built);
+    },
+    send: (withLead, batch) =>
+      sendSponsoredOrOwn(signer, getToken, async (payer, sponsored) => {
+        const lead = withLead ? [...(sponsored && needsRent ? [rentTopUp(payer, owner, rent)] : []), setIx] : [];
+        const list = [...lead, ...(await ixsOf(payer, batch))];
+        return sponsored ? list : [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }), ...list];
+      }),
+  });
+  return { signature: r.signature, cleaned: r.cleaned, failed: r.failed, stillBoarding: stillBoarding({ seatsRead: seats !== null, failedItems: r.failedItems }) };
 }

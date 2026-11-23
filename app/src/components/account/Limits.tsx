@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { ExtendLimitPanel } from "@/app/(app)/wallet/ExtendLimit";
 import { Button, Select } from "@/components/ui";
@@ -31,6 +32,8 @@ export interface LimitsViewProps {
   /** The action that is running ("entry", "extend", "break" or "self-exclusion"), if any. */
   busy: string | null;
   error: string | null;
+  /** A Break or Self-Exclusion just started but the Player could not be stepped off their boarding Railcar car. */
+  stillBoarding?: boolean;
   onSetEntry: (gemas: number) => void;
   onSetExtend: (months: number) => void;
   onStartBreak: (days: number) => void;
@@ -46,7 +49,7 @@ const CHANGE_NOTE = {
 } as const;
 
 /** The Limits screen: the Entry Limit and the Extend Limit together, what is in force and what is waiting. */
-export function LimitsView({ entry, extend, away, now, busy, error, onSetEntry, onSetExtend, onStartBreak, onStartSelfExclusion, onRetry }: LimitsViewProps) {
+export function LimitsView({ entry, extend, away, now, busy, error, stillBoarding = false, onSetEntry, onSetExtend, onStartBreak, onStartSelfExclusion, onRetry }: LimitsViewProps) {
   return (
     <div className="stack lim">
       <section className="stack" aria-labelledby="lim-entry-h">
@@ -101,6 +104,11 @@ export function LimitsView({ entry, extend, away, now, busy, error, onSetEntry, 
         )}
       </section>
       {away && awayNotice(away) && <p className="status" role="status">{awayNotice(away)}</p>}
+      {stillBoarding && (
+        <p className="status err" role="alert">
+          You are still in a Railcar car: <Link href="/play/railcar">Step off</Link>
+        </p>
+      )}
       {error && <p className="status err" role="alert">{error}</p>}
     </div>
   );

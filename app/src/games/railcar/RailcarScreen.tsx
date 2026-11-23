@@ -16,7 +16,7 @@ import { RailcarStage } from "./RailcarStage";
 import { NO_TELLS, type Tells } from "./tell-state";
 import { railcarHaptics } from "./tells";
 import type { RailcarView, ResultRow, Rider } from "./view";
-import { clock } from "./words";
+import { PLACE_WORDS, clock } from "./words";
 import "./railcar.css";
 
 export { clock };
@@ -24,14 +24,14 @@ const g = (v: bigint) => Number(v);
 
 /**
  * The Tells: the line icon (history), the picked image (`public/art/final/railcar/tell-*.webp`) the chips show, and whether
- * the ride has shown it. The Screws chip lights at the first screw heard, false or real: nothing on screen says which.
+ * the ride has shown it. The Glow chip lights at the first glow heard, false or real: nothing on screen says which.
  */
 export const TELLS: { name: string; Icon: LucideIcon; art: string; on: (t: Tells) => boolean }[] = [
-  { name: "Screws", Icon: CircleMinus, art: "/art/final/railcar/tell-screws.webp", on: (t) => t.screws > 0 },
-  { name: "Panel", Icon: Hexagon, art: "/art/final/railcar/tell-panel.webp", on: (t) => t.panel },
-  { name: "Sparks", Icon: Zap, art: "/art/final/railcar/tell-sparks.webp", on: (t) => t.sparks },
+  { name: "Glow", Icon: CircleMinus, art: "/art/final/railcar/bomb-tell-1.webp", on: (t) => t.screws > 0 },
+  { name: "Hot seams", Icon: Hexagon, art: "/art/final/railcar/bomb-tell-2.webp", on: (t) => t.panel },
+  { name: "White-hot", Icon: Zap, art: "/art/final/railcar/bomb-tell-3.webp", on: (t) => t.sparks },
 ];
-/** The Tell nearest the wall that has shown (-1 before any). */
+/** The Tell nearest the bomb that has shown (-1 before any). */
 export const latestTell = (t: Tells) => TELLS.reduce((last, tell, i) => (tell.on(t) ? i : last), -1);
 
 export interface RailcarActions {
@@ -129,7 +129,7 @@ function RailcarBody({
   waiting = null,
   crash = false,
 }: RailcarScreenProps & { crash?: boolean }) {
-  // While the car hits the wall the ride is over: nothing left to press.
+  // While the bomb goes off the ride is over: nothing left to press.
   const brake = crash ? null : brakeProp;
   if (view.phase === "result") return <RailcarResult view={view} actions={actions} watch={watch} practice={practice} waiting={waiting} />;
   const riding = view.phase === "ride";
@@ -162,7 +162,7 @@ function RailcarBody({
                 </p>
               </>
             )}
-            <ol className="rc-tells" aria-label="Tells">
+            <ol className="rc-tells" aria-label="Warnings">
               {TELLS.map(({ name, art, on }, i) => (
                 <li key={name} className={`cut cut-chip rc-tell${on(view.tells) ? " on" : ""}`} aria-current={latestTell(view.tells) === i ? "step" : undefined}>
                   {/* eslint-disable-next-line @next/next/no-img-element -- small picked image, 2x file */}
@@ -208,12 +208,7 @@ function RailcarBody({
             </p>
           )}
         </div>
-        {riding && !practice && (
-          <div className="cut cut-card rc-stake">
-            <span>At stake</span>
-            <GemaAmount value={g(view.stake)} size="lg" />
-          </div>
-        )}
+        {riding && !practice && <PrizePile prize={view.prize} pile={view.pile} />}
         <Riders riders={aboard} label={riding ? `Aboard ${aboard.length}` : null} />
         <div className="rc-acts">
           {delayed ? (
@@ -223,16 +218,25 @@ function RailcarBody({
           ) : riding ? (
             view.me?.aboard ? (
               <>
-                <Button variant="money" size="lg" block onClick={actions.onJump} disabled={!!busy || crash}>
-                  {busy === "jump" ? "Jumping…" : "Jump"}
-                </Button>
+                <div className="rc-jump">
+                  <Button variant="money" size="lg" block onClick={actions.onJump} disabled={!!busy || crash}>
+                    {busy === "jump" ? "Jumping…" : "Jump"}
+                    <small>last three off paid</small>
+                  </Button>
+                </div>
                 {brake && <BrakeButton brake={brake} />}
                 {brake && statusOf(brake) === "sign" && <p className="rc-brake-note">Sign once so your Brake stays secret on this device</p>}
               </>
             ) : view.me ? (
               <p className="cut cut-card rc-jumped">
-                You jumped at <span className="mono">{clock(view.me.jumpMs)}</span> · at least
-                <GemaAmount value={g(view.me.back)} size="md" /> back{view.me.backer && <> to <PlayerName account={view.me.backer} /></>}
+                You jumped at <span className="mono">{clock(view.me.jumpMs)}</span> ·{" "}
+                {view.me.after < PLACE_WORDS.length ? (
+                  <b>{PLACE_WORDS[view.me.after]} so far</b>
+                ) : (
+                  <>
+                    {view.me.after} jumped after you: <GemaAmount value={0} size="md" />
+                  </>
+                )}
               </p>
             ) : null
           ) : view.mySeat !== null ? (
@@ -276,6 +280,38 @@ function RailcarBody({
         )}
       </section>
     </Arena>
+  );
+}
+
+/** Entries drawn on the pile; more show as "+N". */
+const PILE_SHOWN = 8;
+
+/**
+ * The Prize on the car and the pile of dropped entries. The Prize was fixed when the car left (every entry less the fees)
+ * and its number never moves: a Jump drops that Player's entry onto the pile beside it, it never adds to the Prize (Q40
+ * review #13). The newest entry drops in; reduced motion shows it in place.
+ */
+export function PrizePile({ prize, pile }: { prize: bigint; pile: number }) {
+  const shown = Math.min(pile, PILE_SHOWN);
+  return (
+    <div className="cut cut-card rc-prize" role="group" aria-label={`Prize ${fmtGemas(g(prize))} Gemas, fixed when the car left. ${pile} on the pile.`}>
+      <p className="rc-prize-main">
+        <span className="rc-prize-label">Prize</span>
+        <GemaAmount value={g(prize)} size="lg" />
+        <small>Fixed when the car left</small>
+      </p>
+      <p className="rc-pile" aria-hidden="true">
+        <span className="rc-pile-gems">
+          {Array.from({ length: shown }, (_, i) => (
+            <span key={i} className={`rc-pile-gem${i === shown - 1 ? " drop" : ""}`} style={{ zIndex: i }}>
+              <GemaMark size={14} />
+            </span>
+          ))}
+          {pile > shown && <span className="rc-pile-more">+{pile - shown}</span>}
+        </span>
+        <small>{pile} on the pile</small>
+      </p>
+    </div>
   );
 }
 
@@ -536,12 +572,12 @@ function BackedSplit({ b, me }: { b: NonNullable<ResultRow["backing"]>; me: bool
   );
 }
 
-/** Where the wall stood and when each Player Jumped, on one strip from 0:00 to the end. */
+/** Where the bomb went off and when each Player Jumped, on one strip from 0:00 to the end. */
 function Track({ wallMs, jumps, outcome }: { wallMs: number; jumps: { account: string; ms: number; me: boolean }[]; outcome: "placed" | "refund" }) {
   const end = Math.max(wallMs, ...jumps.map((j) => j.ms), 1);
   const at = (ms: number) => `${(ms / end) * 100}%`;
   return (
-    <figure className="rc-track" aria-label={`The wall at ${clock(wallMs)}`}>
+    <figure className="rc-track" aria-label={`The bomb at ${clock(wallMs)}`}>
       <div className="rc-track-line">
         {jumps.map((j) => (
           <span key={j.account} className={`rc-track-jump${j.me ? " me" : ""}`} style={{ left: at(j.ms) }} title={clock(j.ms)} />
@@ -550,7 +586,7 @@ function Track({ wallMs, jumps, outcome }: { wallMs: number; jumps: { account: s
       </div>
       <figcaption className="rc-track-ends">
         <span className="mono">0:00</span>
-        <span className="mono">{outcome === "placed" ? `Wall ${clock(wallMs)}` : clock(wallMs)}</span>
+        <span className="mono">{outcome === "placed" ? `Bomb ${clock(wallMs)}` : clock(wallMs)}</span>
       </figcaption>
     </figure>
   );

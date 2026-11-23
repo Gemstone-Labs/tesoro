@@ -8,10 +8,9 @@ import { RailcarScreen } from "@/games/railcar/RailcarScreen";
 import { useRailcar } from "@/games/railcar/useRailcar";
 import { useAccount } from "@/lib/account";
 import { practiceHref } from "@/lib/game-params";
-import type { RailcarView } from "@/games/railcar/view";
+import { NO_CAR } from "@/games/railcar/view";
 
 /** Before any car exists (or while the first read runs): an empty car to board. Boarding opens one. */
-const EMPTY: RailcarView = { phase: "boarding", seated: 0, maxSeats: 100, minSeats: 5, leavesInSec: null, riders: [], mySeat: null, myBacker: null, entry: 500n };
 
 export function RailcarRoute() {
   // `?backing=<offer>`: the Backing page's "Board Railcar" for an accepted Offer.
@@ -32,7 +31,7 @@ export function RailcarRoute() {
   return (
     <>
       <RailcarScreen
-        view={r.view ?? EMPTY}
+        view={r.view ?? NO_CAR}
         waiting={<RailcarWaiting match={r.match} />}
         busy={r.busy}
         error={r.error}

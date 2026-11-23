@@ -3,7 +3,7 @@ import { PublicKey } from "@solana/web3.js";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import railcarIdl from "@/lib/chain/idl/railcar.json";
-import { RULES_Q39, ride } from "@/games/railcar/engine";
+import { RULES_Q39, placeSharesBps, ride } from "@/games/railcar/engine";
 import { replayRide } from "@/games/railcar/replay";
 import { amountText, bannerLine, shortKey } from "@/lib/chain/history";
 import { rideRecordOf } from "@/lib/chain/ride-history";
@@ -99,7 +99,7 @@ function start(n: number, riders: Rider[], o: Run): InnerInstruction[] {
   }
   out.push(
     cpi(CORE, "ManySeatRunStarted", { match_state: MATCH(n), opener: OPENER, n: BigInt(n), game: RAILCAR, kind, entry: 500n, seated: riders.length, places: places.length, fees, fees_capped: false, refunded: 0n, forfeited: 0n, ts: BigInt(T0 + 400) }),
-    ...places.map((p, k) => cpi(CORE, "ManySeatPlaced", { match_state: MATCH(n), opener: OPENER, n: BigInt(n), place: k + 1, seat: p.seat, player: riders[p.seat].who, funder: funder(riders[p.seat]), share_bps: riders[p.seat].share ?? 0, won: p.won })),
+    ...places.map((p, k) => cpi(CORE, "ManySeatPlaced", { match_state: MATCH(n), opener: OPENER, n: BigInt(n), place: k + 1, seat: p.seat, player: riders[p.seat].who, funder: funder(riders[p.seat]), share_bps: placeSharesBps(places.length)[k], won: p.won })),
   );
   return out;
 }

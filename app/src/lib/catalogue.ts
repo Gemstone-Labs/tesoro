@@ -3,6 +3,7 @@ import type { GameId } from "./mock/types";
 import { practiceHref } from "./game-params";
 import type { GuideGame } from "./how-to-play";
 import { RAILCAR_SHOWN, isHiddenGame } from "./games";
+import { ENTRY_GEMAS as RAILCAR_ENTRY } from "../games/railcar/rules";
 
 export interface CatalogueEntry {
   key: string;
@@ -31,7 +32,7 @@ export const CATALOGUE: CatalogueEntry[] = ([
   { key: "holdem", name: "Buckshot Hold'em", tile: art.holdemTile, live: true, game: "holdem" },
   { key: "trading-duel", name: "Trading Duel", tile: art.tradingDuelTile, live: true, game: "trading-duel" },
   { key: "block-puzzle", name: "Block Burst", tile: art.blockPuzzleTile, live: true, game: "block-puzzle" },
-  ...(RAILCAR_SHOWN ? [{ key: "railcar", name: "Railcar", tile: art.railcarTile, live: true, href: "/play/railcar", practiceHref: practiceHref("railcar"), guide: "railcar", entries: [500], focus: "50% 40%" }] : []),
+  ...(RAILCAR_SHOWN ? [{ key: "railcar", name: "Railcar", tile: art.railcarTile, live: true, href: "/play/railcar", practiceHref: practiceHref("railcar"), guide: "railcar", entries: [Number(RAILCAR_ENTRY)], focus: "50% 40%" }] : []),
   { key: "word-duel", name: "Word Duel", tile: art.comingSoon["word-duel"], live: false },
   { key: "bubble-burst", name: "Bubble Burst", tile: art.comingSoon["bubble-burst"], live: false },
   { key: "pocket-pool", name: "Pocket Pool", tile: art.comingSoon["pocket-pool"], live: false },

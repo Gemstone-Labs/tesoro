@@ -211,10 +211,11 @@ export const TX_SHAPES: readonly (readonly string[])[] = [
 
 /**
  * Ticket 27, starting a Break or Self-Exclusion: the Player's transaction may also carry the clean-up of what they left open
- * (their unjoined Matches refunded, Requests withdrawn, Offers released), up to `MAX_CLEANUP` steps, with the Break or
- * Self-Exclusion first when it travels too. The chain lets each step through only for the signer's own items.
+ * (their unjoined Matches refunded, Requests withdrawn, Offers released, and their seat in a Railcar car still Boarding
+ * stepped off, Q40 review #2), up to `MAX_CLEANUP` steps, with the Break or Self-Exclusion first when it travels too. The
+ * chain lets each step through only for the signer's own items (a step-off: the seat's Player, or anyone once they are away).
  */
-export const CLEANUP_STEPS = ["refund_match", "cancel_request", "cancel_offer"] as const;
+export const CLEANUP_STEPS = ["refund_match", "cancel_request", "cancel_offer", "step_off_many_seat_match"] as const;
 export const MAX_CLEANUP = MAX_GROWS;
 const isCleanupShape = (names: string[]) => {
   const rest = names[0] === "set_break" || names[0] === "set_self_exclusion" ? names.slice(1) : names;

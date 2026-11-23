@@ -11,7 +11,7 @@ const fmt = (n: number) => n.toLocaleString("en-US");
 
 /**
  * The card for a won Match, 1200x630: the winner's Profile picture in its window, the Gemas won, the Game and the
- * entry. A Railcar ride's card is its last Player off, when they jumped and where the wall was. Same frame as the waitlist spot card, and written for `next/og` the same way (flex only, one text node per element).
+ * entry. A Railcar ride's card is its last Player off, when they jumped and when the bomb went off. Same frame as the waitlist spot card, and written for `next/og` the same way (flex only, one text node per element).
  */
 export function WinCard({ win, src, fonts = OG_FONTS }: { win: WinCardData; src: string; fonts?: CardFonts }) {
   const big = win.gemas > 0 ? `+${fmt(win.gemas)}` : "WON";
@@ -35,7 +35,7 @@ export function WinCard({ win, src, fonts = OG_FONTS }: { win: WinCardData; src:
               </div>
               <div style={{ display: "flex", fontFamily: fonts.sans, fontWeight: 400, fontSize: 28, color: FG2, marginTop: 18 }}>
                 {win.ride
-                  ? `Railcar · off at ${clock(win.ride.lastOffMs)} · wall at ${clock(win.ride.wallMs)} · ${win.ride.seated} Players`
+                  ? `Railcar · off at ${clock(win.ride.lastOffMs)} · bomb at ${clock(win.ride.wallMs)} · ${win.ride.seated} Players`
                   : `${historyGameName(win.game)} · entry ${fmt(win.entry)} Gemas`}
               </div>
             </div>
