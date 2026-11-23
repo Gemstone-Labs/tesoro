@@ -1939,8 +1939,9 @@ fn a_car_short_of_five_at_its_end_time_leaves_the_moment_a_fifth_boards() {
     );
 }
 
-/// What `finalize` may use at its worst (Railcar ticket 19): a 100-seat car, whatever its Jumps.
-const FINALIZE_CU_BUDGET: u64 = 140_000;
+/// What `finalize` may use at its worst (Railcar tickets 19 and 31): a 100-seat car, whatever its
+/// Jumps, inside the planner's chunk target (measured 104,795 CU under rules round 2).
+const FINALIZE_CU_BUDGET: u64 = 125_000;
 
 #[test]
 fn a_hundred_players_ride_one_car_and_the_hundred_and_first_boards_the_next() {
