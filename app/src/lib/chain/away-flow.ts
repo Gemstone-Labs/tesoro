@@ -88,12 +88,16 @@ export async function awayItemIx(owner: PublicKey, payer: PublicKey, item: AwayI
 const rentTopUp = (relayer: PublicKey, owner: PublicKey, lamports: number) => SystemProgram.transfer({ fromPubkey: relayer, toPubkey: owner, lamports });
 
 /**
- * Sends the Break (`lead`) with as many clean-up items as fit (`fit`), then the rest in later bundles. If the first bundle
- * fails (an item moved since it was read) the Break goes through alone, then the clean-up is retried in later bundles;
- * whatever still fails is counted for the caller.
+ * Sends the Break (`lead`) with as many clean-up items as fit (`fit`), then the rest in later bundles. The Break always goes
+ * out: if the first bundle cannot be built (`fit` throws: an item's accounts could not be read) or fails (an item moved since
+ * it was read), the Break goes alone, and the clean-up is retried in later bundles. Once the Break has landed nothing throws:
+ * an item that cannot be built or sent is counted in `failed` and returned in `failedItems`.
  */
-export async function sendAwayBundles<T>(items: T[], d: { fit(withLead: boolean, rest: T[]): Promise<number>; send(withLead: boolean, batch: T[]): Promise<string> }): Promise<{ signature: string; cleaned: number; failed: number }> {
-  const first = await d.fit(true, items);
+export async function sendAwayBundles<T>(
+  items: T[],
+  d: { fit(withLead: boolean, rest: T[]): Promise<number>; send(withLead: boolean, batch: T[]): Promise<string> },
+): Promise<{ signature: string; cleaned: number; failed: number; failedItems: T[] }> {
+  const first = await d.fit(true, items).catch(() => 0);
   let signature: string;
   let cleaned = first;
   try {
@@ -103,20 +107,27 @@ export async function sendAwayBundles<T>(items: T[], d: { fit(withLead: boolean,
     signature = await d.send(true, []);
     cleaned = 0;
   }
-  let failed = 0;
+  const failedItems: T[] = [];
   let rest = items.slice(cleaned);
   while (rest.length) {
-    const take = Math.max(1, await d.fit(false, rest));
-    try {
-      await d.send(false, rest.slice(0, take));
-      cleaned += take;
-    } catch {
-      failed += take;
+    const fits = await d.fit(false, rest).catch(() => null);
+    const take = Math.max(1, fits ?? 1);
+    if (fits === null) failedItems.push(...rest.slice(0, take));
+    else {
+      try {
+        await d.send(false, rest.slice(0, take));
+        cleaned += take;
+      } catch {
+        failedItems.push(...rest.slice(0, take));
+      }
     }
     rest = rest.slice(take);
   }
-  return { signature, cleaned, failed };
+  return { signature, cleaned, failed: failedItems.length, failedItems };
 }
+
+/** The Player still holds a seat in a boarding car: a step-off failed, or their boarding car could not be read at all. */
+export const stillBoarding = (r: { seatsRead: boolean; failedItems: AwayItem[] }): boolean => !r.seatsRead || r.failedItems.some((i) => i.kind === "step-off");
 
 /**
  * Starts a Break or Self-Exclusion and cleans up in the same transaction: the Player steps off any Railcar car still
@@ -130,21 +141,33 @@ export async function sendAwayBundles<T>(items: T[], d: { fit(withLead: boolean,
  * the sponsored transaction starts with the relayer sending the Player exactly that rent. When the relayer cannot pay, the
  * Player pays everything from their own SOL (topped up on the test cluster).
  */
-export async function startAwayWithCleanup(signer: ChainSigner, getToken: GetToken, setIx: TransactionInstruction): Promise<{ signature: string; cleaned: number; failed: number }> {
+export async function startAwayWithCleanup(
+  signer: ChainSigner,
+  getToken: GetToken,
+  setIx: TransactionInstruction,
+): Promise<{ signature: string; cleaned: number; failed: number; stillBoarding: boolean }> {
   const owner = signer.publicKey;
   const account = BlockPuzzleChain.coreAccount(owner);
   const chain = { core: getChain().core as Core, read: connReader(getChain().base) };
-  const [seats, steps, protections] = await Promise.all([readOwnBoardingSeats(chain.read, account), readOwnOpenItems(owner), getChain().base.getAccountInfo(protectionsPda(account))]);
-  const items = cleanupOrder(seats, steps);
+  // A Railcar car that cannot be read never holds up the Break: the Player is told to step off themselves.
+  const [seats, steps, protections] = await Promise.all([readOwnBoardingSeats(chain.read, account).catch(() => null), readOwnOpenItems(owner), getChain().base.getAccountInfo(protectionsPda(account))]);
+  const items = cleanupOrder(seats ?? [], steps);
   const feePayer = await sponsorStatus().then((s) => new PublicKey(s.relayer), () => owner);
   const rent = protections ? 0 : await getChain().base.getMinimumBalanceForRentExemption(PROTECTIONS_BYTES);
   const needsRent = !protections;
   const ixsOf = (payer: PublicKey, batch: AwayItem[]) => Promise.all(batch.map((s) => awayItemIx(owner, payer, s, chain)));
 
-  return sendAwayBundles(items, {
+  const r = await sendAwayBundles(items, {
     fit: async (withLead, rest) => {
       const lead = withLead ? [...(needsRent ? [rentTopUp(feePayer, owner, rent)] : []), setIx] : [];
-      return stepsThatFit(feePayer, lead, await ixsOf(feePayer, rest));
+      // The items that can be built, in order, up to the first that cannot (that one throws when it leads the rest).
+      const built: TransactionInstruction[] = [];
+      for (const item of rest.slice(0, MAX_CLEANUP)) {
+        const ix = await awayItemIx(owner, feePayer, item, chain).catch((e: unknown) => (built.length ? null : Promise.reject(e)));
+        if (!ix) break;
+        built.push(ix);
+      }
+      return stepsThatFit(feePayer, lead, built);
     },
     send: (withLead, batch) =>
       sendSponsoredOrOwn(signer, getToken, async (payer, sponsored) => {
@@ -153,4 +176,5 @@ export async function startAwayWithCleanup(signer: ChainSigner, getToken: GetTok
         return sponsored ? list : [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }), ...list];
       }),
   });
+  return { signature: r.signature, cleaned: r.cleaned, failed: r.failed, stillBoarding: stillBoarding({ seatsRead: seats !== null, failedItems: r.failedItems }) };
 }

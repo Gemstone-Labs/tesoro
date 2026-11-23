@@ -2,7 +2,7 @@ import { TransactionInstruction } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import { accountOf, coreIx, key, playerIx } from "@/server/sponsor/fixtures";
 import { MAX_CLEANUP, planTransaction } from "@/server/sponsor/rules";
-import { awayStepIx, cleanupOrder, sendAwayBundles, stepsThatFit, type BoardingSeat } from "./away-flow";
+import { awayStepIx, cleanupOrder, sendAwayBundles, stepsThatFit, stillBoarding, type BoardingSeat } from "./away-flow";
 import { stepOffIx } from "./many-seat";
 import { protectionsPda } from "./native";
 
@@ -66,7 +66,7 @@ describe("a Break or Self-Exclusion started while the Player sits in a boarding 
     const items = ["step-off", "cancel-request"];
     const sent: string[][] = [];
     const ok = await sendAwayBundles(items, { fit: async (_, rest) => rest.length, send: async (lead, batch) => (sent.push([...(lead ? ["set_self_exclusion"] : []), ...batch]), "sig") });
-    expect([sent, ok]).toEqual([[["set_self_exclusion", "step-off", "cancel-request"]], { signature: "sig", cleaned: 2, failed: 0 }]);
+    expect([sent, ok]).toEqual([[["set_self_exclusion", "step-off", "cancel-request"]], { signature: "sig", cleaned: 2, failed: 0, failedItems: [] }]);
 
     const retried: string[][] = [];
     let first = true;
@@ -82,6 +82,44 @@ describe("a Break or Self-Exclusion started while the Player sits in a boarding 
       },
     });
     expect(retried).toEqual([["set_self_exclusion"], ["step-off"], ["cancel-request"]]);
-    expect(r).toEqual({ signature: "sig", cleaned: 2, failed: 0 });
+    expect(r).toEqual({ signature: "sig", cleaned: 2, failed: 0, failedItems: [] });
+  });
+
+  it("a step-off that cannot even be built (its car unreadable) never blocks the Self-Exclusion: it goes out alone and the step-off counts as failed", async () => {
+    const sent: string[][] = [];
+    const r = await sendAwayBundles(["step-off", "cancel-request"], {
+      fit: async (_, rest) => {
+        if (rest[0] === "step-off") throw new Error("car unreadable");
+        return rest.length;
+      },
+      send: async (lead, batch) => (sent.push([...(lead ? ["set_self_exclusion"] : []), ...batch]), "sig"),
+    });
+    expect(sent).toEqual([["set_self_exclusion"], ["cancel-request"]]);
+    expect(r).toEqual({ signature: "sig", cleaned: 1, failed: 1, failedItems: ["step-off"] });
+  });
+
+  it("once the Break has landed nothing throws: a later bundle that cannot be built or sent is counted, not reported as an error", async () => {
+    let calls = 0;
+    const r = await sendAwayBundles(["a", "b", "c"], {
+      fit: async (lead, rest) => {
+        if (!lead && rest[0] === "b") throw new Error("read failed");
+        return lead ? 1 : 1;
+      },
+      send: async (_lead, batch) => {
+        calls++;
+        if (batch[0] === "c") throw new Error("moved");
+        return "sig";
+      },
+    });
+    expect(calls).toBe(2);
+    expect(r).toEqual({ signature: "sig", cleaned: 1, failed: 2, failedItems: ["b", "c"] });
+  });
+
+  it("the Player is told they are still in the car when a step-off failed or their boarding car could not be read", () => {
+    const off = { kind: "step-off" as const, ...boarding };
+    expect(stillBoarding({ seatsRead: true, failedItems: [] })).toBe(false);
+    expect(stillBoarding({ seatsRead: true, failedItems: [off] })).toBe(true);
+    expect(stillBoarding({ seatsRead: true, failedItems: [{ kind: "cancel-request", request: key(), owner: ana }] })).toBe(false);
+    expect(stillBoarding({ seatsRead: false, failedItems: [] })).toBe(true);
   });
 });

@@ -36,6 +36,7 @@ function LimitsPanel() {
   const [tick, setTick] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [stillBoarding, setStillBoarding] = useState(false);
 
   useEffect(() => {
     if (!owner) return;
@@ -52,9 +53,11 @@ function LimitsPanel() {
 
   async function run(name: string, send: () => Promise<unknown>) {
     setError(null);
+    setStillBoarding(false);
     setBusy(name);
     try {
-      await send();
+      const r = await send();
+      if (r && typeof r === "object" && "stillBoarding" in r) setStillBoarding(!!r.stillBoarding);
       forgetAway();
       setTick((t) => t + 1);
     } catch (e) {
@@ -77,6 +80,7 @@ function LimitsPanel() {
       away={away === undefined || away === "unknown" ? null : awayView(away, now)}
       now={now}
       busy={busy}
+      stillBoarding={stillBoarding}
       error={error ?? (entry === "unknown" || extend === "unknown" || away === "unknown" ? "Couldn't read your limits. Try again." : null)}
       onRetry={reload}
       onSetEntry={(g) => auth.signer && void run("entry", () => setEntryLimit(auth.signer!, auth.getAccessToken, g))}

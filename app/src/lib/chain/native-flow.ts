@@ -158,14 +158,17 @@ export async function setEntryLimit(signer: ChainSigner, getToken: GetToken, gem
 /**
  * Starts a Break (1 to 42 days) or lengthens the one running, and in the same transaction withdraws the Account's unpaired
  * Matches, Requests and Offers (see `startAwayWithCleanup`). Matches already paired play out. It cannot be ended or shortened.
+ * `stillBoarding`: the Player could not be stepped off their boarding Railcar car and should step off themselves.
  */
-export async function startBreak(signer: ChainSigner, getToken: GetToken, days: number): Promise<string> {
-  return (await startAwayWithCleanup(signer, getToken, setBreakIx(signer.publicKey, days))).signature;
+export async function startBreak(signer: ChainSigner, getToken: GetToken, days: number): Promise<{ signature: string; stillBoarding: boolean }> {
+  const r = await startAwayWithCleanup(signer, getToken, setBreakIx(signer.publicKey, days));
+  return { signature: r.signature, stillBoarding: r.stillBoarding };
 }
 
 /** Starts a Self-Exclusion (6 to 60 months) or lengthens the one running; clears out unpaired items like `startBreak`. */
-export async function startSelfExclusion(signer: ChainSigner, getToken: GetToken, months: number): Promise<string> {
-  return (await startAwayWithCleanup(signer, getToken, setSelfExclusionIx(signer.publicKey, months))).signature;
+export async function startSelfExclusion(signer: ChainSigner, getToken: GetToken, months: number): Promise<{ signature: string; stillBoarding: boolean }> {
+  const r = await startAwayWithCleanup(signer, getToken, setSelfExclusionIx(signer.publicKey, months));
+  return { signature: r.signature, stillBoarding: r.stillBoarding };
 }
 
 /**
