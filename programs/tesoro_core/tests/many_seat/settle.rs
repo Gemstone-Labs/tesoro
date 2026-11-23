@@ -731,9 +731,9 @@ fn hundred_seats_of(steps: u8, kind: SourceKind, sized: bool) -> (Sent, usize, u
     let car = env.open_car(&riders[0], (5, 100));
     for p in &riders {
         let nonce = env.next_ticket(p.account);
-        env.open_ticket(p, nonce, CAR_ENTRY, 12).expect("ticket");
+        env.open_ticket(p, nonce, car_entry(), 12).expect("ticket");
         let kp = p.kp.insecure_clone();
-        while env.load_ticket_staged(p, nonce) < CAR_ENTRY {
+        while env.load_ticket_staged(p, nonce) < car_entry() {
             env.stage_with(&kp, p, nonce, 255, vec![]).expect("stage");
         }
         let page = env.page_with_room(car);
@@ -769,10 +769,10 @@ fn hundred_seats_of(steps: u8, kind: SourceKind, sized: bool) -> (Sent, usize, u
     }
     let worst = sent.iter().max_by_key(|s| s.cu).copied().expect("chunks");
     // every Gema is where the payout says
-    let pot = 100 * CAR_ENTRY - refunded;
+    let pot = 100 * car_entry() - refunded;
     let fees = pot * 6 / 100;
     let total: u64 = riders.iter().map(|p| env.total_gemas(p)).sum::<u64>() + fees;
-    assert_eq!(total, 100 * CAR_ENTRY);
+    assert_eq!(total, 100 * car_entry());
     for (i, p) in riders.iter().enumerate().take(60) {
         assert_eq!(env.total_gemas(p), ladder[i % ladder.len()], "rider {i}");
     }

@@ -31,7 +31,7 @@ impl Env {
             instruction::CreateRequest {
                 nonce,
                 game: GAME,
-                entry: CAR_ENTRY,
+                entry: car_entry(),
             },
             vec![],
         );
@@ -118,14 +118,14 @@ impl Env {
             return n;
         }
         let nonce = self.next_ticket(backer.account);
-        self.open_backing_ticket(backer, player, offer, nonce, CAR_ENTRY, 20)
+        self.open_backing_ticket(backer, player, offer, nonce, car_entry(), 20)
             .expect("open the Backing Ticket");
         let mut books = vec![];
         for src in self.sources_in(backer.account) {
             books.extend(book_metas(&self.svm, src));
         }
         let anyone = self.admin.insecure_clone();
-        while self.load_ticket_staged(backer, nonce) < CAR_ENTRY {
+        while self.load_ticket_staged(backer, nonce) < car_entry() {
             self.stage_with(&anyone, backer, nonce, 255, books.clone())
                 .expect("stage");
         }
@@ -287,12 +287,13 @@ fn backed_seats_settle_the_worked_example_to_the_backers_and_the_players_shares(
     }
 }
 
-/// Rules round 2's worst 100-seat car (Railcar ticket 31): no seat refunded, so 97 whole entries
-/// are forfeited; every rider's entry staged in an Entry Ticket of 10 lines from 10 shared Sources
-/// of `kind`; the three places backed, their Backers' Gemas as fragmented. The client sends
-/// chunks at the cap or sized to the planner's target; returns the worst chunk, the number of
-/// chunks and the settle start's compute.
+/// Rules round 2's worst 100-seat car (Railcar ticket 31): a 100-Gema entry, no seat refunded,
+/// so 97 whole entries are forfeited; every rider's entry staged in an Entry Ticket of 10 lines
+/// of 10 from 10 shared Sources of `kind`; the three places backed, their Backers' Gemas as
+/// fragmented. The client sends chunks at the cap or sized to the planner's target; returns the
+/// worst chunk, the number of chunks and the settle start's compute.
 fn hundred_seats_round_two(kind: SourceKind, sized: bool) -> (Sent, usize, u64) {
+    with_car_entry(100);
     let mut env = Env::with_kind(kind);
     env.enable_leaderboard(100);
     let sources: Vec<APk> = (0..10)
@@ -301,7 +302,7 @@ fn hundred_seats_round_two(kind: SourceKind, sized: bool) -> (Sent, usize, u64) 
     let fund = |env: &mut Env| {
         let p = env.person();
         env.grow_basket_to(&p, 24);
-        env.give_lines(&p, &sources, 50, |i| i as i64);
+        env.give_lines(&p, &sources, car_entry() / 10, |i| i as i64);
         p
     };
     let riders: Vec<Person> = (0..100).map(|_| fund(&mut env)).collect();
@@ -315,9 +316,9 @@ fn hundred_seats_round_two(kind: SourceKind, sized: bool) -> (Sent, usize, u64) 
             continue;
         }
         let nonce = env.next_ticket(p.account);
-        env.open_ticket(p, nonce, CAR_ENTRY, 12).expect("ticket");
+        env.open_ticket(p, nonce, car_entry(), 12).expect("ticket");
         let kp = p.kp.insecure_clone();
-        while env.load_ticket_staged(p, nonce) < CAR_ENTRY {
+        while env.load_ticket_staged(p, nonce) < car_entry() {
             env.stage_with(&kp, p, nonce, 255, vec![]).expect("stage");
         }
         let page = env.page_with_room(car);
@@ -349,19 +350,19 @@ fn hundred_seats_round_two(kind: SourceKind, sized: bool) -> (Sent, usize, u64) 
     }
     let worst = sent.iter().max_by_key(|s| s.cu).copied().expect("chunks");
     // every Gema is where the payout says: 97 entries forfeited, fees 6% of the whole Pot
-    let fees = 100 * CAR_ENTRY * 6 / 100;
+    let fees = 100 * car_entry() * 6 / 100;
     let held: u64 = riders
         .iter()
         .chain(&backers)
         .map(|p| env.total_gemas(p))
         .sum();
-    assert_eq!(held + fees, 103 * CAR_ENTRY);
+    assert_eq!(held + fees, 103 * car_entry());
     for (i, p) in riders.iter().enumerate().take(97) {
         assert_eq!(env.total_gemas(p), 0, "rider {i} lost the entry");
     }
     for b in &backers {
         assert!(
-            env.total_gemas(b) > CAR_ENTRY,
+            env.total_gemas(b) > car_entry(),
             "a Backer's entry came back first"
         );
     }
@@ -377,8 +378,8 @@ fn a_round_two_hundred_seat_car_with_backed_places_settles_inside_the_planners_t
         let (at_cap, chunks, start_cu) = hundred_seats_round_two(kind, false);
         let (sized, sized_chunks, _) = hundred_seats_round_two(kind, true);
         println!(
-            "ROW round 2, 100 seats {kind:?}, no refunds, 3 backed places: settle start {start_cu} CU; chunks of {max}: {chunks} chunks, worst {} CU ({} steps, {} accounts); sized to {KEEPER_CHUNK_CU_TARGET}: {sized_chunks} chunks, worst {} CU ({} steps)",
-            at_cap.cu, at_cap.steps, at_cap.accounts, sized.cu, sized.steps
+            "ROW round 2, 100 seats {kind:?} at {}, no refunds, 3 backed places: settle start {start_cu} CU; chunks of {max}: {chunks} chunks, worst {} CU ({} steps, {} accounts); sized to {KEEPER_CHUNK_CU_TARGET}: {sized_chunks} chunks, worst {} CU ({} steps)",
+            car_entry(), at_cap.cu, at_cap.steps, at_cap.accounts, sized.cu, sized.steps
         );
         if sized.cu > KEEPER_CHUNK_CU_TARGET {
             over.push((kind, sized));
