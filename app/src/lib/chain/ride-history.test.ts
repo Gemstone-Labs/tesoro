@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { HistoryRow } from "./history";
-import { backerRideLine, rideOfOffer } from "./ride-history";
+import { backerRideLine, rideOfOffer, rideRecordOf, rulesOf } from "./ride-history";
+import { storedWorkedRide } from "@/games/railcar/fixtures";
 
 const BEN = "BenPlayer1111111111111111111111111111111111";
 const EVE = "EvePlayer1111111111111111111111111111111111";
@@ -14,6 +15,23 @@ describe("the ride a used Railcar Offer funded", () => {
     expect(rideOfOffer(rows, { player: BEN, useBy: (T + 1_000_000) / 1000 })?.id).toBe("o-3");
     expect(rideOfOffer(rows, { player: BEN, useBy: (T - 1) / 1000 })).toBeNull();
     expect(rideOfOffer([row({ role: "player" })], { player: BEN, useBy: T })).toBeNull();
+  });
+});
+
+describe("the rules a stored ride replays under", () => {
+  it("the recorded byte wins; without it a 100-Gema ride is round 2 (the staging sidecar's older decoder drops the byte), a 500-Gema ride round 1 or Q39 by car number", () => {
+    expect(rulesOf({ carNo: "40", rules: 2, entry: 100 }, 15n)).toBe(2);
+    expect(rulesOf({ carNo: "40", entry: 100 }, 15n)).toBe(3);
+    expect(rulesOf({ carNo: "40", entry: 500 }, 15n)).toBe(2);
+    expect(rulesOf({ carNo: "7", entry: 500 }, 15n)).toBe(1);
+    expect(rulesOf({ carNo: "7", entry: 500 }, 0n)).toBe(2);
+  });
+  it("a round 2 ride the sidecar stored without the byte still replays under round 2", () => {
+    const page = storedWorkedRide();
+    const withoutByte = { ...page.ride, rules: undefined };
+    expect(rideRecordOf({ entry: page.entry, ride: withoutByte })?.rules).toBe(3);
+    expect(rideRecordOf({ entry: page.entry, ride: page.ride })?.rules).toBe(3);
+    expect(rideRecordOf({ entry: 500, ride: { ...withoutByte, carNo: "40" } })?.rules).toBe(2);
   });
 });
 
