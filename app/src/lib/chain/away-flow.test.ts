@@ -117,9 +117,9 @@ describe("a Break or Self-Exclusion started while the Player sits in a boarding 
 
   it("the Player is told they are still in the car when a step-off failed or their boarding car could not be read", () => {
     const off = { kind: "step-off" as const, ...boarding };
-    expect(stillBoarding({ seatsRead: true, failedItems: [] })).toBe(false);
-    expect(stillBoarding({ seatsRead: true, failedItems: [off] })).toBe(true);
-    expect(stillBoarding({ seatsRead: true, failedItems: [{ kind: "cancel-request", request: key(), owner: ana }] })).toBe(false);
-    expect(stillBoarding({ seatsRead: false, failedItems: [] })).toBe(true);
+    expect(stillBoarding({ seatsRead: true, failedItems: [] })).toBeNull();
+    expect(stillBoarding({ seatsRead: true, failedItems: [off] })).toBe("yes");
+    expect(stillBoarding({ seatsRead: true, failedItems: [{ kind: "cancel-request", request: key(), owner: ana }] })).toBeNull();
+    expect(stillBoarding({ seatsRead: false, failedItems: [] })).toBe("maybe");
   });
 });
