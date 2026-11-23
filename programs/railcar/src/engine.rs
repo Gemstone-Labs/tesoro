@@ -91,19 +91,25 @@ fn neg_log2_q32(w: u64) -> u64 {
     (64u64 << 32) - (((k as u64) << 32) + frac)
 }
 
-/// `floor(sqrt(n))` by Newton's method (integer only, converges from above).
+/// `floor(sqrt(n))`, one bit at a time from the top (shifts and compares only: no 128-bit
+/// division, which the SBF target has no cheap builtin for).
 fn isqrt(n: u128) -> u128 {
-    if n < 2 {
-        return n;
+    let mut rest = n;
+    let mut root = 0u128;
+    let mut bit = 1u128 << 126;
+    while bit > rest {
+        bit >>= 2;
     }
-    let mut x = 1u128 << ((128 - n.leading_zeros()).div_ceil(2));
-    loop {
-        let y = (x + n / x) >> 1;
-        if y >= x {
-            return x;
+    while bit != 0 {
+        if rest >= root + bit {
+            rest -= root + bit;
+            root = (root >> 1) + bit;
+        } else {
+            root >>= 1;
         }
-        x = y;
+        bit >>= 2;
     }
+    root
 }
 
 /// Crash point in track ms from the first word of the draw: the safe part, then

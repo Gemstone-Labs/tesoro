@@ -39,7 +39,8 @@ fn crash_of_word(w: u64) -> u32 {
 fn last_capped_word() -> u64 {
     let (mut lo, mut hi) = (0u64, u64::MAX);
     while lo < hi {
-        let mid = lo + (hi - lo + 1) / 2;
+        let d = hi - lo;
+        let mid = lo + d / 2 + (d & 1);
         if crash_of_word(mid) == MAX_CRASH_MS {
             lo = mid;
         } else {
