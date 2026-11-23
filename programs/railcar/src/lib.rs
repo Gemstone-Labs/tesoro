@@ -646,8 +646,8 @@ pub mod railcar {
     // Base: boarding
     // ------------------------------------------------------------------------------------
 
-    /// Base, the opening Player. Opens the next car (core's many-seat open for 500 Gemas, 5 to
-    /// 100 seats, signed by Railcar's authority) when no car can still take seats. The opener
+    /// Base, the opening Player. Opens the next car (core's many-seat open at `ENTRY_GEMAS`, 5
+    /// to 100 seats, signed by Railcar's authority) when no car can still take seats. The opener
     /// boards with core's join like everyone else, in the same transaction.
     pub fn open_car(ctx: Context<OpenCar>, n: u64) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
