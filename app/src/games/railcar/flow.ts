@@ -27,7 +27,7 @@ export interface QueueFacts {
   backerSeated?: boolean;
 }
 
-/** One Railcar Queue at 500 Gemas: board the car that is boarding, or open the next one. */
+/** One Railcar Queue at 100 Gemas: board the car that is boarding, or open the next one. */
 export function queueChoice(f: QueueFacts): QueueChoice {
   const b = f.boarding;
   const open = b !== null && b.car.stage === "boarding" && f.now < boardingEnds(b.car);

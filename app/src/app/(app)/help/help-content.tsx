@@ -127,12 +127,13 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
             a: (
               <>
                 <p>
-                  A ride for 5 to 100 Players. Everyone pays the same entry and boards one car that runs toward a wall at a hidden distance. You choose when to
-                  Jump. The last three Players off before Impact get their entry back and share the rest of the Pot; Players still aboard lose their entry.
+                  A ride for 5 to 100 Players. Everyone pays the same entry and boards one car with a bomb hidden inside, set to go off at a moment nobody knows. You choose
+                  when to Jump. The last three Players off before it goes off get their entry back and share the rest of the Prize, which is fixed when the car leaves. Everyone
+                  else gets nothing: a Player who Jumps earlier loses their entry, the same as a Player still aboard.
                 </p>
                 <p>
-                  The car warns you as the wall nears, and any warning can be the last one. Each Player has one secret Brake. Jump early and you get part of your entry back. Railcar is not
-                  playable yet; the crash odds, refund steps and payouts are in the <Link href="/docs/railcar">Docs</Link>.
+                  The car warns you as the bomb nears, and any warning can be the last one. Each Player has one secret Brake. The odds, the warnings and the payouts are in
+                  the <Link href="/docs/railcar">Docs</Link>.
                 </p>
               </>
             ),

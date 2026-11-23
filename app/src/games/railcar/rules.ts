@@ -51,9 +51,9 @@ const ridesIn = (n: number, of: number) => {
 export function tellRows() {
   const range = ([lo, hi]: readonly [number, number]) => `${s(lo)} to ${s(hi)} seconds`;
   return [
-    { name: "Loose screws", shows: "Every ride", range: range(SCREW_LEAD) },
-    { name: "A loose bolt and a rattling panel", shows: ridesIn(...BOLT_SHOWS), range: range(BOLT_LEAD) },
-    { name: "Sparks and a creak", shows: ridesIn(...SPARK_SHOWS), range: range(SPARK_LEAD) },
+    { name: "Glow", sound: "screws pop", shows: "Every ride", range: range(SCREW_LEAD) },
+    { name: "Hot seams", sound: "a bolt and a panel rattle", shows: ridesIn(...BOLT_SHOWS), range: range(BOLT_LEAD) },
+    { name: "White-hot", sound: "sparks and a creak", shows: ridesIn(...SPARK_SHOWS), range: range(SPARK_LEAD) },
   ];
 }
 

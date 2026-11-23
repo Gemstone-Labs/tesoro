@@ -198,7 +198,7 @@ The hidden charge inside a Railcar car. It is never shown on any screen; only it
 _Avoid_: wall (round 1's theme), crash, fuse
 
 **Crash point**:
-The point on the track where the Bomb goes off, drawn at random when the car leaves and hidden from everyone until Impact. Its odds are published: no Bomb in the first 5 seconds, then a chance that rises steadily with every second (about 2 in 100 per second at 10 seconds, 7 in 100 at 25, 14 in 100 at 45); half of all rides are over by 25 seconds, 9 in 10 by 41, 1 in 200 passes a minute and none passes 2 minutes before any Brake. Anyone can check it after the Match.
+The point on the track where the Bomb goes off, drawn at random when the car leaves and hidden from everyone until Impact. Its odds are published: no Bomb in the first 5 seconds, then a chance that rises steadily with every second (the chance it goes off in the next second is 1.9 in 100 at 10 seconds, 6.9 at 25, 13.1 at 45); half of all rides are over by 25 seconds, 9 in 10 by 41, about 1 in 190 passes a minute and none passes 2 minutes before any Brake. Anyone can check it after the Match.
 _Avoid_: multiplier, bust point, timer
 
 **Prize**:

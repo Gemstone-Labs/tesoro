@@ -42,11 +42,11 @@ export const GUIDE_STEPS: Record<GuideGame, readonly GuideStep[]> = {
     { title: "Capture the Supply Truck", line: "Take the enemy's Supply Truck to win." },
   ],
   railcar: [
-    { title: "One car, one hidden wall", line: "Up to 100 Players ride together toward a wall nobody can see." },
-    { title: "Watch for the Tells", line: "Screws, a panel, sparks: each means the wall is closer, and any of them can be the last warning." },
-    { title: "Jump to get off", line: "Tap Jump any time. Anyone still aboard when the car hits the wall loses." },
+    { title: "One car, one hidden bomb", line: "Up to 100 Players ride one car with a bomb inside. Nobody knows when it goes off." },
+    { title: "Watch for the Tells", line: "A glow, hot seams, white-hot light: each means the bomb is closer, and any of them can be the last warning." },
+    { title: "Jump to get off", line: "Tap Jump any time. Anyone still aboard when the bomb goes off loses." },
     { title: "One secret Brake", line: "It slows the car for 5 seconds, and only you see it." },
-    { title: "Be one of the last three off", line: "The last three Players to Jump before the wall win." },
+    { title: "Be one of the last three off", line: "Only the last three Players to Jump before the bomb win. Jump earlier and you lose too." },
   ],
 };
 

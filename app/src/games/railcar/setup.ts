@@ -327,7 +327,7 @@ export function railcarSetupPlan(input: SetupInput, facts: SetupFacts): SetupSte
   add({
     id: "set-config",
     title: `railcar set_config: operator ${short(operator)}, ${input.tables} Tables`,
-    why: "names who runs the Tables and how many there are (a car rides on Table car_no % tables). Entry 500, 5-100 seats, the 30 s countdown, the refund schedule and the 60/25/15 split are program constants, and VRF and the TEE validator are pinned in the program",
+    why: "names who runs the Tables and how many there are (a car rides on Table car_no % tables). Entry 100, 5-100 seats, the 30 s countdown, the rising Bomb odds and the 60/25/15 split are program constants, and VRF and the TEE validator are pinned in the program",
     signer: "upgrade authority",
     layer: "base",
     ixs: [setConfigIx(input.upgradeAuthority, operator, input.tables)],
