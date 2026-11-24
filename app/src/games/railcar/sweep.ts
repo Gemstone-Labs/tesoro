@@ -7,7 +7,7 @@
  * step that seat off; the Player's own page steps them off as they start it, so this is the backstop). The finish goes
  * through `finishRide`, as a page's does. Reads only; `send` sends.
  */
-import type { PublicKey, TransactionInstruction } from "@solana/web3.js";
+import { PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import { settledPda } from "../../lib/chain/basket";
 import { isAwayAt } from "../../lib/chain/away-plan";
 import { boardingEnds, closeCarIx, decodeCar, type CarView, type SeatView } from "../../lib/chain/many-seat";
@@ -40,6 +40,7 @@ export function sweepRideAction(step: RideStep, f: { core: CarView; rollup: Tabl
     case "start-ride":
       return { send: step.kind };
     case "finalize":
+    case "refund":
       return { send: "finish" };
     case "signal": {
       const t = f.rollup;
@@ -68,16 +69,44 @@ export interface CarRide {
   car: CarAccountView | null;
   rollup: TableView | null;
   base: TableView | null;
-  previousFrozen: boolean;
+  /** Core's receipt for the car the Table holds exists (false for an idle Table). */
+  previousReceipt: boolean;
 }
 
 const one = async (read: Reader, key: PublicKey) => (await read.many([key]))[0];
 
+/** A base reader that can also find Railcar's Car for a core Match in one query (the keeper's program scan). */
+export interface CarReader extends Reader {
+  carByMatch?(match: PublicKey): Promise<{ carNo: bigint; data: Uint8Array } | null>;
+  /** Every open Car (the keeper's program scan; a handful at any time). */
+  openCars?(): Promise<{ carNo: bigint; data: Uint8Array }[]>;
+}
+
 /**
- * Finds the ride of core car `match`: Railcar's boarding car, the car a Table rides now, or a Table's next car. Null when no
- * Table has it (an earlier car still holds its Table).
+ * The Car opened for core car `match`, whatever Table it is on: the reader's own lookup when it has one, else every car
+ * opened so far read from the newest down (100 a query), with no cutoff: a car's Car outlives its Table's interest in it.
  */
-export async function findCarRide(base: Reader, rollup: Reader, match: PublicKey): Promise<CarRide | null> {
+export async function carByMatch(base: CarReader, nextCar: bigint, match: PublicKey): Promise<{ carNo: bigint; car: CarAccountView } | null> {
+  if (base.carByMatch) {
+    const found = await base.carByMatch(match);
+    return found && { carNo: found.carNo, car: decodeCarAccount(found.data) };
+  }
+  for (let top = nextCar; top > 0n; top -= 100n) {
+    const nos = Array.from({ length: Number(top < 100n ? top : 100n) }, (_, k) => top - 1n - BigInt(k));
+    const infos = await base.many(nos.map(carPda));
+    for (const [k, info] of infos.entries()) {
+      const car = info ? decodeCarAccount(info.data) : null;
+      if (car?.tesoroMatch.equals(match)) return { carNo: nos[k], car };
+    }
+  }
+  return null;
+}
+
+/**
+ * Finds the ride of core car `match`: Railcar's boarding car, the car a Table rides now, a Table's next car, or (its Table
+ * having moved on to a later car) the Car opened for it (`carByMatch`). Null when no Table has it and no Car names it.
+ */
+export async function findCarRide(base: CarReader, rollup: Reader, match: PublicKey): Promise<CarRide | null> {
   const cfgInfo = await one(base, configPda());
   if (!cfgInfo) return null;
   const cfg = decodeConfig(cfgInfo.data);
@@ -85,8 +114,8 @@ export async function findCarRide(base: Reader, rollup: Reader, match: PublicKey
   const [live, onBase] = await Promise.all([rollup.many(keys), base.many(keys)]);
   const tables = live.map((x) => (x ? decodeTable(x.data) : null));
   const bases = onBase.map((x) => (x ? decodeTable(x.data) : null));
-  const frozen = async (t: TableView | null) => !t || t.phase === "idle" || !!(await one(base, settledPda(t.tesoroMatch)));
-  const rideAt = async (carNo: bigint, i: number, car: CarAccountView | null): Promise<CarRide> => ({ carNo, table: i, car, rollup: tables[i], base: bases[i], previousFrozen: await frozen(tables[i]) });
+  const receiptOf = async (t: TableView | null) => !!t && t.phase !== "idle" && !!(await one(base, settledPda(t.tesoroMatch)));
+  const rideAt = async (carNo: bigint, i: number, car: CarAccountView | null): Promise<CarRide> => ({ carNo, table: i, car, rollup: tables[i], base: bases[i], previousReceipt: await receiptOf(tables[i]) });
   const carAt = async (carNo: bigint) => {
     const info = await one(base, carPda(carNo));
     return info ? decodeCarAccount(info.data) : null;
@@ -101,7 +130,95 @@ export async function findCarRide(base: Reader, rollup: Reader, match: PublicKey
     const car = await carAt(t.nextCar);
     if (car?.tesoroMatch.equals(match)) return rideAt(t.nextCar, i, car);
   }
-  return null;
+  const found = await carByMatch(base, cfg.nextCar, match);
+  return found ? rideAt(found.carNo, Number(found.carNo % BigInt(cfg.tables)), found.car) : null;
+}
+
+export interface Reconciled {
+  /** Cars closed (core froze or closed them before they rode, or their Table moved on without a close). */
+  closed: bigint[];
+  /** Cars their Table passed over. */
+  skipped: bigint[];
+  /** Cars whose close failed (left for the next pass; their Table waits). */
+  failed: bigint[];
+}
+
+/** Every open Car: the reader's own list when it has one, else every car number below `nextCar` read 100 a query. */
+async function openCars(base: CarReader, nextCar: bigint): Promise<{ carNo: bigint; car: CarAccountView }[]> {
+  if (base.openCars) return (await base.openCars()).map((c) => ({ carNo: c.carNo, car: decodeCarAccount(c.data) }));
+  const out: { carNo: bigint; car: CarAccountView }[] = [];
+  for (let top = nextCar; top > 0n; top -= 100n) {
+    const nos = Array.from({ length: Number(top < 100n ? top : 100n) }, (_, k) => top - 1n - BigInt(k));
+    const infos = await base.many(nos.map(carPda));
+    for (const [k, info] of infos.entries()) if (info) out.push({ carNo: nos[k], car: decodeCarAccount(info.data) });
+  }
+  return out;
+}
+
+/**
+ * Each Table's next car and the open Cars, judged on their own (not from an open core Match, which a page may have refunded
+ * and closed; a page never sends `close_car`, no seat key can vouch for it). Per Table: a next car whose core car is gone,
+ * frozen or closed has its Car closed (its rent back to whoever opened it) and read back, then the Table passes it over; a
+ * Car the scan did not list is read by its address first. A failed or unconfirmed close, or a failed skip, goes to `failed`
+ * and the other Tables still run; the next pass tries again. A car still boarding, departed and waiting, or not opened is
+ * left alone. Last, open Cars no Table waits for any more (passed over already) close once core is done with them.
+ */
+export async function reconcileTables(e: Pick<SweepEnv, "base" | "rollup" | "caller" | "send">): Promise<Reconciled> {
+  const r: Reconciled = { closed: [], skipped: [], failed: [] };
+  const cfgInfo = await one(e.base, configPda());
+  if (!cfgInfo) return r;
+  const cfg = decodeConfig(cfgInfo.data);
+  const cars = new Map((await openCars(e.base, cfg.nextCar)).map((c) => [c.carNo, c.car]));
+  /** Core's car is gone, frozen or closed: the Car may close. */
+  const done = async (car: CarAccountView) => {
+    const [match, receipt] = await e.base.many([car.tesoroMatch, settledPda(car.tesoroMatch)]);
+    return !match || !!receipt;
+  };
+  /** Closes the Car and reads it back; false when it is still there (the send failed or has not landed). */
+  const close = async (carNo: bigint, car: CarAccountView) => {
+    try {
+      await e.send({ layer: "base", what: `close_car ${carNo} (core refunded, settled or closed it; its rent goes back)`, ixs: [closeRailcarCarIx(e.caller, { ...car, carNo })], units: 200_000 });
+    } catch {
+      return false;
+    }
+    return !(await one(e.base, carPda(carNo)));
+  };
+  const tables = (await e.rollup.many(Array.from({ length: cfg.tables }, (_, i) => tablePda(i)))).map((x) => (x ? decodeTable(x.data) : null));
+  const seen = new Set<bigint>();
+  for (const [i, t] of tables.entries()) {
+    if (!t || t.nextCar >= cfg.nextCar) continue;
+    const no = t.nextCar;
+    seen.add(no);
+    // Reads included: a Table whose car cannot be read or moved goes to `failed`, and the next Table still runs.
+    try {
+      // The scan may lag base: a Car it did not list is read by its address before it counts as closed.
+      const car = cars.get(no) ?? (await one(e.base, carPda(no)).then((info) => (info ? decodeCarAccount(info.data) : null)));
+      if (car) {
+        if (!(await done(car))) continue;
+        if (!(await close(no, car))) {
+          r.failed.push(no);
+          continue;
+        }
+        r.closed.push(no);
+      }
+      await e.send({ layer: "rollup", what: `skip_car ${no} (core refunded or closed it before it rode; its Table waited for it)`, ixs: [skipCarIx(e.caller, i, no, car?.tesoroMatch ?? PublicKey.default)], units: 200_000 });
+      r.skipped.push(no);
+    } catch {
+      r.failed.push(no);
+    }
+  }
+  // Cars no Table waits for any more (passed over already): closed once core is done with them.
+  for (const [no, car] of cars) {
+    if (seen.has(no)) continue;
+    try {
+      if (!(await done(car))) continue;
+      if (await close(no, car)) r.closed.push(no);
+      else r.failed.push(no);
+    } catch {
+      r.failed.push(no);
+    }
+  }
+  return r;
 }
 
 // ---- the sweep's step ----------------------------------------------------------------------------------------------
@@ -115,7 +232,7 @@ export interface SweepSend {
 }
 
 export interface SweepEnv {
-  base: Reader;
+  base: CarReader;
   /** The rollup the Tables live on (the TEE). */
   rollup: Reader;
   core: Core;
@@ -159,7 +276,7 @@ export async function rideSweepStep(e: SweepEnv): Promise<SweepResult> {
     if (away.length) return { sent };
   }
   const ride = await findCarRide(e.base, e.rollup, e.match);
-  const page = ride ? nextRideStep({ mine: { carNo: ride.carNo, table: ride.table }, core, rollup: ride.rollup, base: ride.base, previousFrozen: ride.previousFrozen, now: e.now }) : ({ kind: "wait" } as const);
+  const page = ride ? nextRideStep({ mine: { carNo: ride.carNo, table: ride.table }, core, rollup: ride.rollup, base: ride.base, previousReceipt: ride.previousReceipt, now: e.now }) : ({ kind: "wait" } as const);
   const action = sweepRideAction(page, { core, rollup: ride?.rollup ?? null, now: e.now });
   if ("wait" in action) return action;
   switch (action.send) {

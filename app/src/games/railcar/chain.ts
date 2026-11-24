@@ -175,6 +175,8 @@ export interface TableView {
   commitAt: number;
   /** Seats whose Brake seat is bound to this ride: no Brake counts until all are. */
   brakesBound: number;
+  /** Core's absolute deadline of the car (base time), kept after the ride; 0 on a Table whose last ride started before the field existed. */
+  deadlineAbs: number;
   /** The pace mark: slot and unix time of the last moment the ride was on pace. It moves with every signal that lands. */
   paceSlot: bigint;
   paceTs: number;
@@ -234,6 +236,7 @@ export function decodeTable(data: Uint8Array): TableView {
     revealDraw: Uint8Array.from(data.subarray(b + 180, b + 212)),
     revealed: data[b + 212] === 1,
     brakesBound: data[b + 213],
+    deadlineAbs: Number(v.getBigInt64(b + 214, true)),
     paceSlot: v.getBigUint64(b + 292, true),
     paceTs: Number(v.getBigInt64(b + 300, true)),
     seats,

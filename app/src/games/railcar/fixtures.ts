@@ -61,6 +61,7 @@ const table = (n: number, o: Partial<TableView>): TableView => ({
   dirty: false,
   commitAt: 0,
   brakesBound: n,
+  deadlineAbs: 0,
   paceSlot: 0n,
   paceTs: 0,
   revealed: false,

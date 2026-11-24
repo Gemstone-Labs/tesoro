@@ -5,10 +5,13 @@
  *
  * Dry run by default: it reads devnet, prints every step with its signer, accounts, cost and state, and simulates each step
  * still to do (with the steps it needs in front of it, signatures not checked). `--send` sends the steps still to do, in
- * order; each step reads the chain first, so a re-run sends only what is missing.
+ * order; each step reads the chain first, so a re-run sends only what is missing. `--check` is the release check after an
+ * upgrade: no simulation, exit 1 while any step is left (a listing names the deployed build, so every upgrade leaves
+ * `list-game` until the admin re-lists it).
  *
  *   pnpm --filter @tesoro/keeper exec tsx scripts/railcar-setup.ts [--rpc <url>] [--tee-rpc <url>] [--tables 2] \
  *     [--operator <pubkey>] [--studio <core Account>] [--sponsor-sol 0.1] [--fuel-sol 0.05] [--listed-days 365]
+ *   ... --check
  *   ... --send --keypair <deployer file> --operator-keypair <operator file>
  *
  * Signers: the deployer (Railcar's upgrade authority and tesoro_core's admin on devnet) signs register_game, the TEE-only
@@ -22,13 +25,18 @@ import { readFileSync } from "node:fs";
 import nacl from "tweetnacl";
 import { assertCluster, clusterOf, exitOnUnknownFlag, loadKeypair, parseArgs } from "../src/cli-args.ts";
 import { RAILCAR_PROGRAM_ID, tablePda } from "../../app/src/games/railcar/chain.ts";
-import { describeIx, railcarSetupPlan, readSetupFacts, setupProblems, withPending, type SetupInput, type SetupStep } from "../../app/src/games/railcar/setup.ts";
+import { describeIx, railcarSetupPlan, readSetupFacts, setupCheck, setupProblems, withPending, type SetupInput, type SetupStep } from "../../app/src/games/railcar/setup.ts";
 
-const USAGE = "usage: railcar-setup.ts [--send --keypair <deployer file> --operator-keypair <operator file>] [--rpc <url>] [--tee-rpc <url>] [--tables 2] [--operator <pubkey>] [--studio <core Account>] [--sponsor-sol 0.1] [--fuel-sol 0.05] [--listed-days 365]";
+const USAGE = "usage: railcar-setup.ts [--check | --send --keypair <deployer file> --operator-keypair <operator file>] [--rpc <url>] [--tee-rpc <url>] [--tables 2] [--operator <pubkey>] [--studio <core Account>] [--sponsor-sol 0.1] [--fuel-sol 0.05] [--listed-days 365]";
 const argv = process.argv.slice(2);
-exitOnUnknownFlag(argv, { bare: ["send"], valued: ["rpc", "tee-rpc", "keypair", "operator-keypair", "operator", "studio", "tables", "sponsor-sol", "fuel-sol", "listed-days"] }, USAGE);
-const a = parseArgs(argv, ["send"]);
+exitOnUnknownFlag(argv, { bare: ["send", "check"], valued: ["rpc", "tee-rpc", "keypair", "operator-keypair", "operator", "studio", "tables", "sponsor-sol", "fuel-sol", "listed-days"] }, USAGE);
+const a = parseArgs(argv, ["send", "check"]);
 const send = a.flag("send");
+const check = a.flag("check");
+if (send && check) {
+  console.error(`--check and --send exclude each other\n${USAGE}`);
+  process.exit(2);
+}
 const cluster = clusterOf("test");
 const rpc = a.value("rpc") ?? cluster.solana.defaultRpc!;
 const teeRpc = a.value("tee-rpc") ?? cluster.magicblock.teeRpc;
@@ -148,7 +156,7 @@ function print(s: SetupStep, n: number) {
 if (!send) {
   for (const [i, s] of steps.entries()) {
     print(s, i + 1);
-    if (s.status === "to do") console.log(`    ${await simulate(withPending(steps, s))}`);
+    if (s.status === "to do" && !check) console.log(`    ${await simulate(withPending(steps, s))}`);
   }
 } else {
   const blocked = steps.find((s) => s.status === "blocked");
@@ -188,10 +196,12 @@ if (!send) {
   ({ facts, steps } = await plan());
 }
 
+const result = setupCheck(steps);
 const left = steps.filter((s) => s.status !== "done");
 const bySigner = new Map<string, bigint>();
 for (const s of left) bySigner.set(`${s.signer} ${keyOf(s).toBase58()}`, (bySigner.get(`${s.signer} ${keyOf(s).toBase58()}`) ?? 0n) + s.lamports);
-console.log(`\n${steps.length - left.length} of ${steps.length} steps done; ${left.length} left${left.length ? ` (${left.map((s) => s.id).join(", ")})` : ""}`);
+console.log(`\n${steps.length - left.length} of ${steps.length} steps done; ${left.length} left${left.length ? ` (${result.left.join(", ")})` : ""}`);
 for (const [who, l] of bySigner) console.log(`  ${who} spends about ${sol(l)} SOL`);
 console.log(`  Tables: ${facts.tables.map((t) => `${t.index} ${tablePda(t.index).toBase58()} ${t.base}${t.vaultReady ? " + Vault" : ""}`).join("; ")}`);
-if (send && left.length) process.exit(1);
+if (check) console.log(result.ok ? "CHECK PASSED: the Railcar setup is complete for the deployed build" : `CHECK FAILED: ${result.left.length} step(s) left: ${result.left.join(", ")}`);
+if ((send || check) && !result.ok) process.exit(1);

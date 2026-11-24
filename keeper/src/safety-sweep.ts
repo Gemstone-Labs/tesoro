@@ -233,6 +233,11 @@ export interface SweepDeps {
   waiting?(head: Head): Promise<"untabled" | "unbegun" | null>;
   /** The Game's `refund_untabled`. */
   refundUntabled?(head: Head): Promise<void>;
+  /**
+   * Railcar's Tables, judged on their own after the Matches: a Table waiting for a car core refunded or closed before it rode
+   * (a page's refund never sends `skip_car`) passes it over and its Car closes. Not run on a dry run.
+   */
+  tables?(): Promise<void>;
 }
 
 export type Case = "finalize" | "finish" | "refund" | "untabled" | "ride";
@@ -452,6 +457,13 @@ export async function safetySweep(deps: SweepDeps, store: SweepStore, opts: { no
     if ((await deps.progress(head.address)) === null) delete next.seen[id];
   }
 
+  if (!dryRun && deps.tables) {
+    try {
+      await deps.tables();
+    } catch (e) {
+      log("sweep", "-", `ERROR Railcar Tables: ${String((e as Error).message ?? e).split("\n")[0].slice(0, 200)}`);
+    }
+  }
   if (!dryRun) store.save(next);
   return report;
 }

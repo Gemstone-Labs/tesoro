@@ -2944,7 +2944,10 @@ export type Railcar = {
       "docs": [
         "Rollup, anyone. Puts the Table's next car on it once that car has left: copies its seated",
         "Players from every seat page (remaining accounts) and asks for the draw. A Table whose",
-        "last ride is over is reset first, once core has frozen that car (its receipt)."
+        "last ride is over is reset first, once core has frozen that car (its receipt) or once this",
+        "car departed at or after that car's absolute deadline, from which core refuses to settle",
+        "it (`Table::deadline_abs`; a legacy Table without it waits `TABLE_REUSE_AFTER_SECS` from",
+        "the ride's end instead). A car past its own deadline never rides: core can only refund it."
       ],
       "discriminator": [
         198,
@@ -3014,7 +3017,7 @@ export type Railcar = {
         {
           "name": "previousReceipt",
           "docs": [
-            "`receipt_at`."
+            "`receipt_at`; may be gone once that car is past settling."
           ]
         },
         {
@@ -3507,7 +3510,7 @@ export type Railcar = {
     {
       "code": 6017,
       "name": "previousNotFrozen",
-      "msg": "Core has not frozen the Table's previous car yet"
+      "msg": "Core has not frozen the Table's previous car yet, and this car left before that car's deadline"
     },
     {
       "code": 6018,
@@ -3553,6 +3556,11 @@ export type Railcar = {
       "code": 6026,
       "name": "alreadyRevealed",
       "msg": "The ride is already revealed"
+    },
+    {
+      "code": 6027,
+      "name": "carPastDeadline",
+      "msg": "The car's absolute deadline has passed: core can only refund it"
     }
   ],
   "types": [
@@ -5226,7 +5234,8 @@ export type Railcar = {
           {
             "name": "overMs",
             "docs": [
-              "Ride ms and unix time at the end."
+              "Ride ms and unix time at the end (`over_at` also dates a legacy Table's reuse without a",
+              "receipt, `TABLE_REUSE_AFTER_SECS`)."
             ],
             "type": {
               "array": [
@@ -5278,11 +5287,25 @@ export type Railcar = {
             "type": "u8"
           },
           {
+            "name": "deadlineAbs",
+            "docs": [
+              "Core's absolute deadline of the car (base time, `ManySeatRecord::deadline_abs`), written",
+              "by `start_ride` and kept after the ride: the next car may replace a ride core can no",
+              "longer settle. 0 on Tables whose last ride started before the field existed."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
             "name": "reserved",
             "type": {
               "array": [
                 "u8",
-                78
+                70
               ]
             }
           },

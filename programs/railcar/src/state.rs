@@ -22,6 +22,17 @@ pub const MIN_SEATS: u8 = 5;
 pub const MAX_SEATS: u8 = 100;
 /// The countdown from the first time the car holds `MIN_SEATS` (decision Q30).
 pub const COUNTDOWN_SECS: i64 = 30;
+/// A Table whose ride is over takes its next car once core has frozen the last one (its
+/// settlement receipt) or once the next car departed (base time, in its Match) at or after the
+/// last car's absolute deadline (base time, kept in `Table::deadline_abs`): core refuses to
+/// start settling from that moment, so the ride's result is of no further use. Tables from
+/// before `deadline_abs` was recorded (0) fall back to the next car departing this long after
+/// the ride ended (rollup time): core keeps a receipt `RECEIPT_KEEP_SECS` from a settlement that
+/// comes after the ride's end, less an hour, so such a Table frees itself before anyone may
+/// reclaim the receipt and a week after the car's deadline. That fallback trusts only a constant
+/// offset between the two clocks, with those seven days of slack.
+pub const TABLE_REUSE_AFTER_SECS: i64 = tesoro_core::instructions::matching::RECEIPT_KEEP_SECS
+    - tesoro_core::ledger::MATCH_TIMEOUT_SECS;
 /// Tables a Config may name: enough for a ride in progress and the next car boarding.
 pub const MIN_TABLES: u16 = 2;
 pub const MAX_TABLES: u16 = 16;
@@ -359,7 +370,8 @@ pub struct Table {
     /// The ride clock: slot and time of the draw's arrival.
     ride_slot: [u8; 8],
     ride_ts: [u8; 8],
-    /// Ride ms and unix time at the end.
+    /// Ride ms and unix time at the end (`over_at` also dates a legacy Table's reuse without a
+    /// receipt, `TABLE_REUSE_AFTER_SECS`).
     over_ms: [u8; 4],
     over_at: [u8; 8],
     commit_at: [u8; 8],
@@ -369,7 +381,11 @@ pub struct Table {
     pub revealed: u8,
     /// Seats whose Brake seat is bound to this ride; no Brake counts until all are.
     pub brakes_bound: u8,
-    pub reserved: [u8; 78],
+    /// Core's absolute deadline of the car (base time, `ManySeatRecord::deadline_abs`), written
+    /// by `start_ride` and kept after the ride: the next car may replace a ride core can no
+    /// longer settle. 0 on Tables whose last ride started before the field existed.
+    deadline_abs: [u8; 8],
+    pub reserved: [u8; 70],
     /// The pace mark: slot and time of the last moment the ride was on pace (outage rule).
     pace_slot: [u8; 8],
     pace_ts: [u8; 8],
@@ -406,6 +422,7 @@ impl Table {
     le!(commit_at, set_commit_at, commit_at, i64);
     le!(pace_slot, set_pace_slot, pace_slot, u64);
     le!(pace_ts, set_pace_ts, pace_ts, i64);
+    le!(deadline_abs, set_deadline_abs, deadline_abs, i64);
 
     /// Starts the ride clock and the pace mark at the draw's arrival.
     pub fn start_pace(&mut self, slot: u64, ts: i64) {

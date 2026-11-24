@@ -30,11 +30,11 @@ import { seatKeys, type SeatKey } from "@/lib/seat/seat-key";
 import { countingFor } from "@/lib/seat/signature-counter";
 import { browserStore } from "@/lib/storage";
 import { bindTargets, brakeState, earlyCopyDue, pageSend, tellCues, type EarlyCopy } from "./brake";
-import { ENTRY_GEMAS, RAILCAR_PROGRAM_ID, bindBrakeIx, brakeSeatPda, carPda, checkDepartureIx, commitTableIx, configPda, decodeBrakeSeat, decodeCarAccount, decodeConfig, decodeTable, jumpIx, openCarIx, signalIx, startRideIx, tablePda, tickIx, type BrakeSeatView, type RailcarConfigView, type TableView } from "./chain";
+import { ENTRY_GEMAS, RAILCAR_PROGRAM_ID, bindBrakeIx, brakeSeatPda, carPda, checkDepartureIx, commitTableIx, configPda, decodeBrakeSeat, decodeCarAccount, decodeConfig, decodeTable, jumpIx, openCarIx, signalIx, skipCarIx, startRideIx, tablePda, tickIx, type BrakeSeatView, type RailcarConfigView, type TableView } from "./chain";
 import { backerSeatedIn, boardWithRetry, boardingEntry, type BoardingBacking } from "./boarding";
 import { stepOffFor } from "./step-off";
 import { sendStepOff } from "./step-off-send";
-import { finishRide } from "./finish";
+import { PENDING_SKIP_POLL_MS, checkPendingSkips, finishRide, type FinishResult, type PendingSkip } from "./finish";
 import { mayFinish, nextRideStep, pageIntervalMs, poissonGapMs, queueChoice, rememberedCarGone, watchedRide } from "./flow";
 import type { RailcarWatch } from "./RailcarScreen";
 import { boardingSigner, brakeRoute, finishSender, joinSeatKey, jumpSigner } from "./signers";
@@ -114,7 +114,8 @@ interface Snapshot {
   watching: boolean;
   rollup: TableView | null;
   base: TableView | null;
-  previousFrozen: boolean;
+  /** Core's receipt for the car the rollup Table holds exists (when that is not this car). */
+  previousReceipt: boolean;
   mine: boolean;
   /** The Offer's Backer holds a mark in the car shown (core would refuse the backed join there). */
   backerSeated: boolean;
@@ -174,14 +175,14 @@ export async function readSnapshot(read: Reader, tee: () => Promise<Connection |
       }
     }
   }
-  if (!car) return { config, car: null, loaded: null, boarding, watching, rollup: null, base: null, previousFrozen: false, mine: false, backerSeated: false, forgot };
+  if (!car) return { config, car: null, loaded: null, boarding, watching, rollup: null, base: null, previousReceipt: false, mine: false, backerSeated: false, forgot };
   const loaded = boarding && boarding.carNo === car.carNo ? boarding.loaded : await loadCar(read, car.match);
   const mine = !!me && !!loaded?.seats.some((s) => s.seated && s.player.equals(me));
   // The Backer's mark is checked in the car the Queue boards, which a watched ride is not.
   const backerSeated = !!backer && !!boarding && !boarding.loaded.seats.some((x) => x.seated && !!me && x.player.equals(me)) && (await backerSeatedIn(read, boarding.loaded.car.address, backer));
   let rollup: TableView | null = null;
   let base: TableView | null = null;
-  let previousFrozen = false;
+  let previousReceipt = false;
   if (loaded && loaded.car.stage !== "boarding") {
     const [baseInfo] = await read.many([tablePda(car.table)]);
     base = baseInfo ? decodeTable(baseInfo.data) : null;
@@ -191,9 +192,9 @@ export async function readSnapshot(read: Reader, tee: () => Promise<Connection |
       const info = conn ? await conn.getAccountInfo(tablePda(car.table), "confirmed").catch(() => null) : null;
       rollup = info ? decodeTable(info.data) : null;
     }
-    if (rollup && rollup.carNo !== car.carNo && rollup.phase === "over") previousFrozen = !!(await read.many([settledPda(rollup.tesoroMatch)]))[0];
+    if (rollup && rollup.carNo !== car.carNo && rollup.phase === "over") previousReceipt = !!(await read.many([settledPda(rollup.tesoroMatch)]))[0];
   }
-  return { config, car, loaded, boarding, watching, rollup, base, previousFrozen, mine, backerSeated, forgot };
+  return { config, car, loaded, boarding, watching, rollup, base, previousReceipt, mine, backerSeated, forgot };
 }
 
 export interface RailcarPage {
@@ -267,6 +268,8 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   // A key made for this page: it signs the rollup's anyone-may steps (signals, start, commit) so the wallet is never asked.
   const pageKey = useRef<ChainSigner>(keypairSigner(Keypair.generate()));
   const stepping = useRef(false);
+  const skipping = useRef(false);
+  const pendingSkips = useRef(new Map<string, PendingSkip>());
   const retries = useRef(new StepRetry());
   // what the failing step tells the Player and when it last failed: it fades once the step stops being tried
   const [stepTrouble, setStepTrouble] = useState<{ text: string; at: number } | null>(null);
@@ -406,7 +409,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
     if (!snap?.car || !snap.loaded || stepping.current) return;
     const car = snap.car;
     const ride = snap.rollup && snap.rollup.carNo === car.carNo ? snap.rollup : null;
-    const step = nextRideStep({ mine: { carNo: car.carNo, table: car.table }, core: snap.loaded.car, rollup: snap.rollup, base: snap.base, previousFrozen: snap.previousFrozen, now: Math.floor(now / 1000) });
+    const step = nextRideStep({ mine: { carNo: car.carNo, table: car.table }, core: snap.loaded.car, rollup: snap.rollup, base: snap.base, previousReceipt: snap.previousReceipt, now: Math.floor(now / 1000) });
     const send = finishSender(seat, getToken);
     const page = pageKey.current;
     const chain = getChain();
@@ -448,11 +451,44 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
       case "close":
         if (send && me && (!ride || mayFinish(ride, me) || step.kind !== "finalize")) run(() => finishFromPage(send, car, snap.base, me));
         return;
+      case "refund":
+        // core refunds every seat: any rider's page may send it; the page then passes the car over on its Table on its own
+        // (the effect below), whatever becomes of the finisher's later steps
+        if (!pendingSkips.current.has(car.carNo.toString())) pendingSkips.current.set(car.carNo.toString(), { carNo: car.carNo, table: car.table, match: car.match });
+        if (send && me) run(() => finishFromPage(send, car, snap.base, me));
+        return;
       default:
         // finalize-previous: the previous car's riders (or the keeper's sweep) finalize it; this page waits.
         return;
     }
   }, [snap, now, me, meKey, seat, getToken]);
+
+  // The cars this page sent core's refund for: `skip_car` by the page key once the receipt is there, each retried on its own
+  // every few seconds until its Table has moved past it (the sponsored finisher may fail a step and resume later; the page
+  // may forget the car).
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (!pendingSkips.current.size || skipping.current) return;
+      skipping.current = true;
+      const page = pageKey.current;
+      void checkPendingSkips({
+        pending: pendingSkips.current,
+        table: async (index) => {
+          const conn = await tee();
+          if (!conn) return null;
+          const info = await conn.getAccountInfo(tablePda(index), "confirmed");
+          return info ? decodeTable(info.data) : null;
+        },
+        receipt: async (match) => !!(await connReader(getChain().base).many([settledPda(match)]))[0],
+        skip: (p) => getChain().sendTee(page, [skipCarIx(page.publicKey, p.table, p.carNo, p.match)]),
+        retry: retries.current,
+        now: () => Date.now(),
+      }).finally(() => {
+        skipping.current = false;
+      });
+    }, PENDING_SKIP_POLL_MS);
+    return () => clearInterval(id);
+  }, [tee]);
 
   // Signals while the ride runs: aboard Players' pages together send about 5 a second (pages of Players who are off add at most
   // about 5 more). An aboard Player's page ticks instead once its seat is bound and the seat key can sign; the Brake rides on
@@ -759,12 +795,12 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
 }
 
 /** A share of the finish (finalize, room, chunks, closes) through the relayer, sized against the server's lookup tables. */
-async function finishFromPage(send: (ixs: TransactionInstruction[]) => Promise<string>, car: { carNo: bigint; match: PublicKey }, base: TableView | null, mine: PublicKey): Promise<void> {
+async function finishFromPage(send: (ixs: TransactionInstruction[]) => Promise<string>, car: { carNo: bigint; match: PublicKey }, base: TableView | null, mine: PublicKey): Promise<FinishResult> {
   const status = await sponsorStatus();
   const conn = getChain().base;
   const relayer = new PublicKey(status.relayer);
   const tables = (await Promise.all((status.tables ?? []).map((t) => conn.getAddressLookupTable(new PublicKey(t)).then((r) => r.value)))).filter((t): t is AddressLookupTableAccount => !!t);
-  await finishRide({
+  return finishRide({
     read: connReader(conn),
     core: getChain().core as unknown as Parameters<typeof finishRide>[0]["core"],
     caller: relayer,
