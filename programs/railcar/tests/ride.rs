@@ -958,7 +958,12 @@ impl Env {
     /// The app's choice: board the car that is boarding, or open the next one.
     fn queue(&mut self, p: &Person) -> Result<Car, Failed> {
         let config = self.config();
-        if config.next_car > 0 {
+        // The last car's account is gone once `finalize` closed it: nothing boards, open the next.
+        let last_car_exists = self
+            .svm
+            .get_account(&s(railcar::car_address(config.next_car.wrapping_sub(1))))
+            .is_some();
+        if config.next_car > 0 && last_car_exists {
             let car = self.car_at(config.next_car - 1);
             let open = self
                 .svm
