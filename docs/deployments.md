@@ -26,6 +26,23 @@ Regression commands: `cargo test -p tesoro_core --lib predeploy_layouts -- --noc
 
 A Railcar upgrade is not done until `pnpm --filter @tesoro/keeper exec tsx scripts/railcar-setup.ts --check` passes (exit 0, every setup step done). tesoro_core lists a Game by the deploy slot and hash of the build it approved, so every upgrade leaves `list-game` to do until the admin re-lists the new build (`railcar-setup.ts --send`, the founder's word on devnet); the upgrades of 2026-11-11 and 2026-11-24 skipped it and Railcar earned no Points, sponsored nothing and took no Backing for 13 days (ticket 38). The check sends nothing; a nonzero exit names the steps left.
 
+## Railcar upgrade: Table reuse after receipt cleanup (2026-11-24, second)
+
+The founder approved it on 2026-11-24 (ticket 39). Railcar only. A Table whose last ride is over takes its next car once core has that car's receipt, or once the next car departed (base time) at or after the last car's absolute deadline, recorded in `Table.deadline_abs` (from the reserved bytes; nothing else moves). Tables that predate the field fall back to `over_at` + 13 d 23 h. Before this, a Table idle 14 days after its last car was stuck, because core closes receipts after 14 days (devnet Table 1, car 15).
+
+| Step | Value |
+|---|---|
+| Build | int `feat/railcar-03-11-2026` a1a69103 (full VPS check merge-39.sh, cold pinned build); `railcar.so` 924,816 B, md5 4c030e5f…, sha256 d7fddffd…, carries the Railcar program id |
+| Precheck | `next_car` 17, boarding Match closed; only car 15 open (Table 1, departed, its refund due 2026-11-25 10:25 BRT) |
+| Railcar extend | none (fits the 933,456 B ProgramData) |
+| Railcar upgrade | slot 525914896, `5LApTGMs…KDbJ3gQu`; dump == ELF; rollback `~/.cache/tesoro-tmp/deploy-39-2026-11-24/rollback-railcar-before-39.so` (== the morning's rules round 2 program) |
+| Listing | `railcar-setup.ts --check` failed with list-game left, then `list_game` `VBfMyri7…R7cJgu`; `--check` passed (14 of 14) |
+| Staging | origin/staging 673a64f4 (tree == a1a69103), preview tesoro-1w98isd0c, alias tesoro-staging.vercel.app |
+
+The morning upgrade (below) left Railcar unlisted until `list_game` `63jwYFa1…buW7jN5V` (ticket 38). The same miss happened on 2026-11-11. The upgrade routine now ends with `railcar-setup.ts --check`.
+
+Rollback: upgrade Railcar from the rollback file, run `list_game` for it, then put staging back on a tree equal to d4437ac4.
+
 ## Railcar upgrade: rules round 2 (2026-11-24)
 
 The founder approved it on 2026-11-24 (Railcar decisions Q40, ticket 34). Railcar only: no core, keeper or migration change. Entry 100 Gemas, only the last three off are paid (no Early-jump refund), the smooth bomb curve (5 s safe, half of rides over by 25 s, 120 s cap), shorter warning leads, Brake 5 s. Each Table records the rules of its car in `rules` (formerly `reserved0[0]`, 3 = Q40); no account changes size.
