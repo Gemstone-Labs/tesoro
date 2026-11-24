@@ -918,6 +918,10 @@ pub mod railcar {
                 m.inner.deadline_abs(),
             )
         };
+        require!(
+            clock.unix_timestamp < deadline_abs,
+            RailcarError::CarPastDeadline
+        );
         let ix = {
             let mut t = ctx.accounts.table.load_mut()?;
             require!(t.vault_ready == 1, RailcarError::VaultMissing);
@@ -939,10 +943,6 @@ pub mod railcar {
             require!(
                 car.table == t.index() && car.car_no == t.next_car(),
                 RailcarError::WrongCar
-            );
-            require!(
-                clock.unix_timestamp < deadline_abs,
-                RailcarError::CarPastDeadline
             );
             let mut n = 0usize;
             for_each_seated(ctx.remaining_accounts, &match_key, pages, |seat, core| {

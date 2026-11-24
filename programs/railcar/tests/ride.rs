@@ -2220,8 +2220,9 @@ fn a_legacy_table_frees_two_weeks_after_its_ride_by_the_next_cars_departure() {
     let err = env.start_ride(&car2).unwrap_err();
     assert_eq!(code(&err), rcode(railcar::RailcarError::PreviousNotFrozen));
     env.patch_table(car0.table, |t| t.set_over_at(over_at));
-    // car 2 left a second too early; car 3 (Table 1) and car 4 (Table 0) leave in time
-    env.set_time(over_at + TABLE_REUSE_SECS);
+    // car 2 left a second too early: core refunds it a day after it left; car 3 (Table 1) and
+    // car 4 (Table 0) leave in time
+    env.set_time(over_at + TABLE_REUSE_SECS + DAY);
     env.refund_car(&car2)
         .expect("core refunds the car that left too early");
     env.run_car(&car2);
