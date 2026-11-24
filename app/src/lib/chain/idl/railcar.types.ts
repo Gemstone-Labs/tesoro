@@ -2944,7 +2944,8 @@ export type Railcar = {
       "docs": [
         "Rollup, anyone. Puts the Table's next car on it once that car has left: copies its seated",
         "Players from every seat page (remaining accounts) and asks for the draw. A Table whose",
-        "last ride is over is reset first, once core has frozen that car (its receipt)."
+        "last ride is over is reset first, once core has frozen that car (its receipt) or, the",
+        "receipt gone or never made, once the ride is `TABLE_REUSE_AFTER_SECS` old."
       ],
       "discriminator": [
         198,
@@ -3014,7 +3015,7 @@ export type Railcar = {
         {
           "name": "previousReceipt",
           "docs": [
-            "`receipt_at`."
+            "`receipt_at`; may be gone once the ride is `TABLE_REUSE_AFTER_SECS` old."
           ]
         },
         {
@@ -3507,7 +3508,7 @@ export type Railcar = {
     {
       "code": 6017,
       "name": "previousNotFrozen",
-      "msg": "Core has not frozen the Table's previous car yet"
+      "msg": "Core has not frozen the Table's previous car yet, and its ride is not two weeks old"
     },
     {
       "code": 6018,
@@ -5226,7 +5227,8 @@ export type Railcar = {
           {
             "name": "overMs",
             "docs": [
-              "Ride ms and unix time at the end."
+              "Ride ms and unix time at the end (`over_at` also dates the Table's reuse without a",
+              "receipt, `TABLE_REUSE_AFTER_SECS`)."
             ],
             "type": {
               "array": [
