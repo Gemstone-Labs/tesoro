@@ -1425,8 +1425,8 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
   };
 
   /** The page's own step for the car it sent the refund for (`pendingSkipStep`), sent with the page key. */
-  const pagePendingSkip = (w: World, pending: { carNo: bigint; match: PublicKey; table: number }) => {
-    const step = pendingSkipStep(decodeTable(w.get(tablePda(pending.table))!.data), pending, !!w.info(settledPda(pending.match)));
+  const pagePendingSkip = async (w: World, pending: { carNo: bigint; match: PublicKey; table: number }) => {
+    const step = await pendingSkipStep(decodeTable(w.get(tablePda(pending.table))!.data), pending, async () => !!w.info(settledPda(pending.match)));
     if (step === "skip") w.rollup([cu(200_000), skipCarIx(w.pageKey.publicKey, pending.table, pending.carNo, pending.match)], w.pageKey, pending.table);
     return step;
   };
@@ -1460,7 +1460,7 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     await expect(pageFinish(w, sponsor, me, c2, "chunk")).rejects.toThrow("the sponsor is busy");
     expect(!!w.info(settledPda(c2.match))).toBe(true);
     // the pending skip goes on its own, before the finisher resumes
-    expect(pagePendingSkip(w, pending)).toBe("skip");
+    expect(await pagePendingSkip(w, pending)).toBe("skip");
     expect(decodeTable(w.get(tablePda(0))!.data).nextCar).toBe(4n);
     // poll 2: core is refunding: the page resumes at settle and finishes (chunks, closes) through the sponsor
     const second = await step();
@@ -1473,7 +1473,7 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     // poll 3: the page's read forgets the car (nothing to load, no seat); the pending car is done, the Table moved past it
     const third = await step();
     expect([third.snap.forgot, third.snap.loaded, third.snap.mine, third.step]).toEqual([true, null, false, null]);
-    expect(pagePendingSkip(w, pending)).toBe("done");
+    expect(await pagePendingSkip(w, pending)).toBe("done");
     // the Car's close is the keeper's (no seat key may vouch for it)
     const keeper = Keypair.generate();
     w.svm.airdrop(keeper.publicKey, 100n * SOL);

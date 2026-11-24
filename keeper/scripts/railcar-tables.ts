@@ -56,18 +56,25 @@ const sendRollup = async (what: string, ixs: SweepSend["ixs"], units: number) =>
   tx.feePayer = signer.publicKey;
   tx.recentBlockhash = (await tee.getLatestBlockhash()).blockhash;
   tx.sign(signer);
-  const sig = await tee.sendRawTransaction(tx.serialize(), { skipPreflight: false });
-  const { value } = await tee.confirmTransaction(sig, "confirmed");
-  if (!value.err) return sig;
+  let refused: string;
+  try {
+    const sig = await tee.sendRawTransaction(tx.serialize(), { skipPreflight: false });
+    const { value } = await tee.confirmTransaction(sig, "confirmed");
+    if (!value.err) return sig;
+    refused = JSON.stringify(value.err);
+  } catch (e) {
+    refused = String((e as Error).message ?? e).slice(0, 160);
+  }
+  // Refused at preflight or on chain: fine when the Table moved past the car meanwhile (a page or the keeper skipped it).
   const [, no, ...rest] = what.split(" ");
   const table = Number(BigInt(no) % BigInt(cfg.tables));
   const info = await tee.getAccountInfo(tablePda(table), "confirmed");
   const nextCar = info ? decodeTable(info.data).nextCar : null;
   if (nextCar !== null && nextCar > BigInt(no)) {
-    sends.push(`rollup: skip_car ${no} refused (${JSON.stringify(value.err)}) but Table ${table} already moved on to car ${nextCar}: fine`);
-    return sig;
+    sends.push(`rollup: skip_car ${no} refused (${refused}) but Table ${table} already moved on to car ${nextCar}: fine`);
+    return "-";
   }
-  throw new Error(`skip_car ${no} refused: ${JSON.stringify(value.err)}; Table ${table} still at ${nextCar ?? "?"} ${rest.join(" ")}`);
+  throw new Error(`skip_car ${no} refused: ${refused}; Table ${table} still at ${nextCar ?? "?"} ${rest.join(" ")}`);
 };
 // A dry run pretends each close landed, so the pass goes on to show the skip that would follow it.
 const pretendClosed = new Set<string>();
@@ -78,7 +85,7 @@ const r = await reconcileTables({
   caller: signer.publicKey,
   send: async (s) => {
     if (!send) {
-      sends.push(`${s.layer}: ${s.what}${s.layer === "rollup" && sends.length ? " (after the close is confirmed)" : ""}`);
+      sends.push(`${s.layer}: ${s.what}${s.layer === "rollup" && pretendClosed.has(carPda(BigInt(s.what.split(" ")[1])).toBase58()) ? " (after the close is confirmed)" : ""}`);
       if (s.layer === "base") pretendClosed.add(carPda(BigInt(s.what.split(" ")[1])).toBase58());
       return;
     }

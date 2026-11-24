@@ -171,6 +171,33 @@ describe("the sweep reconciles the Cars and each Table's next car on its own", (
     expect(sent).toEqual(["skip_car", "skip_car"]);
   });
 
+  it("a read that throws after one Table's close (the readback) goes to failed for that car; the other Tables still run", async () => {
+    const { base, rollup } = await chain();
+    rollup.set(tablePda(1).toBase58(), table(1, { phase: "idle", carNo: 1n, nextCar: 3n }));
+    const sent: string[] = [];
+    const e = landing(base, rollup, sent);
+    let closedOnce = false;
+    const flaky = {
+      many: async (keys: PublicKey[]) => {
+        if (closedOnce && keys.length === 1 && keys[0].equals(carPda(2n))) {
+          closedOnce = false;
+          throw new Error("rpc down");
+        }
+        return reader(base).many(keys);
+      },
+    };
+    const send = e.send;
+    e.send = async (s) => {
+      await send(s);
+      if (s.what.startsWith("close_car 2")) closedOnce = true;
+    };
+    expect(await reconcileTables({ ...e, base: flaky })).toEqual({ closed: [], skipped: [3n], failed: [2n] });
+    expect(sent).toEqual(["close_car", "skip_car"]);
+    sent.length = 0;
+    expect(await reconcileTables({ ...e, base: flaky })).toEqual({ closed: [], skipped: [2n], failed: [] });
+    expect(sent).toEqual(["skip_car"]);
+  });
+
   it("asks a reader that can list the open Cars (the keeper's program scan) instead of reading every car number", async () => {
     const { base, rollup } = await chain();
     base.set(configPda().toBase58(), await config(5_000n));

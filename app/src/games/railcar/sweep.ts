@@ -189,17 +189,18 @@ export async function reconcileTables(e: Pick<SweepEnv, "base" | "rollup" | "cal
     if (!t || t.nextCar >= cfg.nextCar) continue;
     const no = t.nextCar;
     seen.add(no);
-    // The scan may lag base: a Car it did not list is read by its address before it counts as closed.
-    const car = cars.get(no) ?? (await one(e.base, carPda(no)).then((info) => (info ? decodeCarAccount(info.data) : null)));
-    if (car) {
-      if (!(await done(car))) continue;
-      if (!(await close(no, car))) {
-        r.failed.push(no);
-        continue;
-      }
-      r.closed.push(no);
-    }
+    // Reads included: a Table whose car cannot be read or moved goes to `failed`, and the next Table still runs.
     try {
+      // The scan may lag base: a Car it did not list is read by its address before it counts as closed.
+      const car = cars.get(no) ?? (await one(e.base, carPda(no)).then((info) => (info ? decodeCarAccount(info.data) : null)));
+      if (car) {
+        if (!(await done(car))) continue;
+        if (!(await close(no, car))) {
+          r.failed.push(no);
+          continue;
+        }
+        r.closed.push(no);
+      }
       await e.send({ layer: "rollup", what: `skip_car ${no} (core refunded or closed it before it rode; its Table waited for it)`, ixs: [skipCarIx(e.caller, i, no, car?.tesoroMatch ?? PublicKey.default)], units: 200_000 });
       r.skipped.push(no);
     } catch {
@@ -208,9 +209,14 @@ export async function reconcileTables(e: Pick<SweepEnv, "base" | "rollup" | "cal
   }
   // Cars no Table waits for any more (passed over already): closed once core is done with them.
   for (const [no, car] of cars) {
-    if (seen.has(no) || !(await done(car))) continue;
-    if (await close(no, car)) r.closed.push(no);
-    else r.failed.push(no);
+    if (seen.has(no)) continue;
+    try {
+      if (!(await done(car))) continue;
+      if (await close(no, car)) r.closed.push(no);
+      else r.failed.push(no);
+    } catch {
+      r.failed.push(no);
+    }
   }
   return r;
 }

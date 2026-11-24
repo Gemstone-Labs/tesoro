@@ -34,7 +34,7 @@ import { ENTRY_GEMAS, RAILCAR_PROGRAM_ID, bindBrakeIx, brakeSeatPda, carPda, che
 import { backerSeatedIn, boardWithRetry, boardingEntry, type BoardingBacking } from "./boarding";
 import { stepOffFor } from "./step-off";
 import { sendStepOff } from "./step-off-send";
-import { finishRide, pendingSkipStep, type FinishResult, type PendingSkip } from "./finish";
+import { PENDING_SKIP_POLL_MS, checkPendingSkips, finishRide, type FinishResult, type PendingSkip } from "./finish";
 import { mayFinish, nextRideStep, pageIntervalMs, poissonGapMs, queueChoice, rememberedCarGone, watchedRide } from "./flow";
 import type { RailcarWatch } from "./RailcarScreen";
 import { boardingSigner, brakeRoute, finishSender, joinSeatKey, jumpSigner } from "./signers";
@@ -269,7 +269,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   const pageKey = useRef<ChainSigner>(keypairSigner(Keypair.generate()));
   const stepping = useRef(false);
   const skipping = useRef(false);
-  const pendingSkip = useRef<PendingSkip | null>(null);
+  const pendingSkips = useRef(new Map<string, PendingSkip>());
   const retries = useRef(new StepRetry());
   // what the failing step tells the Player and when it last failed: it fades once the step stops being tried
   const [stepTrouble, setStepTrouble] = useState<{ text: string; at: number } | null>(null);
@@ -454,7 +454,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
       case "refund":
         // core refunds every seat: any rider's page may send it; the page then passes the car over on its Table on its own
         // (the effect below), whatever becomes of the finisher's later steps
-        pendingSkip.current ??= { carNo: car.carNo, table: car.table, match: car.match };
+        if (!pendingSkips.current.has(car.carNo.toString())) pendingSkips.current.set(car.carNo.toString(), { carNo: car.carNo, table: car.table, match: car.match });
         if (send && me) run(() => finishFromPage(send, car, snap.base, me));
         return;
       default:
@@ -463,31 +463,32 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
     }
   }, [snap, now, me, meKey, seat, getToken]);
 
-  // A car this page sent core's refund for: `skip_car` by the page key once the receipt is there, retried on its own until
-  // the Table has moved past the car (the sponsored finisher may fail a step and resume later; the page may forget the car).
+  // The cars this page sent core's refund for: `skip_car` by the page key once the receipt is there, each retried on its own
+  // every few seconds until its Table has moved past it (the sponsored finisher may fail a step and resume later; the page
+  // may forget the car).
   useEffect(() => {
-    const pending = pendingSkip.current;
-    if (!pending || skipping.current) return;
-    const key = `skip:${pending.carNo}`;
-    if (!retries.current.ready(key, Date.now())) return;
-    skipping.current = true;
-    const page = pageKey.current;
-    void (async () => {
-      const conn = await tee();
-      const info = conn ? await conn.getAccountInfo(tablePda(pending.table), "confirmed").catch(() => null) : null;
-      const receipt = !!(await connReader(getChain().base).many([settledPda(pending.match)]))[0];
-      const step = pendingSkipStep(info ? decodeTable(info.data) : null, pending, receipt);
-      if (step === "done") pendingSkip.current = null;
-      if (step === "skip") await getChain().sendTee(page, [skipCarIx(page.publicKey, pending.table, pending.carNo, pending.match)]);
-    })()
-      .then(
-        () => retries.current.succeeded(key, Date.now()),
-        (e: unknown) => retries.current.failed(key, e, Date.now()),
-      )
-      .finally(() => {
+    const id = setInterval(() => {
+      if (!pendingSkips.current.size || skipping.current) return;
+      skipping.current = true;
+      const page = pageKey.current;
+      void checkPendingSkips({
+        pending: pendingSkips.current,
+        table: async (index) => {
+          const conn = await tee();
+          if (!conn) return null;
+          const info = await conn.getAccountInfo(tablePda(index), "confirmed");
+          return info ? decodeTable(info.data) : null;
+        },
+        receipt: async (match) => !!(await connReader(getChain().base).many([settledPda(match)]))[0],
+        skip: (p) => getChain().sendTee(page, [skipCarIx(page.publicKey, p.table, p.carNo, p.match)]),
+        retry: retries.current,
+        now: () => Date.now(),
+      }).finally(() => {
         skipping.current = false;
       });
-  }, [snap, now, tee]);
+    }, PENDING_SKIP_POLL_MS);
+    return () => clearInterval(id);
+  }, [tee]);
 
   // Signals while the ride runs: aboard Players' pages together send about 5 a second (pages of Players who are off add at most
   // about 5 more). An aboard Player's page ticks instead once its seat is bound and the seat key can sign; the Brake rides on
