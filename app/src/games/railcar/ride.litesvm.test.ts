@@ -1448,8 +1448,10 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     expect(w.info(carPda(2n))).not.toBeNull();
     expect(decodeTable(w.get(tablePda(0))!.data).nextCar).toBe(4n);
     expect(c2.riders.map((p, i) => w.gemas(p) - c2.before[i])).toEqual(Array(5).fill(100n));
-    // after core's close the page forgets the car; the Car's close is the keeper's (no seat key may vouch for it)
-    expect((await pageSnapshot(w, me, c2)).car).toBeNull();
+    // after core's close the page's read forgets the car (nothing to load, no seat): its dispatch stops; the Car's close is
+    // the keeper's (no seat key may vouch for it)
+    const after = await pageSnapshot(w, me, c2);
+    expect([after.forgot, after.loaded, after.mine]).toEqual([true, null, false]);
     const keeper = Keypair.generate();
     w.svm.airdrop(keeper.publicKey, 100n * SOL);
     const sent: string[] = [];

@@ -34,7 +34,7 @@ import { ENTRY_GEMAS, RAILCAR_PROGRAM_ID, bindBrakeIx, brakeSeatPda, carPda, che
 import { backerSeatedIn, boardWithRetry, boardingEntry, type BoardingBacking } from "./boarding";
 import { stepOffFor } from "./step-off";
 import { sendStepOff } from "./step-off-send";
-import { finishRide, pageRefundFlow } from "./finish";
+import { finishRide, pageRefundFlow, type FinishResult } from "./finish";
 import { mayFinish, nextRideStep, pageIntervalMs, poissonGapMs, queueChoice, rememberedCarGone, watchedRide } from "./flow";
 import type { RailcarWatch } from "./RailcarScreen";
 import { boardingSigner, brakeRoute, finishSender, joinSeatKey, jumpSigner } from "./signers";
@@ -471,7 +471,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
         // finalize-previous: the previous car's riders (or the keeper's sweep) finalize it; this page waits.
         return;
     }
-  }, [snap, now, me, meKey, seat, getToken]);
+  }, [snap, now, me, meKey, seat, getToken, tee]);
 
   // Signals while the ride runs: aboard Players' pages together send about 5 a second (pages of Players who are off add at most
   // about 5 more). An aboard Player's page ticks instead once its seat is bound and the seat key can sign; the Brake rides on
@@ -778,12 +778,12 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
 }
 
 /** A share of the finish (finalize, room, chunks, closes) through the relayer, sized against the server's lookup tables. */
-async function finishFromPage(send: (ixs: TransactionInstruction[]) => Promise<string>, car: { carNo: bigint; match: PublicKey }, base: TableView | null, mine: PublicKey): Promise<void> {
+async function finishFromPage(send: (ixs: TransactionInstruction[]) => Promise<string>, car: { carNo: bigint; match: PublicKey }, base: TableView | null, mine: PublicKey): Promise<FinishResult> {
   const status = await sponsorStatus();
   const conn = getChain().base;
   const relayer = new PublicKey(status.relayer);
   const tables = (await Promise.all((status.tables ?? []).map((t) => conn.getAddressLookupTable(new PublicKey(t)).then((r) => r.value)))).filter((t): t is AddressLookupTableAccount => !!t);
-  await finishRide({
+  return finishRide({
     read: connReader(conn),
     core: getChain().core as unknown as Parameters<typeof finishRide>[0]["core"],
     caller: relayer,

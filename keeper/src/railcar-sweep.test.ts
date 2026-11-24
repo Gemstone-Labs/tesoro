@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { Keypair } from "@solana/web3.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
 import type { TableView } from "../../app/src/games/railcar/chain.ts";
 import type { RideStep } from "../../app/src/games/railcar/flow.ts";
 import type { CarView } from "../../app/src/lib/chain/many-seat.ts";
@@ -56,7 +56,6 @@ describe("the keeper's Railcar reader", () => {
   it("finds a car's Car through one program scan on the scan RPC, never by reading car numbers in batches (rideProgress, the ride step)", async () => {
     const { BN, BorshAccountsCoder } = await import("@coral-xyz/anchor");
     const { readFileSync } = await import("node:fs");
-    const { PublicKey } = await import("@solana/web3.js");
     const { carPda, configPda, tablePda } = await import("../../app/src/games/railcar/chain.ts");
     const { rideProgress } = await import("./railcar-sweep.ts");
     const idl = JSON.parse(readFileSync(new URL("../../app/src/lib/chain/idl/railcar.json", import.meta.url), "utf8"));
