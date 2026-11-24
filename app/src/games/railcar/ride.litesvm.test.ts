@@ -68,7 +68,6 @@ import {
   openCarIx,
   railcarIx,
   signalIx,
-  skipCarIx,
   startRideIx,
   tablePda,
   vaultPda,
