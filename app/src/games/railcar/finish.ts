@@ -12,7 +12,7 @@ import type { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { MAX_SEAT_CHUNK_STEPS, refundCarIx, seatMarkPda } from "../../lib/chain/many-seat";
 import { aheadOf, closeIxs, loadCar, planSeatChunk, roomIxs, sourcesOf } from "../../lib/chain/many-seat-plan";
 import { cutPageIxs, type Core, type Reader } from "../../lib/chain/settle-plan";
-import { carPda, closeRailcarCarIx, decodeCarAccount, finalizeIx, revealRideIx } from "./chain";
+import { carPda, closeRailcarCarIx, decodeCarAccount, finalizeIx, revealRideIx, type TableView } from "./chain";
 import { assertStepIxs, type FinishStep } from "./finish-steps";
 
 export type { FinishStep } from "./finish-steps";
@@ -132,3 +132,60 @@ export async function finishRide(d: RideFinishDeps): Promise<FinishResult> {
     }
   }
 }
+
+/** A car this page sent core's refund for, kept until its Table has passed it over. */
+export interface PendingSkip {
+  carNo: bigint;
+  table: number;
+  match: PublicKey;
+}
+
+/**
+ * What the page does for a pending car, on its own, apart from the sponsored finisher (which may fail or resume on a later
+ * poll): `skip` while the Table still waits for the car and core's refund receipt exists (`skip_car`, by the page key: it is
+ * permissionless); `done` once the Table has moved past it (by this page, another, or the keeper); `wait` otherwise. The
+ * receipt is read only while the Table waits for the car. The Car's own close is the keeper's (`SWEEP_ONLY_STEPS`): no seat
+ * key can vouch for `close_car`.
+ */
+export async function pendingSkipStep(t: TableView | null, pending: PendingSkip, receipt: () => Promise<boolean>): Promise<"skip" | "done" | "wait"> {
+  if (!t) return "wait";
+  if (t.nextCar > pending.carNo) return "done";
+  const waiting = t.nextCar === pending.carNo && (t.phase === "idle" || t.carNo !== pending.carNo);
+  return waiting && (await receipt()) ? "skip" : "wait";
+}
+
+export interface PendingSkipDeps {
+  /** The cars this page sent core's refund for, by car number; a car leaves once its Table has moved past it. */
+  pending: Map<string, PendingSkip>;
+  table(index: number): Promise<TableView | null>;
+  receipt(match: PublicKey): Promise<boolean>;
+  /** `skip_car` by the page key. */
+  skip(p: PendingSkip): Promise<unknown>;
+  /** The page's step retry: a car whose read or skip failed waits its backoff; a `wait` is neither a success nor a failure. */
+  retry: { ready(key: string, nowMs: number): boolean; succeeded(key: string, nowMs: number): void; failed(key: string, error: unknown, nowMs: number): void };
+  now(): number;
+}
+
+/** One polling round over the pending cars (`PENDING_SKIP_POLL_MS`); returns each car's step. */
+export async function checkPendingSkips(d: PendingSkipDeps): Promise<Record<string, "skip" | "done" | "wait">> {
+  const out: Record<string, "skip" | "done" | "wait"> = {};
+  for (const [no, p] of [...d.pending]) {
+    const key = `skip:${no}`;
+    if (!d.retry.ready(key, d.now())) continue;
+    try {
+      const step = await pendingSkipStep(await d.table(p.table), p, () => d.receipt(p.match));
+      out[no] = step;
+      if (step === "done") d.pending.delete(no);
+      if (step === "skip") {
+        await d.skip(p);
+        d.retry.succeeded(key, d.now());
+      }
+    } catch (e) {
+      d.retry.failed(key, e, d.now());
+    }
+  }
+  return out;
+}
+
+/** How often a page looks at the cars it has a skip pending for. */
+export const PENDING_SKIP_POLL_MS = 5_000;

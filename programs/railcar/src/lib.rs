@@ -99,7 +99,7 @@ pub enum RailcarError {
     AlreadyJumped,
     #[msg("The instruction names another car")]
     StaleBinding,
-    #[msg("Core has not frozen the Table's previous car yet")]
+    #[msg("Core has not frozen the Table's previous car yet, and this car left before that car's deadline")]
     PreviousNotFrozen,
     #[msg("Not the car's Table, or the Table has no result for it")]
     BadTable,
@@ -119,6 +119,8 @@ pub enum RailcarError {
     NotRevealed,
     #[msg("The ride is already revealed")]
     AlreadyRevealed,
+    #[msg("The car's absolute deadline has passed: core can only refund it")]
+    CarPastDeadline,
 }
 
 fn ride_err(e: ride::RideError) -> Error {
@@ -891,12 +893,16 @@ pub mod railcar {
 
     /// Rollup, anyone. Puts the Table's next car on it once that car has left: copies its seated
     /// Players from every seat page (remaining accounts) and asks for the draw. A Table whose
-    /// last ride is over is reset first, once core has frozen that car (its receipt).
+    /// last ride is over is reset first, once core has frozen that car (its receipt) or once this
+    /// car departed at or after that car's absolute deadline, from which core refuses to settle
+    /// it (`Table::deadline_abs`; a legacy Table without it waits `TABLE_REUSE_AFTER_SECS` from
+    /// the ride's end instead). A car past its own deadline never rides: core can only refund it.
     pub fn start_ride(ctx: Context<StartRide>) -> Result<()> {
-        let slot = Clock::get()?.slot;
+        let clock = Clock::get()?;
+        let slot = clock.slot;
         let car = &ctx.accounts.car;
         let match_key = car.tesoro_match;
-        let (pages, seated, entry) = {
+        let (pages, seated, entry, departed_at, deadline_abs) = {
             let m = ctx.accounts.match_state.load()?;
             require!(
                 m.inner.game == ID.to_bytes()
@@ -904,17 +910,38 @@ pub mod railcar {
                     && m.inner.departed_at() != 0,
                 RailcarError::NotDeparted
             );
-            (m.inner.pages, m.inner.seated, m.inner.entry())
+            (
+                m.inner.pages,
+                m.inner.seated,
+                m.inner.entry(),
+                m.inner.departed_at(),
+                m.inner.deadline_abs(),
+            )
         };
+        require!(
+            clock.unix_timestamp < deadline_abs,
+            RailcarError::CarPastDeadline
+        );
         let ix = {
             let mut t = ctx.accounts.table.load_mut()?;
             require!(t.vault_ready == 1, RailcarError::VaultMissing);
             if t.phase == PHASE_OVER {
                 let previous = Pubkey::new_from_array(t.tesoro_match);
-                require!(
-                    receipt_at(&ctx.accounts.previous_receipt, &previous).is_some(),
-                    RailcarError::PreviousNotFrozen
-                );
+                let frozen = receipt_at(&ctx.accounts.previous_receipt, &previous).is_some();
+                let past_settling = if t.deadline_abs() != 0 {
+                    departed_at >= t.deadline_abs()
+                } else {
+                    // A Table whose last ride started before `deadline_abs` was recorded: devnet
+                    // only (Tables 0 and 1; a mainnet Table writes it at its first car). Safe
+                    // there because the drain check before this upgrade showed both previous cars
+                    // settled, with their receipts; only for those two Tables does this compare
+                    // base time (`departed_at`) with rollup time (`over_at`).
+                    t.over_at() > 0
+                        && t.over_at()
+                            .checked_add(TABLE_REUSE_AFTER_SECS)
+                            .is_some_and(|at| departed_at >= at)
+                };
+                require!(frozen || past_settling, RailcarError::PreviousNotFrozen);
                 t.reset();
             }
             require!(t.phase == PHASE_IDLE, RailcarError::WrongPhase);
@@ -937,6 +964,7 @@ pub mod railcar {
             t.tesoro_match = match_key.to_bytes();
             t.rules = RULES_CURRENT;
             t.set_entry(entry);
+            t.set_deadline_abs(deadline_abs);
             t.seated = seated;
             t.aboard = seated;
             t.phase = PHASE_DRAWING;
@@ -1725,7 +1753,7 @@ pub struct StartRide<'info> {
     #[account(address = car.tesoro_match @ RailcarError::WrongCar)]
     pub match_state: AccountLoader<'info, ManySeatMatch>,
     /// CHECK: core's receipt of the Table's previous car (when the Table is over), read by
-    /// `receipt_at`.
+    /// `receipt_at`; may be gone once that car is past settling.
     pub previous_receipt: UncheckedAccount<'info>,
     /// CHECK: validated by the VRF program
     #[account(mut, address = ephemeral_rollups_sdk::vrf::consts::DEFAULT_EPHEMERAL_QUEUE)]

@@ -958,7 +958,12 @@ impl Env {
     /// The app's choice: board the car that is boarding, or open the next one.
     fn queue(&mut self, p: &Person) -> Result<Car, Failed> {
         let config = self.config();
-        if config.next_car > 0 {
+        // The last car's account is gone once `finalize` closed it: nothing boards, open the next.
+        let last_car_exists = self
+            .svm
+            .get_account(&s(railcar::car_address(config.next_car.wrapping_sub(1))))
+            .is_some();
+        if config.next_car > 0 && last_car_exists {
             let car = self.car_at(config.next_car - 1);
             let open = self
                 .svm
@@ -2039,10 +2044,14 @@ fn a_hundred_players_ride_one_car_and_the_hundred_and_first_boards_the_next() {
 
 /// Five more riders board the next car through the Queue and it leaves.
 fn next_departed(env: &mut Env) -> Car {
-    let (car, _) = boarded(env, 5);
+    next_departed_with_riders(env).0
+}
+
+fn next_departed_with_riders(env: &mut Env) -> (Car, Vec<Person>) {
+    let (car, riders) = boarded(env, 5);
     env.set_time(env.now + COUNTDOWN_SECS);
     env.check(&car).expect("depart");
-    car
+    (car, riders)
 }
 
 #[test]
@@ -2070,6 +2079,189 @@ fn a_table_takes_its_next_car_only_after_core_froze_the_last_one() {
         (t.car_no(), t.phase, t.seated, t.jumps),
         (2, PHASE_DRAWING, 5, 0)
     );
+    env.start_ride(&car1).expect("Table 1 takes car 1");
+}
+
+/// Legacy Tables (no `deadline_abs` recorded) reuse themselves without a receipt once the next car
+/// departed this long after the ride ended: core keeps a receipt 14 days (`RECEIPT_KEEP_SECS`),
+/// less an hour.
+const TABLE_REUSE_SECS: i64 = 14 * 86_400 - 3_600;
+const DAY: i64 = 86_400;
+
+/// Car 0's ride over with one Jump, nobody finalizing it: no receipt, its Match still Departed.
+fn over_unsettled() -> (Env, Car, Vec<Person>) {
+    let draw = draw_where(|r| r.crash_ms >= 30_000);
+    let (mut env, car0, riders) = riding(draw);
+    env.at_ride(car0.table, 12.0);
+    env.jump(car0.table, &riders[ANA]).expect("jump");
+    end_by_signal(&mut env, &car0);
+    (env, car0, riders)
+}
+
+fn deadline_of(env: &Env, car: &Car) -> i64 {
+    env.core_car(car).inner.deadline_abs()
+}
+
+#[test]
+fn a_table_whose_receipt_core_reclaimed_takes_its_next_car() {
+    let (mut env, car0, _) = over_unsettled();
+    env.settle(&car0);
+    assert_eq!(env.stage(&car0), ManyStage::Paid);
+    assert_eq!(
+        env.table(car0.table).deadline_abs(),
+        deadline_of(&env, &car0),
+        "the Table keeps its car's core deadline"
+    );
+    let err = env.close_receipt(&car0).unwrap_err();
+    assert_eq!(
+        code(&err),
+        u32::from(tesoro_core::error::MatchError::ReceiptTooNew)
+    );
+    env.set_time(env.now + 14 * DAY + 1);
+    env.close_receipt(&car0).expect("core reclaims the receipt");
+    assert!(env.svm.get_account(&s(receipt(car0.tesoro))).is_none());
+    // the Table sits over with no receipt to show; its next car boards and leaves, a week past
+    // car 0's deadline
+    let car1 = next_departed(&mut env);
+    let (car2, riders2) = next_departed_with_riders(&mut env);
+    assert_eq!(car2.table, car0.table);
+    env.start_ride(&car2)
+        .expect("Table 0 takes car 2: car 0 is past settling");
+    let t = env.table(car2.table);
+    assert_eq!(
+        (t.car_no(), t.phase, t.seated, t.jumps, t.over_at()),
+        (2, PHASE_DRAWING, 5, 0, 0)
+    );
+    assert_eq!(t.deadline_abs(), deadline_of(&env, &car2));
+    env.callback(car2.table, draw_where(|r| r.crash_ms >= 30_000))
+        .expect("draw");
+    env.at_ride(car2.table, 12.0);
+    env.jump(car2.table, &riders2[0]).expect("jump");
+    end_by_signal(&mut env, &car2);
+    env.settle(&car2);
+    assert_eq!(env.stage(&car2), ManyStage::Paid);
+    env.start_ride(&car1).expect("Table 1 takes car 1");
+}
+
+#[test]
+fn a_table_with_no_receipt_waits_for_a_car_that_left_past_its_last_cars_deadline() {
+    let (mut env, car0, riders) = over_unsettled();
+    let d0 = deadline_of(&env, &car0);
+    // cars 1 and 2 leave two days before car 0's deadline
+    env.set_time(d0 - 2 * DAY);
+    let car1 = next_departed(&mut env);
+    let (car2, riders2) = next_departed_with_riders(&mut env);
+    assert_eq!(
+        (car1.table, car2.table),
+        (railcar::table_address(1), car0.table)
+    );
+    let err = env.start_ride(&car2).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::PreviousNotFrozen));
+    // the rollup clock running five days ahead of base changes nothing: car 2 left (base time)
+    // before car 0's deadline, and that is what counts
+    let d2 = deadline_of(&env, &car2);
+    env.set_time(d2 - 60);
+    let err = env.start_ride(&car2).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::PreviousNotFrozen));
+    // car 2 itself past its deadline: core will only refund it, so it never rides
+    env.set_time(d2);
+    let err = env.start_ride(&car2).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::CarPastDeadline));
+    for (car, people) in [(&car2, &riders2), (&car0, &riders)] {
+        let before: Vec<u64> = people.iter().map(|p| env.gemas(p)).collect();
+        env.refund_car(car).expect("core's anyone-refund");
+        env.run_car(car);
+        let after: Vec<u64> = people.iter().map(|p| env.gemas(p)).collect();
+        assert_eq!(
+            after,
+            before.iter().map(|g| g + 100).collect::<Vec<_>>(),
+            "the 100-Gema entry back"
+        );
+    }
+    // car 1 left with car 2 and is as old: its Table is free, and still it never rides
+    let err = env.start_ride(&car1).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::CarPastDeadline));
+}
+
+#[test]
+fn a_legacy_table_frees_on_the_cars_departure_time_not_on_the_rollup_clock() {
+    let (mut env, car0, _) = over_unsettled();
+    let d0 = deadline_of(&env, &car0);
+    let over_at = env.table(car0.table).over_at();
+    // a Table from before the deadline was recorded
+    env.patch_table(car0.table, |t| t.set_deadline_abs(0));
+    env.set_time(d0 + DAY / 2);
+    let car1 = next_departed(&mut env);
+    let car2 = next_departed(&mut env);
+    // the rollup clock far ahead (two weeks past the ride) frees nothing by itself: car 2 left
+    // seven and a half days after the ride, short of the two weeks the legacy rule asks
+    env.set_time(over_at + TABLE_REUSE_SECS + 1);
+    let err = env.start_ride(&car2).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::PreviousNotFrozen));
+    // with car 0's deadline known, car 2's departure after it is proof enough
+    env.patch_table(car0.table, |t| t.set_deadline_abs(d0));
+    env.start_ride(&car2)
+        .expect("Table 0 takes car 2 once car 0's deadline is known");
+    env.start_ride(&car1).expect("Table 1 takes car 1");
+}
+
+#[test]
+fn a_legacy_table_frees_two_weeks_after_its_ride_by_the_next_cars_departure() {
+    let (mut env, car0, _) = over_unsettled();
+    let over_at = env.table(car0.table).over_at();
+    env.patch_table(car0.table, |t| t.set_deadline_abs(0));
+    env.set_time(over_at + TABLE_REUSE_SECS - 2 * COUNTDOWN_SECS - 1);
+    let car1 = next_departed(&mut env);
+    let car2 = next_departed(&mut env);
+    assert_eq!(env.now, over_at + TABLE_REUSE_SECS - 1);
+    let err = env.start_ride(&car2).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::PreviousNotFrozen));
+    // a Table that never recorded when its ride ended shows no age either
+    env.patch_table(car0.table, |t| t.set_over_at(0));
+    env.set_time(over_at + 20 * DAY);
+    let err = env.start_ride(&car2).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::PreviousNotFrozen));
+    env.patch_table(car0.table, |t| t.set_over_at(over_at));
+    // car 2 left a second too early: core refunds it a day after it left; car 3 (Table 1) and
+    // car 4 (Table 0) leave in time
+    env.set_time(over_at + TABLE_REUSE_SECS + DAY);
+    env.refund_car(&car2)
+        .expect("core refunds the car that left too early");
+    env.run_car(&car2);
+    env.start_ride(&car1).expect("Table 1 takes car 1");
+    env.skip_car(&car2).expect("Table 0 passes car 2 over");
+    let _car3 = next_departed(&mut env);
+    let car4 = next_departed(&mut env);
+    assert_eq!(car4.table, car0.table);
+    env.start_ride(&car4)
+        .expect("Table 0 takes car 4, which left two weeks after the ride");
+}
+
+#[test]
+fn a_refund_receipt_from_before_the_rides_end_does_not_hold_the_table_once_reclaimed() {
+    let draw = draw_where(|r| r.crash_ms >= 30_000);
+    let (mut env, car0, riders) = riding(draw);
+    let d0 = deadline_of(&env, &car0);
+    // the ride stalls on the rollup; a day after departure core refunds the car
+    let departed = env.core_car(&car0).inner.departed_at();
+    env.set_time(departed + DAY);
+    let before: Vec<u64> = riders.iter().map(|p| env.gemas(p)).collect();
+    env.refund_car(&car0).expect("core's anyone-refund");
+    env.run_car(&car0);
+    let after: Vec<u64> = riders.iter().map(|p| env.gemas(p)).collect();
+    assert_eq!(after, before.iter().map(|g| g + 100).collect::<Vec<_>>());
+    // two weeks later a late signal ends the ride on the Table; the day after, the receipt goes
+    env.set_time(departed + 14 * DAY);
+    env.signal(car0.table).expect("late signal");
+    assert_eq!(env.table(car0.table).phase, PHASE_OVER);
+    env.set_time(departed + 15 * DAY + 1);
+    env.close_receipt(&car0)
+        .expect("core reclaims the refund receipt");
+    assert!(env.now > d0);
+    let car1 = next_departed(&mut env);
+    let car2 = next_departed(&mut env);
+    env.start_ride(&car2)
+        .expect("Table 0 takes car 2: car 0 is past settling, whenever its ride ended");
     env.start_ride(&car1).expect("Table 1 takes car 1");
 }
 
@@ -2997,6 +3189,42 @@ impl Env {
                 match_state: car.tesoro,
             },
             railcar::instruction::CloseCar {},
+            vec![],
+        );
+        let payer = self.oracle.insecure_clone();
+        self.send(&[i], &payer, &[])
+    }
+
+    /// Core's `close_receipt`: the receipt's rent back to its payer, 14 days after settlement.
+    fn close_receipt(&mut self, car: &Car) -> Result<(), Failed> {
+        let r: SettlementReceipt = self.load(receipt(car.tesoro));
+        let i = ix(
+            tesoro_core::ID,
+            tesoro_core::accounts::CloseReceipt {
+                caller: a(self.oracle.pubkey()),
+                receipt: receipt(car.tesoro),
+                payer: r.payer,
+            },
+            tesoro_core::instruction::CloseReceipt {},
+            vec![],
+        );
+        let payer = self.oracle.insecure_clone();
+        self.send(&[i], &payer, &[])
+    }
+
+    /// `skip_car`: the Table passes over a car core refunded or closed before it rode.
+    fn skip_car(&mut self, car: &Car) -> Result<(), Failed> {
+        let i = ix(
+            railcar::ID,
+            railcar::accounts::SkipCar {
+                caller: a(self.oracle.pubkey()),
+                table: car.table,
+                config: config_addr(),
+                car: car.key,
+                match_state: car.tesoro,
+                receipt: receipt(car.tesoro),
+            },
+            railcar::instruction::SkipCar {},
             vec![],
         );
         let payer = self.oracle.insecure_clone();

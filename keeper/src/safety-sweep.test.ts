@@ -100,6 +100,25 @@ function fake(heads: Head[], opts: { committed?: Set<string>; failing?: Set<stri
 }
 const run = (deps: SweepDeps, store: ReturnType<typeof memorySweepStore>, now: number, dryRun = false) => safetySweep(deps, store, { now, dryRun });
 
+describe("the Railcar Tables' own pass", () => {
+  it("runs once a sweep after the Matches, not on a dry run, and its failure stops nothing else", async () => {
+    const { deps } = fake([]);
+    const calls: number[] = [];
+    deps.tables = async () => {
+      calls.push(1);
+      throw new Error("rollup down");
+    };
+    const store = memorySweepStore();
+    await run(deps, store, T0, true);
+    assert.deepEqual(calls, []);
+    const r = await run(deps, store, T0);
+    assert.deepEqual(calls, [1]);
+    assert.deepEqual(r.alerts, []);
+    await run(deps, store, T0 + 300);
+    assert.deepEqual(calls, [1, 1]);
+  });
+});
+
 describe("the safety sweep: a Match whose result is committed", () => {
   it("waits out the grace after first seeing the commit, then finalizes and finishes it", async () => {
     const h = head(1);

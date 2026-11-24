@@ -51,7 +51,7 @@ import { Sponsor, sponsoredInstructions, type ChainReads } from "../../server/sp
 import { DEFAULT_LIMITS } from "../../server/sponsor/policy";
 import { MemoryUsageStore } from "../../server/sponsor/store";
 import { assertSeatMay } from "../../lib/seat/seat-scope";
-import { rideSweepStep, type SweepEnv } from "./sweep";
+import { reconcileTables, rideSweepStep, type SweepEnv } from "./sweep";
 import bs58 from "bs58";
 import {
   RAILCAR_PROGRAM_ID,
@@ -68,6 +68,7 @@ import {
   openCarIx,
   railcarIx,
   signalIx,
+  skipCarIx,
   startRideIx,
   tablePda,
   vaultPda,
@@ -82,9 +83,12 @@ import { decodeMatchRecords, type InnerInstruction } from "../../server/history/
 import { ingestMatchRecords } from "../../server/history/ingest";
 import { accountHistory, matchPage } from "../../server/history/reads";
 import { testDb } from "../../server/history/test-db";
-import { queueChoice } from "./flow";
+import { nextRideStep, queueChoice } from "./flow";
+import { readSnapshot } from "./useRailcar";
+import { settledPda } from "../../lib/chain/basket";
 import { railcarView } from "./view";
-import { finishRide } from "./finish";
+import { finishRide, pendingSkipStep } from "./finish";
+import type { FinishStep } from "./finish-steps";
 import { backerSeatedIn, boardingEntry, type BoardingBacking } from "./boarding";
 import { stepOffFor } from "./step-off";
 import { awayItemIx, readOwnBoardingSeats, stepsThatFit } from "../../lib/chain/away-flow";
@@ -792,8 +796,11 @@ async function rideToImpact(n: number, draw: Uint8Array, jumps: [number, number]
 
   // The ride: a page starts it, the VRF answers, Players Jump, a signal at Impact ends it.
   const loaded = (await loadCar(w.reader(), match))!;
-  w.rollup([cu(1_400_000), startRideIx(w.pageKey.publicKey, { carNo, table: carAcct.table, tesoroMatch: match }, loaded.car.pages, null)], w.pageKey, carAcct.table);
   const table = tablePda(carAcct.table);
+  // As the page sends it: the Table's previous car (its receipt frees the Table) when the Table is not idle.
+  const held = decodeTable(w.get(table)!.data);
+  const previous = held.phase !== "idle" && held.carNo !== carNo ? held.tesoroMatch : null;
+  w.rollup([cu(1_400_000), startRideIx(w.pageKey.publicKey, { carNo, table: carAcct.table, tesoroMatch: match }, loaded.car.pages, previous)], w.pageKey, carAcct.table);
   const reqNonce = Buffer.from(w.get(table)!.data).readBigUInt64LE(8 + 120);
   const request = PublicKey.findProgramAddressSync([Buffer.from("vrfreq"), table.toBuffer(), u64(reqNonce)], RAILCAR_PROGRAM_ID)[0];
   const identity = PublicKey.findProgramAddressSync([Buffer.from("identity"), RAILCAR_PROGRAM_ID.toBuffer()], VRF)[0];
@@ -1326,6 +1333,179 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     expect(c.w.info(carPda(c.carNo))).toBeNull();
     // Every entry home in full: a refund charges no fee.
     expect(c.riders.map((p, i) => c.w.gemas(p, c.id) - c.before[i])).toEqual(Array(5).fill(100n));
+  });
+
+  it("a Table that moved on: car 2 takes Table 0 once car 0 is past settling, and the sweep still finds car 0, refunds it, closes it and its Car, and the opener's rent comes back", { timeout: 300_000 }, async () => {
+    const draw = drawWhere((x) => x.crashMs >= 30_000);
+    // car 0: over on the rollup, nobody finalizes it (no receipt)
+    const c0 = await rideToImpact(5, draw, WORKED);
+    const w = c0.w;
+    const d0 = (await loadCar(w.reader(), c0.match))!.car.deadlineAbs;
+    w.setTime(d0);
+    const fresh = () => Array.from({ length: 5 }, () => w.rider());
+    const c1 = await rideToImpact(5, draw, WORKED, { again: { world: w, riders: fresh() } });
+    expect([c1.carNo, c1.carAcct.table]).toEqual([1n, 1]);
+    // car 2 left at car 0's deadline: start_ride resets Table 0 without car 0's receipt
+    const c2 = await rideToImpact(5, draw, WORKED, { again: { world: w, riders: fresh() } });
+    expect([c2.carNo, c2.carAcct.table]).toEqual([2n, c0.carAcct.table]);
+    expect(decodeTable(w.get(tablePda(c0.carAcct.table))!.data).carNo).toBe(2n);
+    // the sweep for car 0's Match: its Table shows car 2, so the Car is found among the last cars opened
+    const keeper = Keypair.generate();
+    w.svm.airdrop(keeper.publicKey, 100n * SOL);
+    const payer = c0.carAcct.payer;
+    const carRent = w.get(carPda(0n))!.lamports;
+    const payerBefore = w.get(payer)!.lamports;
+    const steps = await sweepUntilGone(w, c0.match, c0.carAcct.table, keeper);
+    expect(steps[0]).toBe("refund");
+    expect(steps).toContain("close-ride");
+    expect(w.info(c0.match)).toBeNull();
+    expect(w.info(carPda(0n))).toBeNull();
+    // the opener paid the Car's rent (and core's: the Match, its page and Pots, back to the same key as the sweep closes them)
+    expect(w.get(payer)!.lamports - payerBefore).toBeGreaterThanOrEqual(carRent);
+    expect(c0.riders.map((p, i) => w.gemas(p, c0.id) - c0.before[i])).toEqual(Array(5).fill(100n));
+  });
+
+  /** Five fresh riders board the next car and it leaves; nobody starts its ride. */
+  async function departedUnridden(w: World): Promise<{ carNo: bigint; match: PublicKey; table: number; riders: Person[]; before: bigint[] }> {
+    const riders = Array.from({ length: 5 }, () => w.rider());
+    w.phase = "boarding";
+    for (const p of riders) await w.board(p);
+    const carNo = decodeConfig(w.info(configPda())!.data).nextCar - 1n;
+    const carAcct = decodeCarAccount(w.info(carPda(carNo))!.data);
+    const id = (await loadCar(w.reader(), carAcct.tesoroMatch))!.car;
+    const before = riders.map((p) => w.gemas(p, id));
+    w.setTime(w.now + 30);
+    w.send([checkDepartureIx(carNo, carAcct.tesoroMatch)], w.relayer);
+    expect((await loadCar(w.reader(), carAcct.tesoroMatch))!.car.stage).toBe("departed");
+    return { carNo, match: carAcct.tesoroMatch, table: carAcct.table, riders, before };
+  }
+
+  /** Cars 0 and 1 ridden and paid (both Tables over with receipts); car 2 left for Table 0 and never rode, and its refund time came. */
+  async function carTwoWaitingUnridden() {
+    const draw = drawWhere((x) => x.crashMs >= 30_000);
+    const c0 = await rideCar(5, draw, WORKED);
+    const w = c0.world;
+    await rideCar(5, draw, WORKED, { again: { world: w, riders: Array.from({ length: 5 }, () => w.rider()) } });
+    const c2 = await departedUnridden(w);
+    expect([c2.carNo, c2.table]).toEqual([2n, 0]);
+    w.setTime((await loadCar(w.reader(), c2.match))!.car.refundAfter);
+    return { w, c2, draw };
+  }
+
+  /** The page's read of its remembered car (`readSnapshot`), the rollup Table from its feed. */
+  const pageSnapshot = (w: World, me: Person, car: { carNo: bigint; match: PublicKey; table: number }) =>
+    readSnapshot(w.reader(), async () => null, me.account, { carNo: car.carNo.toString(), table: car.table, match: car.match.toBase58(), matchKey: "" }, null, { fed: (i) => decodeTable(w.get(tablePda(i))!.data) });
+
+  /**
+   * The finisher as the page sends it: through the sponsor, vouched for by the rider's seat key (`assertSeatMay` on every
+   * step); `failing` makes the first send of that step throw (the page's `run` then fails and the next poll resumes).
+   */
+  const pageFinish = (w: World, sponsor: Sponsor, me: Person, car: { carNo: bigint; match: PublicKey }, failing?: FinishStep) => {
+    const core = new Program(coreIdl as Idl, { connection: {} } as unknown as AnchorProvider);
+    let failed = false;
+    return finishRide({
+      read: w.reader(),
+      core,
+      caller: w.relayer.publicKey,
+      carNo: car.carNo,
+      match: car.match,
+      committed: async () => false,
+      fits: (ix) => fits(w.relayer.publicKey, [cu(1_400_000), ix]),
+      mine: me.account,
+      simulate: async (ix) => w.simulate([cu(1_400_000), ix], w.relayer.publicKey),
+      send: async (ixs, step) => {
+        if (step === failing && !failed) {
+          failed = true;
+          throw new Error(`${step}: the sponsor is busy`);
+        }
+        await pageSend(w, sponsor, me, car.match, ixs);
+      },
+      now: w.now,
+    });
+  };
+
+  /** The page's own step for the car it sent the refund for (`pendingSkipStep`), sent with the page key. */
+  const pagePendingSkip = async (w: World, pending: { carNo: bigint; match: PublicKey; table: number }) => {
+    const step = await pendingSkipStep(decodeTable(w.get(tablePda(pending.table))!.data), pending, async () => !!w.info(settledPda(pending.match)));
+    if (step === "skip") w.rollup([cu(200_000), skipCarIx(w.pageKey.publicKey, pending.table, pending.carNo, pending.match)], w.pageKey, pending.table);
+    return step;
+  };
+
+  /** The keeper's Tables pass on this LiteSVM, its key paying. */
+  const tablesPass = (w: World, keeper: Keypair, sent: string[]) =>
+    reconcileTables({
+      base: w.reader(),
+      rollup: w.reader(),
+      caller: keeper.publicKey,
+      send: async (s) => {
+        sent.push(s.what.split(" ")[0]);
+        const ixs = [cu(s.units), ...s.ixs];
+        if (s.layer === "rollup") w.rollup(ixs, keeper, Number(BigInt(s.what.split(" ")[1]) % 2n));
+        else w.send(ixs, keeper);
+      },
+    });
+
+  it("a page refunds car 2 before it rode: the refund lands, the next sponsored chunk fails, the page resumes at settle and forgets the car, and still passes it over on its own; the keeper closes its Car; car 4 starts on that Table", { timeout: 300_000 }, async () => {
+    const { w, c2, draw } = await carTwoWaitingUnridden();
+    const sponsor = sponsorOn(w);
+    const me = c2.riders[3];
+    const step = async () => {
+      const snap = await pageSnapshot(w, me, c2);
+      return { snap, step: snap.car && snap.loaded ? nextRideStep({ mine: { carNo: snap.car.carNo, table: snap.car.table }, core: snap.loaded.car, rollup: snap.rollup, base: snap.base, previousReceipt: snap.previousReceipt, now: w.now }) : null };
+    };
+    // poll 1: refund; the page remembers the pending car; the finisher's refund lands and its first chunk fails
+    const first = await step();
+    expect([first.snap.mine, first.step]).toEqual([true, { kind: "refund" }]);
+    const pending = { carNo: c2.carNo, table: c2.table, match: c2.match };
+    await expect(pageFinish(w, sponsor, me, c2, "chunk")).rejects.toThrow("the sponsor is busy");
+    expect(!!w.info(settledPda(c2.match))).toBe(true);
+    // the pending skip goes on its own, before the finisher resumes
+    expect(await pagePendingSkip(w, pending)).toBe("skip");
+    expect(decodeTable(w.get(tablePda(0))!.data).nextCar).toBe(4n);
+    // poll 2: core is refunding: the page resumes at settle and finishes (chunks, closes) through the sponsor
+    const second = await step();
+    expect(second.step).toEqual({ kind: "settle" });
+    const r = await pageFinish(w, sponsor, me, c2);
+    expect([r.done, r.sent.includes("refund"), r.sent.includes("close-ride")]).toEqual([true, false, false]);
+    expect(w.info(c2.match)).toBeNull();
+    expect(w.info(carPda(2n))).not.toBeNull();
+    expect(c2.riders.map((p, i) => w.gemas(p) - c2.before[i])).toEqual(Array(5).fill(100n));
+    // poll 3: the page's read forgets the car (nothing to load, no seat); the pending car is done, the Table moved past it
+    const third = await step();
+    expect([third.snap.forgot, third.snap.loaded, third.snap.mine, third.step]).toEqual([true, null, false, null]);
+    expect(await pagePendingSkip(w, pending)).toBe("done");
+    // the Car's close is the keeper's (no seat key may vouch for it)
+    const keeper = Keypair.generate();
+    w.svm.airdrop(keeper.publicKey, 100n * SOL);
+    const sent: string[] = [];
+    expect(await tablesPass(w, keeper, sent)).toEqual({ closed: [2n], skipped: [], failed: [] });
+    expect(sent).toEqual(["close_car"]);
+    expect(w.info(carPda(2n))).toBeNull();
+    const fresh = () => Array.from({ length: 5 }, () => w.rider());
+    await rideToImpact(5, draw, WORKED, { again: { world: w, riders: fresh() } });
+    const c4 = await rideToImpact(5, draw, WORKED, { again: { world: w, riders: fresh() } });
+    expect([c4.carNo, c4.carAcct.table, decodeTable(w.get(tablePda(0))!.data).carNo]).toEqual([4n, 0, 4n]);
+  });
+
+  it("a page refunds and closes car 2 but never passes it over (it went away): the keeper's Tables pass closes its Car first, then skips it, and car 4 starts", { timeout: 300_000 }, async () => {
+    const { w, c2, draw } = await carTwoWaitingUnridden();
+    const r = await pageFinish(w, sponsorOn(w), c2.riders[0], c2);
+    expect([r.done, r.sent[0]]).toEqual([true, "refund"]);
+    expect(w.info(c2.match)).toBeNull();
+    expect(w.info(carPda(2n))).not.toBeNull();
+    expect(decodeTable(w.get(tablePda(0))!.data).nextCar).toBe(2n);
+    // no core Match is left to trigger the Match sweep: the Tables pass acts on its own
+    const keeper = Keypair.generate();
+    w.svm.airdrop(keeper.publicKey, 100n * SOL);
+    const sent: string[] = [];
+    expect(await tablesPass(w, keeper, sent)).toEqual({ closed: [2n], skipped: [2n], failed: [] });
+    expect(sent).toEqual(["close_car", "skip_car"]);
+    expect(w.info(carPda(2n))).toBeNull();
+    expect(decodeTable(w.get(tablePda(0))!.data).nextCar).toBe(4n);
+    const fresh = () => Array.from({ length: 5 }, () => w.rider());
+    await rideToImpact(5, draw, WORKED, { again: { world: w, riders: fresh() } });
+    const c4 = await rideToImpact(5, draw, WORKED, { again: { world: w, riders: fresh() } });
+    expect([c4.carNo, c4.carAcct.table]).toEqual([4n, 0]);
   });
 
   it("four boarded and the fifth never came: once core's boarding ends the sweep steps all four off home, closes the car and frees the Table", { timeout: 120_000 }, async () => {

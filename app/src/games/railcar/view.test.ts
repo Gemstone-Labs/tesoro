@@ -42,6 +42,7 @@ const table = (o: Partial<TableView> = {}): TableView => ({
   dirty: false,
   commitAt: 0,
   brakesBound: 5,
+  deadlineAbs: 0,
   paceSlot: 0n,
   paceTs: 0,
   revealed: false,
