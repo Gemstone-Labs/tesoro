@@ -2178,7 +2178,9 @@ fn a_table_with_no_receipt_waits_for_a_car_that_left_past_its_last_cars_deadline
             "the 100-Gema entry back"
         );
     }
-    env.start_ride(&car1).expect("Table 1 takes car 1");
+    // car 1 left with car 2 and is as old: its Table is free, and still it never rides
+    let err = env.start_ride(&car1).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::CarPastDeadline));
 }
 
 #[test]
