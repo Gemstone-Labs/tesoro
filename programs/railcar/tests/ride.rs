@@ -2039,10 +2039,14 @@ fn a_hundred_players_ride_one_car_and_the_hundred_and_first_boards_the_next() {
 
 /// Five more riders board the next car through the Queue and it leaves.
 fn next_departed(env: &mut Env) -> Car {
-    let (car, _) = boarded(env, 5);
+    next_departed_with_riders(env).0
+}
+
+fn next_departed_with_riders(env: &mut Env) -> (Car, Vec<Person>) {
+    let (car, riders) = boarded(env, 5);
     env.set_time(env.now + COUNTDOWN_SECS);
     env.check(&car).expect("depart");
-    car
+    (car, riders)
 }
 
 #[test]
@@ -2069,6 +2073,88 @@ fn a_table_takes_its_next_car_only_after_core_froze_the_last_one() {
     assert_eq!(
         (t.car_no(), t.phase, t.seated, t.jumps),
         (2, PHASE_DRAWING, 5, 0)
+    );
+    env.start_ride(&car1).expect("Table 1 takes car 1");
+}
+
+/// Core keeps a settlement receipt 14 days (`RECEIPT_KEEP_SECS`); a Table may reuse itself without
+/// one from an hour after that, measured from the end of its ride.
+const TABLE_REUSE_SECS: i64 = 14 * 86_400 + 3_600;
+
+#[test]
+fn a_table_whose_receipt_core_reclaimed_takes_its_next_car() {
+    let draw = draw_where(|r| r.crash_ms >= 30_000);
+    let (mut env, car0, riders) = riding(draw);
+    env.at_ride(car0.table, 12.0);
+    env.jump(car0.table, &riders[ANA]).expect("jump");
+    end_by_signal(&mut env, &car0);
+    env.settle(&car0);
+    assert_eq!(env.stage(&car0), ManyStage::Paid);
+    let over_at = env.table(car0.table).over_at();
+    let err = env.close_receipt(&car0).unwrap_err();
+    assert_eq!(
+        code(&err),
+        u32::from(tesoro_core::error::MatchError::ReceiptTooNew)
+    );
+    env.set_time(over_at + 14 * 86_400 + 1);
+    env.close_receipt(&car0).expect("core reclaims the receipt");
+    assert!(env.svm.get_account(&s(receipt(car0.tesoro))).is_none());
+    // the Table sits over with no receipt to show; its next car boards and leaves
+    let car1 = next_departed(&mut env);
+    let (car2, riders2) = next_departed_with_riders(&mut env);
+    assert_eq!(car2.table, car0.table);
+    env.start_ride(&car2)
+        .expect("Table 0 takes car 2 on its ride's age");
+    let t = env.table(car2.table);
+    assert_eq!(
+        (t.car_no(), t.phase, t.seated, t.jumps, t.over_at()),
+        (2, PHASE_DRAWING, 5, 0, 0)
+    );
+    env.callback(car2.table, draw).expect("draw");
+    env.at_ride(car2.table, 12.0);
+    env.jump(car2.table, &riders2[0]).expect("jump");
+    end_by_signal(&mut env, &car2);
+    env.settle(&car2);
+    assert_eq!(env.stage(&car2), ManyStage::Paid);
+    env.start_ride(&car1).expect("Table 1 takes car 1");
+}
+
+#[test]
+fn a_table_short_of_two_weeks_since_its_ride_still_waits_for_core() {
+    let draw = draw_where(|r| r.crash_ms >= 30_000);
+    let (mut env, car0, riders) = riding(draw);
+    env.at_ride(car0.table, 12.0);
+    env.jump(car0.table, &riders[ANA]).expect("jump");
+    end_by_signal(&mut env, &car0);
+    // nobody finalized car 0: no receipt, its Match still Departed
+    let over_at = env.table(car0.table).over_at();
+    env.set_time(over_at + TABLE_REUSE_SECS - 2 * COUNTDOWN_SECS - 1);
+    let car1 = next_departed(&mut env);
+    let car2 = next_departed(&mut env);
+    assert_eq!(
+        (car1.table, car2.table),
+        (railcar::table_address(1), car0.table)
+    );
+    assert_eq!(env.now, over_at + TABLE_REUSE_SECS - 1);
+    let err = env.start_ride(&car2).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::PreviousNotFrozen));
+    env.set_time(over_at + TABLE_REUSE_SECS);
+    // a Table that never recorded when its ride ended shows no age
+    env.patch_table(car0.table, |t| t.set_over_at(0));
+    let err = env.start_ride(&car2).unwrap_err();
+    assert_eq!(code(&err), rcode(railcar::RailcarError::PreviousNotFrozen));
+    env.patch_table(car0.table, |t| t.set_over_at(over_at));
+    env.start_ride(&car2)
+        .expect("Table 0 takes car 2 once its ride is two weeks old");
+    // core still refunds car 0 without the Table: every entry home
+    let before: Vec<u64> = riders.iter().map(|p| env.gemas(p)).collect();
+    env.refund_car(&car0).expect("core's anyone-refund");
+    env.run_car(&car0);
+    let after: Vec<u64> = riders.iter().map(|p| env.gemas(p)).collect();
+    assert_eq!(
+        after,
+        before.iter().map(|g| g + 100).collect::<Vec<_>>(),
+        "the 100-Gema entry back"
     );
     env.start_ride(&car1).expect("Table 1 takes car 1");
 }
@@ -2997,6 +3083,23 @@ impl Env {
                 match_state: car.tesoro,
             },
             railcar::instruction::CloseCar {},
+            vec![],
+        );
+        let payer = self.oracle.insecure_clone();
+        self.send(&[i], &payer, &[])
+    }
+
+    /// Core's `close_receipt`: the receipt's rent back to its payer, 14 days after settlement.
+    fn close_receipt(&mut self, car: &Car) -> Result<(), Failed> {
+        let r: SettlementReceipt = self.load(receipt(car.tesoro));
+        let i = ix(
+            tesoro_core::ID,
+            tesoro_core::accounts::CloseReceipt {
+                caller: a(self.oracle.pubkey()),
+                receipt: receipt(car.tesoro),
+                payer: r.payer,
+            },
+            tesoro_core::instruction::CloseReceipt {},
             vec![],
         );
         let payer = self.oracle.insecure_clone();
