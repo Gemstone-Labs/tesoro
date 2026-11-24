@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { CarView, SeatPageView, SeatView } from "../../lib/chain/many-seat";
 import type { TableView } from "./chain";
 import { NO_TELLS } from "./tell-state";
-import { boardingSteps, departureDue, mayFinish, nextRideStep, pageIntervalMs, queueChoice, signalIntervalMs, watchedRide } from "./flow";
+import { boardingSteps, departureDue, mayFinish, nextRideStep, pageIntervalMs, previousDone, queueChoice, signalIntervalMs, watchedRide } from "./flow";
 
 const key = () => Keypair.generate().publicKey;
 const T0 = 1_762_300_000;
@@ -131,31 +131,45 @@ describe("finishing a ride from the Players' pages", () => {
   const mine = { carNo: 3n, table: 1 };
 
   it("while boarding: send the departure when it is due", () => {
-    expect(nextRideStep({ mine, core: coreCar({ seated: 3 }), rollup: null, base: null, previousFrozen: false, now: T0 })).toEqual({ kind: "wait" });
-    expect(nextRideStep({ mine, core: coreCar({ seated: 6, firstMinAt: T0 }), rollup: null, base: null, previousFrozen: false, now: T0 + 30 })).toEqual({ kind: "depart" });
+    expect(nextRideStep({ mine, core: coreCar({ seated: 3 }), rollup: null, base: null, previousReceipt: false, now: T0 })).toEqual({ kind: "wait" });
+    expect(nextRideStep({ mine, core: coreCar({ seated: 6, firstMinAt: T0 }), rollup: null, base: null, previousReceipt: false, now: T0 + 30 })).toEqual({ kind: "depart" });
   });
 
   it("after departure: start the ride when the Table is free for this car", () => {
     const core = coreCar({ stage: "departed", seated: 5, pages: 1 });
-    expect(nextRideStep({ mine, core, rollup: table({ phase: "idle", carNo: 1n, nextCar: 3n }), base: null, previousFrozen: false, now: T0 }).kind).toBe("start-ride");
+    expect(nextRideStep({ mine, core, rollup: table({ phase: "idle", carNo: 1n, nextCar: 3n }), base: null, previousReceipt: false, now: T0 }).kind).toBe("start-ride");
     // The previous car on this Table is over but core has not frozen it: finalize it first.
-    expect(nextRideStep({ mine, core, rollup: table({ phase: "over", carNo: 1n, nextCar: 3n }), base: null, previousFrozen: false, now: T0 })).toEqual({ kind: "finalize-previous", carNo: 1n });
-    expect(nextRideStep({ mine, core, rollup: table({ phase: "over", carNo: 1n, nextCar: 3n }), base: null, previousFrozen: true, now: T0 }).kind).toBe("start-ride");
+    expect(nextRideStep({ mine, core, rollup: table({ phase: "over", carNo: 1n, nextCar: 3n }), base: null, previousReceipt: false, now: T0 })).toEqual({ kind: "finalize-previous", carNo: 1n });
+    expect(nextRideStep({ mine, core, rollup: table({ phase: "over", carNo: 1n, nextCar: 3n }), base: null, previousReceipt: true, now: T0 }).kind).toBe("start-ride");
     // The previous car still rides: wait.
-    expect(nextRideStep({ mine, core, rollup: table({ phase: "riding", carNo: 1n, nextCar: 3n }), base: null, previousFrozen: false, now: T0 }).kind).toBe("wait");
+    expect(nextRideStep({ mine, core, rollup: table({ phase: "riding", carNo: 1n, nextCar: 3n }), base: null, previousReceipt: false, now: T0 }).kind).toBe("wait");
+  });
+
+  it("after departure: a Table over for an hour short of two weeks starts the ride without the previous car's receipt (core may reclaim it from then)", () => {
+    const core = coreCar({ stage: "departed", seated: 5, pages: 1 });
+    const over = (overAt: number, now: number) => nextRideStep({ mine, core, rollup: table({ phase: "over", carNo: 1n, nextCar: 3n, overAt }), base: null, previousReceipt: false, now }).kind;
+    const reuse = 14 * 86_400 - 3_600;
+    expect(over(T0, T0 + reuse - 1)).toBe("finalize-previous");
+    expect(over(T0, T0 + reuse)).toBe("start-ride");
+    // a Table that never recorded its ride's end shows no age
+    expect(over(0, T0 + reuse)).toBe("finalize-previous");
+    expect(previousDone({ phase: "over", overAt: T0 }, false, T0 + reuse)).toBe(true);
+    expect(previousDone({ phase: "over", overAt: T0 }, false, T0 + reuse - 1)).toBe(false);
+    expect(previousDone({ phase: "over", overAt: T0 }, true, T0)).toBe(true);
+    expect(previousDone({ phase: "idle", overAt: 0 }, false, T0)).toBe(true);
   });
 
   it("during the ride: signal; once over and committed to base: finalize", () => {
     const core = coreCar({ stage: "departed", seated: 5, pages: 1 });
-    expect(nextRideStep({ mine, core, rollup: table({ phase: "drawing" }), base: null, previousFrozen: false, now: T0 }).kind).toBe("signal");
-    expect(nextRideStep({ mine, core, rollup: table({ phase: "riding" }), base: null, previousFrozen: false, now: T0 }).kind).toBe("signal");
-    expect(nextRideStep({ mine, core, rollup: table({ phase: "over", overAt: T0 - 200, commitAt: T0 - 200 }), base: table({ phase: "riding" }), previousFrozen: false, now: T0 }).kind).toBe("commit");
-    expect(nextRideStep({ mine, core, rollup: table({ phase: "over" }), base: table({ phase: "over" }), previousFrozen: false, now: T0 }).kind).toBe("finalize");
+    expect(nextRideStep({ mine, core, rollup: table({ phase: "drawing" }), base: null, previousReceipt: false, now: T0 }).kind).toBe("signal");
+    expect(nextRideStep({ mine, core, rollup: table({ phase: "riding" }), base: null, previousReceipt: false, now: T0 }).kind).toBe("signal");
+    expect(nextRideStep({ mine, core, rollup: table({ phase: "over", overAt: T0 - 200, commitAt: T0 - 200 }), base: table({ phase: "riding" }), previousReceipt: false, now: T0 }).kind).toBe("commit");
+    expect(nextRideStep({ mine, core, rollup: table({ phase: "over" }), base: table({ phase: "over" }), previousReceipt: false, now: T0 }).kind).toBe("finalize");
   });
 
   it("commit: sent when the result is owed, or as a repeat only after the program's wait and inside its window", () => {
     const core = coreCar({ stage: "departed", seated: 5, pages: 1 });
-    const step = (over: Partial<TableView>, now: number) => nextRideStep({ mine, core, rollup: table({ phase: "over", overAt: T0, commitAt: T0, ...over }), base: table({ phase: "riding" }), previousFrozen: false, now }).kind;
+    const step = (over: Partial<TableView>, now: number) => nextRideStep({ mine, core, rollup: table({ phase: "over", overAt: T0, commitAt: T0, ...over }), base: table({ phase: "riding" }), previousReceipt: false, now }).kind;
     // the ride just ended and was committed by the rollup itself: the base copy is only late
     expect(step({}, T0 + 1)).toBe("wait");
     expect(step({}, T0 + 119)).toBe("wait");
@@ -169,10 +183,10 @@ describe("finishing a ride from the Players' pages", () => {
   });
 
   it("after the result: the chunks, then the closes, then nothing", () => {
-    expect(nextRideStep({ mine, core: coreCar({ stage: "settling" }), rollup: null, base: null, previousFrozen: false, now: T0 }).kind).toBe("settle");
-    expect(nextRideStep({ mine, core: coreCar({ stage: "refunding" }), rollup: null, base: null, previousFrozen: false, now: T0 }).kind).toBe("settle");
-    expect(nextRideStep({ mine, core: coreCar({ stage: "paid" }), rollup: null, base: null, previousFrozen: false, now: T0 }).kind).toBe("close");
-    expect(nextRideStep({ mine, core: null, rollup: null, base: null, previousFrozen: false, now: T0 }).kind).toBe("done");
+    expect(nextRideStep({ mine, core: coreCar({ stage: "settling" }), rollup: null, base: null, previousReceipt: false, now: T0 }).kind).toBe("settle");
+    expect(nextRideStep({ mine, core: coreCar({ stage: "refunding" }), rollup: null, base: null, previousReceipt: false, now: T0 }).kind).toBe("settle");
+    expect(nextRideStep({ mine, core: coreCar({ stage: "paid" }), rollup: null, base: null, previousReceipt: false, now: T0 }).kind).toBe("close");
+    expect(nextRideStep({ mine, core: null, rollup: null, base: null, previousReceipt: false, now: T0 }).kind).toBe("done");
   });
 
   it("the Players the result pays send the finish; a Player aboard at Impact only watches", () => {

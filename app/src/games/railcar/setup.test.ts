@@ -1,7 +1,7 @@
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import { authorityPda } from "./chain";
-import { railcarSetupPlan, rentOf, setupProblems, withPending, type SetupFacts, type SetupInput } from "./setup";
+import { railcarSetupPlan, rentOf, setupCheck, setupProblems, withPending, type SetupFacts, type SetupInput } from "./setup";
 
 const key = () => Keypair.generate().publicKey;
 const deployer = key();
@@ -77,6 +77,12 @@ describe("Railcar's setup plan", () => {
   it("re-lists a build that changed since it was listed", () => {
     const steps = railcarSetupPlan(input, { ...everything, program: { ...everything.program!, slot: 520_000_000n, hash: Buffer.alloc(32, 8) } });
     expect(steps.filter((s) => s.status !== "done").map((s) => s.id)).toEqual(["list-game"]);
+  });
+
+  it("the release check fails after an upgrade that did not re-list the build (devnet, 2026-11-11 to 11-24: approved slot 519983000, deployed 525751957)", () => {
+    const upgraded = { ...everything, program: { ...everything.program!, slot: 525_751_957n, hash: Buffer.alloc(32, 9) } };
+    expect(setupCheck(railcarSetupPlan(input, upgraded))).toEqual({ ok: false, left: ["list-game"] });
+    expect(setupCheck(railcarSetupPlan(input, everything))).toEqual({ ok: true, left: [] });
   });
 
   it("refuses a Table count other than the one fixed when the first car opened", () => {

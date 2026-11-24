@@ -109,6 +109,21 @@ export const COMMIT_WINDOW_SECS = 24 * 60 * 60;
 export const commitDue = (t: Pick<TableView, "dirty" | "commitAt" | "overAt">, now: number): boolean =>
   t.dirty || (now >= t.commitAt + COMMIT_RETRY_SECS && now < t.overAt + COMMIT_WINDOW_SECS);
 
+/**
+ * Railcar's `TABLE_REUSE_AFTER_SECS`: core keeps a settlement receipt 14 days (`RECEIPT_KEEP_SECS`) from a settlement that
+ * comes after the ride's end, less core's one-hour Match margin, so the Table frees itself before anyone may reclaim the
+ * receipt. A Table over this long takes its next car without the previous car's receipt.
+ */
+export const TABLE_REUSE_AFTER_SECS = 14 * 86_400 - 3_600;
+
+/**
+ * Is the Table done with the car it holds, as `start_ride` judges it: idle, or over with core's receipt for that car, or over
+ * for `TABLE_REUSE_AFTER_SECS` (the receipt may be reclaimed by then, and core can no longer settle that car from the Table).
+ * A Table that never recorded its ride's end shows no age.
+ */
+export const previousDone = (t: Pick<TableView, "phase" | "overAt">, receipt: boolean, now: number): boolean =>
+  t.phase === "idle" || receipt || (t.overAt > 0 && now >= t.overAt + TABLE_REUSE_AFTER_SECS);
+
 export interface RideFacts {
   /** The Player's car: its number and its Table. */
   mine: { carNo: bigint; table: number };
@@ -118,8 +133,8 @@ export interface RideFacts {
   rollup: TableView | null;
   /** The Table's committed copy on base (null when unread). */
   base: TableView | null;
-  /** Core froze the car the Table holds now (its receipt exists). */
-  previousFrozen: boolean;
+  /** Core's receipt for the car the Table holds now exists (`previousDone` weighs it with the Table's age). */
+  previousReceipt: boolean;
   now: number;
 }
 
@@ -138,7 +153,7 @@ export function nextRideStep(f: RideFacts): RideStep {
   }
   if (t.nextCar !== f.mine.carNo) return { kind: "wait" };
   if (t.phase === "idle") return { kind: "start-ride" };
-  if (t.phase === "over") return f.previousFrozen ? { kind: "start-ride" } : { kind: "finalize-previous", carNo: t.carNo };
+  if (t.phase === "over") return previousDone(t, f.previousReceipt, f.now) ? { kind: "start-ride" } : { kind: "finalize-previous", carNo: t.carNo };
   return { kind: "wait" };
 }
 

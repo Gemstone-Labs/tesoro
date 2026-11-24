@@ -68,7 +68,8 @@ export interface CarRide {
   car: CarAccountView | null;
   rollup: TableView | null;
   base: TableView | null;
-  previousFrozen: boolean;
+  /** Core's receipt for the car the Table holds exists (false for an idle Table). */
+  previousReceipt: boolean;
 }
 
 const one = async (read: Reader, key: PublicKey) => (await read.many([key]))[0];
@@ -85,8 +86,8 @@ export async function findCarRide(base: Reader, rollup: Reader, match: PublicKey
   const [live, onBase] = await Promise.all([rollup.many(keys), base.many(keys)]);
   const tables = live.map((x) => (x ? decodeTable(x.data) : null));
   const bases = onBase.map((x) => (x ? decodeTable(x.data) : null));
-  const frozen = async (t: TableView | null) => !t || t.phase === "idle" || !!(await one(base, settledPda(t.tesoroMatch)));
-  const rideAt = async (carNo: bigint, i: number, car: CarAccountView | null): Promise<CarRide> => ({ carNo, table: i, car, rollup: tables[i], base: bases[i], previousFrozen: await frozen(tables[i]) });
+  const receiptOf = async (t: TableView | null) => !!t && t.phase !== "idle" && !!(await one(base, settledPda(t.tesoroMatch)));
+  const rideAt = async (carNo: bigint, i: number, car: CarAccountView | null): Promise<CarRide> => ({ carNo, table: i, car, rollup: tables[i], base: bases[i], previousReceipt: await receiptOf(tables[i]) });
   const carAt = async (carNo: bigint) => {
     const info = await one(base, carPda(carNo));
     return info ? decodeCarAccount(info.data) : null;
@@ -159,7 +160,7 @@ export async function rideSweepStep(e: SweepEnv): Promise<SweepResult> {
     if (away.length) return { sent };
   }
   const ride = await findCarRide(e.base, e.rollup, e.match);
-  const page = ride ? nextRideStep({ mine: { carNo: ride.carNo, table: ride.table }, core, rollup: ride.rollup, base: ride.base, previousFrozen: ride.previousFrozen, now: e.now }) : ({ kind: "wait" } as const);
+  const page = ride ? nextRideStep({ mine: { carNo: ride.carNo, table: ride.table }, core, rollup: ride.rollup, base: ride.base, previousReceipt: ride.previousReceipt, now: e.now }) : ({ kind: "wait" } as const);
   const action = sweepRideAction(page, { core, rollup: ride?.rollup ?? null, now: e.now });
   if ("wait" in action) return action;
   switch (action.send) {

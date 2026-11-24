@@ -263,6 +263,16 @@ export function setupProblems(input: SetupInput, facts: SetupFacts): string[] {
   return out;
 }
 
+/**
+ * The release check after a Railcar upgrade (`railcar-setup.ts --check`): every step is on chain, or the ids still to send.
+ * A listing names the deployed build by slot and hash, so after every upgrade `list-game` is left until the admin re-lists it;
+ * two upgrades (2026-11-11, 2026-11-24) shipped without it and Railcar earned no Points for 13 days.
+ */
+export function setupCheck(steps: SetupStep[]): { ok: boolean; left: string[] } {
+  const left = steps.filter((s) => s.status !== "done").map((s) => s.id);
+  return { ok: left.length === 0, left };
+}
+
 export function railcarSetupPlan(input: SetupInput, facts: SetupFacts): SetupStep[] {
   const steps: SetupStep[] = [];
   const add = (s: Omit<SetupStep, "lamports" | "cu"> & { cu?: number; creates?: number[]; funds?: bigint }) =>

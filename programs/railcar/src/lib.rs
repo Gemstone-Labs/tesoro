@@ -99,7 +99,7 @@ pub enum RailcarError {
     AlreadyJumped,
     #[msg("The instruction names another car")]
     StaleBinding,
-    #[msg("Core has not frozen the Table's previous car yet, and its ride is under two weeks old")]
+    #[msg("Core has not frozen the Table's previous car yet, and its ride is not two weeks old")]
     PreviousNotFrozen,
     #[msg("Not the car's Table, or the Table has no result for it")]
     BadTable,

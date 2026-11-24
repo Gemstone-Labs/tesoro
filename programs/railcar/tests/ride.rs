@@ -2078,8 +2078,8 @@ fn a_table_takes_its_next_car_only_after_core_froze_the_last_one() {
 }
 
 /// Core keeps a settlement receipt 14 days (`RECEIPT_KEEP_SECS`); a Table may reuse itself without
-/// one from an hour after that, measured from the end of its ride.
-const TABLE_REUSE_SECS: i64 = 14 * 86_400 + 3_600;
+/// one from an hour before that, measured from the end of its ride.
+const TABLE_REUSE_SECS: i64 = 14 * 86_400 - 3_600;
 
 #[test]
 fn a_table_whose_receipt_core_reclaimed_takes_its_next_car() {
@@ -2145,7 +2145,7 @@ fn a_table_short_of_two_weeks_since_its_ride_still_waits_for_core() {
     assert_eq!(code(&err), rcode(railcar::RailcarError::PreviousNotFrozen));
     env.patch_table(car0.table, |t| t.set_over_at(over_at));
     env.start_ride(&car2)
-        .expect("Table 0 takes car 2 once its ride is two weeks old");
+        .expect("Table 0 takes car 2 an hour before its receipt could go");
     // core still refunds car 0 without the Table: every entry home
     let before: Vec<u64> = riders.iter().map(|p| env.gemas(p)).collect();
     env.refund_car(&car0).expect("core's anyone-refund");

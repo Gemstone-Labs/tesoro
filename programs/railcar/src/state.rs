@@ -23,12 +23,14 @@ pub const MAX_SEATS: u8 = 100;
 /// The countdown from the first time the car holds `MIN_SEATS` (decision Q30).
 pub const COUNTDOWN_SECS: i64 = 30;
 /// A Table whose ride is over takes its next car once core has frozen the last one (its
-/// settlement receipt), or this long after the ride ended: core may have reclaimed the receipt
-/// by then (`RECEIPT_KEEP_SECS`), and nothing in core can still settle that car from the Table,
-/// since its absolute deadline (7 days after it opened) is long past. The hour is core's own
-/// Match margin, more than the rollup and base clocks ever differ by.
+/// settlement receipt), or this long after the ride ended. Core keeps a receipt
+/// `RECEIPT_KEEP_SECS` from the settlement, which comes after the ride's end, so the Table frees
+/// itself at least an hour (core's Match margin, far more than the rollup and base clocks differ
+/// by) before anyone may reclaim the receipt: no car waits between the two. Safe, because by then
+/// the car's absolute deadline (7 days after it opened) is a week past, and nothing in core can
+/// still settle it from the Table: only core's own refund remains.
 pub const TABLE_REUSE_AFTER_SECS: i64 = tesoro_core::instructions::matching::RECEIPT_KEEP_SECS
-    + tesoro_core::ledger::MATCH_TIMEOUT_SECS;
+    - tesoro_core::ledger::MATCH_TIMEOUT_SECS;
 /// Tables a Config may name: enough for a ride in progress and the next car boarding.
 pub const MIN_TABLES: u16 = 2;
 pub const MAX_TABLES: u16 = 16;

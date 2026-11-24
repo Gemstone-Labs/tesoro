@@ -22,6 +22,10 @@ The metadata-only inventory (`collect --metadata-only`, followed by `check --inv
 
 Regression commands: `cargo test -p tesoro_core --lib predeploy_layouts -- --nocapture` writes/reads both the historical 178-byte and current 327-byte custody fixtures in LiteSVM; `python3 scripts/test-predeploy-size-check.py` exercises mismatch, unknown discriminator, dynamic capacity and version refusals. Preserve the LiteSVM fixture rows and use them in the Python test as described by its skip message.
 
+## Railcar upgrade routine
+
+A Railcar upgrade is not done until `pnpm --filter @tesoro/keeper exec tsx scripts/railcar-setup.ts --check` passes (exit 0, every setup step done). tesoro_core lists a Game by the deploy slot and hash of the build it approved, so every upgrade leaves `list-game` to do until the admin re-lists the new build (`railcar-setup.ts --send`, the founder's word on devnet); the upgrades of 2026-11-11 and 2026-11-24 skipped it and Railcar earned no Points, sponsored nothing and took no Backing for 13 days (ticket 38). The check sends nothing; a nonzero exit names the steps left.
+
 ## Railcar upgrade: rules round 2 (2026-11-24)
 
 The founder approved it on 2026-11-24 (Railcar decisions Q40, ticket 34). Railcar only: no core, keeper or migration change. Entry 100 Gemas, only the last three off are paid (no Early-jump refund), the smooth bomb curve (5 s safe, half of rides over by 25 s, 120 s cap), shorter warning leads, Brake 5 s. Each Table records the rules of its car in `rules` (formerly `reserved0[0]`, 3 = Q40); no account changes size.

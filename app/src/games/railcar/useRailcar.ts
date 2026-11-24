@@ -114,7 +114,8 @@ interface Snapshot {
   watching: boolean;
   rollup: TableView | null;
   base: TableView | null;
-  previousFrozen: boolean;
+  /** Core's receipt for the car the rollup Table holds exists (when that is not this car). */
+  previousReceipt: boolean;
   mine: boolean;
   /** The Offer's Backer holds a mark in the car shown (core would refuse the backed join there). */
   backerSeated: boolean;
@@ -174,14 +175,14 @@ export async function readSnapshot(read: Reader, tee: () => Promise<Connection |
       }
     }
   }
-  if (!car) return { config, car: null, loaded: null, boarding, watching, rollup: null, base: null, previousFrozen: false, mine: false, backerSeated: false, forgot };
+  if (!car) return { config, car: null, loaded: null, boarding, watching, rollup: null, base: null, previousReceipt: false, mine: false, backerSeated: false, forgot };
   const loaded = boarding && boarding.carNo === car.carNo ? boarding.loaded : await loadCar(read, car.match);
   const mine = !!me && !!loaded?.seats.some((s) => s.seated && s.player.equals(me));
   // The Backer's mark is checked in the car the Queue boards, which a watched ride is not.
   const backerSeated = !!backer && !!boarding && !boarding.loaded.seats.some((x) => x.seated && !!me && x.player.equals(me)) && (await backerSeatedIn(read, boarding.loaded.car.address, backer));
   let rollup: TableView | null = null;
   let base: TableView | null = null;
-  let previousFrozen = false;
+  let previousReceipt = false;
   if (loaded && loaded.car.stage !== "boarding") {
     const [baseInfo] = await read.many([tablePda(car.table)]);
     base = baseInfo ? decodeTable(baseInfo.data) : null;
@@ -191,9 +192,9 @@ export async function readSnapshot(read: Reader, tee: () => Promise<Connection |
       const info = conn ? await conn.getAccountInfo(tablePda(car.table), "confirmed").catch(() => null) : null;
       rollup = info ? decodeTable(info.data) : null;
     }
-    if (rollup && rollup.carNo !== car.carNo && rollup.phase === "over") previousFrozen = !!(await read.many([settledPda(rollup.tesoroMatch)]))[0];
+    if (rollup && rollup.carNo !== car.carNo && rollup.phase === "over") previousReceipt = !!(await read.many([settledPda(rollup.tesoroMatch)]))[0];
   }
-  return { config, car, loaded, boarding, watching, rollup, base, previousFrozen, mine, backerSeated, forgot };
+  return { config, car, loaded, boarding, watching, rollup, base, previousReceipt, mine, backerSeated, forgot };
 }
 
 export interface RailcarPage {
@@ -406,7 +407,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
     if (!snap?.car || !snap.loaded || stepping.current) return;
     const car = snap.car;
     const ride = snap.rollup && snap.rollup.carNo === car.carNo ? snap.rollup : null;
-    const step = nextRideStep({ mine: { carNo: car.carNo, table: car.table }, core: snap.loaded.car, rollup: snap.rollup, base: snap.base, previousFrozen: snap.previousFrozen, now: Math.floor(now / 1000) });
+    const step = nextRideStep({ mine: { carNo: car.carNo, table: car.table }, core: snap.loaded.car, rollup: snap.rollup, base: snap.base, previousReceipt: snap.previousReceipt, now: Math.floor(now / 1000) });
     const send = finishSender(seat, getToken);
     const page = pageKey.current;
     const chain = getChain();
