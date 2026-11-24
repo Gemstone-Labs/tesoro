@@ -195,14 +195,6 @@ describe("finishing a ride from the Players' pages", () => {
     expect(waited(T0 + 86_400)).toBe("refund");
   });
 
-  it("a car core refunded and closed before it rode: the page passes it over on its Table (skip_car), then it is done", () => {
-    const rollup = table({ phase: "over", carNo: 1n, nextCar: 3n });
-    expect(nextRideStep({ mine, core: null, rollup, base: null, previousReceipt: false, now: T0 })).toEqual({ kind: "skip" });
-    expect(nextRideStep({ mine, core: coreCar({ stage: "closed" }), rollup, base: null, previousReceipt: false, now: T0 })).toEqual({ kind: "skip" });
-    expect(nextRideStep({ mine, core: null, rollup: table({ phase: "idle", carNo: 3n, nextCar: 5n }), base: null, previousReceipt: false, now: T0 })).toEqual({ kind: "done" });
-    expect(nextRideStep({ mine, core: null, rollup: null, base: null, previousReceipt: false, now: T0 })).toEqual({ kind: "done" });
-  });
-
   it("during the ride: signal; once over and committed to base: finalize", () => {
     const core = coreCar({ stage: "departed", seated: 5, pages: 1 });
     expect(nextRideStep({ mine, core, rollup: table({ phase: "drawing" }), base: null, previousReceipt: false, now: T0 }).kind).toBe("signal");

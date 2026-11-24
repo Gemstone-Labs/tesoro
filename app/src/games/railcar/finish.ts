@@ -12,7 +12,7 @@ import type { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { MAX_SEAT_CHUNK_STEPS, refundCarIx, seatMarkPda } from "../../lib/chain/many-seat";
 import { aheadOf, closeIxs, loadCar, planSeatChunk, roomIxs, sourcesOf } from "../../lib/chain/many-seat-plan";
 import { cutPageIxs, type Core, type Reader } from "../../lib/chain/settle-plan";
-import { carPda, closeRailcarCarIx, decodeCarAccount, finalizeIx, revealRideIx } from "./chain";
+import { carPda, closeRailcarCarIx, decodeCarAccount, finalizeIx, revealRideIx, skipCarIx, type TableView } from "./chain";
 import { assertStepIxs, type FinishStep } from "./finish-steps";
 
 export type { FinishStep } from "./finish-steps";
@@ -131,4 +131,32 @@ export async function finishRide(d: RideFinishDeps): Promise<FinishResult> {
       }
     }
   }
+}
+
+export interface PageRefundDeps {
+  car: { carNo: bigint; table: number; match: PublicKey };
+  /** The finisher as the page sends it through the sponsor (`refund`, chunks, closes; never `close_car`). */
+  finish(): Promise<FinishResult>;
+  /** The Table on the rollup, read after the finish. */
+  rollupTable(): Promise<TableView | null>;
+  /** Core's receipt for the car exists (the refund wrote it). */
+  receipt(): Promise<boolean>;
+  /** Sends on the rollup with the page key, which signs for itself: `skip_car` is permissionless. */
+  sendRollup(ixs: TransactionInstruction[]): Promise<unknown>;
+  caller: PublicKey;
+}
+
+/**
+ * The page's step for a car whose refund time came (`nextRideStep` "refund"): the finisher's refund and what follows, then
+ * `skip_car` on the rollup while the Table still waits for this car, by the page key (no seat key: it is permissionless),
+ * from the car the page holds in this flow, not from a later read (core's close makes the page forget the car). The Car's
+ * own close is the keeper's (`SWEEP_ONLY_STEPS`): no seat key can vouch for `close_car`.
+ */
+export async function pageRefundFlow(d: PageRefundDeps): Promise<{ finish: FinishResult; skipped: boolean }> {
+  const finish = await d.finish();
+  const t = await d.rollupTable();
+  const waiting = !!t && t.nextCar === d.car.carNo && (t.phase === "idle" || t.carNo !== d.car.carNo);
+  if (!waiting || !(await d.receipt())) return { finish, skipped: false };
+  await d.sendRollup([skipCarIx(d.caller, d.car.table, d.car.carNo, d.car.match)]);
+  return { finish, skipped: true };
 }

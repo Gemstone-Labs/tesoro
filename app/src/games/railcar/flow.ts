@@ -86,10 +86,8 @@ export type RideStep =
   | { kind: "depart" }
   /** The Table's previous car is over but core has not frozen it: `finalize` that car first. */
   | { kind: "finalize-previous"; carNo: bigint }
-  /** The car left a day ago and nobody settled it: core's refund (the finisher), whatever its Table shows. */
+  /** The car left a day ago and nobody settled it: core's refund (the finisher, then `skip_car`), whatever its Table shows. */
   | { kind: "refund" }
-  /** Core refunded or closed the car before it rode and its Table still waits for it: `skip_car`. */
-  | { kind: "skip" }
   | { kind: "start-ride" }
   /** The ride (or the draw) runs: keep signalling. */
   | { kind: "signal" }
@@ -144,7 +142,7 @@ export interface RideFacts {
 /** The next step a page takes for its car, from boarding to the last close. */
 export function nextRideStep(f: RideFacts): RideStep {
   const core = f.core;
-  if (!core || core.stage === "closed") return f.rollup && f.rollup.nextCar === f.mine.carNo ? { kind: "skip" } : { kind: "done" };
+  if (!core || core.stage === "closed") return { kind: "done" };
   if (core.stage === "boarding") return departureDue(core, f.now) ? { kind: "depart" } : { kind: "wait" };
   if (core.stage === "settling" || core.stage === "refunding") return { kind: "settle" };
   if (core.stage === "paid") return { kind: "close" };

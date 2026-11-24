@@ -206,7 +206,7 @@ export function realSweepDeps(ctx: Ctx, env: NodeJS.ProcessEnv = process.env): S
     },
     progress: async (address) => {
       const info = await ctx.conn.getAccountInfo(address);
-      if (info && carHeadAt(address, info.data)) return carProgressKey(ctx, address, info.data);
+      if (info && carHeadAt(address, info.data)) return carProgressKey(ctx, address, info.data, rpc);
       const view = await fetchView(ctx, address);
       if (!view) return null;
       const p = progressOf(view);
@@ -232,7 +232,7 @@ export function realSweepDeps(ctx: Ctx, env: NodeJS.ProcessEnv = process.env): S
     ride: async (head) => {
       await observeBalance();
       if (!head.game.equals(RAILCAR_PROGRAM_ID)) throw new Error(`no ride adapter for game ${head.game.toBase58()}`);
-      await railcarRideStep(ctx, head.address);
+      await railcarRideStep(ctx, head.address, rpc);
     },
     tables: async () => {
       await observeBalance();
@@ -269,9 +269,9 @@ export function realSweepDeps(ctx: Ctx, env: NodeJS.ProcessEnv = process.env): S
 // ---- many-seat cars (Railcar) -------------------------------------------------------------------------------------
 
 /** Where a car is: core's stage, run and seats, and while it rides its Table on both layers (a ride step moves one). */
-async function carProgressKey(ctx: Ctx, address: PublicKey, data: Buffer): Promise<string> {
+async function carProgressKey(ctx: Ctx, address: PublicKey, data: Buffer, rpc: ScanRpc): Promise<string> {
   const car = decodeCar(address, data);
   const key = `car:${car.stage}:${car.run.steps}:${car.seated}`;
   if (car.stage !== "departed" || !car.game.equals(RAILCAR_PROGRAM_ID)) return key;
-  return `${key}:${await rideProgress(ctx, address)}`;
+  return `${key}:${await rideProgress(ctx, address, rpc)}`;
 }

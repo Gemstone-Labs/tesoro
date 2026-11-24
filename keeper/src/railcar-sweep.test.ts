@@ -51,3 +51,40 @@ describe("the sweep's step for a Railcar ride whose pages are gone", () => {
     assert.ok("wait" in act("settle", { core: { stage: "settling" } }));
   });
 });
+
+describe("the keeper's Railcar reader", () => {
+  it("finds a car's Car through one program scan on the scan RPC, never by reading car numbers in batches (rideProgress, the ride step)", async () => {
+    const { BN, BorshAccountsCoder } = await import("@coral-xyz/anchor");
+    const { readFileSync } = await import("node:fs");
+    const { PublicKey } = await import("@solana/web3.js");
+    const { carPda, configPda, tablePda } = await import("../../app/src/games/railcar/chain.ts");
+    const { rideProgress } = await import("./railcar-sweep.ts");
+    const idl = JSON.parse(readFileSync(new URL("../../app/src/lib/chain/idl/railcar.json", import.meta.url), "utf8"));
+    const coder = new BorshAccountsCoder(idl);
+    const match = Keypair.generate().publicKey;
+    const accounts = new Map<string, Buffer>();
+    accounts.set(configPda().toBase58(), await coder.encode("RailcarConfig", { bump: 255, operator: PublicKey.default, tables: 2, next_car: new BN(300), boarding_match: PublicKey.default }));
+    const carData = await coder.encode("Car", { bump: 255, car_no: new BN(0), tesoro_match: match, table: 0, tables: 2, opened_at: new BN(1), payer: PublicKey.default, revealed: false });
+    accounts.set(carPda(0n).toBase58(), carData);
+    for (const i of [0, 1]) {
+      const t = Buffer.alloc(8 + 308 + 100 * 88);
+      t.writeUInt16LE(i, 8 + 2);
+      t[8 + 4] = 2;
+      t.writeBigUInt64LE(BigInt(298 + i), 8 + 24);
+      t.writeBigUInt64LE(BigInt(300 + i), 8 + 32);
+      accounts.set(tablePda(i).toBase58(), t);
+    }
+    const batches: number[] = [];
+    const info = (k: PublicKey) => {
+      const d = accounts.get(k.toBase58());
+      return d ? { data: d, owner: new PublicKey(idl.address), lamports: 1, executable: false } : null;
+    };
+    const conn = { getMultipleAccountsInfo: async (keys: PublicKey[]) => (batches.push(keys.length), keys.map(info)), getAccountInfo: async (k: PublicKey) => info(k) };
+    let scans = 0;
+    const rpc = { helius: false, call: async () => ({}), getProgramAccounts: async () => (scans++, [{ pubkey: carPda(0n), account: { data: carData, lamports: 1, owner: new PublicKey(idl.address), executable: false } }]) };
+    const ctx = { conn, burst: { teeConnection: async () => conn }, hsigner: {} } as unknown as Parameters<typeof rideProgress>[0];
+    assert.equal(await rideProgress(ctx, match, rpc), "0:298:riding:0:298:riding");
+    assert.equal(scans, 1);
+    assert.ok(batches.every((n) => n <= 2), `batches ${batches.join(",")}`);
+  });
+});

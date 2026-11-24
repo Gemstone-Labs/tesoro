@@ -42,8 +42,6 @@ export function sweepRideAction(step: RideStep, f: { core: CarView; rollup: Tabl
     case "finalize":
     case "refund":
       return { send: "finish" };
-    case "skip":
-      return { send: "finish" };
     case "signal": {
       const t = f.rollup;
       const pastCap = !!t && t.phase === "riding" && f.now >= t.rideTs + RIDE_CAP_SECS;
@@ -80,6 +78,8 @@ const one = async (read: Reader, key: PublicKey) => (await read.many([key]))[0];
 /** A base reader that can also find Railcar's Car for a core Match in one query (the keeper's program scan). */
 export interface CarReader extends Reader {
   carByMatch?(match: PublicKey): Promise<{ carNo: bigint; data: Uint8Array } | null>;
+  /** Every open Car (the keeper's program scan; a handful at any time). */
+  openCars?(): Promise<{ carNo: bigint; data: Uint8Array }[]>;
 }
 
 /**
@@ -134,33 +134,69 @@ export async function findCarRide(base: CarReader, rollup: Reader, match: Public
   return found ? rideAt(found.carNo, Number(found.carNo % BigInt(cfg.tables)), found.car) : null;
 }
 
+export interface Reconciled {
+  /** Cars closed (core froze or closed them before they rode, or their Table moved on without a close). */
+  closed: bigint[];
+  /** Cars their Table passed over. */
+  skipped: bigint[];
+  /** Cars whose close failed (left for the next pass; their Table waits). */
+  failed: bigint[];
+}
+
+/** Every open Car: the reader's own list when it has one, else every car number below `nextCar` read 100 a query. */
+async function openCars(base: CarReader, nextCar: bigint): Promise<{ carNo: bigint; car: CarAccountView }[]> {
+  if (base.openCars) return (await base.openCars()).map((c) => ({ carNo: c.carNo, car: decodeCarAccount(c.data) }));
+  const out: { carNo: bigint; car: CarAccountView }[] = [];
+  for (let top = nextCar; top > 0n; top -= 100n) {
+    const nos = Array.from({ length: Number(top < 100n ? top : 100n) }, (_, k) => top - 1n - BigInt(k));
+    const infos = await base.many(nos.map(carPda));
+    for (const [k, info] of infos.entries()) if (info) out.push({ carNo: nos[k], car: decodeCarAccount(info.data) });
+  }
+  return out;
+}
+
 /**
- * Each Table's next car, judged on its own (not from an open core Match, which a page may have refunded and closed without
- * `skip_car`): a car core refunded, settled or closed before it rode is passed over, and its Car closed. A car still
- * boarding, departed and waiting, or not opened yet is left alone. Returns the cars skipped.
+ * The Cars and each Table's next car, judged on their own (not from an open core Match, which a page may have refunded
+ * and closed; a page never sends `close_car`, no seat key can vouch for it). First every open Car whose core car is gone,
+ * frozen or closed is closed (its rent back to whoever opened it); then a Table whose next car is one of those, or whose
+ * Car is closed already, passes it over. A Car's close comes before its skip and is read back first: a failed close leaves
+ * the Table waiting, and the next pass tries again. A car still boarding, departed and waiting, or not opened is left alone.
  */
-export async function reconcileTables(e: Pick<SweepEnv, "base" | "rollup" | "caller" | "send">): Promise<{ skipped: bigint[] }> {
-  const skipped: bigint[] = [];
+export async function reconcileTables(e: Pick<SweepEnv, "base" | "rollup" | "caller" | "send">): Promise<Reconciled> {
+  const r: Reconciled = { closed: [], skipped: [], failed: [] };
   const cfgInfo = await one(e.base, configPda());
-  if (!cfgInfo) return { skipped };
+  if (!cfgInfo) return r;
   const cfg = decodeConfig(cfgInfo.data);
+  const cars = await openCars(e.base, cfg.nextCar);
+  const keys = cars.flatMap((c) => [c.car.tesoroMatch, settledPda(c.car.tesoroMatch)]);
+  const infos = keys.length ? await e.base.many(keys) : [];
+  const done = new Set<bigint>();
+  for (const [k, c] of cars.entries()) {
+    const [match, receipt] = [infos[2 * k], infos[2 * k + 1]];
+    if (match && !receipt) continue;
+    try {
+      await e.send({ layer: "base", what: `close_car ${c.carNo} (core refunded, settled or closed it; its rent goes back)`, ixs: [closeRailcarCarIx(e.caller, { ...c.car, carNo: c.carNo })], units: 200_000 });
+    } catch {
+      r.failed.push(c.carNo);
+      continue;
+    }
+    if (await one(e.base, carPda(c.carNo))) {
+      r.failed.push(c.carNo);
+      continue;
+    }
+    r.closed.push(c.carNo);
+    done.add(c.carNo);
+  }
+  const open = new Set(cars.map((c) => c.carNo));
   const tables = (await e.rollup.many(Array.from({ length: cfg.tables }, (_, i) => tablePda(i)))).map((x) => (x ? decodeTable(x.data) : null));
   for (const [i, t] of tables.entries()) {
     if (!t || t.nextCar >= cfg.nextCar) continue;
-    const carInfo = await one(e.base, carPda(t.nextCar));
-    const car = carInfo ? decodeCarAccount(carInfo.data) : null;
-    if (car) {
-      const [match, receipt] = await e.base.many([car.tesoroMatch, settledPda(car.tesoroMatch)]);
-      if (match && !receipt) continue;
-      await e.send({ layer: "rollup", what: `skip_car ${t.nextCar} (core refunded or closed it before it rode; its Table waited for it)`, ixs: [skipCarIx(e.caller, i, t.nextCar, car.tesoroMatch)], units: 200_000 });
-      await e.send({ layer: "base", what: `close_car ${t.nextCar} (core froze or closed it)`, ixs: [closeRailcarCarIx(e.caller, { ...car, carNo: t.nextCar })], units: 200_000 });
-    } else {
-      // The Car is closed already (core froze or closed its Match): the Table only needs to move on.
-      await e.send({ layer: "rollup", what: `skip_car ${t.nextCar} (its Car is closed; its Table waited for it)`, ixs: [skipCarIx(e.caller, i, t.nextCar, PublicKey.default)], units: 200_000 });
-    }
-    skipped.push(t.nextCar);
+    if (open.has(t.nextCar) && !done.has(t.nextCar)) continue;
+    const car = cars.find((c) => c.carNo === t.nextCar)?.car;
+    await e.send({ layer: "rollup", what: `skip_car ${t.nextCar} (core refunded or closed it before it rode; its Table waited for it)`, ixs: [skipCarIx(e.caller, i, t.nextCar, car?.tesoroMatch ?? PublicKey.default)], units: 200_000 });
+    r.skipped.push(t.nextCar);
   }
-  return { skipped };
+  return r;
 }
 
 // ---- the sweep's step ----------------------------------------------------------------------------------------------

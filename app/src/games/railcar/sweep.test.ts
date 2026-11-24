@@ -77,8 +77,9 @@ describe("the sweep finds a car whose Table has moved on", () => {
   });
 });
 
-describe("the sweep reconciles each Table's next car on its own", () => {
-  it("skips a car whose core Match is gone or frozen and closes its Car, and leaves a car still boarding or riding alone", async () => {
+describe("the sweep reconciles the Cars and each Table's next car on its own", () => {
+  const CORE = new PublicKey("AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh");
+  async function chain() {
     const base = new Map<string, Info>();
     const rollup = new Map<string, Info>();
     const refunded = key();
@@ -86,21 +87,77 @@ describe("the sweep reconciles each Table's next car on its own", () => {
     base.set(configPda().toBase58(), await config(6n, boarding));
     // Table 0 waits for car 2, refunded and closed by a page that never sent skip_car; its Car is still open
     base.set(carPda(2n).toBase58(), await car(2n, refunded));
-    base.set(settledPda(refunded).toBase58(), owned(Buffer.alloc(123), new PublicKey("AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh")));
     rollup.set(tablePda(0).toBase58(), table(0, { phase: "over", carNo: 0n, nextCar: 2n, tesoroMatch: key() }));
-    // Table 1 waits for car 5, still boarding
+    // Table 1 waits for car 5, still boarding; car 4 (Table 0's car after car 2) left and waits for its Table
     base.set(carPda(5n).toBase58(), await car(5n, boarding));
-    base.set(boarding.toBase58(), owned(Buffer.alloc(840), new PublicKey("AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh")));
+    base.set(boarding.toBase58(), owned(Buffer.alloc(840), CORE));
+    const waiting = key();
+    base.set(carPda(4n).toBase58(), await car(4n, waiting));
+    base.set(waiting.toBase58(), owned(Buffer.alloc(840), CORE));
     rollup.set(tablePda(1).toBase58(), table(1, { phase: "idle", carNo: 3n, nextCar: 5n }));
+    return { base, rollup, refunded, boarding };
+  }
+  /** Sends land on the fake chain: a close removes the Car, a skip moves the Table on; `failing` steps throw instead. */
+  const landing = (base: Map<string, Info>, rollup: Map<string, Info>, sent: string[], failing: string[] = []) =>
+    env(reader(base), reader(rollup), PublicKey.default, sent, (what) => {
+      const [step, no] = what.split(" ");
+      if (failing.includes(step)) throw new Error(`${step} failed`);
+      if (step === "close_car") base.delete(carPda(BigInt(no)).toBase58());
+      if (step === "skip_car") {
+        const i = Number(BigInt(no) % 2n);
+        const t = rollup.get(tablePda(i).toBase58())!;
+        Buffer.from(t.data.buffer, t.data.byteOffset).writeBigUInt64LE(BigInt(no) + 2n, 8 + 32);
+      }
+    });
+
+  it("closes the Car of a car core refunded or closed before it rode, then passes it over; a car still boarding and an unopened next car are left alone", async () => {
+    const { base, rollup } = await chain();
     const sent: string[] = [];
-    const e = env(reader(base), reader(rollup), PublicKey.default, sent);
-    expect(await reconcileTables(e)).toEqual({ skipped: [2n] });
-    expect(sent).toEqual(["skip_car", "close_car"]);
-    // a Table whose next car is not opened yet, and one whose car's Car account is already closed: skip only
+    expect(await reconcileTables(landing(base, rollup, sent))).toEqual({ closed: [2n], skipped: [2n], failed: [] });
+    expect(sent).toEqual(["close_car", "skip_car"]);
+    expect(base.has(carPda(2n).toBase58())).toBe(false);
     sent.length = 0;
+    expect(await reconcileTables(landing(base, rollup, sent))).toEqual({ closed: [], skipped: [], failed: [] });
+    expect(sent).toEqual([]);
+  });
+
+  it("a close that fails leaves the Table waiting (no skip past an open Car); the next pass closes and then skips", async () => {
+    const { base, rollup } = await chain();
+    const sent: string[] = [];
+    expect(await reconcileTables(landing(base, rollup, sent, ["close_car"]))).toEqual({ closed: [], skipped: [], failed: [2n] });
+    expect(sent).toEqual(["close_car"]);
+    expect(base.has(carPda(2n).toBase58())).toBe(true);
+    sent.length = 0;
+    expect(await reconcileTables(landing(base, rollup, sent))).toEqual({ closed: [2n], skipped: [2n], failed: [] });
+    expect(sent).toEqual(["close_car", "skip_car"]);
+  });
+
+  it("a Table waiting for a car whose Car is already closed only moves on; an open Car of a car its Table already passed over only closes", async () => {
+    const { base, rollup, refunded } = await chain();
     base.delete(carPda(2n).toBase58());
-    rollup.set(tablePda(1).toBase58(), table(1, { phase: "idle", carNo: 3n, nextCar: 7n }));
-    expect(await reconcileTables(e)).toEqual({ skipped: [2n] });
-    expect(sent).toEqual(["skip_car"]);
+    // car 0: Table 0 moved past it long ago (its page sent skip_car); its Car is open and its Match has a receipt
+    const gone = key();
+    base.set(carPda(0n).toBase58(), await car(0n, gone));
+    base.set(settledPda(gone).toBase58(), owned(Buffer.alloc(123), CORE));
+    const sent: string[] = [];
+    expect(await reconcileTables(landing(base, rollup, sent))).toEqual({ closed: [0n], skipped: [2n], failed: [] });
+    expect(sent).toEqual(["close_car", "skip_car"]);
+    expect(refunded).toBeDefined();
+  });
+
+  it("asks a reader that can list the open Cars (the keeper's program scan) instead of reading every car number", async () => {
+    const { base, rollup } = await chain();
+    base.set(configPda().toBase58(), await config(5_000n));
+    let listed = 0;
+    const reads: number[] = [];
+    const plain = reader(base);
+    const scanning = {
+      many: async (keys: PublicKey[]) => (reads.push(keys.length), plain.many(keys)),
+      openCars: async () => (listed++, [2n, 5n].map((no) => ({ carNo: no, data: base.get(carPda(no).toBase58())!.data }))),
+    };
+    const sent: string[] = [];
+    const e = { ...landing(base, rollup, sent), base: scanning };
+    expect(await reconcileTables(e)).toEqual({ closed: [2n], skipped: [2n], failed: [] });
+    expect([listed, reads.some((n) => n > 10)]).toEqual([1, false]);
   });
 });

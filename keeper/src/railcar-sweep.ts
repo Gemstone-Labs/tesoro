@@ -1,9 +1,9 @@
 import anchor from "@coral-xyz/anchor";
 import { ComputeBudgetProgram, Transaction, type Connection, type PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import { RAILCAR_PROGRAM_ID, decodeCarAccount } from "../../app/src/games/railcar/chain.ts";
-import { finishCar, findCarRide, reconcileTables, rideSweepStep, type CarReader, type SweepEnv, type SweepSend } from "../../app/src/games/railcar/sweep.ts";
+import { finishCar, findCarRide, reconcileTables, rideSweepStep, type CarReader, type Reconciled, type SweepEnv, type SweepSend } from "../../app/src/games/railcar/sweep.ts";
 import { connReader, simulatedUnits } from "../../app/src/lib/chain/settle-plan.ts";
-import { act, type Ctx } from "./act.ts";
+import { act, log, type Ctx } from "./act.ts";
 import { createHash } from "node:crypto";
 import { scanProgramAccounts, type ScanRpc } from "./credits.ts";
 import { Deferred } from "./safety-sweep.ts";
@@ -21,15 +21,15 @@ const CAR_DISCRIMINATOR = createHash("sha256").update("account:Car").digest().su
 export function carReader(conn: Connection, rpc?: ScanRpc): CarReader {
   const plain = connReader(conn);
   if (!rpc) return plain;
+  const isCar = { memcmp: { offset: 0, bytes: anchor.utils.bytes.bs58.encode(CAR_DISCRIMINATOR) } };
+  const rows = (filters: typeof isCar[]) => scanProgramAccounts(rpc, RAILCAR_PROGRAM_ID, { filters });
   return {
     ...plain,
     carByMatch: async (match) => {
-      const rows = await scanProgramAccounts(rpc, RAILCAR_PROGRAM_ID, {
-        filters: [{ memcmp: { offset: 0, bytes: anchor.utils.bytes.bs58.encode(CAR_DISCRIMINATOR) } }, { memcmp: { offset: CAR_MATCH_OFFSET, bytes: match.toBase58() } }],
-      });
-      const row = rows[0];
+      const row = (await rows([isCar, { memcmp: { offset: CAR_MATCH_OFFSET, bytes: match.toBase58() } }]))[0];
       return row ? { carNo: decodeCarAccount(row.account.data).carNo, data: row.account.data } : null;
     },
+    openCars: async () => (await rows([isCar])).map((row) => ({ carNo: decodeCarAccount(row.account.data).carNo, data: row.account.data })),
   };
 }
 
@@ -84,16 +84,16 @@ async function envOf(ctx: Ctx, match: PublicKey, rpc?: ScanRpc): Promise<SweepEn
 }
 
 /** Where a Railcar car's ride is, for the sweep's progress key (a ride step moves one of these). */
-export async function rideProgress(ctx: Ctx, match: PublicKey): Promise<string> {
-  const ride = await findCarRide(connReader(ctx.conn), connReader(await rollupOf(ctx)), match);
+export async function rideProgress(ctx: Ctx, match: PublicKey, rpc?: ScanRpc): Promise<string> {
+  const ride = await findCarRide(carReader(ctx.conn, rpc), connReader(await rollupOf(ctx)), match);
   if (!ride) return "no-table";
   const t = ride.rollup;
   return `${ride.carNo}:${t ? `${t.carNo}:${t.phase}:${t.dirty ? 1 : 0}` : "-"}:${ride.base ? `${ride.base.carNo}:${ride.base.phase}` : "-"}`;
 }
 
 /** Sends the steps a Railcar car whose pages are gone needs now; throws `Deferred` when nothing is due. */
-export async function railcarRideStep(ctx: Ctx, match: PublicKey): Promise<void> {
-  const r = await rideSweepStep(await envOf(ctx, match));
+export async function railcarRideStep(ctx: Ctx, match: PublicKey, rpc?: ScanRpc): Promise<void> {
+  const r = await rideSweepStep(await envOf(ctx, match, rpc));
   if ("wait" in r) throw new Deferred(r.wait);
 }
 
@@ -108,8 +108,11 @@ export async function finishCarOf(ctx: Ctx, match: PublicKey, rpc?: ScanRpc): Pr
   await finishCar(await envOf(ctx, match, rpc), null);
 }
 
-/** Each Table's next car judged on its own (`reconcileTables`): a car core refunded or closed before it rode is passed over. */
-export async function reconcileRailcarTables(ctx: Ctx, rpc?: ScanRpc): Promise<bigint[]> {
+/**
+ * The Cars and each Table's next car judged on their own (`reconcileTables`): a car core refunded or closed before it rode
+ * has its Car closed, then its Table passes it over. A failed close is logged; the next sweep tries again.
+ */
+export async function reconcileRailcarTables(ctx: Ctx, rpc?: ScanRpc): Promise<Reconciled> {
   const rollup = await rollupOf(ctx);
   const r = await reconcileTables({
     base: carReader(ctx.conn, rpc),
@@ -117,6 +120,7 @@ export async function reconcileRailcarTables(ctx: Ctx, rpc?: ScanRpc): Promise<b
     caller: ctx.payer.publicKey,
     send: (s) => step(ctx, RAILCAR_PROGRAM_ID, s.what, () => (s.layer === "rollup" ? sendRollup(rollup, ctx, s.ixs, s.units) : sendIxs(ctx.conn, ctx.payer, s.ixs, { units: s.units }))),
   });
-  return r.skipped;
+  if (r.failed.length) log("sweep", "railcar", `Car close failed for car(s) ${r.failed.join(", ")}: their Tables wait; next sweep`);
+  return r;
 }
 
