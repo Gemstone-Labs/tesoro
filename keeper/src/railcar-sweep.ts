@@ -1,9 +1,37 @@
+import anchor from "@coral-xyz/anchor";
 import { ComputeBudgetProgram, Transaction, type Connection, type PublicKey, type TransactionInstruction } from "@solana/web3.js";
-import { finishCar, findCarRide, rideSweepStep, type SweepEnv, type SweepSend } from "../../app/src/games/railcar/sweep.ts";
+import { RAILCAR_PROGRAM_ID, decodeCarAccount } from "../../app/src/games/railcar/chain.ts";
+import { finishCar, findCarRide, reconcileTables, rideSweepStep, type CarReader, type SweepEnv, type SweepSend } from "../../app/src/games/railcar/sweep.ts";
 import { connReader, simulatedUnits } from "../../app/src/lib/chain/settle-plan.ts";
 import { act, type Ctx } from "./act.ts";
+import { createHash } from "node:crypto";
+import { scanProgramAccounts, type ScanRpc } from "./credits.ts";
 import { Deferred } from "./safety-sweep.ts";
 import { fits, lookupTables, sendIxs } from "./send.ts";
+
+/** `Car.tesoro_match` sits after the discriminator, `bump` and `car_no`. */
+const CAR_MATCH_OFFSET = 8 + 1 + 8;
+/** Anchor's discriminator of Railcar's `Car` account. */
+const CAR_DISCRIMINATOR = createHash("sha256").update("account:Car").digest().subarray(0, 8);
+
+/**
+ * The base reader for the sweep: accounts by address, and Railcar's Car for a core Match in one program scan (paged on
+ * Helius, plain `getProgramAccounts` elsewhere; a Car is 94 bytes, so the scan is small).
+ */
+export function carReader(conn: Connection, rpc?: ScanRpc): CarReader {
+  const plain = connReader(conn);
+  if (!rpc) return plain;
+  return {
+    ...plain,
+    carByMatch: async (match) => {
+      const rows = await scanProgramAccounts(rpc, RAILCAR_PROGRAM_ID, {
+        filters: [{ memcmp: { offset: 0, bytes: anchor.utils.bytes.bs58.encode(CAR_DISCRIMINATOR) } }, { memcmp: { offset: CAR_MATCH_OFFSET, bytes: match.toBase58() } }],
+      });
+      const row = rows[0];
+      return row ? { carNo: decodeCarAccount(row.account.data).carNo, info: { ...row.account, data: Buffer.from(row.account.data) } } : null;
+    },
+  };
+}
 
 /**
  * The safety sweep's Railcar half: sends what the shared step (app/src/games/railcar/sweep.ts, also driven by the LiteSVM
@@ -38,12 +66,12 @@ async function step(ctx: Ctx, address: PublicKey, what: string, send: () => Prom
 const rollupOf = (ctx: Ctx) => ctx.burst.teeConnection(ctx.hsigner);
 
 /** The shared step's environment on the keeper's connections, sending each step through `act`. */
-async function envOf(ctx: Ctx, match: PublicKey): Promise<SweepEnv> {
+async function envOf(ctx: Ctx, match: PublicKey, rpc?: ScanRpc): Promise<SweepEnv> {
   const rollup = await rollupOf(ctx);
   const caller = ctx.payer.publicKey;
   const opts = { units: 400_000, tables: await lookupTables(ctx.conn) };
   return {
-    base: connReader(ctx.conn),
+    base: carReader(ctx.conn, rpc),
     rollup: connReader(rollup),
     core: ctx.core,
     caller,
@@ -74,9 +102,21 @@ export async function railcarRideStep(ctx: Ctx, match: PublicKey): Promise<void>
  * needs, chunks, seat closes, the car's close) and, for a Railcar car core refunded before it rode, its Table passing it
  * over and its Car's close.
  */
-export async function finishCarOf(ctx: Ctx, match: PublicKey): Promise<void> {
+export async function finishCarOf(ctx: Ctx, match: PublicKey, rpc?: ScanRpc): Promise<void> {
   const info = await ctx.conn.getAccountInfo(match);
   if (!info) return;
-  await finishCar(await envOf(ctx, match), null);
+  await finishCar(await envOf(ctx, match, rpc), null);
+}
+
+/** Each Table's next car judged on its own (`reconcileTables`): a car core refunded or closed before it rode is passed over. */
+export async function reconcileRailcarTables(ctx: Ctx, rpc?: ScanRpc): Promise<bigint[]> {
+  const rollup = await rollupOf(ctx);
+  const r = await reconcileTables({
+    base: carReader(ctx.conn, rpc),
+    rollup: connReader(rollup),
+    caller: ctx.payer.publicKey,
+    send: (s) => step(ctx, RAILCAR_PROGRAM_ID, s.what, () => (s.layer === "rollup" ? sendRollup(rollup, ctx, s.ixs, s.units) : sendIxs(ctx.conn, ctx.payer, s.ixs, { units: s.units }))),
+  });
+  return r.skipped;
 }
 

@@ -931,6 +931,11 @@ pub mod railcar {
                 let past_settling = if t.deadline_abs() != 0 {
                     departed_at >= t.deadline_abs()
                 } else {
+                    // A Table whose last ride started before `deadline_abs` was recorded: devnet
+                    // only (Tables 0 and 1; a mainnet Table writes it at its first car). Safe
+                    // there because the drain check before this upgrade showed both previous cars
+                    // settled, with their receipts; only for those two Tables does this compare
+                    // base time (`departed_at`) with rollup time (`over_at`).
                     t.over_at() > 0
                         && t.over_at()
                             .checked_add(TABLE_REUSE_AFTER_SECS)

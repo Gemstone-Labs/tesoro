@@ -30,7 +30,7 @@ import { seatKeys, type SeatKey } from "@/lib/seat/seat-key";
 import { countingFor } from "@/lib/seat/signature-counter";
 import { browserStore } from "@/lib/storage";
 import { bindTargets, brakeState, earlyCopyDue, pageSend, tellCues, type EarlyCopy } from "./brake";
-import { ENTRY_GEMAS, RAILCAR_PROGRAM_ID, bindBrakeIx, brakeSeatPda, carPda, checkDepartureIx, commitTableIx, configPda, decodeBrakeSeat, decodeCarAccount, decodeConfig, decodeTable, jumpIx, openCarIx, signalIx, startRideIx, tablePda, tickIx, type BrakeSeatView, type RailcarConfigView, type TableView } from "./chain";
+import { ENTRY_GEMAS, RAILCAR_PROGRAM_ID, bindBrakeIx, brakeSeatPda, carPda, checkDepartureIx, commitTableIx, configPda, decodeBrakeSeat, decodeCarAccount, decodeConfig, decodeTable, jumpIx, openCarIx, signalIx, skipCarIx, startRideIx, tablePda, tickIx, type BrakeSeatView, type RailcarConfigView, type TableView } from "./chain";
 import { backerSeatedIn, boardWithRetry, boardingEntry, type BoardingBacking } from "./boarding";
 import { stepOffFor } from "./step-off";
 import { sendStepOff } from "./step-off-send";
@@ -453,6 +453,9 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
         // core refunds every seat: any rider's page may send it
         if (send && me) run(() => finishFromPage(send, car, snap.base, me));
         return;
+      case "skip":
+        run(() => chain.sendTee(page, [skipCarIx(page.publicKey, car.table, car.carNo, car.match)]));
+        return;
       default:
         // finalize-previous: the previous car's riders (or the keeper's sweep) finalize it; this page waits.
         return;
@@ -783,5 +786,7 @@ async function finishFromPage(send: (ixs: TransactionInstruction[]) => Promise<s
     send: (ixs) => send(ixs),
     maxSends: FINISH_PER_POLL,
     now: Math.floor(Date.now() / 1000),
+    // the Railcar Car too, once core closed the car (its rent goes to whoever opened it)
+    closeRide: true,
   });
 }

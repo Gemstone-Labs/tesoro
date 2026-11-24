@@ -20,7 +20,7 @@ import { historyRpc } from "./history.ts";
 import { Deferred, SLICE_LEN, anyHeadOf, carHeadAt, headOf, type Head, type SweepDeps } from "./safety-sweep.ts";
 import { RAILCAR_PROGRAM_ID, configPda as railcarConfigPda, decodeConfig as decodeRailcarConfig } from "../../app/src/games/railcar/chain.ts";
 import { decodeCar } from "../../app/src/lib/chain/many-seat.ts";
-import { finishCarOf, railcarRideStep, rideProgress } from "./railcar-sweep.ts";
+import { finishCarOf, railcarRideStep, reconcileRailcarTables, rideProgress } from "./railcar-sweep.ts";
 import { fits, lookupTables, sendIxs } from "./send.ts";
 
 /** The chain of each Game the sweep can finalize: its Assignment, base's committed copy of the Table, and `finalize`. */
@@ -225,7 +225,7 @@ export function realSweepDeps(ctx: Ctx, env: NodeJS.ProcessEnv = process.env): S
     finish: async (address) => {
       await observeBalance();
       const info = await ctx.conn.getAccountInfo(address);
-      if (info && carHeadAt(address, info.data)) return finishCarOf(ctx, address);
+      if (info && carHeadAt(address, info.data)) return finishCarOf(ctx, address, rpc);
       const result = await finishMatch(finisher, address);
       if (result.stalled && result.stalled !== "step-limit") throw new Error(`stalled: ${result.stalled}`);
     },
@@ -233,6 +233,10 @@ export function realSweepDeps(ctx: Ctx, env: NodeJS.ProcessEnv = process.env): S
       await observeBalance();
       if (!head.game.equals(RAILCAR_PROGRAM_ID)) throw new Error(`no ride adapter for game ${head.game.toBase58()}`);
       await railcarRideStep(ctx, head.address);
+    },
+    tables: async () => {
+      await observeBalance();
+      await reconcileRailcarTables(ctx, rpc);
     },
     waiting: async (head) => {
       const game = gameOf(ctx, head.game);
