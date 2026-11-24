@@ -50,32 +50,44 @@ for (let i = 0; i < cfg.tables; i++) {
 }
 
 const sends: string[] = [];
-const sendRollup = async (ixs: SweepSend["ixs"], units: number) => {
+/** A skip the rollup refused: fine when the Table moved past the car meanwhile (a page or the keeper did it), else the pass's failure. */
+const sendRollup = async (what: string, ixs: SweepSend["ixs"], units: number) => {
   const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units }), ...ixs);
   tx.feePayer = signer.publicKey;
   tx.recentBlockhash = (await tee.getLatestBlockhash()).blockhash;
   tx.sign(signer);
   const sig = await tee.sendRawTransaction(tx.serialize(), { skipPreflight: false });
-  await tee.confirmTransaction(sig, "confirmed");
-  return sig;
+  const { value } = await tee.confirmTransaction(sig, "confirmed");
+  if (!value.err) return sig;
+  const [, no, ...rest] = what.split(" ");
+  const table = Number(BigInt(no) % BigInt(cfg.tables));
+  const info = await tee.getAccountInfo(tablePda(table), "confirmed");
+  const nextCar = info ? decodeTable(info.data).nextCar : null;
+  if (nextCar !== null && nextCar > BigInt(no)) {
+    sends.push(`rollup: skip_car ${no} refused (${JSON.stringify(value.err)}) but Table ${table} already moved on to car ${nextCar}: fine`);
+    return sig;
+  }
+  throw new Error(`skip_car ${no} refused: ${JSON.stringify(value.err)}; Table ${table} still at ${nextCar ?? "?"} ${rest.join(" ")}`);
 };
+// A dry run pretends each close landed, so the pass goes on to show the skip that would follow it.
+const pretendClosed = new Set<string>();
+const base = connReader(conn);
 const r = await reconcileTables({
-  base: connReader(conn),
+  base: send ? base : { many: async (keys) => (await base.many(keys)).map((info, k) => (pretendClosed.has(keys[k].toBase58()) ? null : info)) },
   rollup: connReader(tee),
   caller: signer.publicKey,
   send: async (s) => {
     if (!send) {
-      sends.push(`${s.layer}: ${s.what}`);
-      // the pass reads the Car back after a close: a dry run has not closed it, so it stops at the close
-      if (s.layer === "base") throw new Error("dry run");
+      sends.push(`${s.layer}: ${s.what}${s.layer === "rollup" && sends.length ? " (after the close is confirmed)" : ""}`);
+      if (s.layer === "base") pretendClosed.add(carPda(BigInt(s.what.split(" ")[1])).toBase58());
       return;
     }
-    const sig = s.layer === "rollup" ? await sendRollup(s.ixs, s.units) : await sendAndConfirmTransaction(conn, new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: s.units }), ...s.ixs), [signer], { commitment: "confirmed" });
+    const sig = s.layer === "rollup" ? await sendRollup(s.what, s.ixs, s.units) : await sendAndConfirmTransaction(conn, new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: s.units }), ...s.ixs), [signer], { commitment: "confirmed" });
     sends.push(`${s.layer}: ${s.what} -> ${sig}`);
   },
 });
 console.log(`\n${send ? "sent" : "would send"}:`);
 for (const x of sends) console.log(`  ${x}`);
 if (!sends.length) console.log("  nothing: every Table's next car is boarding, waiting, or not opened yet, and no open Car is done");
-console.log(`closed ${r.closed.join(", ") || "-"}; skipped ${r.skipped.join(", ") || "-"}; ${send && r.failed.length ? `FAILED close ${r.failed.join(", ")}` : send ? "no failures" : `${r.failed.length} close(s) a send would make first`}`);
-if (send && r.failed.length) process.exit(1);
+console.log(`${send ? "" : "would be: "}closed ${r.closed.join(", ") || "-"}; skipped ${r.skipped.join(", ") || "-"}${r.failed.length ? `; FAILED (close or skip, the Table still needs attention) ${r.failed.join(", ")}` : ""}`);
+if (r.failed.length) process.exit(1);

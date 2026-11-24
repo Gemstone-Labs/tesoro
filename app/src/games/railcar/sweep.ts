@@ -156,45 +156,61 @@ async function openCars(base: CarReader, nextCar: bigint): Promise<{ carNo: bigi
 }
 
 /**
- * The Cars and each Table's next car, judged on their own (not from an open core Match, which a page may have refunded
- * and closed; a page never sends `close_car`, no seat key can vouch for it). First every open Car whose core car is gone,
- * frozen or closed is closed (its rent back to whoever opened it); then a Table whose next car is one of those, or whose
- * Car is closed already, passes it over. A Car's close comes before its skip and is read back first: a failed close leaves
- * the Table waiting, and the next pass tries again. A car still boarding, departed and waiting, or not opened is left alone.
+ * Each Table's next car and the open Cars, judged on their own (not from an open core Match, which a page may have refunded
+ * and closed; a page never sends `close_car`, no seat key can vouch for it). Per Table: a next car whose core car is gone,
+ * frozen or closed has its Car closed (its rent back to whoever opened it) and read back, then the Table passes it over; a
+ * Car the scan did not list is read by its address first. A failed or unconfirmed close, or a failed skip, goes to `failed`
+ * and the other Tables still run; the next pass tries again. A car still boarding, departed and waiting, or not opened is
+ * left alone. Last, open Cars no Table waits for any more (passed over already) close once core is done with them.
  */
 export async function reconcileTables(e: Pick<SweepEnv, "base" | "rollup" | "caller" | "send">): Promise<Reconciled> {
   const r: Reconciled = { closed: [], skipped: [], failed: [] };
   const cfgInfo = await one(e.base, configPda());
   if (!cfgInfo) return r;
   const cfg = decodeConfig(cfgInfo.data);
-  const cars = await openCars(e.base, cfg.nextCar);
-  const keys = cars.flatMap((c) => [c.car.tesoroMatch, settledPda(c.car.tesoroMatch)]);
-  const infos = keys.length ? await e.base.many(keys) : [];
-  const done = new Set<bigint>();
-  for (const [k, c] of cars.entries()) {
-    const [match, receipt] = [infos[2 * k], infos[2 * k + 1]];
-    if (match && !receipt) continue;
+  const cars = new Map((await openCars(e.base, cfg.nextCar)).map((c) => [c.carNo, c.car]));
+  /** Core's car is gone, frozen or closed: the Car may close. */
+  const done = async (car: CarAccountView) => {
+    const [match, receipt] = await e.base.many([car.tesoroMatch, settledPda(car.tesoroMatch)]);
+    return !match || !!receipt;
+  };
+  /** Closes the Car and reads it back; false when it is still there (the send failed or has not landed). */
+  const close = async (carNo: bigint, car: CarAccountView) => {
     try {
-      await e.send({ layer: "base", what: `close_car ${c.carNo} (core refunded, settled or closed it; its rent goes back)`, ixs: [closeRailcarCarIx(e.caller, { ...c.car, carNo: c.carNo })], units: 200_000 });
+      await e.send({ layer: "base", what: `close_car ${carNo} (core refunded, settled or closed it; its rent goes back)`, ixs: [closeRailcarCarIx(e.caller, { ...car, carNo })], units: 200_000 });
     } catch {
-      r.failed.push(c.carNo);
-      continue;
+      return false;
     }
-    if (await one(e.base, carPda(c.carNo))) {
-      r.failed.push(c.carNo);
-      continue;
-    }
-    r.closed.push(c.carNo);
-    done.add(c.carNo);
-  }
-  const open = new Set(cars.map((c) => c.carNo));
+    return !(await one(e.base, carPda(carNo)));
+  };
   const tables = (await e.rollup.many(Array.from({ length: cfg.tables }, (_, i) => tablePda(i)))).map((x) => (x ? decodeTable(x.data) : null));
+  const seen = new Set<bigint>();
   for (const [i, t] of tables.entries()) {
     if (!t || t.nextCar >= cfg.nextCar) continue;
-    if (open.has(t.nextCar) && !done.has(t.nextCar)) continue;
-    const car = cars.find((c) => c.carNo === t.nextCar)?.car;
-    await e.send({ layer: "rollup", what: `skip_car ${t.nextCar} (core refunded or closed it before it rode; its Table waited for it)`, ixs: [skipCarIx(e.caller, i, t.nextCar, car?.tesoroMatch ?? PublicKey.default)], units: 200_000 });
-    r.skipped.push(t.nextCar);
+    const no = t.nextCar;
+    seen.add(no);
+    // The scan may lag base: a Car it did not list is read by its address before it counts as closed.
+    const car = cars.get(no) ?? (await one(e.base, carPda(no)).then((info) => (info ? decodeCarAccount(info.data) : null)));
+    if (car) {
+      if (!(await done(car))) continue;
+      if (!(await close(no, car))) {
+        r.failed.push(no);
+        continue;
+      }
+      r.closed.push(no);
+    }
+    try {
+      await e.send({ layer: "rollup", what: `skip_car ${no} (core refunded or closed it before it rode; its Table waited for it)`, ixs: [skipCarIx(e.caller, i, no, car?.tesoroMatch ?? PublicKey.default)], units: 200_000 });
+      r.skipped.push(no);
+    } catch {
+      r.failed.push(no);
+    }
+  }
+  // Cars no Table waits for any more (passed over already): closed once core is done with them.
+  for (const [no, car] of cars) {
+    if (seen.has(no) || !(await done(car))) continue;
+    if (await close(no, car)) r.closed.push(no);
+    else r.failed.push(no);
   }
   return r;
 }

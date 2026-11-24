@@ -141,8 +141,34 @@ describe("the sweep reconciles the Cars and each Table's next car on its own", (
     base.set(settledPda(gone).toBase58(), owned(Buffer.alloc(123), CORE));
     const sent: string[] = [];
     expect(await reconcileTables(landing(base, rollup, sent))).toEqual({ closed: [0n], skipped: [2n], failed: [] });
-    expect(sent).toEqual(["close_car", "skip_car"]);
+    expect(sent).toEqual(["skip_car", "close_car"]);
     expect(refunded).toBeDefined();
+  });
+
+  it("a Car the scan did not list yet (it lags base) is read by its address: still boarding, it is left alone; refunded, it is closed then skipped", async () => {
+    const { base, rollup, refunded } = await chain();
+    const stale = { ...reader(base), openCars: async () => [] as { carNo: bigint; data: Uint8Array }[] };
+    const sent: string[] = [];
+    // car 2 refunded (Match gone): the scan missed it, base has it
+    expect(await reconcileTables({ ...landing(base, rollup, sent), base: stale })).toEqual({ closed: [2n], skipped: [2n], failed: [] });
+    expect(sent).toEqual(["close_car", "skip_car"]);
+    // car 4 is next on Table 0 now, departed and waiting (its Match live, no receipt): nothing, and never a skip past an open Car
+    sent.length = 0;
+    expect(await reconcileTables({ ...landing(base, rollup, sent), base: stale })).toEqual({ closed: [], skipped: [], failed: [] });
+    expect(sent).toEqual([]);
+    expect(refunded).toBeDefined();
+  });
+
+  it("one Table's failed skip goes to failed and the other Tables still run", async () => {
+    const { base, rollup } = await chain();
+    // Table 1 waits for car 3, whose Car is closed already (core froze it): skip only
+    rollup.set(tablePda(1).toBase58(), table(1, { phase: "idle", carNo: 1n, nextCar: 3n }));
+    const sent: string[] = [];
+    expect(await reconcileTables(landing(base, rollup, sent, ["skip_car"]))).toEqual({ closed: [2n], skipped: [], failed: [2n, 3n] });
+    expect(sent).toEqual(["close_car", "skip_car", "skip_car"]);
+    sent.length = 0;
+    expect(await reconcileTables(landing(base, rollup, sent))).toEqual({ closed: [], skipped: [2n, 3n], failed: [] });
+    expect(sent).toEqual(["skip_car", "skip_car"]);
   });
 
   it("asks a reader that can list the open Cars (the keeper's program scan) instead of reading every car number", async () => {

@@ -68,6 +68,7 @@ import {
   openCarIx,
   railcarIx,
   signalIx,
+  skipCarIx,
   startRideIx,
   tablePda,
   vaultPda,
@@ -86,7 +87,8 @@ import { nextRideStep, queueChoice } from "./flow";
 import { readSnapshot } from "./useRailcar";
 import { settledPda } from "../../lib/chain/basket";
 import { railcarView } from "./view";
-import { finishRide, pageRefundFlow } from "./finish";
+import { finishRide, pendingSkipStep } from "./finish";
+import type { FinishStep } from "./finish-steps";
 import { backerSeatedIn, boardingEntry, type BoardingBacking } from "./boarding";
 import { stepOffFor } from "./step-off";
 import { awayItemIx, readOwnBoardingSeats, stepsThatFit } from "../../lib/chain/away-flow";
@@ -1394,9 +1396,13 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
   const pageSnapshot = (w: World, me: Person, car: { carNo: bigint; match: PublicKey; table: number }) =>
     readSnapshot(w.reader(), async () => null, me.account, { carNo: car.carNo.toString(), table: car.table, match: car.match.toBase58(), matchKey: "" }, null, { fed: (i) => decodeTable(w.get(tablePda(i))!.data) });
 
-  /** The finisher as the page sends it: through the sponsor, vouched for by the rider's seat key (`assertSeatMay` on every step). */
-  const pageFinish = (w: World, sponsor: Sponsor, me: Person, car: { carNo: bigint; match: PublicKey }) => {
+  /**
+   * The finisher as the page sends it: through the sponsor, vouched for by the rider's seat key (`assertSeatMay` on every
+   * step); `failing` makes the first send of that step throw (the page's `run` then fails and the next poll resumes).
+   */
+  const pageFinish = (w: World, sponsor: Sponsor, me: Person, car: { carNo: bigint; match: PublicKey }, failing?: FinishStep) => {
     const core = new Program(coreIdl as Idl, { connection: {} } as unknown as AnchorProvider);
+    let failed = false;
     return finishRide({
       read: w.reader(),
       core,
@@ -1407,9 +1413,22 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
       fits: (ix) => fits(w.relayer.publicKey, [cu(1_400_000), ix]),
       mine: me.account,
       simulate: async (ix) => w.simulate([cu(1_400_000), ix], w.relayer.publicKey),
-      send: (ixs) => pageSend(w, sponsor, me, car.match, ixs),
+      send: async (ixs, step) => {
+        if (step === failing && !failed) {
+          failed = true;
+          throw new Error(`${step}: the sponsor is busy`);
+        }
+        await pageSend(w, sponsor, me, car.match, ixs);
+      },
       now: w.now,
     });
+  };
+
+  /** The page's own step for the car it sent the refund for (`pendingSkipStep`), sent with the page key. */
+  const pagePendingSkip = (w: World, pending: { carNo: bigint; match: PublicKey; table: number }) => {
+    const step = pendingSkipStep(decodeTable(w.get(tablePda(pending.table))!.data), pending, !!w.info(settledPda(pending.match)));
+    if (step === "skip") w.rollup([cu(200_000), skipCarIx(w.pageKey.publicKey, pending.table, pending.carNo, pending.match)], w.pageKey, pending.table);
+    return step;
   };
 
   /** The keeper's Tables pass on this LiteSVM, its key paying. */
@@ -1426,31 +1445,36 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
       },
     });
 
-  it("a page refunds car 2 before it rode (nobody started its ride for a day): its snapshot and step say refund, the sponsored finisher refunds and closes it, the page passes it over, the keeper closes its Car, and car 4 starts on that Table", { timeout: 300_000 }, async () => {
+  it("a page refunds car 2 before it rode: the refund lands, the next sponsored chunk fails, the page resumes at settle and forgets the car, and still passes it over on its own; the keeper closes its Car; car 4 starts on that Table", { timeout: 300_000 }, async () => {
     const { w, c2, draw } = await carTwoWaitingUnridden();
     const sponsor = sponsorOn(w);
     const me = c2.riders[3];
-    const snap = await pageSnapshot(w, me, c2);
-    expect([snap.car?.carNo, snap.mine, !!snap.loaded]).toEqual([2n, true, true]);
-    const step = nextRideStep({ mine: { carNo: snap.car!.carNo, table: snap.car!.table }, core: snap.loaded!.car, rollup: snap.rollup, base: snap.base, previousReceipt: snap.previousReceipt, now: w.now });
-    expect(step).toEqual({ kind: "refund" });
-    const r = await pageRefundFlow({
-      car: { carNo: c2.carNo, table: c2.table, match: c2.match },
-      finish: () => pageFinish(w, sponsor, me, c2),
-      rollupTable: async () => decodeTable(w.get(tablePda(c2.table))!.data),
-      receipt: async () => !!w.info(settledPda(c2.match)),
-      sendRollup: async (ixs) => w.rollup([cu(200_000), ...ixs], w.pageKey, c2.table),
-      caller: w.pageKey.publicKey,
-    });
-    expect([r.finish.done, r.skipped, r.finish.sent[0], r.finish.sent.includes("close-ride")]).toEqual([true, true, "refund", false]);
+    const step = async () => {
+      const snap = await pageSnapshot(w, me, c2);
+      return { snap, step: snap.car && snap.loaded ? nextRideStep({ mine: { carNo: snap.car.carNo, table: snap.car.table }, core: snap.loaded.car, rollup: snap.rollup, base: snap.base, previousReceipt: snap.previousReceipt, now: w.now }) : null };
+    };
+    // poll 1: refund; the page remembers the pending car; the finisher's refund lands and its first chunk fails
+    const first = await step();
+    expect([first.snap.mine, first.step]).toEqual([true, { kind: "refund" }]);
+    const pending = { carNo: c2.carNo, table: c2.table, match: c2.match };
+    await expect(pageFinish(w, sponsor, me, c2, "chunk")).rejects.toThrow("the sponsor is busy");
+    expect(!!w.info(settledPda(c2.match))).toBe(true);
+    // the pending skip goes on its own, before the finisher resumes
+    expect(pagePendingSkip(w, pending)).toBe("skip");
+    expect(decodeTable(w.get(tablePda(0))!.data).nextCar).toBe(4n);
+    // poll 2: core is refunding: the page resumes at settle and finishes (chunks, closes) through the sponsor
+    const second = await step();
+    expect(second.step).toEqual({ kind: "settle" });
+    const r = await pageFinish(w, sponsor, me, c2);
+    expect([r.done, r.sent.includes("refund"), r.sent.includes("close-ride")]).toEqual([true, false, false]);
     expect(w.info(c2.match)).toBeNull();
     expect(w.info(carPda(2n))).not.toBeNull();
-    expect(decodeTable(w.get(tablePda(0))!.data).nextCar).toBe(4n);
     expect(c2.riders.map((p, i) => w.gemas(p) - c2.before[i])).toEqual(Array(5).fill(100n));
-    // after core's close the page's read forgets the car (nothing to load, no seat): its dispatch stops; the Car's close is
-    // the keeper's (no seat key may vouch for it)
-    const after = await pageSnapshot(w, me, c2);
-    expect([after.forgot, after.loaded, after.mine]).toEqual([true, null, false]);
+    // poll 3: the page's read forgets the car (nothing to load, no seat); the pending car is done, the Table moved past it
+    const third = await step();
+    expect([third.snap.forgot, third.snap.loaded, third.snap.mine, third.step]).toEqual([true, null, false, null]);
+    expect(pagePendingSkip(w, pending)).toBe("done");
+    // the Car's close is the keeper's (no seat key may vouch for it)
     const keeper = Keypair.generate();
     w.svm.airdrop(keeper.publicKey, 100n * SOL);
     const sent: string[] = [];
