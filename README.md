@@ -62,10 +62,10 @@ It talks to the live devnet deployment, so no configuration is needed. Open `/pl
 <details>
 <summary><b>Programs, contracts, keeper and checks</b></summary>
 
-Programs need Rust 1.91.1 (pinned), Anchor 0.31.1 and Solana platform tools v1.54. Contracts need Foundry.
+Programs need Rust 1.91.1 (pinned), Anchor 0.31.1 and Solana platform tools v1.54 installed at `~/.cache/solana/v1.54/platform-tools` (one `cargo build-sbf --tools-version v1.54` puts them there). Contracts need Foundry.
 
 ```bash
-pnpm build:programs                       # builds with platform tools v1.54 (an unpinned Anchor build fails)
+pnpm build:programs                       # platform tools v1.54 run by path, every rustc checked (an unpinned Anchor build fails)
 cargo test --workspace
 
 pnpm build:contracts && pnpm test:contracts

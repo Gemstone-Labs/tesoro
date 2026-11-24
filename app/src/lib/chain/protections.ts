@@ -1,6 +1,9 @@
 import type { Connection, PublicKey } from "@solana/web3.js";
 import { fmtWhen } from "@/lib/format";
+import { AWAY_BYTES, NOT_AWAY, decodeAway, type AwayData } from "./away-plan";
 import { accountPda, protectionsPda } from "./native";
+
+export { NOT_AWAY, decodeAway, type AwayData };
 
 export const DAY_SECS = 24 * 60 * 60;
 /** A Self-Exclusion month is 30 days (tesoro_core `MONTH_SECS`). */
@@ -11,27 +14,10 @@ export const SELF_EXCLUSION_CHOICES = [6, 12, 24, 36, 60];
 export const SELF_EXCLUSION_MIN_MONTHS = 6;
 export const SELF_EXCLUSION_MAX_MONTHS = 60;
 
-/** The end times (unix seconds, zero = none) of a Break and a Self-Exclusion. */
-export interface AwayData {
-  breakUntil: number;
-  selfExclusionUntil: number;
-}
-
-export const NOT_AWAY: AwayData = { breakUntil: 0, selfExclusionUntil: 0 };
-
-// ProtectionsState: disc 8, bump 1, account 32, entry_limit 40 bytes, then break_until and self_exclusion_until (i64 each).
-const AT = 8 + 1 + 32 + 8 * 5;
-
-/** From the raw account bytes (the browser Buffer polyfill has no bigint accessors: DataView). */
-export function decodeAway(data: Uint8Array): AwayData {
-  const d = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  return { breakUntil: Number(d.getBigInt64(AT, true)), selfExclusionUntil: Number(d.getBigInt64(AT + 8, true)) };
-}
-
 /** The owner's Break and Self-Exclusion; no Protections account yet means neither. */
 export async function fetchAway(conn: Connection, owner: PublicKey): Promise<AwayData> {
   const info = await conn.getAccountInfo(protectionsPda(accountPda(owner)), "confirmed");
-  return info && info.data.length >= AT + 16 ? decodeAway(info.data) : NOT_AWAY;
+  return info && info.data.length >= AWAY_BYTES ? decodeAway(info.data) : NOT_AWAY;
 }
 
 export interface AwayView {

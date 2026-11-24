@@ -23,10 +23,24 @@ export function planPayout(a: { entry: bigint; seated: number; shares: number[];
     room -= cut;
     return cut;
   });
-  const won = a.shares.map((s) => (room * BigInt(s)) / 10_000n);
+  return { fees, won: splitByShare(room, a.shares), forfeited };
+}
+
+/** Core's split of what is left after fees: each place's share floored, the remainder to first place. */
+export function splitByShare(room: bigint, shares: number[]): bigint[] {
+  const won = shares.map((s) => (room * BigInt(s)) / 10_000n);
   if (won.length) won[0] += room - won.reduce((x, y) => x + y, 0n);
-  return { fees, won, forfeited };
+  return won;
 }
 
 /** Railcar's fee terms (Platform 2%, Studio 3%) and core's Leaderboard Fee (1%), until the screen reads them from the Game record. */
 export const RAILCAR_FEES: FeeRates = { platformBps: 200, studioBps: 300, leaderboardBps: 100 };
+
+/**
+ * The Prize a car shows from departure: every entry less the fees on the whole Pot (no refunds since rules round 2), what the
+ * last three off share. Core's rule caps fees at the forfeits, which at least two of five entries always cover.
+ */
+export const prizeOf = (a: { entry: bigint; seated: number } & FeeRates): bigint => {
+  const pot = BigInt(a.seated) * a.entry;
+  return pot - (pot * BigInt(a.platformBps + a.studioBps + a.leaderboardBps)) / 10_000n;
+};

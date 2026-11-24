@@ -1,16 +1,16 @@
 /**
- * A Practice ride, pure: the Player and 9 simulated riders on the real engine, odds, Tells, Brake and refund schedule,
+ * A Practice ride, pure: the Player and 9 simulated riders on the real engine, odds, Tells, Brake and payouts,
  * all in the browser. Nothing here reads or sends anything: the whole ride is a function of the draw, the riders and
  * the Player's own Brake and Jump, so the same seed replays the same ride.
  */
 import { MAX_CRASH_MS, MEDIAN_MS, MIN_CRASH_MS, impactMs, placeSharesBps, positionMs, refund, ride, type Ride } from "../engine";
-import { RAILCAR_FEES, planPayout } from "../payout";
+import { RAILCAR_FEES, planPayout, prizeOf } from "../payout";
 import type { Tells } from "../tell-state";
 import type { RailcarView, ResultRow, Rider } from "../view";
 import { PLACE_WORDS } from "../words";
 
 /** What a Practice ride is played for: the one real Railcar entry. Nothing is staked. */
-export const PRACTICE_ENTRY = 500n;
+export const PRACTICE_ENTRY = 100n;
 export const SIM_RIDERS = 9;
 export const PRACTICE_ME = "practice:you";
 
@@ -114,9 +114,10 @@ export function practiceView(p: Practice, t: number): RailcarView {
     tells: practiceTells(p, t),
     aboard: all.filter((s) => !off(s)).map((s) => s.rider),
     jumped: all.filter(off).map((s) => s.rider),
-    stake: BigInt(all.length) * entry,
+    prize: prizeOf({ entry, seated: all.length, ...RAILCAR_FEES }),
+    pile: all.filter(off).length,
     entry,
-    me: off(mine) && mine.jumpMs !== null ? { aboard: false, jumpMs: mine.jumpMs, back: refund(entry, positionMs(brakes(p), mine.jumpMs)) } : { aboard: true },
+    me: off(mine) && mine.jumpMs !== null ? { aboard: false, jumpMs: mine.jumpMs, after: all.filter((s) => off(s) && s !== mine && s.jumpMs! >= mine.jumpMs!).length } : { aboard: true },
   };
 }
 
@@ -142,7 +143,7 @@ function practiceResult(p: Practice, all: Seat[]): Extract<RailcarView, { phase:
     ...all.filter((s) => s.jumpMs === null).map((s) => ({ ...s.rider, kind: "aboard" as const, gets: 0n })),
   ];
   const m = rows.find((r) => r.me)!;
-  const headline = m.kind === "place" ? PLACE_WORDS[(m.place ?? 1) - 1] : m.kind === "early" ? "Jumped early" : "Aboard at Impact";
+  const headline = m.kind === "place" ? PLACE_WORDS[(m.place ?? 1) - 1] : m.kind === "early" ? "Jumped early" : "Aboard at the blast";
   return { phase: "result", rows, fees: pay.fees.reduce((a, b) => a + b, 0n), pot, entry, wallMs, jumps, mine: { headline, gets: m.gets, won: m.kind === "place" ? m.gets - entry : 0n }, outcome: "placed" };
 }
 
@@ -176,10 +177,11 @@ type Nerve = "early" | "steady" | "greedy";
 const NERVES: Nerve[] = ["early", "early", "steady", "steady", "steady", "steady", "greedy", "greedy", "greedy"];
 
 /**
- * 9 riders who read the car like Players do: each picks a moment from the engine's own survival curve (10 s, then an
- * even chance a second, capped at 2:00), scaled by their nerve. Most Jump soon after the sparks when the sparks come.
- * Since a ride may never show them, many give the panel its safe 8 s and a little more, then go, and some do the same
- * with the screws (20 s and a little more); the greediest hold for the sparks whatever happens. None Brakes.
+ * 9 riders who read the car like Players do: each picks a moment from the engine's own survival curve (5 s safe, then a
+ * chance a second that rises in a straight line, half of rides over by 25 s, capped at 2:00), scaled by their nerve.
+ * Most Jump soon after the sparks when the sparks come. Since a ride may never show them, many give the panel its safe
+ * 5 s and a little more, then go, and some do the same with the screws (9 s and a little more); the greediest hold for
+ * the sparks whatever happens. None Brakes.
  */
 export function simRiders(draw: Uint8Array): PracticeRider[] {
   const rng = riderRng(draw);
@@ -188,13 +190,13 @@ export function simRiders(draw: Uint8Array): PracticeRider[] {
   const between = (lo: number, hi: number) => Math.round(lo + (hi - lo) * rng());
   const maybe = (chance: number, lo: number, hi: number) => (rng() < chance ? between(lo, hi) : null);
   return names.map((name, i) => {
-    const curve = Math.min(MAX_CRASH_MS, MIN_CRASH_MS + Number(MEDIAN_MS) * -Math.log2(1 - rng()));
+    const curve = Math.min(MAX_CRASH_MS, MIN_CRASH_MS + Number(MEDIAN_MS) * Math.sqrt(-Math.log2(1 - rng())));
     const nerve = nerves[i];
     const scale = nerve === "early" ? 0.25 + 0.35 * rng() : nerve === "steady" ? 0.7 + 0.4 * rng() : 1 + 0.6 * rng();
-    const planMs = Math.max(4_000, Math.round(curve * scale));
-    const screwsWaitMs = nerve === "early" ? maybe(0.5, 20_000, 26_000) : nerve === "steady" ? maybe(0.4, 22_000, 34_000) : null;
-    const boltReactMs = nerve === "early" ? maybe(0.7, 500, 6_000) : nerve === "steady" ? maybe(0.75, 8_000, 12_500) : maybe(0.4, 10_000, 14_500);
-    const sparkReactMs = nerve === "early" ? between(300, 1_500) : nerve === "steady" ? maybe(0.75, 300, 2_500) : maybe(0.5, 800, 3_300);
+    const planMs = Math.max(2_000, Math.round(curve * scale));
+    const screwsWaitMs = nerve === "early" ? maybe(0.5, 9_000, 12_000) : nerve === "steady" ? maybe(0.4, 10_000, 16_000) : null;
+    const boltReactMs = nerve === "early" ? maybe(0.7, 300, 4_000) : nerve === "steady" ? maybe(0.75, 5_000, 7_500) : maybe(0.4, 6_000, 8_500);
+    const sparkReactMs = nerve === "early" ? between(300, 1_200) : nerve === "steady" ? maybe(0.75, 300, 2_000) : maybe(0.5, 800, 2_800);
     return { id: `practice:${name}`, name, planMs, screwsWaitMs, boltReactMs, sparkReactMs };
   });
 }

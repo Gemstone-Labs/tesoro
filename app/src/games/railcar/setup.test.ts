@@ -94,7 +94,7 @@ describe("Railcar's setup plan", () => {
   it("names what stops the setup before any step", () => {
     const other = key();
     expect(
-      setupProblems({ ...input, tables: 1 }, { ...nothing, coreConfig: { admin: other, entries: [100n, 1_000n] }, program: { ...nothing.program!, authority: other }, studioAccountExists: false }),
+      setupProblems({ ...input, tables: 1 }, { ...nothing, coreConfig: { admin: other, entries: [500n, 1_000n] }, program: { ...nothing.program!, authority: other }, studioAccountExists: false }),
     ).toHaveLength(5);
   });
 

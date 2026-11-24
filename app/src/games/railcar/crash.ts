@@ -1,15 +1,15 @@
 "use client";
 
 /**
- * The crash moment: when a ride the Player is watching turns into its Result, the ride screen stays for a moment while the car
- * hits the wall (shake, flash, stop), then the Result shows. A page that opens on a Result goes straight to it.
+ * The blast moment: when a ride the Player is watching turns into its Result, the ride screen stays for a moment while the bomb
+ * goes off inside the car (shake, three frames), then the Result shows. A page that opens on a Result goes straight to it.
  */
 import { useEffect, useState } from "react";
 import type { RailcarView } from "./view";
 
 type RideView = Extract<RailcarView, { phase: "ride" }>;
 
-/** How long the impact shows before the Result: the wall rushes in for 0.3 s, then flash, crumpled front and shake. Reduced motion gets a shorter fade. */
+/** How long the impact shows before the Result: the windows blow out, the blast, the wreck, with a shake. Reduced motion gets a shorter fade. */
 export const CRASH_MS = 1300;
 export const CRASH_REDUCED_MS = 450;
 

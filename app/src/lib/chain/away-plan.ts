@@ -6,6 +6,32 @@ import type { PublicKey } from "@solana/web3.js";
  * Pure: the page (for the Player starting a Break) and the keeper's daily janitor (for anything left behind) both plan with it.
  */
 
+/** The end times (unix seconds, zero = none) of a Break and a Self-Exclusion. */
+export interface AwayData {
+  breakUntil: number;
+  selfExclusionUntil: number;
+}
+
+export const NOT_AWAY: AwayData = { breakUntil: 0, selfExclusionUntil: 0 };
+
+// ProtectionsState: disc 8, bump 1, account 32, entry_limit 40 bytes, then break_until and self_exclusion_until (i64 each).
+const AT = 8 + 1 + 32 + 8 * 5;
+/** The bytes a Protections account needs to hold both end times. */
+export const AWAY_BYTES = AT + 16;
+
+/** From the raw account bytes (the browser Buffer polyfill has no bigint accessors: DataView). */
+export function decodeAway(data: Uint8Array): AwayData {
+  const d = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  return { breakUntil: Number(d.getBigInt64(AT, true)), selfExclusionUntil: Number(d.getBigInt64(AT + 8, true)) };
+}
+
+/** Whether a Player's Protections account (its bytes; null when there is none) has them on a Break or Self-Excluded at `now`. */
+export function isAwayAt(data: Uint8Array | null | undefined, now: number): boolean {
+  if (!data || data.length < AWAY_BYTES) return false;
+  const a = decodeAway(data);
+  return now < a.breakUntil || now < a.selfExclusionUntil;
+}
+
 export interface ProtectionRow {
   account: PublicKey;
   breakUntil: number;

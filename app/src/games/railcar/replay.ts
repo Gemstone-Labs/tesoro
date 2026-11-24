@@ -1,11 +1,13 @@
 /**
  * A finished ride replayed from its record: the draw gives the crash point, the Tell leads and the false screws; the
- * revealed Brakes turn track positions into ride-clock times; the Jump times give each early refund and the places. The
- * replay is held against what the chain recorded (the program's refunds, core's places), so anyone can check a ride.
+ * revealed Brakes turn track positions into ride-clock times; the Jump times give the places (and, on a round 1 car, each
+ * early refund). Core's payout rule then gives every amount (fees, each place, a Backed seat's split). The replay is held
+ * against what the chain recorded (the program's refunds, core's places and fees), so anyone can check a ride.
  */
-import { impactMs as clockAt, positionMs, refund, refundPct, ride } from "./engine";
+import { RULES_CURRENT, impactMs as clockAt, placeSharesBps, positionMs, refund, refundPct, ride, type RulesVersion } from "./engine";
 import type { RideReason } from "./chain";
-import type { RailcarView, ResultRow } from "./view";
+import { RAILCAR_FEES, planPayout, splitByShare } from "./payout";
+import { seatSplit, type RailcarView, type ResultRow, type RowBacking } from "./view";
 import { PLACE_WORDS, clock as rideClock } from "./words";
 
 /** What the Match history keeps of a ride (Railcar's `RideSettled` plus core's places and fees). */
@@ -17,13 +19,18 @@ export interface RideRecord {
   draw: Uint8Array | null;
   /** Every counted Brake: the core seat and the ride ms of the press. */
   brakes: { seat: number; ms: number }[];
-  /** Every seated Player: core seat, Account, who funded the entry, Jump order (0 aboard at Impact) and ms, the refund paid. */
-  seats: { seat: number; player: string; funder: string; order: number; jumpMs: number; refund: bigint }[];
-  /** Core's paid places, first place (last off) first: the seat and the forfeits it won on top of its entry. */
-  places: { seat: number; won: bigint }[];
+  /**
+   * Every seated Player: core seat, Account, who funded the entry (and, on a Backed seat, the Offer's share of the winnings
+   * to the Player in basis points, as Railcar revealed it), Jump order (0 aboard at Impact) and ms, the refund paid.
+   */
+  seats: { seat: number; player: string; funder: string; shareBps?: number; order: number; jumpMs: number; refund: bigint }[];
+  /** Core's paid places, first place (last off) first: the seat, the forfeits it won on top of its entry, its place share (6000 / 2500 / 1500). */
+  places: { seat: number; won: bigint; shareBps?: number }[];
   fees: bigint;
-  /** The car rode before Tells could be absent (decisions Q39): it showed every Tell, and replays that way. */
-  everyTell?: boolean;
+  /** Platform, Studio and Leaderboard Fees as core recorded them (the rates are read when the ride settles, not recorded). */
+  feeParts?: [bigint, bigint, bigint];
+  /** The rules the car left under (today's when not said): its odds, Tells and refunds replay under them. */
+  rules?: RulesVersion;
 }
 
 export interface ReplayTell {
@@ -44,12 +51,14 @@ export interface ReplaySeat {
   jumpMs?: number;
   /** Track ms at the Jump. */
   positionMs?: number;
-  /** Early-jump refund step at the Jump's track position. */
+  /** Early-jump refund step at the Jump's track position (0 since rules round 2). */
   refundPct?: number;
   /** The Player's own Brake, ride ms of the press. */
   brakeMs: number | null;
-  /** Gemas the seat got back in all (entry plus winnings for a place). */
+  /** Gemas the seat got back in all (entry plus winnings for a place), by the rules. */
   gets: bigint;
+  /** A Backed seat: how `gets` splits between the Backer and the Player by the Offer share (shown, not checked: core's history keeps no split). */
+  backing?: RowBacking;
 }
 
 export interface RideReplay {
@@ -64,6 +73,11 @@ export interface RideReplay {
   /** The record says what the replay says. */
   agrees: boolean;
   differences: string[];
+  /**
+   * Fees core read at settlement that differ from the published rates: a lawful rate change between rides, so a note, not a
+   * difference (the places are replayed after the fees core recorded). Null when they match.
+   */
+  feeNote: string | null;
 }
 
 const STAGES: ReplayTell["stage"][] = ["screws", "panel", "sparks"];
@@ -71,7 +85,8 @@ const STAGES: ReplayTell["stage"][] = ["screws", "panel", "sparks"];
 export function replayRide(rec: RideRecord): RideReplay {
   const presses = rec.brakes.map((b) => b.ms).sort((a, b) => a - b);
   const brakeOf = new Map(rec.brakes.map((b) => [b.seat, b.ms]));
-  const d = rec.draw ? ride(rec.draw, { everyTell: rec.everyTell }) : null;
+  const rules = rec.rules ?? RULES_CURRENT;
+  const d = rec.draw ? ride(rec.draw, { rules }) : null;
   const onClock = (trackMs: number) => clockAt(presses, trackMs);
   const impact = d ? onClock(d.crashMs) : null;
   const tells: ReplayTell[] = d
@@ -80,36 +95,70 @@ export function replayRide(rec: RideRecord): RideReplay {
   const base = (s: RideRecord["seats"][number]) => ({ seat: s.seat, player: s.player, funder: s.funder, brakeMs: brakeOf.get(s.seat) ?? null });
   const shown = (seat: number) => seat + 1;
 
+  const backed = (s: RideRecord["seats"][number], gets: bigint, placed: boolean): { backing?: RowBacking } =>
+    s.funder === s.player ? {} : { backing: { backer: s.funder, shareBps: s.shareBps ?? 0, ...seatSplit({ gets, entry: rec.entry, placed, shareBps: s.shareBps ?? 0 }) } };
+  const differences: string[] = [];
+  let feeNote: string | null = null;
+  const replay = (seats: ReplaySeat[]): RideReplay => ({ crashMs: d?.crashMs ?? null, impactMs: impact, tells, falseScrewsMs: d ? d.falseScrews.map(onClock) : [], seats, agrees: differences.length === 0, differences, feeNote });
+
   if (rec.outcome === "refund") {
-    const seats = rec.seats.map((s) => ({ ...base(s), kind: "refund" as const, gets: rec.entry }));
-    return { crashMs: d?.crashMs ?? null, impactMs: impact, tells, falseScrewsMs: d ? d.falseScrews.map(onClock) : [], seats, agrees: true, differences: [] };
+    if (rec.reason === "nobody-jumped") for (const s of rec.seats) if (s.order !== 0) differences.push(`Seat ${shown(s.seat)} jumped at ${rideClock(s.jumpMs)}, but the ride was refunded as nobody jumped.`);
+    if (rec.fees !== 0n) differences.push(`Fees were ${rec.fees} on a full refund, the replay gives 0.`);
+    rec.places.forEach((p, i) => differences.push(`Place ${i + 1} went to seat ${shown(p.seat)} on a full refund, the replay gives nobody.`));
+    return replay(rec.seats.map((s) => ({ ...base(s), kind: "refund" as const, gets: rec.entry, ...backed(s, rec.entry, false) })));
   }
 
-  const differences: string[] = [];
   const jumpers = rec.seats.filter((s) => s.order !== 0).sort((a, b) => a.jumpMs - b.jumpMs || a.order - b.order);
   for (const s of [...jumpers].sort((a, b) => a.seat - b.seat))
-    if (impact !== null && s.jumpMs >= impact) differences.push(`Seat ${shown(s.seat)} jumped at ${rideClock(s.jumpMs)}, after the wall at ${rideClock(impact)}.`);
+    if (impact !== null && s.jumpMs >= impact) differences.push(`Seat ${shown(s.seat)} jumped at ${rideClock(s.jumpMs)}, after the bomb at ${rideClock(impact)}.`);
   // The last three off, last first.
   const placed = jumpers.slice(-3).reverse();
   const placeOf = new Map(placed.map((s, i) => [s.seat, i + 1]));
-  const wonOf = new Map(rec.places.map((p) => [p.seat, p.won]));
+
+  const early = new Map<number, { at: number; back: bigint }>();
+  for (const s of rec.seats) {
+    if (s.order === 0 || placeOf.has(s.seat)) continue;
+    const at = positionMs(presses, s.jumpMs);
+    const back = refund(rec.entry, at, rules);
+    if (back !== s.refund) differences.push(`Seat ${shown(s.seat)} was refunded ${s.refund}, the replay gives ${back}.`);
+    early.set(s.seat, { at, back });
+  }
+  // Core's payout on the replayed refunds and places: the forfeits less the fees core recorded (their rates are read at
+  // settlement and recorded nowhere), split by each place's share. The published rates only make a note when they differ.
+  const refunded = [...early.values()].reduce((a, e) => a + e.back, 0n);
+  const shares = placeSharesBps(placed.length).slice(0, placed.length);
+  const published = planPayout({ entry: rec.entry, seated: rec.seats.length, shares, refunded, ...RAILCAR_FEES });
+  const publishedFees = published.fees.reduce((a, b) => a + b, 0n);
+  const forfeited = published.forfeited;
+  if (rec.fees > forfeited) differences.push(`Fees were ${rec.fees}, more than the ${forfeited} Gemas of entries lost.`);
+  const won = splitByShare(rec.fees > forfeited ? 0n : forfeited - rec.fees, shares);
+  if (rec.fees !== publishedFees) {
+    const [p, st, l] = rec.feeParts ?? [rec.fees, 0n, 0n];
+    feeNote = `Fees read when the ride settled: ${rec.feeParts ? `Platform ${p}, Studio ${st}, Leaderboard ${l} (${rec.fees})` : rec.fees}; the published rates give ${publishedFees}.`;
+  }
 
   const seats: ReplaySeat[] = rec.seats.map((s) => {
     const place = placeOf.get(s.seat);
-    if (place) return { ...base(s), kind: "place", place, jumpMs: s.jumpMs, gets: rec.entry + (wonOf.get(s.seat) ?? 0n) };
-    if (s.order === 0) return { ...base(s), kind: "aboard", gets: 0n };
-    const at = positionMs(presses, s.jumpMs);
-    const back = refund(rec.entry, at);
-    if (back !== s.refund) differences.push(`Seat ${shown(s.seat)} was refunded ${s.refund}, the replay gives ${back}.`);
-    return { ...base(s), kind: "early", jumpMs: s.jumpMs, positionMs: at, refundPct: refundPct(at), gets: back };
+    if (place) {
+      const gets = rec.entry + won[place - 1];
+      return { ...base(s), kind: "place", place, jumpMs: s.jumpMs, gets, ...backed(s, gets, true) };
+    }
+    if (s.order === 0) return { ...base(s), kind: "aboard", gets: 0n, ...backed(s, 0n, false) };
+    const e = early.get(s.seat)!;
+    return { ...base(s), kind: "early", jumpMs: s.jumpMs, positionMs: e.at, refundPct: refundPct(e.at, rules), gets: e.back, ...backed(s, e.back, false) };
   });
   const places = Math.max(placed.length, rec.places.length);
   for (let i = 0; i < places; i++) {
-    const got = rec.places[i]?.seat;
-    const want = placed[i]?.seat;
-    if (got !== want) differences.push(`Place ${i + 1} went to ${got === undefined ? "nobody" : `seat ${shown(got)}`}, the replay gives ${want === undefined ? "nobody" : `seat ${shown(want)}`}.`);
+    const got = rec.places[i];
+    const want = placed[i];
+    if (got?.seat !== want?.seat) {
+      differences.push(`Place ${i + 1} went to ${got === undefined ? "nobody" : `seat ${shown(got.seat)}`}, the replay gives ${want === undefined ? "nobody" : `seat ${shown(want.seat)}`}.`);
+      continue;
+    }
+    if (got.won !== won[i]) differences.push(`Place ${i + 1} (seat ${shown(got.seat)}) was paid ${rec.entry + got.won}, the replay gives ${rec.entry + won[i]}.`);
+    if (got.shareBps !== undefined && got.shareBps !== shares[i]) differences.push(`Place ${i + 1} (seat ${shown(got.seat)}) took a ${got.shareBps / 100}% share, the rules give ${shares[i] / 100}%.`);
   }
-  return { crashMs: d?.crashMs ?? null, impactMs: impact, tells, falseScrewsMs: d ? d.falseScrews.map(onClock) : [], seats, agrees: differences.length === 0, differences };
+  return replay(seats);
 }
 
 /**
@@ -121,13 +170,13 @@ export function replayView(rec: RideRecord, r: RideReplay, me: string | null): E
   const order: ReplaySeat["kind"][] = ["place", "early", "aboard", "refund"];
   const rows: ResultRow[] = [...r.seats]
     .sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind) || (a.place ?? 0) - (b.place ?? 0) || (b.jumpMs ?? 0) - (a.jumpMs ?? 0))
-    .map((s) => ({ ...rider(s), kind: s.kind, place: s.place, jumpMs: s.jumpMs, gets: s.gets }));
+    .map((s) => ({ ...rider(s), kind: s.kind, place: s.place, jumpMs: s.jumpMs, gets: s.gets, ...(s.backing ? { backing: s.backing } : {}) }));
   const jumps = r.seats
     .filter((s) => s.jumpMs !== undefined)
     .sort((a, b) => (a.jumpMs ?? 0) - (b.jumpMs ?? 0))
     .map((s) => ({ account: s.player, ms: s.jumpMs ?? 0, me: s.player === me }));
   const m = rows.find((x) => x.me);
-  const headline = (x: ResultRow) => (x.kind === "place" ? PLACE_WORDS[(x.place ?? 1) - 1] : x.kind === "early" ? "Jumped early" : x.kind === "aboard" ? "Aboard at Impact" : rec.reason === "nobody-jumped" ? "Nobody jumped" : "Ride void");
+  const headline = (x: ResultRow) => (x.kind === "place" ? PLACE_WORDS[(x.place ?? 1) - 1] : x.kind === "early" ? "Jumped early" : x.kind === "aboard" ? "Aboard at the blast" : rec.reason === "nobody-jumped" ? "Nobody jumped" : "Ride void");
   return {
     phase: "result",
     rows,
@@ -136,7 +185,12 @@ export function replayView(rec: RideRecord, r: RideReplay, me: string | null): E
     entry: rec.entry,
     wallMs: r.impactMs ?? 0,
     jumps,
-    mine: m ? { headline: headline(m), gets: m.gets, won: m.kind === "place" ? m.gets - rec.entry : 0n } : null,
+    // Under a Backing the Player's own part is their share; the Backer's is shown beside it (as the live Result does).
+    mine: m
+      ? m.backing
+        ? { headline: headline(m), gets: m.backing.playerGets, won: m.backing.playerGets, backer: { account: m.backing.backer, gets: m.backing.backerGets } }
+        : { headline: headline(m), gets: m.gets, won: m.kind === "place" ? m.gets - rec.entry : 0n }
+      : null,
     outcome: rec.outcome,
   };
 }

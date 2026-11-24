@@ -41,7 +41,7 @@ export function MyOffer({
         : offer.game === "railcar"
           ? ride
             ? backerRideLine(ride)
-            : "Boarded: your Gemas ride in the Player's seat. A step-off or an early Jump sends them back to you"
+            : "Boarded: your Gemas ride in the Player's seat. A step-off before the car leaves sends them back to you"
           : "Match started: your Gemas are in the Pot"
       : lapsed
         ? "Expired: release your reserved Gemas"

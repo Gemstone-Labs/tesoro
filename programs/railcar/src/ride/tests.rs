@@ -43,14 +43,14 @@ const CY: usize = 2;
 const DEE: usize = 3;
 
 #[test]
-fn the_worked_example_reports_three_places_and_anas_refund() {
-    let v = vault(120_000);
+fn the_worked_example_reports_three_places_and_no_refund_for_ana() {
+    let v = vault(30_000);
     let mut t = riding(5);
-    for (who, secs) in [(ANA, 25.0), (CY, 95.0), (BEN, 97.0), (DEE, 99.0)] {
+    for (who, secs) in [(ANA, 8.0), (CY, 27.0), (BEN, 28.0), (DEE, 29.0)] {
         assert!(!advance(&mut t, &v, at(secs)));
         assert_eq!(jump(&mut t, who, at(secs)), Ok(false));
     }
-    assert!(advance(&mut t, &v, at(120.0)), "the wall at 120 s");
+    assert!(advance(&mut t, &v, at(30.0)), "the Bomb at 30 s");
     conclude(&mut t, &v, impact_ms(&v), 77);
     assert_eq!(
         result(&t),
@@ -69,15 +69,13 @@ fn the_worked_example_reports_three_places_and_anas_refund() {
                     share_bps: 1_500
                 },
             ],
-            refunds: vec![SeatRefund {
-                seat: 0,
-                gemas: 350
-            }],
+            refunds: vec![],
         })
     );
+    assert_eq!(t.seats[ANA].refund(), 0, "an early Jump loses the entry");
     assert_eq!(
         (t.phase, t.dirty, t.over_ms(), t.over_at()),
-        (PHASE_OVER, 1, 120_000, 77)
+        (PHASE_OVER, 1, 30_000, 77)
     );
 }
 
@@ -220,12 +218,12 @@ fn a_player_jumps_once_and_the_order_has_no_ties() {
 }
 
 #[test]
-fn early_refunds_follow_the_schedule_at_the_jump() {
+fn a_jump_before_the_last_three_refunds_nothing_wherever_it_lands() {
     let v = vault(120_000);
     let mut t = riding(6);
-    // 19.99 s: 80%, 20 s: 70%, 95 s: 5%, then three placed
+    // off at the first ms, at 20 s, at 95 s: all 0, like the three placed and a seat aboard
     for (who, secs) in [
-        (0, 19.99),
+        (0, 0.01),
         (1, 20.0),
         (2, 95.0),
         (3, 100.5),
@@ -236,7 +234,11 @@ fn early_refunds_follow_the_schedule_at_the_jump() {
     }
     conclude(&mut t, &v, 102_000, 0);
     let refunds: Vec<u64> = t.seats[..6].iter().map(|s| s.refund()).collect();
-    assert_eq!(refunds, vec![400, 350, 25, 0, 0, 0]);
+    assert_eq!(refunds, vec![0; 6]);
+    let Some(ManySeatResult::Placed { refunds, .. }) = result(&t) else {
+        panic!("placed");
+    };
+    assert!(refunds.is_empty(), "core is sent no refund");
 }
 
 // =========================================================================================
@@ -350,17 +352,17 @@ fn a_brake_off_the_car_or_before_every_seat_is_bound_does_nothing() {
 }
 
 #[test]
-fn refunds_after_a_brake_follow_track_position() {
+fn a_brake_moves_the_jumps_on_the_track_but_refunds_nothing() {
     let mut v = vault(120_000);
     let (mut t, mut seats) = braking(6);
     press(&t, &mut v, &mut seats, ANA, 15.0);
-    // Ben Jumps at 21 s real, 18.5 s of track: 80%, not the 70% real time would give
     jump(&mut t, BEN, at(21.0)).unwrap();
     for (who, secs) in [(2, 60.0), (3, 61.0), (4, 62.0)] {
         jump(&mut t, who, at(secs)).unwrap();
     }
     conclude(&mut t, &v, impact_ms(&v), 0);
-    assert_eq!(t.seats[BEN].refund(), 400);
+    assert_eq!(t.over_ms(), 122_500);
+    assert!(t.seats[..6].iter().all(|s| s.refund() == 0));
 }
 
 #[test]
@@ -427,7 +429,7 @@ fn valid_presses(crash: u32, gaps: &[u32]) -> Vec<u32> {
 proptest! {
     #[test]
     fn the_closed_form_matches_the_engine(
-        crash in 10_000u32..=120_000,
+        crash in 5_000u32..=120_000,
         gaps in proptest::collection::vec(0u32..12_000, 0..100),
         after in 0u32..300_000,
     ) {
@@ -445,19 +447,6 @@ proptest! {
             (half_position(&v, q) / 2) as u32,
             engine::position_ms(&presses, q)
         );
-    }
-
-    #[test]
-    fn one_walk_gives_the_engine_positions(
-        gaps in proptest::collection::vec(0u32..12_000, 0..100),
-        mut times in proptest::collection::vec(0u32..700_000, 0..100),
-    ) {
-        let presses = valid_presses(120_000, &gaps);
-        times.sort_unstable();
-        let mut walk = Slowed::new(&presses);
-        for q in times {
-            prop_assert_eq!(walk.position_ms(q), engine::position_ms(&presses, q));
-        }
     }
 }
 

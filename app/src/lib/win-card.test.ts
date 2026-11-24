@@ -33,12 +33,15 @@ describe("winCardFromRow", () => {
     expect(winCardFromRow(row, { name: "Ana", avatar: { kind: "animal", index: 2 } })).toMatchObject({ id: "o-7", game: "holdem", entry: 1000, gemas: 780, name: "Ana", avatar: 3 });
     expect(winCardFromRow(row, null)?.name).toContain("…");
   });
-  it("a Railcar ride's card: its last Player off, when they jumped, where the wall was and how many rode", () => {
+  it("a Railcar ride's card: its last Player off, when they jumped, when the bomb went off and how many rode", () => {
     const ride = storedWorkedRide({ brake: true });
-    const card = winCardFromRow({ id: ride.id, game: "railcar", entry: 500, winner: ride.ride.places[0].player, gemas: 313, ride: ride.ride }, { name: "Dee", avatar: { kind: "animal", index: 2 } });
-    // Dee off at 1:39; the wall at 1:44 of track came at 1:46 on the clock after Dee's Brake.
-    expect(card).toMatchObject({ game: "railcar", gemas: 313, name: "Dee", ride: { seated: 5, lastOffMs: 99_000, wallMs: 106_500 } });
-    expect(winShareText(card!)).toBe("I was last off a Railcar ride and won 313 Gemas on @PlayTesoro. The wall was at 1:46.");
+    const dee = ride.ride.places[0];
+    const lastOff = ride.ride.seats.find((s) => s.player === dee.player)!;
+    const card = winCardFromRow({ id: ride.id, game: "railcar", entry: ride.entry, winner: dee.player, gemas: dee.won, ride: ride.ride }, { name: "Dee", avatar: { kind: "animal", index: 2 } });
+    // Dee off at 0:29; the bomb at 0:30 of track went off at 0:32 on the clock after Dee's Brake at 0:20 (2.5 s lost).
+    expect(card).toMatchObject({ game: "railcar", gemas: dee.won, name: "Dee", ride: { seated: 5, lastOffMs: lastOff.jumpMs, wallMs: 32_500 } });
+    expect(lastOff.jumpMs).toBe(29_000);
+    expect(winShareText(card!)).toBe(`I was last off a Railcar ride and won ${dee.won} Gemas on @PlayTesoro. The bomb went off at 0:32.`);
   });
   it("is null for a Game this app does not play", () => {
     expect(winCardFromRow({ id: "o-7", game: "chess", entry: 1, winner: A, gemas: 1 }, null)).toBeNull();

@@ -11,7 +11,7 @@ describe("the Railcar showcase (a short ride that plays itself)", () => {
     expect(showcaseAt(SHOWCASE_CRASH_MS).view.phase).toBe("result");
   });
 
-  it("departs and speeds up, then fires Screws, Panel and Sparks a few seconds apart", () => {
+  it("departs and speeds up, then fires the three warnings a few seconds apart", () => {
     expect(showcaseAt(0).view).toMatchObject({ phase: "ride", tells: tellsUpTo(0), clockMs: 0 });
     const clock = (ms: number) => (showcaseAt(ms).view as { clockMs: number }).clockMs;
     expect(clock(6_000)).toBeGreaterThan(clock(2_000));

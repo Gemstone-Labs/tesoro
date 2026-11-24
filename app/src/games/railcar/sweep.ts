@@ -3,12 +3,16 @@
  * whose pages are all gone, the steps a page would have taken (`nextRideStep`), plus what only a late sender weighs: core's
  * refund once the car's refund time has passed, a ride still inside its time, a commit on its way, and a car still
  * Boarding when core's boarding has ended (nobody can join or depart it any more, so every seat steps off home and the
- * car closes). The finish goes through `finishRide`, as a page's does. Reads only; `send` sends.
+ * car closes), and a seat in a car still Boarding whose Player has since started a Break or Self-Exclusion (core lets anyone
+ * step that seat off; the Player's own page steps them off as they start it, so this is the backstop). The finish goes
+ * through `finishRide`, as a page's does. Reads only; `send` sends.
  */
 import type { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { settledPda } from "../../lib/chain/basket";
-import { boardingEnds, closeCarIx, decodeCar, type CarView } from "../../lib/chain/many-seat";
-import { loadCar } from "../../lib/chain/many-seat-plan";
+import { isAwayAt } from "../../lib/chain/away-plan";
+import { boardingEnds, closeCarIx, decodeCar, type CarView, type SeatView } from "../../lib/chain/many-seat";
+import { loadCar, type LoadedCar } from "../../lib/chain/many-seat-plan";
+import { protectionsPda } from "../../lib/chain/native";
 import type { Core, Reader } from "../../lib/chain/settle-plan";
 import { returnLinesFor, stepOffFor } from "./step-off";
 import { carPda, checkDepartureIx, closeRailcarCarIx, commitTableIx, configPda, decodeCarAccount, decodeConfig, decodeTable, signalIx, skipCarIx, startRideIx, tablePda, type CarAccountView, type TableView } from "./chain";
@@ -129,20 +133,35 @@ export interface SweepEnv {
 
 export type SweepResult = { sent: string[] } | { wait: string };
 
+/** The seated seats whose Player is on a Break or Self-Excluded at `now` (their Protections accounts read from `read`). */
+export async function awaySeats(read: Reader, seats: SeatView[], now: number): Promise<SeatView[]> {
+  const seated = seats.filter((s) => s.seated);
+  if (!seated.length) return [];
+  const protections = await read.many(seated.map((s) => protectionsPda(s.player)));
+  return seated.filter((_, i) => isAwayAt(protections[i]?.data, now));
+}
+
 /** The steps a car whose pages are gone needs now, sent through `env.send`; `wait` when nothing is due yet. */
 export async function rideSweepStep(e: SweepEnv): Promise<SweepResult> {
   const info = await one(e.base, e.match);
   if (!info) return { sent: [] };
   const core = decodeCar(e.match, info.data);
-  const ride = await findCarRide(e.base, e.rollup, e.match);
-  const page = ride ? nextRideStep({ mine: { carNo: ride.carNo, table: ride.table }, core, rollup: ride.rollup, base: ride.base, previousFrozen: ride.previousFrozen, now: e.now }) : ({ kind: "wait" } as const);
-  const action = sweepRideAction(page, { core, rollup: ride?.rollup ?? null, now: e.now });
-  if ("wait" in action) return action;
   const sent: string[] = [];
   const send = async (s: SweepSend) => {
     await e.send(s);
     sent.push(s.what);
   };
+  // A car still taking seats: whoever has started a Break or Self-Exclusion since boarding steps off first, before it can leave.
+  if (core.stage === "boarding" && e.now < boardingEnds(core)) {
+    const loaded = await loadCar(e.base, e.match);
+    const away = loaded ? await awaySeats(e.base, loaded.seats, e.now) : [];
+    for (const seat of away) await stepSeatOff(e, send, loaded!, seat, "the Player is away");
+    if (away.length) return { sent };
+  }
+  const ride = await findCarRide(e.base, e.rollup, e.match);
+  const page = ride ? nextRideStep({ mine: { carNo: ride.carNo, table: ride.table }, core, rollup: ride.rollup, base: ride.base, previousFrozen: ride.previousFrozen, now: e.now }) : ({ kind: "wait" } as const);
+  const action = sweepRideAction(page, { core, rollup: ride?.rollup ?? null, now: e.now });
+  if ("wait" in action) return action;
   switch (action.send) {
     case "step-off":
       await stepEveryoneOff(e, send, ride);
@@ -225,18 +244,21 @@ async function skipIfPassedOver(e: SweepEnv, carNo: bigint, send: (s: SweepSend)
 async function stepEveryoneOff(e: SweepEnv, send: (s: SweepSend) => Promise<void>, ride: CarRide | null): Promise<void> {
   const loaded = await loadCar(e.base, e.match);
   if (!loaded) return;
-  for (const seat of loaded.seats.filter((s) => s.seated)) {
-    await send({ layer: "base", what: `step_off seat ${seat.index} (boarding ended)`, ixs: [await stepOffFor(e.core, e.base, { caller: e.caller, loaded, seat })], units: 400_000 });
-    for (let i = 0; i < 64; i++) {
-      const ix = await returnLinesFor(e.core, e.base, { caller: e.caller, car: e.match, funder: seat.funder });
-      if (!ix) break;
-      await send({ layer: "base", what: `return_stepped_off seat ${seat.index}`, ixs: [ix], units: 400_000 });
-    }
-  }
+  for (const seat of loaded.seats.filter((s) => s.seated)) await stepSeatOff(e, send, loaded, seat, "boarding ended");
   const after = await loadCar(e.base, e.match);
   if (after) await send({ layer: "base", what: "close_many_seat_match (every seat stepped off)", ixs: [closeCarIx(e.caller, after.car, after.pages)], units: 200_000 });
   if (ride) {
     await skipIfPassedOver(e, ride.carNo, send);
     if (ride.car) await send({ layer: "base", what: "close_car (core closed the car)", ixs: [closeRailcarCarIx(e.caller, ride.car)], units: 200_000 });
+  }
+}
+
+/** One seat home to its funder: core's step-off, then whatever lines it left on their way. */
+async function stepSeatOff(e: SweepEnv, send: (s: SweepSend) => Promise<void>, loaded: LoadedCar, seat: SeatView, why: string): Promise<void> {
+  await send({ layer: "base", what: `step_off seat ${seat.index} (${why})`, ixs: [await stepOffFor(e.core, e.base, { caller: e.caller, loaded, seat })], units: 400_000 });
+  for (let i = 0; i < 64; i++) {
+    const ix = await returnLinesFor(e.core, e.base, { caller: e.caller, car: e.match, funder: seat.funder });
+    if (!ix) break;
+    await send({ layer: "base", what: `return_stepped_off seat ${seat.index}`, ixs: [ix], units: 400_000 });
   }
 }

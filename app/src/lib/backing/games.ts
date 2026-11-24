@@ -23,7 +23,7 @@ export const backedProgram = (g: BackedGame): PublicKey => (g === "railcar" ? RA
 
 export const backedGameName = (g: BackedGame): string => (g === "railcar" ? "Railcar" : GAME_NAMES[g]);
 
-/** The entries a Request for this Game may ask for, when the Game fixes them (Railcar: 500); null = every entry size. */
+/** The entries a Request for this Game may ask for, when the Game fixes them (Railcar: 100); null = every entry size. */
 export const backedEntries = (g: BackedGame): number[] | null => (g === "railcar" ? [ENTRY_GEMAS] : null);
 
 export const backedHero = (g: BackedGame) => (g === "railcar" ? art.railcarTile : art.hero[g]);

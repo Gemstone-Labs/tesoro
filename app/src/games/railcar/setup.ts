@@ -16,7 +16,7 @@ import { coreIx, coreIxName, idlIxBuilder } from "../../lib/chain/core-ix";
 import coreIdl from "../../lib/chain/idl/tesoro_core.json";
 import { rdU64, u64 } from "../../lib/chain/native";
 import railcarIdl from "../../lib/chain/idl/railcar.json";
-import { RAILCAR_PROGRAM_ID, authorityPda, configPda, decodeConfig, railcarIx, sponsorPda, tablePda, vaultPda } from "./chain";
+import { ENTRY_GEMAS, RAILCAR_PROGRAM_ID, authorityPda, configPda, decodeConfig, railcarIx, sponsorPda, tablePda, vaultPda } from "./chain";
 
 const UPGRADEABLE_LOADER = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
 
@@ -253,7 +253,7 @@ export function setupProblems(input: SetupInput, facts: SetupFacts): string[] {
   if (!facts.coreConfig) out.push("tesoro_core has no Config on this cluster");
   else {
     if (!facts.coreConfig.admin.equals(input.admin)) out.push(`tesoro_core's admin is ${facts.coreConfig.admin.toBase58()}, not ${input.admin.toBase58()}`);
-    if (!facts.coreConfig.entries.includes(500n)) out.push(`tesoro_core's entry sizes (${facts.coreConfig.entries.join(", ")}) leave out Railcar's 500`);
+    if (!facts.coreConfig.entries.includes(BigInt(ENTRY_GEMAS))) out.push(`tesoro_core's entry sizes (${facts.coreConfig.entries.join(", ")}) leave out Railcar's ${ENTRY_GEMAS}`);
   }
   if (!facts.program) out.push(`Railcar ${RAILCAR_PROGRAM_ID.toBase58()} is not deployed here`);
   else if (!facts.program.authority?.equals(input.upgradeAuthority)) out.push(`Railcar's upgrade authority is ${facts.program.authority?.toBase58() ?? "none"}, not ${input.upgradeAuthority.toBase58()}`);
@@ -327,7 +327,7 @@ export function railcarSetupPlan(input: SetupInput, facts: SetupFacts): SetupSte
   add({
     id: "set-config",
     title: `railcar set_config: operator ${short(operator)}, ${input.tables} Tables`,
-    why: "names who runs the Tables and how many there are (a car rides on Table car_no % tables). Entry 500, 5-100 seats, the 30 s countdown, the refund schedule and the 60/25/15 split are program constants, and VRF and the TEE validator are pinned in the program",
+    why: "names who runs the Tables and how many there are (a car rides on Table car_no % tables). Entry 100, 5-100 seats, the 30 s countdown, the rising Bomb odds and the 60/25/15 split are program constants, and VRF and the TEE validator are pinned in the program",
     signer: "upgrade authority",
     layer: "base",
     ixs: [setConfigIx(input.upgradeAuthority, operator, input.tables)],

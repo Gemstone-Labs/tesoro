@@ -186,36 +186,40 @@ _Avoid_: whitelist, verification, certification
 ### Railcar
 
 **Railcar**:
-A Game in which 5 to 100 Players, each with an entry of 500 Gemas, ride one car toward a wall at a hidden distance and choose when to Jump. Railcar has one Queue. The last three Players off before Impact each get their entry back, then share the rest of the Pot 60/25/15 (two Players off: 70/30; one: all of it). Players still aboard at Impact lose their entry; if nobody Jumps, every entry is refunded. Screens may call a Railcar Match a "ride".
-_Avoid_: round, crash game, bet
+A Game in which 5 to 100 Players, each with an entry of 100 Gemas, ride one car with a Bomb hidden inside it and choose when to Jump. Railcar has one Queue. The last three Players off before Impact each get their entry back, then share the rest of the Prize 60/25/15 (two Players off: 70/30; one: all of it). Everyone else gets nothing: a Player who Jumps earlier loses their entry, the same as a Player still aboard at Impact. If nobody Jumps, every entry is refunded with no Fees. Screens may call a Railcar Match a "ride".
+_Avoid_: round, crash game, bet, cash out
 
 **Boarding**:
 How Players enter a Railcar Match. The car waits for its 5th Player, then counts down 30 seconds in which anyone may board, up to 100, and leaves. Until it leaves a Player may step off for a full refund. The departure time is fixed the first time 5 are aboard and never restarts: if stepping off leaves fewer than 5 at that time, the car waits and leaves the moment a 5th boards.
 _Avoid_: lobby, queue (the Queue is one Game's waiting line at one entry size)
 
+**Bomb**:
+The hidden charge inside a Railcar car. It is never shown on any screen; only its warnings, the Tells, show on the car. It goes off at the Crash point, and the explosion is the Impact. Everything about it is drawn at random when the car leaves and published after the Match.
+_Avoid_: wall (round 1's theme), crash, fuse
+
 **Crash point**:
-The distance at which the car hits the wall, drawn at random when it leaves and hidden from everyone until Impact. Its odds are published: an even chance at every moment after the first 10 seconds, half of all rides over by 40 seconds, certain by 2 minutes before any Brake. Anyone can check it after the Match.
-_Avoid_: multiplier, bust point
+The point on the track where the Bomb goes off, drawn at random when the car leaves and hidden from everyone until Impact. Its odds are published: no Bomb in the first 5 seconds, then a chance that rises steadily with every second (the chance it goes off in the next second is 1.9 in 100 at 10 seconds, 6.9 at 25, 13.1 at 45); half of all rides are over by 25 seconds, about 9 in 10 by 41, about 1 in 190 passes a minute and none passes 2 minutes before any Brake. Anyone can check it after the Match.
+_Avoid_: multiplier, bust point, timer
+
+**Prize**:
+What the last three Players off share in a Railcar Match: the Pot minus Fees, fixed when the car leaves (5 Players at 100 → 470) and shown on the car during the ride. Each Player who Jumps drops their entry onto the pile; the Players still aboard at Impact leave theirs there too. If nobody Jumps there is no Prize: every entry goes back and no Fees are taken. Not the Leaderboard's prizes, which come from the Leaderboard Pool.
+_Avoid_: pot (the Pot is every entry, before Fees), jackpot, prize pool
 
 **Tell**:
-A warning the car gives as the wall nears: screws pop, a bolt and a panel rattle, sparks fly with a creak. The screws show on every ride; the bolt and panel show on 3 rides in 4 and the sparks on 2 rides in 3, each on its own. A Tell that shows starts a random distance before the wall within its published range (the sparks, when they show, at least 3 seconds ahead at full speed). A Tell that does not show is never announced, so after any Tell the wall can come with no further warning. A few false screws come early and look exactly like the real ones. On a short ride whose screws would start before departure, the screws start when the car leaves. Tells hint, never pin the Crash point.
-_Avoid_: signal, hint, clue
+A warning the car gives as the Bomb nears: screws pop, a bolt and a panel rattle, sparks fly with a creak. They show on the car itself (a glow under it and at the door seams, then the whole car outlined in hot light), never as the Bomb. The screws show on every ride; the bolt and panel show on 3 rides in 4 and the sparks on 2 rides in 3, each on its own. A Tell that shows starts a random distance before the Crash point within its published range: screws 9–18 seconds, bolt and panel 5–9, sparks 3–5 at full speed. A Tell that does not show is never announced, so after any Tell the Bomb can go off with no further warning. A few false screws come in the first 1–9 seconds of a ride and look exactly like the real ones. On a short ride whose screws would start before departure, the screws start when the car leaves. Tells hint, never pin the Crash point.
+_Avoid_: signal, hint, clue, warning (on screens only; the term is Tell)
 
 **Brake**:
-A Player's one action per Railcar Match besides Jumping, usable only while aboard: it halves the car's speed for 5 seconds. The car slows for everyone, but only the Player who Braked sees it: every other screen shows the car as before, so a Brake is a safety margin nobody else knows about. Each Player sees only their own Brake; all Brakes are revealed with the Crash point after the Match. A Brake pressed during another adds 5 more seconds at half speed; the car never goes slower than half speed. Distances, Tells and the Early-jump refund all move with the car, so braking changes when they arrive, not where.
+A Player's one action per Railcar Match besides Jumping, usable only while aboard: it halves the car's speed for 5 seconds. The car slows for everyone, but only the Player who Braked sees it: every other screen shows the car as before, so a Brake is a safety margin nobody else knows about. Each Player sees only their own Brake; all Brakes are revealed with the Crash point after the Match. A Brake pressed during another adds 5 more seconds at half speed; the car never goes slower than half speed. The Crash point and the Tells stay where they are on the track, so braking changes when they arrive, not where.
 _Avoid_: power-up, boost
 
 **Jump**:
-Leaving the car during a Railcar Match. Jumps are ordered as the game receives them; a Jump that arrives after Impact does not count, and the Player is still aboard. A Player whose connection drops stays aboard; there is no automatic Jump.
-_Avoid_: cash out, exit, bail
+Leaving the car during a Railcar Match. Jumps are ordered as the game receives them; a Jump that arrives after Impact does not count, and the Player is still aboard. Only the last three Jumps before Impact are paid; an earlier Jump gets nothing back, and its entry stays on the pile. A Player whose connection drops stays aboard; there is no automatic Jump.
+_Avoid_: cash out, exit, bail, early-jump refund (removed 2026-11-15; no Jump is refunded)
 
 **Impact**:
-The moment the car reaches the Crash point. It ends the Match; everyone still aboard loses their entry.
-_Avoid_: crash (the Game's theme, not the event), bust
-
-**Early-jump refund**:
-The part of an entry returned to a Player who Jumps but is not among the last three off: 80% up to 20 seconds of ride at full speed, then 10 points less every 10 seconds down to 10% at 80–90 seconds, 5% at 90–100 seconds and nothing after. The rest of their entry stays in the Pot.
-_Avoid_: cash-out value, partial win
+The moment the car reaches the Crash point and the Bomb goes off. It ends the Match; everyone still aboard loses their entry. Screens show it as the explosion.
+_Avoid_: crash (round 1's theme, not the event), bust, explosion (on screens only; the term is Impact)
 
 ### Vanguard
 
@@ -270,7 +274,7 @@ _Avoid_: skip, forfeit
 ### Backing
 
 **Backing**:
-An agreement, accepted by both sides, in which a Backer funds a Player's full entry into one Match. On a win the Backer's entry is returned first and the remainder is split by the share the Backer offered. A partial refund (a Railcar early jump) goes to the Backer. It cannot be revoked once the Match starts.
+An agreement, accepted by both sides, in which a Backer funds a Player's full entry into one Match. On a win the Backer's entry is returned first and the remainder is split by the share the Backer offered. A Backer loses the entry when their Player loses, in Railcar whether the Player Jumped early or was aboard at Impact. It cannot be revoked once the Match starts.
 _Avoid_: staking (a player), sponsorship, scholarship, loan
 
 **Request**:

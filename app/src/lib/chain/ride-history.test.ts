@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { HistoryRow } from "./history";
-import { backerRideLine, rideOfOffer } from "./ride-history";
+import { backerRideLine, rideOfOffer, rideRecordOf, rulesOf } from "./ride-history";
+import { storedWorkedRide } from "@/games/railcar/fixtures";
 
 const BEN = "BenPlayer1111111111111111111111111111111111";
 const EVE = "EvePlayer1111111111111111111111111111111111";
@@ -17,13 +18,34 @@ describe("the ride a used Railcar Offer funded", () => {
   });
 });
 
+describe("the rules a stored ride replays under", () => {
+  it("the recorded byte wins; without it a 100-Gema ride is round 2 (the staging sidecar's older decoder drops the byte), a 500-Gema ride round 1 or Q39 by car number", () => {
+    expect(rulesOf({ carNo: "40", rules: 2, entry: 100 }, 15n)).toBe(2);
+    expect(rulesOf({ carNo: "40", entry: 100 }, 15n)).toBe(3);
+    expect(rulesOf({ carNo: "40", entry: 500 }, 15n)).toBe(2);
+    expect(rulesOf({ carNo: "7", entry: 500 }, 15n)).toBe(1);
+    expect(rulesOf({ carNo: "7", entry: 500 }, 0n)).toBe(2);
+  });
+  it("a round 2 ride the sidecar stored without the byte still replays under round 2", () => {
+    const page = storedWorkedRide();
+    const withoutByte = { ...page.ride, rules: undefined };
+    expect(rideRecordOf({ entry: page.entry, ride: withoutByte })?.rules).toBe(3);
+    expect(rideRecordOf({ entry: page.entry, ride: page.ride })?.rules).toBe(3);
+  });
+});
+
 describe("the Backer's line of a ride", () => {
   it("a place: the entry comes back first, then the Backer's share of the winnings", () => {
     expect(backerRideLine(row({}))).toBe("Second-last off at 1:37: your 500 back, then +78 of the winnings");
   });
-  it("an early Jump returns the refund to the Backer; aboard at Impact the Backer loses the entry; a refund returns it", () => {
+  it("an early Jump or aboard at the blast loses the Backer's entry (rules round 2); a refund returns it", () => {
+    const r2 = (o: Partial<HistoryRow>) => row({ entry: 100, ...o });
+    expect(backerRideLine(r2({ result: "lost", delta: -100, ride: { seated: 5, kind: "early", jumpMs: 8_000 } }))).toBe("Jumped at 0:08: your 100 is lost");
+    expect(backerRideLine(r2({ result: "lost", delta: -100, ride: { seated: 5, kind: "aboard" } }))).toBe("Aboard at the blast: your 100 is lost");
+    expect(backerRideLine(r2({ result: "refunded", delta: 0, ride: { seated: 5, kind: "refund" } }))).toBe("Ride refunded: your 100 back");
+  });
+
+  it("a round 1 car's early Jump still reads the part of the entry it returned", () => {
     expect(backerRideLine(row({ result: "lost", delta: -150, ride: { seated: 5, kind: "early", jumpMs: 25_000 } }))).toBe("Jumped at 0:25: 350 of your 500 back");
-    expect(backerRideLine(row({ result: "lost", delta: -500, ride: { seated: 5, kind: "aboard" } }))).toBe("Aboard at Impact: your 500 is lost");
-    expect(backerRideLine(row({ result: "refunded", delta: 0, ride: { seated: 5, kind: "refund" } }))).toBe("Ride refunded: your 500 back");
   });
 });
