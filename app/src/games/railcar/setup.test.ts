@@ -85,6 +85,13 @@ describe("Railcar's setup plan", () => {
     expect(setupCheck(railcarSetupPlan(input, everything))).toEqual({ ok: true, left: [] });
   });
 
+  it("the release check fails when the Game is registered with other terms (a settle authority, fee or recipient the request does not match): propose_game_change, not a re-run", () => {
+    const other = { ...everything, game: { ...everything.game!, studioRecipient: key() } };
+    const steps = railcarSetupPlan(input, other);
+    expect(steps.find((s) => s.id === "register-game")).toMatchObject({ status: "blocked", note: expect.stringContaining("propose_game_change") });
+    expect(setupCheck(steps)).toEqual({ ok: false, left: ["register-game"] });
+  });
+
   it("refuses a Table count other than the one fixed when the first car opened", () => {
     const steps = railcarSetupPlan({ ...input, tables: 3 }, { ...everything, config: { operator: input.operator, tables: 2, nextCar: 4n }, tables: [...everything.tables, { index: 2, base: "missing", vaultReady: null }] });
     expect(steps.find((s) => s.id === "set-config")!.status).toBe("blocked");

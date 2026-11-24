@@ -449,6 +449,10 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
       case "close":
         if (send && me && (!ride || mayFinish(ride, me) || step.kind !== "finalize")) run(() => finishFromPage(send, car, snap.base, me));
         return;
+      case "refund":
+        // core refunds every seat: any rider's page may send it
+        if (send && me) run(() => finishFromPage(send, car, snap.base, me));
+        return;
       default:
         // finalize-previous: the previous car's riders (or the keeper's sweep) finalize it; this page waits.
         return;

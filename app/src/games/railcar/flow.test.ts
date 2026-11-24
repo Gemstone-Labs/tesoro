@@ -9,7 +9,7 @@ const key = () => Keypair.generate().publicKey;
 const T0 = 1_762_300_000;
 
 const coreCar = (o: Partial<CarView> = {}): CarView =>
-  ({ address: key(), payer: key(), opener: key(), n: 0n, game: key(), settleAuthority: key(), studioOwner: null, entry: 100n, openedAt: T0, deadlineAbs: T0 + 7 * 86_400, minSince: 0, firstMinAt: 0, departedAt: 0, platformBps: 200, studioBps: 300, listed: true, minSeats: 5, maxSeats: 100, seated: 0, pages: 0, stage: "boarding", refundAfter: 0, run: {} as CarView["run"], ...o }) as CarView;
+  ({ address: key(), payer: key(), opener: key(), n: 0n, game: key(), settleAuthority: key(), studioOwner: null, entry: 100n, openedAt: T0, deadlineAbs: T0 + 7 * 86_400, minSince: 0, firstMinAt: 0, departedAt: 0, platformBps: 200, studioBps: 300, listed: true, minSeats: 5, maxSeats: 100, seated: 0, pages: 0, stage: "boarding", refundAfter: T0 + 86_400, run: {} as CarView["run"], ...o }) as CarView;
 const seat = (index: number, seated = true): SeatView => ({ index, seated, shareBps: 0, placeBps: 0, place: 0, potLines: 1, hold: 0, refund: 0n, player: key(), funder: key(), pot: key(), signer: key() });
 const page = (index: number, seatedCount: number): SeatPageView => ({ index, matchKey: key(), payer: key(), seats: Array.from({ length: 10 }, (_, i) => seat(index * 10 + i, i < seatedCount)) });
 const config = (o: Partial<{ nextCar: bigint; boardingMatch: PublicKey }> = {}) => ({ operator: key(), tables: 2, nextCar: 4n, boardingMatch: PublicKey.default, ...o });
@@ -120,6 +120,7 @@ const table = (o: Partial<TableView> = {}): TableView => ({
   commitAt: 0,
   seats: [],
   brakesBound: 0,
+  deadlineAbs: 0,
   paceSlot: 0n,
   paceTs: 0,
   revealed: false,
@@ -145,18 +146,53 @@ describe("finishing a ride from the Players' pages", () => {
     expect(nextRideStep({ mine, core, rollup: table({ phase: "riding", carNo: 1n, nextCar: 3n }), base: null, previousReceipt: false, now: T0 }).kind).toBe("wait");
   });
 
-  it("after departure: a Table over for an hour short of two weeks starts the ride without the previous car's receipt (core may reclaim it from then)", () => {
-    const core = coreCar({ stage: "departed", seated: 5, pages: 1 });
-    const over = (overAt: number, now: number) => nextRideStep({ mine, core, rollup: table({ phase: "over", carNo: 1n, nextCar: 3n, overAt }), base: null, previousReceipt: false, now }).kind;
+  it("after departure: a Table over without the previous car's receipt frees for a car that left (base time) at or after that car's core deadline", () => {
+    const prevDeadline = T0 + 7 * 86_400;
+    const step = (t: Partial<TableView>, departedAt: number, now = departedAt + 60) =>
+      nextRideStep({
+        mine,
+        core: coreCar({ stage: "departed", seated: 5, pages: 1, departedAt, refundAfter: departedAt + 86_400, deadlineAbs: departedAt + 7 * 86_400 }),
+        rollup: table({ phase: "over", carNo: 1n, nextCar: 3n, deadlineAbs: prevDeadline, ...t }),
+        base: null,
+        previousReceipt: false,
+        now,
+      }).kind;
+    expect(step({}, prevDeadline - 1)).toBe("finalize-previous");
+    expect(step({}, prevDeadline)).toBe("start-ride");
+    // the clock proves nothing: a car that left before the deadline stays refused however late it is now
+    expect(step({}, prevDeadline - 1, prevDeadline + 3_000)).toBe("finalize-previous");
+    // a legacy Table (no deadline recorded): the car must have left two weeks less an hour after the ride's end
     const reuse = 14 * 86_400 - 3_600;
-    expect(over(T0, T0 + reuse - 1)).toBe("finalize-previous");
-    expect(over(T0, T0 + reuse)).toBe("start-ride");
-    // a Table that never recorded its ride's end shows no age
-    expect(over(0, T0 + reuse)).toBe("finalize-previous");
-    expect(previousDone({ phase: "over", overAt: T0 }, false, T0 + reuse)).toBe(true);
-    expect(previousDone({ phase: "over", overAt: T0 }, false, T0 + reuse - 1)).toBe(false);
-    expect(previousDone({ phase: "over", overAt: T0 }, true, T0)).toBe(true);
-    expect(previousDone({ phase: "idle", overAt: 0 }, false, T0)).toBe(true);
+    expect(step({ deadlineAbs: 0, overAt: T0 }, T0 + reuse - 1)).toBe("finalize-previous");
+    expect(step({ deadlineAbs: 0, overAt: T0 }, T0 + reuse)).toBe("start-ride");
+    expect(step({ deadlineAbs: 0, overAt: 0 }, T0 + reuse)).toBe("finalize-previous");
+    expect(previousDone({ phase: "over", overAt: T0, deadlineAbs: prevDeadline }, false, { departedAt: prevDeadline })).toBe(true);
+    expect(previousDone({ phase: "over", overAt: T0, deadlineAbs: prevDeadline }, false, { departedAt: prevDeadline - 1 })).toBe(false);
+    expect(previousDone({ phase: "over", overAt: T0, deadlineAbs: prevDeadline }, true, { departedAt: T0 })).toBe(true);
+    expect(previousDone({ phase: "idle", overAt: 0, deadlineAbs: 0 }, false, { departedAt: T0 })).toBe(true);
+  });
+
+  it("after a reuse, both cars: the previous one (Departed, off its Table) and one that waited past its refund time go to core's refund", () => {
+    const prev = nextRideStep({
+      mine: { carNo: 1n, table: 1 },
+      core: coreCar({ stage: "departed", seated: 5, pages: 1, departedAt: T0, refundAfter: T0 + 86_400 }),
+      rollup: table({ phase: "riding", carNo: 3n, nextCar: 5n }),
+      base: null,
+      previousReceipt: false,
+      now: T0 + 8 * 86_400,
+    });
+    expect(prev).toEqual({ kind: "refund" });
+    const waited = (now: number) =>
+      nextRideStep({
+        mine,
+        core: coreCar({ stage: "departed", seated: 5, pages: 1, departedAt: T0, refundAfter: T0 + 86_400 }),
+        rollup: table({ phase: "over", carNo: 1n, nextCar: 3n, deadlineAbs: T0 - 1 }),
+        base: null,
+        previousReceipt: false,
+        now,
+      }).kind;
+    expect(waited(T0 + 86_399)).toBe("start-ride");
+    expect(waited(T0 + 86_400)).toBe("refund");
   });
 
   it("during the ride: signal; once over and committed to base: finalize", () => {
@@ -168,7 +204,8 @@ describe("finishing a ride from the Players' pages", () => {
   });
 
   it("commit: sent when the result is owed, or as a repeat only after the program's wait and inside its window", () => {
-    const core = coreCar({ stage: "departed", seated: 5, pages: 1 });
+    // (a car whose refund time has come goes to core's refund instead: the next test)
+    const core = coreCar({ stage: "departed", seated: 5, pages: 1, refundAfter: T0 + 3 * 86_400 });
     const step = (over: Partial<TableView>, now: number) => nextRideStep({ mine, core, rollup: table({ phase: "over", overAt: T0, commitAt: T0, ...over }), base: table({ phase: "riding" }), previousReceipt: false, now }).kind;
     // the ride just ended and was committed by the rollup itself: the base copy is only late
     expect(step({}, T0 + 1)).toBe("wait");

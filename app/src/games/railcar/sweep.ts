@@ -40,6 +40,7 @@ export function sweepRideAction(step: RideStep, f: { core: CarView; rollup: Tabl
     case "start-ride":
       return { send: step.kind };
     case "finalize":
+    case "refund":
       return { send: "finish" };
     case "signal": {
       const t = f.rollup;
@@ -74,9 +75,13 @@ export interface CarRide {
 
 const one = async (read: Reader, key: PublicKey) => (await read.many([key]))[0];
 
+/** Cars looked back through for one whose Table has moved on (the sweep keeps a car at most a day or two). */
+const CARS_LOOKED_BACK = 64n;
+
 /**
- * Finds the ride of core car `match`: Railcar's boarding car, the car a Table rides now, or a Table's next car. Null when no
- * Table has it (an earlier car still holds its Table).
+ * Finds the ride of core car `match`: Railcar's boarding car, the car a Table rides now, a Table's next car, or (its Table
+ * having moved on to a later car) one of the last cars opened. Null when no Table has it (an earlier car still holds its
+ * Table) and it is not among those.
  */
 export async function findCarRide(base: Reader, rollup: Reader, match: PublicKey): Promise<CarRide | null> {
   const cfgInfo = await one(base, configPda());
@@ -101,6 +106,13 @@ export async function findCarRide(base: Reader, rollup: Reader, match: PublicKey
     if (!t) continue;
     const car = await carAt(t.nextCar);
     if (car?.tesoroMatch.equals(match)) return rideAt(t.nextCar, i, car);
+  }
+  const first = cfg.nextCar > CARS_LOOKED_BACK ? cfg.nextCar - CARS_LOOKED_BACK : 0n;
+  const nos = Array.from({ length: Number(cfg.nextCar - first) }, (_, k) => cfg.nextCar - 1n - BigInt(k));
+  const infos = await base.many(nos.map(carPda));
+  for (const [k, info] of infos.entries()) {
+    const car = info ? decodeCarAccount(info.data) : null;
+    if (car?.tesoroMatch.equals(match)) return rideAt(nos[k], Number(nos[k] % BigInt(cfg.tables)), car);
   }
   return null;
 }

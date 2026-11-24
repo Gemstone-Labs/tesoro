@@ -33,7 +33,9 @@ describe("the sweep's step for a Railcar ride whose pages are gone", () => {
 
   it("finishes through core's refund from 24 h after departure, whatever the ride's step (finalize too: a ride that never revealed must not wait forever)", () => {
     const late = { now: T0 + 86_400, core: { refundAfter: T0 + 86_400 } };
-    for (const kind of ["signal", "start-ride", "commit", "wait", "finalize-previous", "finalize"] as const) assert.deepEqual(act(kind, late), { send: "finish" }, kind);
+    for (const kind of ["signal", "start-ride", "commit", "wait", "finalize-previous", "finalize", "refund"] as const) assert.deepEqual(act(kind, late), { send: "finish" }, kind);
+    // a page's own refund step (the car's refund time came) is the same finish
+    assert.deepEqual(act("refund", { core: { refundAfter: T0 } }), { send: "finish" });
   });
 
   it("steps every seat off a car still Boarding once core's boarding has ended (an hour before its deadline), whatever the count", () => {

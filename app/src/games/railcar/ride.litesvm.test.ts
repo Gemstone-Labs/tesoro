@@ -1328,6 +1328,35 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     expect(c.riders.map((p, i) => c.w.gemas(p, c.id) - c.before[i])).toEqual(Array(5).fill(100n));
   });
 
+  it("a Table that moved on: car 2 takes Table 0 once car 0 is past settling, and the sweep still finds car 0, refunds it, closes it and its Car, and the opener's rent comes back", { timeout: 300_000 }, async () => {
+    const draw = drawWhere((x) => x.crashMs >= 30_000);
+    // car 0: over on the rollup, nobody finalizes it (no receipt)
+    const c0 = await rideToImpact(5, draw, WORKED);
+    const w = c0.w;
+    const d0 = (await loadCar(w.reader(), c0.match))!.car.deadlineAbs;
+    w.setTime(d0);
+    const fresh = () => Array.from({ length: 5 }, () => w.rider());
+    const c1 = await rideToImpact(5, draw, WORKED, { again: { world: w, riders: fresh() } });
+    expect([c1.carNo, c1.carAcct.table]).toEqual([1n, 1]);
+    // car 2 left at car 0's deadline: start_ride resets Table 0 without car 0's receipt
+    const c2 = await rideToImpact(5, draw, WORKED, { again: { world: w, riders: fresh() } });
+    expect([c2.carNo, c2.carAcct.table]).toEqual([2n, c0.carAcct.table]);
+    expect(decodeTable(w.get(tablePda(c0.carAcct.table))!.data).carNo).toBe(2n);
+    // the sweep for car 0's Match: its Table shows car 2, so the Car is found among the last cars opened
+    const keeper = Keypair.generate();
+    w.svm.airdrop(keeper.publicKey, 100n * SOL);
+    const payer = c0.carAcct.payer;
+    const carRent = w.get(carPda(0n))!.lamports;
+    const payerBefore = w.get(payer)!.lamports;
+    const steps = await sweepUntilGone(w, c0.match, c0.carAcct.table, keeper);
+    expect(steps[0]).toBe("refund");
+    expect(steps).toContain("close-ride");
+    expect(w.info(c0.match)).toBeNull();
+    expect(w.info(carPda(0n))).toBeNull();
+    expect(w.get(payer)!.lamports - payerBefore).toBe(carRent);
+    expect(c0.riders.map((p, i) => w.gemas(p, c0.id) - c0.before[i])).toEqual(Array(5).fill(100n));
+  });
+
   it("four boarded and the fifth never came: once core's boarding ends the sweep steps all four off home, closes the car and frees the Table", { timeout: 120_000 }, async () => {
     const w = await World.create();
     const riders = Array.from({ length: 4 }, () => w.rider());

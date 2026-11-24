@@ -264,9 +264,10 @@ export function setupProblems(input: SetupInput, facts: SetupFacts): string[] {
 }
 
 /**
- * The release check after a Railcar upgrade (`railcar-setup.ts --check`): every step is on chain, or the ids still to send.
- * A listing names the deployed build by slot and hash, so after every upgrade `list-game` is left until the admin re-lists it;
- * two upgrades (2026-11-11, 2026-11-24) shipped without it and Railcar earned no Points for 13 days.
+ * The release check after a Railcar upgrade (`railcar-setup.ts --check`): every step is on chain as asked, or the ids still to
+ * send or blocked. A listing names the deployed build by slot and hash, so after every upgrade `list-game` is left until the
+ * admin re-lists it; two upgrades (2026-11-11, 2026-11-24) shipped without it and Railcar earned no Points for 13 days. A
+ * GameRecord with other terms than asked (settle authority, Studio Fee, recipient) is left too: `propose_game_change` fixes it.
  */
 export function setupCheck(steps: SetupStep[]): { ok: boolean; left: string[] } {
   const left = steps.filter((s) => s.status !== "done").map((s) => s.id);
@@ -283,6 +284,7 @@ export function railcarSetupPlan(input: SetupInput, facts: SetupFacts): SetupSte
 
   // 1. The Game in tesoro_core.
   const g = facts.game;
+  const registeredAsAsked = !!g && g.settleAuthority.equals(authorityPda()) && g.studioBps === input.studioBps && g.studioRecipient.equals(input.studioAccount);
   add({
     id: "register-game",
     title: `tesoro_core register_game: Railcar, settle authority ${short(authorityPda())}, Studio Fee ${input.studioBps} bps to ${short(input.studioAccount)}`,
@@ -290,9 +292,9 @@ export function railcarSetupPlan(input: SetupInput, facts: SetupFacts): SetupSte
     signer: "upgrade authority",
     layer: "base",
     ixs: [registerGameIx(input.upgradeAuthority, input.upgradeAuthority, input.studioAccount, input.studioBps)],
-    status: g ? "done" : "to do",
+    status: g ? (registeredAsAsked ? "done" : "blocked") : "to do",
     note: g
-      ? g.settleAuthority.equals(authorityPda()) && g.studioBps === input.studioBps && g.studioRecipient.equals(input.studioAccount)
+      ? registeredAsAsked
         ? "registered"
         : `registered with other terms (settle ${short(g.settleAuthority)}, ${g.studioBps} bps to ${short(g.studioRecipient)}): change them with propose_game_change (7 days)`
       : "no GameRecord",

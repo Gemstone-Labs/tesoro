@@ -86,6 +86,8 @@ export type RideStep =
   | { kind: "depart" }
   /** The Table's previous car is over but core has not frozen it: `finalize` that car first. */
   | { kind: "finalize-previous"; carNo: bigint }
+  /** The car left a day ago and nobody settled it: core's refund (the finisher), whatever its Table shows. */
+  | { kind: "refund" }
   | { kind: "start-ride" }
   /** The ride (or the draw) runs: keep signalling. */
   | { kind: "signal" }
@@ -110,19 +112,18 @@ export const commitDue = (t: Pick<TableView, "dirty" | "commitAt" | "overAt">, n
   t.dirty || (now >= t.commitAt + COMMIT_RETRY_SECS && now < t.overAt + COMMIT_WINDOW_SECS);
 
 /**
- * Railcar's `TABLE_REUSE_AFTER_SECS`: core keeps a settlement receipt 14 days (`RECEIPT_KEEP_SECS`) from a settlement that
- * comes after the ride's end, less core's one-hour Match margin, so the Table frees itself before anyone may reclaim the
- * receipt. A Table over this long takes its next car without the previous car's receipt.
+ * Railcar's `TABLE_REUSE_AFTER_SECS`, for a legacy Table that never recorded its car's deadline: core keeps a settlement
+ * receipt 14 days (`RECEIPT_KEEP_SECS`) from a settlement that comes after the ride's end, less core's one-hour Match margin.
  */
 export const TABLE_REUSE_AFTER_SECS = 14 * 86_400 - 3_600;
 
 /**
- * Is the Table done with the car it holds, as `start_ride` judges it: idle, or over with core's receipt for that car, or over
- * for `TABLE_REUSE_AFTER_SECS` (the receipt may be reclaimed by then, and core can no longer settle that car from the Table).
- * A Table that never recorded its ride's end shows no age.
+ * Is the Table done with the car it holds, as `start_ride` judges it for the car `next` (ours): idle, or over with core's
+ * receipt for that car, or over with `next` departed (base time) at or after that car's core deadline, from which core refuses
+ * to settle it. A legacy Table (no deadline recorded) needs `next` departed `TABLE_REUSE_AFTER_SECS` after the ride's end.
  */
-export const previousDone = (t: Pick<TableView, "phase" | "overAt">, receipt: boolean, now: number): boolean =>
-  t.phase === "idle" || receipt || (t.overAt > 0 && now >= t.overAt + TABLE_REUSE_AFTER_SECS);
+export const previousDone = (t: Pick<TableView, "phase" | "overAt" | "deadlineAbs">, receipt: boolean, next: Pick<CarView, "departedAt">): boolean =>
+  t.phase === "idle" || receipt || (t.deadlineAbs > 0 ? next.departedAt >= t.deadlineAbs : t.overAt > 0 && next.departedAt >= t.overAt + TABLE_REUSE_AFTER_SECS);
 
 export interface RideFacts {
   /** The Player's car: its number and its Table. */
@@ -145,6 +146,7 @@ export function nextRideStep(f: RideFacts): RideStep {
   if (core.stage === "boarding") return departureDue(core, f.now) ? { kind: "depart" } : { kind: "wait" };
   if (core.stage === "settling" || core.stage === "refunding") return { kind: "settle" };
   if (core.stage === "paid") return { kind: "close" };
+  if (core.stage === "departed" && f.now >= core.refundAfter) return { kind: "refund" };
   const t = f.rollup;
   if (!t) return { kind: "wait" };
   if (t.carNo === f.mine.carNo && t.phase !== "idle") {
@@ -153,7 +155,7 @@ export function nextRideStep(f: RideFacts): RideStep {
   }
   if (t.nextCar !== f.mine.carNo) return { kind: "wait" };
   if (t.phase === "idle") return { kind: "start-ride" };
-  if (t.phase === "over") return previousDone(t, f.previousReceipt, f.now) ? { kind: "start-ride" } : { kind: "finalize-previous", carNo: t.carNo };
+  if (t.phase === "over") return previousDone(t, f.previousReceipt, core) ? { kind: "start-ride" } : { kind: "finalize-previous", carNo: t.carNo };
   return { kind: "wait" };
 }
 
