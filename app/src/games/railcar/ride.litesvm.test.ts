@@ -1410,7 +1410,7 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
       closeRide: o.skip,
     });
     expect(r.done).toBe(true);
-    const steps = [...r.sent];
+    const steps: string[] = [...r.sent];
     if (!o.skip) return steps;
     expect(nextRideStep(await facts())).toEqual({ kind: "skip" });
     w.rollup([skipCarIx(w.pageKey.publicKey, car.table, car.carNo, car.match)], w.pageKey, car.table);

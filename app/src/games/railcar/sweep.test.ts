@@ -71,7 +71,7 @@ describe("the sweep finds a car whose Table has moved on", () => {
     rollup.set(tablePda(0).toBase58(), table(0, { phase: "idle", carNo: 4_998n, nextCar: 5_000n }));
     rollup.set(tablePda(1).toBase58(), table(1, { phase: "idle", carNo: 4_999n, nextCar: 5_001n }));
     let scans = 0;
-    const scanning = { ...reader(base), carByMatch: async (m: PublicKey) => (scans++, m.equals(match) ? { carNo: 7n, info: await car(7n, match) } : null) };
+    const scanning = { ...reader(base), carByMatch: async (m: PublicKey) => (scans++, m.equals(match) ? { carNo: 7n, data: (await car(7n, match))!.data } : null) };
     const ride = await findCarRide(scanning, reader(rollup), match);
     expect([ride?.carNo, scans]).toEqual([7n, 1]);
   });

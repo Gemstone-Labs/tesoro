@@ -28,7 +28,7 @@ export function carReader(conn: Connection, rpc?: ScanRpc): CarReader {
         filters: [{ memcmp: { offset: 0, bytes: anchor.utils.bytes.bs58.encode(CAR_DISCRIMINATOR) } }, { memcmp: { offset: CAR_MATCH_OFFSET, bytes: match.toBase58() } }],
       });
       const row = rows[0];
-      return row ? { carNo: decodeCarAccount(row.account.data).carNo, info: { ...row.account, data: Buffer.from(row.account.data) } } : null;
+      return row ? { carNo: decodeCarAccount(row.account.data).carNo, data: row.account.data } : null;
     },
   };
 }

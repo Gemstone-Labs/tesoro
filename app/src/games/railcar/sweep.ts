@@ -13,7 +13,7 @@ import { isAwayAt } from "../../lib/chain/away-plan";
 import { boardingEnds, closeCarIx, decodeCar, type CarView, type SeatView } from "../../lib/chain/many-seat";
 import { loadCar, type LoadedCar } from "../../lib/chain/many-seat-plan";
 import { protectionsPda } from "../../lib/chain/native";
-import type { Core, Info, Reader } from "../../lib/chain/settle-plan";
+import type { Core, Reader } from "../../lib/chain/settle-plan";
 import { returnLinesFor, stepOffFor } from "./step-off";
 import { carPda, checkDepartureIx, closeRailcarCarIx, commitTableIx, configPda, decodeCarAccount, decodeConfig, decodeTable, signalIx, skipCarIx, startRideIx, tablePda, type CarAccountView, type TableView } from "./chain";
 import { finishRide } from "./finish";
@@ -79,7 +79,7 @@ const one = async (read: Reader, key: PublicKey) => (await read.many([key]))[0];
 
 /** A base reader that can also find Railcar's Car for a core Match in one query (the keeper's program scan). */
 export interface CarReader extends Reader {
-  carByMatch?(match: PublicKey): Promise<{ carNo: bigint; info: Info } | null>;
+  carByMatch?(match: PublicKey): Promise<{ carNo: bigint; data: Uint8Array } | null>;
 }
 
 /**
@@ -89,7 +89,7 @@ export interface CarReader extends Reader {
 export async function carByMatch(base: CarReader, nextCar: bigint, match: PublicKey): Promise<{ carNo: bigint; car: CarAccountView } | null> {
   if (base.carByMatch) {
     const found = await base.carByMatch(match);
-    return found && { carNo: found.carNo, car: decodeCarAccount(found.info.data) };
+    return found && { carNo: found.carNo, car: decodeCarAccount(found.data) };
   }
   for (let top = nextCar; top > 0n; top -= 100n) {
     const nos = Array.from({ length: Number(top < 100n ? top : 100n) }, (_, k) => top - 1n - BigInt(k));
