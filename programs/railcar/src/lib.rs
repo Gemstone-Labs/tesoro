@@ -99,7 +99,7 @@ pub enum RailcarError {
     AlreadyJumped,
     #[msg("The instruction names another car")]
     StaleBinding,
-    #[msg("Core has not frozen the Table's previous car yet")]
+    #[msg("Core has not frozen the Table's previous car yet, and its ride is under two weeks old")]
     PreviousNotFrozen,
     #[msg("Not the car's Table, or the Table has no result for it")]
     BadTable,
@@ -891,9 +891,11 @@ pub mod railcar {
 
     /// Rollup, anyone. Puts the Table's next car on it once that car has left: copies its seated
     /// Players from every seat page (remaining accounts) and asks for the draw. A Table whose
-    /// last ride is over is reset first, once core has frozen that car (its receipt).
+    /// last ride is over is reset first, once core has frozen that car (its receipt) or, the
+    /// receipt gone or never made, once the ride is `TABLE_REUSE_AFTER_SECS` old.
     pub fn start_ride(ctx: Context<StartRide>) -> Result<()> {
-        let slot = Clock::get()?.slot;
+        let clock = Clock::get()?;
+        let slot = clock.slot;
         let car = &ctx.accounts.car;
         let match_key = car.tesoro_match;
         let (pages, seated, entry) = {
@@ -911,10 +913,12 @@ pub mod railcar {
             require!(t.vault_ready == 1, RailcarError::VaultMissing);
             if t.phase == PHASE_OVER {
                 let previous = Pubkey::new_from_array(t.tesoro_match);
-                require!(
-                    receipt_at(&ctx.accounts.previous_receipt, &previous).is_some(),
-                    RailcarError::PreviousNotFrozen
-                );
+                let frozen = receipt_at(&ctx.accounts.previous_receipt, &previous).is_some();
+                let old = t.over_at() > 0
+                    && t.over_at()
+                        .checked_add(TABLE_REUSE_AFTER_SECS)
+                        .is_some_and(|at| clock.unix_timestamp >= at);
+                require!(frozen || old, RailcarError::PreviousNotFrozen);
                 t.reset();
             }
             require!(t.phase == PHASE_IDLE, RailcarError::WrongPhase);
@@ -1725,7 +1729,7 @@ pub struct StartRide<'info> {
     #[account(address = car.tesoro_match @ RailcarError::WrongCar)]
     pub match_state: AccountLoader<'info, ManySeatMatch>,
     /// CHECK: core's receipt of the Table's previous car (when the Table is over), read by
-    /// `receipt_at`.
+    /// `receipt_at`; may be gone once the ride is `TABLE_REUSE_AFTER_SECS` old.
     pub previous_receipt: UncheckedAccount<'info>,
     /// CHECK: validated by the VRF program
     #[account(mut, address = ephemeral_rollups_sdk::vrf::consts::DEFAULT_EPHEMERAL_QUEUE)]

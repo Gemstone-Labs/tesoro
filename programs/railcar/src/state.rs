@@ -22,6 +22,13 @@ pub const MIN_SEATS: u8 = 5;
 pub const MAX_SEATS: u8 = 100;
 /// The countdown from the first time the car holds `MIN_SEATS` (decision Q30).
 pub const COUNTDOWN_SECS: i64 = 30;
+/// A Table whose ride is over takes its next car once core has frozen the last one (its
+/// settlement receipt), or this long after the ride ended: core may have reclaimed the receipt
+/// by then (`RECEIPT_KEEP_SECS`), and nothing in core can still settle that car from the Table,
+/// since its absolute deadline (7 days after it opened) is long past. The hour is core's own
+/// Match margin, more than the rollup and base clocks ever differ by.
+pub const TABLE_REUSE_AFTER_SECS: i64 = tesoro_core::instructions::matching::RECEIPT_KEEP_SECS
+    + tesoro_core::ledger::MATCH_TIMEOUT_SECS;
 /// Tables a Config may name: enough for a ride in progress and the next car boarding.
 pub const MIN_TABLES: u16 = 2;
 pub const MAX_TABLES: u16 = 16;
@@ -359,7 +366,8 @@ pub struct Table {
     /// The ride clock: slot and time of the draw's arrival.
     ride_slot: [u8; 8],
     ride_ts: [u8; 8],
-    /// Ride ms and unix time at the end.
+    /// Ride ms and unix time at the end (`over_at` also dates the Table's reuse without a
+    /// receipt, `TABLE_REUSE_AFTER_SECS`).
     over_ms: [u8; 4],
     over_at: [u8; 8],
     commit_at: [u8; 8],
