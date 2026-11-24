@@ -793,8 +793,11 @@ async function rideToImpact(n: number, draw: Uint8Array, jumps: [number, number]
 
   // The ride: a page starts it, the VRF answers, Players Jump, a signal at Impact ends it.
   const loaded = (await loadCar(w.reader(), match))!;
-  w.rollup([cu(1_400_000), startRideIx(w.pageKey.publicKey, { carNo, table: carAcct.table, tesoroMatch: match }, loaded.car.pages, null)], w.pageKey, carAcct.table);
   const table = tablePda(carAcct.table);
+  // As the page sends it: the Table's previous car (its receipt frees the Table) when the Table is not idle.
+  const held = decodeTable(w.get(table)!.data);
+  const previous = held.phase !== "idle" && held.carNo !== carNo ? held.tesoroMatch : null;
+  w.rollup([cu(1_400_000), startRideIx(w.pageKey.publicKey, { carNo, table: carAcct.table, tesoroMatch: match }, loaded.car.pages, previous)], w.pageKey, carAcct.table);
   const reqNonce = Buffer.from(w.get(table)!.data).readBigUInt64LE(8 + 120);
   const request = PublicKey.findProgramAddressSync([Buffer.from("vrfreq"), table.toBuffer(), u64(reqNonce)], RAILCAR_PROGRAM_ID)[0];
   const identity = PublicKey.findProgramAddressSync([Buffer.from("identity"), RAILCAR_PROGRAM_ID.toBuffer()], VRF)[0];
