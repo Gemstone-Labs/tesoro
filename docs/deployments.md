@@ -22,6 +22,22 @@ The metadata-only inventory (`collect --metadata-only`, followed by `check --inv
 
 Regression commands: `cargo test -p tesoro_core --lib predeploy_layouts -- --nocapture` writes/reads both the historical 178-byte and current 327-byte custody fixtures in LiteSVM; `python3 scripts/test-predeploy-size-check.py` exercises mismatch, unknown discriminator, dynamic capacity and version refusals. Preserve the LiteSVM fixture rows and use them in the Python test as described by its skip message.
 
+## Railcar upgrade: rules round 2 (2026-11-24)
+
+The founder approved it on 2026-11-24 (Railcar decisions Q40, ticket 34). Railcar only: no core, keeper or migration change. Entry 100 Gemas, only the last three off are paid (no Early-jump refund), the smooth bomb curve (5 s safe, half of rides over by 25 s, 120 s cap), shorter warning leads, Brake 5 s. Each Table records the rules of its car in `rules` (formerly `reserved0[0]`, 3 = Q40); no account changes size.
+
+| Step | Value |
+|---|---|
+| Build | int `feat/railcar-03-11-2026` d4437ac4 (program tree identical to 0c307088, whose full VPS check made a cold build with the pinned v1.54 tools); `railcar.so` 923,880 B, md5 e3aae6ac…, sha256 73a2eb5b…, carries the Railcar program id |
+| Precheck | Config `next_car` 15; its `boarding_match` is car 14's Match, closed 2026-11-10; no Car account exists for cars 0-16, so no car is boarding or waiting for payout. The account-size preflight does not know Railcar yet; the layout is unchanged |
+| Railcar extend | none (923,880 B fits the 933,456 B ProgramData) |
+| Railcar upgrade | slot 525751957, `3NzjCwQB…ohGuc6dN`; dump == ELF; rollback `~/.cache/tesoro-tmp/deploy-34-2026-11-24/rollback-railcar-before-34.so` (== the 11-11 program, sha e9e74892…) |
+| Core entry sizes | no call: devnet core `entry_sizes` are unset, so the default list 100 / 500 / 1,000 applies and already holds 100 |
+| Staging | origin/staging ab198ee5 (tree == d4437ac4) |
+| Deployer | 17.24 SOL after |
+
+Rollback: upgrade Railcar from the rollback file, then put staging back on a tree equal to b61a0ec3.
+
 ## Railcar upgrade: later Tells are not promised (2026-11-11)
 
 The founder approved it on 2026-11-11 (Railcar decisions Q39, ticket 27). Railcar only: no core, keeper or migration change. The public Table `tell` became flags (1 bolt, 2 sparks) and `false_screws` became `screws` (every screw heard), at the same offsets and size.
