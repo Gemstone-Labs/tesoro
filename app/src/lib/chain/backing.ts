@@ -104,15 +104,27 @@ const noForm = (): PlayerForm => ({ record: { matches: 0, wins: 0 }, pnl: [] });
  */
 async function fetchRecords(players: Set<string>, fetcher: typeof fetch = (...a) => fetch(...a)): Promise<Map<string, PlayerForm>> {
   const out = new Map<string, PlayerForm>([...players].map((p) => [p, noForm()]));
+  const forms = await readForms(players, fetcher);
+  for (const [player, f] of Object.entries(forms ?? {})) if (out.has(player)) out.set(player, { record: { matches: f.matches, wins: f.wins }, pnl: f.pnl });
+  return out;
+}
+
+/** `/api/player-forms` for `players`; null when the history is unavailable. */
+async function readForms(players: Set<string>, fetcher: typeof fetch): Promise<Record<string, { matches: number; wins: number; pnl: number[] }> | null> {
   try {
     const res = await fetcher(`/api/player-forms?players=${[...players].join(",")}`);
-    if (!res.ok) return out;
-    const forms = (await res.json()) as Record<string, { matches: number; wins: number; pnl: number[] }>;
-    for (const [player, f] of Object.entries(forms)) if (out.has(player)) out.set(player, { record: { matches: f.matches, wins: f.wins }, pnl: f.pnl });
+    return res.ok ? await res.json() : null;
   } catch {
-    // no history: records stay empty
+    return null;
   }
-  return out;
+}
+
+/** One Player's record as Backers see it on their Requests; null when the history is unavailable. */
+export async function fetchPlayerRecord(player: string, fetcher: typeof fetch = (...a) => fetch(...a)): Promise<PlayerRecord | null> {
+  const forms = await readForms(new Set([player]), fetcher);
+  if (!forms) return null;
+  const f = forms[player];
+  return f ? { matches: f.matches, wins: f.wins } : { matches: 0, wins: 0 };
 }
 
 function toRequest(row: any, { record, pnl }: PlayerForm): ChainRequest {

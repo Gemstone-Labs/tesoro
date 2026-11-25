@@ -369,6 +369,17 @@ export function redeemIx(holder: PublicKey, position: PublicKey, source: PublicK
   );
 }
 
+/** Redeem Season prize Gemas (`redeem_prize`): the native custody pays the holder's share of the prize escrow in simSOL into their token account (it must exist). */
+export function redeemPrizeIx(holder: PublicKey, prizeSource: PublicKey, gemas: bigint) {
+  const account = accountPda(holder);
+  return coreIx(
+    "redeem_prize",
+    { holder_authority: holder, holder_account: account, basket: basketPda(account), spill: spillPda(account), prize_source: prizeSource },
+    { amount: gemas },
+    nativePayingAccounts(simSolAta(holder)),
+  );
+}
+
 /** A `LineRef` as the IDL coder wants it. */
 export const lineArg = (l: LineRef) => ({ side: l.side, due_at: l.dueAt, class: l.class, tranche: l.tranche });
 
@@ -637,6 +648,8 @@ export const debtGemasAt = (info: NativeInfo, speedup: number, atMs: number, sta
 
 /** simSOL base units that redeeming `gemas` of a Source pays now (floor, as the program computes it). */
 export function redeemPayoutShares(source: Pick<SourceMath, "unitNum" | "unitDen">, gemas: bigint, rate: bigint): bigint {
+  // A Gema priced at nothing (a prize Source with no shares left) pays nothing.
+  if (source.unitDen === 0n || rate === 0n) return 0n;
   const units = (gemas * source.unitNum) / source.unitDen;
   return (units * RATE_SCALE) / rate;
 }

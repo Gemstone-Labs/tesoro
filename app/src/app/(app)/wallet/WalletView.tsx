@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { CLUSTER } from "@/lib/cluster-settings";
 import { Button, CountUp } from "@/components/ui";
-import { redeemableOf, useAccount } from "@/lib/account";
+import { redeemableOf, unreadNote, useAccount } from "@/lib/account";
 import { fmtAsset, fmtGemas, fmtUsd } from "@/lib/format";
 import { type Chain, type GemaHolding, type Position } from "@/lib/mock";
 import { BRAND } from "@/lib/brand";
@@ -201,6 +201,7 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
           </p>
         )}
       />}
+      {card && ready && gemas.unread > 0 && <p className="note" role="status">{unreadNote(gemas.unread)}</p>}
 
       {body && <section className="wl-positions" aria-label="Your Gemas and Locks by chain">
         {loading && !ready && !error && (
@@ -250,7 +251,8 @@ function chainGemas(all: AccountSnapshot["holdings"], chain: Chain): Omit<Pocket
   const payable = hs.filter((h) => h.native || h.eth);
   const sources = new Map<string, PocketSource>();
   for (const h of hs) {
-    if (h.isOwn) continue;
+    // Season prizes are counted in the pocket but came from no Player.
+    if (h.isOwn || h.prize) continue;
     const cur = sources.get(h.sourceOwner) ?? { key: h.sourceOwner, account: h.sourceOwner, owner: short(h.sourceOwner), gemas: 0, redeemable: 0 };
     cur.gemas += Number(h.amount);
     cur.redeemable += Number(h.redeemable);
