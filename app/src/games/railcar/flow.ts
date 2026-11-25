@@ -190,3 +190,15 @@ export function rememberedCarGone(core: CarView | null, seats: SeatView[], me: P
   if (core.stage === "boarding") return !me || !seats.some((s) => s.seated && s.player.equals(me));
   return false;
 }
+
+export interface JumpSeatFacts {
+  carNo: bigint;
+  me: PublicKey;
+  /** The rollup Table the page read last. */
+  table: TableView | null;
+}
+
+/** The Table seat a Player's Jump names. */
+export async function seatToJump(f: JumpSeatFacts): Promise<number | null> {
+  return f.table?.seats.find((x) => x.account.equals(f.me))?.tableSeat ?? null;
+}

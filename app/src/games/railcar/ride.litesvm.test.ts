@@ -83,7 +83,7 @@ import { decodeMatchRecords, type InnerInstruction } from "../../server/history/
 import { ingestMatchRecords } from "../../server/history/ingest";
 import { accountHistory, matchPage } from "../../server/history/reads";
 import { testDb } from "../../server/history/test-db";
-import { nextRideStep, queueChoice } from "./flow";
+import { nextRideStep, queueChoice, seatToJump } from "./flow";
 import { readSnapshot } from "./useRailcar";
 import { settledPda } from "../../lib/chain/basket";
 import { railcarView } from "./view";
@@ -759,6 +759,21 @@ interface RideOpts {
   beforePages?: (at: { w: World; sponsor: Sponsor; finisher: Person; match: PublicKey; ixs: TransactionInstruction[] }) => Promise<void>;
 }
 
+/** A page starts a departed car's ride on its Table, and the VRF answers with `draw`. */
+async function startRideOn(w: World, car: { carNo: bigint; table: number; match: PublicKey }, draw: Uint8Array) {
+  const loaded = (await loadCar(w.reader(), car.match))!;
+  const table = tablePda(car.table);
+  // As the page sends it: the Table's previous car (its receipt frees the Table) when the Table is not idle.
+  const held = decodeTable(w.get(table)!.data);
+  const previous = held.phase !== "idle" && held.carNo !== car.carNo ? held.tesoroMatch : null;
+  w.rollup([cu(1_400_000), startRideIx(w.pageKey.publicKey, { carNo: car.carNo, table: car.table, tesoroMatch: car.match }, loaded.car.pages, previous)], w.pageKey, car.table);
+  const reqNonce = Buffer.from(w.get(table)!.data).readBigUInt64LE(8 + 120);
+  const request = PublicKey.findProgramAddressSync([Buffer.from("vrfreq"), table.toBuffer(), u64(reqNonce)], RAILCAR_PROGRAM_ID)[0];
+  const identity = PublicKey.findProgramAddressSync([Buffer.from("identity"), RAILCAR_PROGRAM_ID.toBuffer()], VRF)[0];
+  w.send([railcarIx("draw_callback", { vrf_program_identity: identity, table, vault: vaultPda(table), request }, { randomness: Array.from(draw) })], w.oracle);
+  expect(decodeTable(w.get(table)!.data).phase).toBe("riding");
+}
+
 /** A car boarded, departed and ridden through `jumps` (and, unless `noImpact`, its Impact): everything before the finish. */
 async function rideToImpact(n: number, draw: Uint8Array, jumps: [number, number][], o: RideOpts = {}) {
   const backed = o.backed;
@@ -795,17 +810,8 @@ async function rideToImpact(n: number, draw: Uint8Array, jumps: [number, number]
   expect((await loadCar(w.reader(), match))!.car.stage).toBe("departed");
 
   // The ride: a page starts it, the VRF answers, Players Jump, a signal at Impact ends it.
-  const loaded = (await loadCar(w.reader(), match))!;
   const table = tablePda(carAcct.table);
-  // As the page sends it: the Table's previous car (its receipt frees the Table) when the Table is not idle.
-  const held = decodeTable(w.get(table)!.data);
-  const previous = held.phase !== "idle" && held.carNo !== carNo ? held.tesoroMatch : null;
-  w.rollup([cu(1_400_000), startRideIx(w.pageKey.publicKey, { carNo, table: carAcct.table, tesoroMatch: match }, loaded.car.pages, previous)], w.pageKey, carAcct.table);
-  const reqNonce = Buffer.from(w.get(table)!.data).readBigUInt64LE(8 + 120);
-  const request = PublicKey.findProgramAddressSync([Buffer.from("vrfreq"), table.toBuffer(), u64(reqNonce)], RAILCAR_PROGRAM_ID)[0];
-  const identity = PublicKey.findProgramAddressSync([Buffer.from("identity"), RAILCAR_PROGRAM_ID.toBuffer()], VRF)[0];
-  w.send([railcarIx("draw_callback", { vrf_program_identity: identity, table, vault: vaultPda(table), request }, { randomness: Array.from(draw) })], w.oracle);
-  expect(decodeTable(w.get(table)!.data).phase).toBe("riding");
+  await startRideOn(w, { carNo, table: carAcct.table, match }, draw);
 
   // Pages bind every seat's Brake seat, a page's own and the next ones per transaction, signed by page keys.
   for (let first = 0; decodeTable(w.get(table)!.data).brakesBound < n; first += BIND_PER_SEND) {
@@ -1444,6 +1450,50 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
         else w.send(ixs, keeper);
       },
     });
+
+  it("car 18 (ticket 40): Ana sat in Table 0's seat 0 on car 0 and boards car 2 second; she taps Jump as car 2 leaves, while Table 0 still holds car 0, and her Jump lands from her own seat once the ride starts", { timeout: 300_000 }, async () => {
+    const draw = drawWhere((x) => x.crashMs >= 30_000);
+    const c0 = await rideCar(5, draw, WORKED);
+    const w = c0.world;
+    const ana = c0.riders[ANA];
+    expect(decodeTable(w.get(tablePda(0))!.data).seats[0].account.equals(ana.account)).toBe(true);
+    await rideCar(5, draw, WORKED, { again: { world: w, riders: Array.from({ length: 5 }, () => w.rider()) } });
+    // Car 2: the phone opens it, Ana boards second (car 18: 6qPL… then qsA).
+    const riders = [w.rider(), ana, w.rider(), w.rider(), w.rider()];
+    w.riders = riders;
+    w.phase = "boarding";
+    for (const p of riders) await w.board(p);
+    const carNo = decodeConfig(w.info(configPda())!.data).nextCar - 1n;
+    const carAcct = decodeCarAccount(w.info(carPda(carNo))!.data);
+    const car = { carNo, table: carAcct.table, match: carAcct.tesoroMatch };
+    expect([carNo, car.table]).toEqual([2n, 0]);
+    w.setTime(w.now + 30);
+    w.send([checkDepartureIx(carNo, car.match)], w.relayer);
+    // What Ana's page reads as she taps: car 2 has left, and Table 0 still holds car 0, with Ana in its seat 0.
+    const snap = await pageSnapshot(w, ana, car);
+    expect(snap.loaded?.car.stage).toBe("departed");
+    expect(snap.rollup?.carNo).toBe(0n);
+    // Its screen (as useRailcar builds it): the ride at 0:00 with Ana aboard, so the Jump button is there to tap.
+    const shown = snap.rollup?.carNo === carNo ? snap.rollup : snap.base?.carNo === carNo ? snap.base : null;
+    expect(railcarView({ me: ana.account.toBase58(), core: snap.loaded!.car, seats: snap.loaded!.seats, table: shown, fees: { platformBps: 200, studioBps: 300, leaderboardBps: 100 }, nowMs: w.now * 1000 })).toMatchObject({ phase: "ride", clockMs: 0, me: { aboard: true } });
+    // The page's Jump: while it waits, another page starts the ride and the draw lands. Car 18's Jump reached the TEE
+    // after its ride started (tap 14:10:25.19, ride 14:10:26.38), so the ride is started before the Jump lands either way.
+    let started = false;
+    const start = async () => {
+      if (started) return;
+      started = true;
+      await startRideOn(w, car, draw);
+      w.setSlot(w.rideSlot(car.table) + 100n);
+    };
+    const seat = await seatToJump({ carNo, me: ana.account, table: snap.rollup, reread: async () => (await pageSnapshot(w, ana, car)).rollup, waitMs: 10_000, pollMs: 0, sleep: start, now: () => Date.now() });
+    await start();
+    expect(seat).not.toBeNull();
+    w.phase = "jumps";
+    w.rollup([jumpIx(ana.seat.publicKey, car.table, carNo, seat!)], ana.seat, car.table);
+    const t = decodeTable(w.get(tablePda(car.table))!.data);
+    expect(t.seats.find((s) => s.account.equals(ana.account))!.order).toBe(1);
+    expect(t.seats.find((s) => s.account.equals(riders[0].account))!.order).toBe(0);
+  });
 
   it("a page refunds car 2 before it rode: the refund lands, the next sponsored chunk fails, the page resumes at settle and forgets the car, and still passes it over on its own; the keeper closes its Car; car 4 starts on that Table", { timeout: 300_000 }, async () => {
     const { w, c2, draw } = await carTwoWaitingUnridden();
