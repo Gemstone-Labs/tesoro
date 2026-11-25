@@ -1,6 +1,6 @@
 import { HISTORY_PAGE, type HistoryRow } from "@/lib/chain/history";
 import type { StoredRide } from "@/lib/chain/ride-record";
-import { HIDDEN_GAMES } from "@/lib/games";
+import { HIDDEN_GAMES, historyGameShown } from "@/lib/games";
 import type { Win } from "@/lib/chain/season";
 import { matchKeyOf, type MatchKey } from "./match-key";
 import type { Rpc } from "./rpc";
@@ -89,10 +89,9 @@ export async function visibleAccountHistory(rpc: Rpc, account: string, page: num
   return { rows: rows.slice((at - 1) * size, at * size), page: at, pages, total: rows.length };
 }
 
-/** `recentWins` without the Games this environment hides. */
-export async function visibleRecentWins(rpc: Rpc, q: { game?: string; since?: number; limit: number }, hidden: ReadonlySet<string> = HIDDEN_GAMES): Promise<RecentWin[]> {
-  if (hidden.size === 0) return recentWins(rpc, q);
-  return (await recentWins(rpc, { ...q, limit: 200 })).filter((w) => !hidden.has(w.game)).slice(0, q.limit);
+/** `recentWins` of the Games shown here only (the history is shared with environments that show more). */
+export async function visibleRecentWins(rpc: Rpc, q: { game?: string; since?: number; limit: number }, shown: (game: string) => boolean = historyGameShown): Promise<RecentWin[]> {
+  return (await recentWins(rpc, { ...q, limit: 200 })).filter((w) => shown(w.game)).slice(0, q.limit);
 }
 
 /** The newest settled Matches with a winner, optionally of one game and created at or after `since` (ms). */

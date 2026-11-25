@@ -21,6 +21,13 @@ const DIGITS: Record<Chain, number> = { SOL: 5, ETH: 6, HYPE: 4 };
 const fmtPayout = (n: number, asset: Chain) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: DIGITS[asset] });
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
+/** "From 5 Locks and 2 Season prizes": the Redeem sheet's source count, prize lines apart from Locks. */
+export function redeemFromLine(rows: Pick<RedeemPayout, "prize">[]): string {
+  const prizes = rows.filter((r) => r.prize).length;
+  const locks = rows.length - prizes;
+  return `From ${[locks ? plural(locks, "Lock") : "", prizes ? plural(prizes, "Season prize") : ""].filter(Boolean).join(" and ")}`;
+}
+
 const ArrowDown = () => (
   <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 4v15m-6-6 6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2" /></svg>
 );
@@ -40,6 +47,8 @@ export type RedeemPayout = {
   yieldFeeBps?: number;
   /** The Delivery Fee the vault keeps for the cross-chain send, in `token` (ETH and HYPE only). `amount` is already net of it. */
   deliveryFee?: number;
+  /** A Season prize line: it came from no Lock. */
+  prize?: boolean;
 };
 
 /** What a line's Gemas are worth in dollars after its Yield Fee. */
@@ -231,7 +240,7 @@ export function RedeemExchange({ payouts, instant = null, busy, busyNote, yieldC
         </p>
       )}
       <details className="mx-from">
-        <summary>From {plural(shown.length, "Lock")}</summary>
+        <summary>{redeemFromLine(shown)}</summary>
         <dl className="kv">
           {shown.map((p) => (
             <div key={p.key} style={{ display: "contents" }}>

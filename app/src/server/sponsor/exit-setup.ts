@@ -3,7 +3,7 @@ import { PublicKey } from "@solana/web3.js";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { decodeBook } from "@/lib/chain/book";
 import { CKPT_PAGE_AT, CKPT_PAGE_HEADER, CKPT_PER_PAGE, CKPT_RECORD_LEN } from "@/lib/chain/basket";
-import { sourcePda } from "@/lib/chain/native";
+import { SIM_SOL_MINT, nativeCustodyPda, sourcePda } from "@/lib/chain/native";
 import { bookPda, ckptPda } from "@/lib/chain/basket";
 import { positionBytes } from "@/lib/chain/position-size";
 import { landingPageNumbers } from "@/lib/chain/redeem";
@@ -25,6 +25,8 @@ export async function verifyExitSetup(plan: Plan, player: PublicKey, chain: Chai
   const s = plan.setup;
   if (!s) return { rent: 0n, ataGrant: null };
   if (!chain.rent) throw new DemoHttpError(503, "not-configured", "Payout account funding is not configured.");
+  if (s.prizeSource) return verifyPrizeSetup(s.prizeSource, s.ata, player, { account: (k) => chain.account(k), rent: (bytes) => chain.rent!(bytes) });
+  if (!s.position) return bad("The payout's Lock is missing.");
   const position = await chain.account(s.position), source = s.source ? await chain.account(s.source) : null;
   if (!position?.owner.equals(CORE_ID) || (s.source && !source?.owner.equals(CORE_ID))) bad("The payout's Lock and Source must exist.");
   let p: any, sourceState: any;
@@ -57,6 +59,23 @@ export async function verifyExitSetup(plan: Plan, player: PublicKey, chain: Chai
     }
   }
   return { rent, ataGrant };
+}
+
+/** A Season prize Redeem's only setup: the holder's missing simSOL account, when the prize Source is one on the native route. */
+async function verifyPrizeSetup(prizeSource: PublicKey, ata: { address: PublicKey; mint: PublicKey } | undefined, player: PublicKey, chain: Pick<ChainReads, "account"> & { rent: NonNullable<ChainReads["rent"]> }): Promise<{ rent: bigint; ataGrant: string | null }> {
+  const info = await chain.account(prizeSource);
+  let route: PublicKey | null = null;
+  try {
+    if (info?.owner.equals(CORE_ID)) route = new PublicKey(coder.decode("PrizeSourceState", Buffer.from(info.data)).route);
+  } catch {
+    route = null;
+  }
+  if (!route) return bad("The prize Source could not be read.");
+  if (!route.equals(nativeCustodyPda())) bad("Only Season prizes on the SOL route pay test SOL to your wallet.");
+  if (!ata) return { rent: 0n, ataGrant: null };
+  if (!ata.mint.equals(SIM_SOL_MINT)) bad("The token account's mint is not the payout asset.");
+  if (await chain.account(ata.address)) bad("The payout token account already exists; no setup is needed.");
+  return { rent: await chain.rent(165), ataGrant: exitAtaKey(player, SIM_SOL_MINT) };
 }
 
 /**

@@ -1,9 +1,10 @@
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
-import { bookPda, ckptPda, CLASS_STUDIO } from "./basket";
+import { basketPda, bookPda, ckptPda, CLASS_STUDIO, spillPda } from "./basket";
+import { coreIxName } from "./core-ix";
 import { encodeBook, freshClass } from "./basket-fixture";
 import { fp } from "./book";
-import { accountPda, redeemIx, simSolAta } from "./native";
+import { accountPda, nativeCustodyPda, nativePayingAccounts, redeemIx, simSolAta } from "./native";
 import { landingPageNumbers, landingPlan, redeemLineIxs, sourceAccounts } from "./redeem";
 import { decodeBook } from "./book";
 
@@ -75,5 +76,37 @@ describe("Redeem of a line", () => {
     expect(keys).toContain(bookPda(source).toBase58());
     expect(keys).toContain(ckptPda(source, 3, 0).toBase58());
     expect(keys[1]).toBe(accountPda(me).toBase58());
+  });
+});
+
+describe("Redeem of a Season prize line", () => {
+  const prizeSource = Keypair.generate().publicKey;
+  const h = { line: { side: 1, dueAt: 0n, class: 3, tranche: 0 }, accounts: [] as PublicKey[], source: prizeSource, position: PublicKey.default, stakeMint: null, prize: { route: nativeCustodyPda(), season: 4 } };
+  const withAta = () => new Map<string, Buffer>([[simSolAta(me).toBase58(), Buffer.alloc(165)]]);
+
+  it("sends redeem_prize, never Redeem (the program refuses a prize line there)", async () => {
+    const ixs = await redeemLineIxs(chain(withAta()), me, h, 2581n);
+    expect(ixs).toHaveLength(1);
+    expect(coreIxName(ixs[0])).toBe("redeem_prize");
+  });
+
+  it("names the holder, their stores and the prize Source, then the native custody paying the holder's simSOL", async () => {
+    const [ix] = await redeemLineIxs(chain(withAta()), me, h, 59n);
+    const keys = ix.keys.map((k) => k.pubkey.toBase58());
+    expect(keys.slice(0, 5)).toEqual([me, accountPda(me), basketPda(accountPda(me)), spillPda(accountPda(me)), prizeSource].map((k) => k.toBase58()));
+    expect(ix.keys[0].isSigner).toBe(true);
+    expect(ix.keys[4].isWritable).toBe(true);
+    expect(keys.slice(5)).toEqual(nativePayingAccounts(simSolAta(me)).map((m) => m.pubkey.toBase58()));
+    expect(keys).not.toContain(bookPda(prizeSource).toBase58());
+  });
+
+  it("creates the simSOL account first when it is missing", async () => {
+    const ixs = await redeemLineIxs(chain(new Map()), me, h, 59n);
+    expect(ixs).toHaveLength(2);
+    expect(coreIxName(ixs[1])).toBe("redeem_prize");
+  });
+
+  it("refuses a prize on a route this app cannot pay to a Solana wallet", async () => {
+    await expect(redeemLineIxs(chain(withAta()), me, { ...h, prize: { route: Keypair.generate().publicKey, season: 4 } }, 59n)).rejects.toThrow(/prize/i);
   });
 });

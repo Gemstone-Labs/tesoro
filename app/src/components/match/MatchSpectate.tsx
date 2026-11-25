@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { AccountLink } from "@/components/account/AccountLink";
 import { Button, CheckIcon, GemaMark, MinusIcon, Notice } from "@/components/ui";
-import { feeGemas } from "@/lib/chain/ledger";
+import { matchFee } from "@/lib/chain/ledger";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
@@ -18,6 +18,12 @@ import { PlayerAvatar, PlayerName, usePlayerLabel } from "@/components/account/P
 
 /** What a spectator cannot see while a Match is live, by Game. */
 const SPECTATE_HIDDEN: Record<GameId, string> = { "block-puzzle": "Runs", holdem: "Cards", "trading-duel": "Positions", vanguard: "Ranks" };
+
+/** The Pot line: the Fees a finished Match settled with (a closed Match keeps no rates), else the Fees at its rates. */
+export function spectatorPot(m: ChainMatch): { fee: number; payout: number } {
+  const fee = matchFee(m);
+  return { fee, payout: m.entry * 2 - fee };
+}
 
 /**
  * Someone else's Match, read-only: both Players (each leading to their Account), the result and the Pot. Open and live Matches are
@@ -52,8 +58,7 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
 
   const result = m.session ? (m.session.settled ? m.session.result : null) : m.winner;
   const winSeat = m.status === "settled" && (result === "opener" || result === "joiner") ? (result === "opener" ? 0 : 1) : null;
-  const fee = Number(feeGemas(BigInt(m.entry), m.fees.platformBps, m.fees.studioBps, m.fees.leaderboardBps));
-  const payout = m.entry * 2 - fee;
+  const { fee, payout } = spectatorPot(m);
   const scores = m.session && m.status === "settled" ? m.session.scores : null;
   const rules = RULES[m.game];
 
