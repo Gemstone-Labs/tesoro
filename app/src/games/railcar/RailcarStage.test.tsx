@@ -165,6 +165,12 @@ describe("the glow flare", () => {
     expect(css).toMatch(/\.rc-glow-pulse \{[^}]*animation: rc-pulse 1s /);
     expect(css).toMatch(/prefers-reduced-motion[^]*\.rc-glow-pulse \{ display: none; \}/);
   });
+
+  it("holds the White-hot car still: no flicker or shake (founder 2026-11-25)", () => {
+    const css = readFileSync(new URL("./railcar.css", import.meta.url), "utf8");
+    expect(css).not.toMatch(/\.rc-dmg-sparks/);
+    expect(css).not.toContain("rc-flick");
+  });
 });
 
 describe("the picked art is wired", () => {
