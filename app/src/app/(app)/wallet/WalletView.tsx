@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { CLUSTER } from "@/lib/cluster-settings";
 import { Button, CountUp } from "@/components/ui";
-import { redeemableOf, useAccount } from "@/lib/account";
+import { redeemableOf, unreadNote, useAccount } from "@/lib/account";
 import { fmtAsset, fmtGemas, fmtUsd } from "@/lib/format";
 import { type Chain, type GemaHolding, type Position } from "@/lib/mock";
 import { BRAND } from "@/lib/brand";
@@ -201,6 +201,7 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
           </p>
         )}
       />}
+      {card && ready && gemas.unread > 0 && <p className="note" role="status">{unreadNote(gemas.unread)}</p>}
 
       {body && <section className="wl-positions" aria-label="Your Gemas and Locks by chain">
         {loading && !ready && !error && (

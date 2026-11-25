@@ -648,6 +648,8 @@ export const debtGemasAt = (info: NativeInfo, speedup: number, atMs: number, sta
 
 /** simSOL base units that redeeming `gemas` of a Source pays now (floor, as the program computes it). */
 export function redeemPayoutShares(source: Pick<SourceMath, "unitNum" | "unitDen">, gemas: bigint, rate: bigint): bigint {
+  // A Gema priced at nothing (a prize Source with no shares left) pays nothing.
+  if (source.unitDen === 0n || rate === 0n) return 0n;
   const units = (gemas * source.unitNum) / source.unitDen;
   return (units * RATE_SCALE) / rate;
 }

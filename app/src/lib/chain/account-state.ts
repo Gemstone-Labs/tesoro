@@ -351,8 +351,11 @@ export function prizeUnits(gemas: bigint, shares: bigint, rate: bigint | null): 
  */
 function prizeHolding(line: Line, prize: any, store: "basket" | "spill", rate: bigint | null): ChainHolding {
   const route = new PublicKey(prize.route);
-  const units = prizeUnits(big(prize.inner.gemas), big(prize.inner.shares), rate);
-  const native = route.equals(nativeCustodyPda());
+  const shares = big(prize.inner.shares);
+  const units = prizeUnits(big(prize.inner.gemas), shares, rate);
+  // A prize Source with no shares left pays nothing: its Gemas stay held but are not offered for Redeem.
+  const pays = shares > 0n;
+  const native = pays && route.equals(nativeCustodyPda());
   return {
     key: keyOf(line),
     line: lineRefOf(line),
@@ -366,7 +369,7 @@ function prizeHolding(line: Line, prize: any, store: "basket" | "spill", rate: b
     amount: line.amount,
     reserved: 0n,
     free: line.amount,
-    redeemable: line.amount,
+    redeemable: pays ? line.amount : 0n,
     pending: 0n,
     yieldFeeBps: 0,
     poolBps: 0,

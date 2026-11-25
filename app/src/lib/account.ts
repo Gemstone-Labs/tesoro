@@ -1,3 +1,4 @@
+import { fmtGemas } from "./format";
 import { holdings as mockHoldings, matches as mockMatches, positions as mockPositions } from "./mock";
 import { useAuth } from "./auth/context";
 import { useChainData } from "./chain/ChainDataProvider";
@@ -28,6 +29,8 @@ export interface AccountView {
     waiting: number;
     /** `total + waiting`: everything the Player owns, what the top bar shows. */
     owned: number;
+    /** Gemas in lines whose Source could not be read: outside every figure above, shown on their own line. */
+    unread: number;
   };
   /**
    * True when Positions, Gemas and Matches come from tesoro_core on Solana devnet. False means
@@ -54,8 +57,8 @@ export interface AccountView {
 }
 
 /** The totals derived from holdings; waiting Gemas count as owned, never as available. */
-export function gemaTotals(t: { total: number; redeemable: number; reserved: number; waiting: number }): AccountView["gemas"] {
-  return { total: t.total, redeemable: t.redeemable, pending: t.total - t.redeemable, reserved: t.reserved, available: t.total - t.reserved, waiting: t.waiting, owned: t.total + t.waiting };
+export function gemaTotals(t: { total: number; redeemable: number; reserved: number; waiting: number; unread?: number }): AccountView["gemas"] {
+  return { total: t.total, redeemable: t.redeemable, pending: t.total - t.redeemable, reserved: t.reserved, available: t.total - t.reserved, waiting: t.waiting, owned: t.total + t.waiting, unread: t.unread ?? 0 };
 }
 
 /** Same rule as the program: playable Gemas minus Offer reservations minus what an open Ticket still has to stage. Waiting Gemas are not playable. */
@@ -109,9 +112,16 @@ const short = (k: string) => `${k.slice(0, 4)}…${k.slice(-4)}`;
 export const holdingOrigin = (h: Pick<ChainHolding, "isOwn" | "sourceOwner" | "prize">): string =>
   h.prize ? `Season ${h.prize.season} prize` : h.isOwn ? "Your Lock" : `${short(h.sourceOwner)}'s Lock`;
 
-/** Playable Gemas of the snapshot: every General or Extension line, the ones whose Source could not be read included (they are still the Player's). */
-export const heldGemas = (s: Pick<AccountSnapshot, "holdings" | "unread">): number =>
-  [...s.holdings, ...(s.unread ?? [])].filter((h) => h.amount > 0n && h.classId >= 3).reduce((t, h) => t + Number(h.amount), 0);
+const playable = (lines: { amount: bigint; classId: number }[]) => lines.filter((h) => h.amount > 0n && h.classId >= 3).reduce((t, h) => t + Number(h.amount), 0);
+
+/** Playable Gemas the read could value: every General or Extension line of the holdings. */
+export const heldGemas = (s: Pick<AccountSnapshot, "holdings">): number => playable(s.holdings);
+
+/** Playable Gemas in lines whose Source could not be read: still the Player's, shown on their own, never as pending or redeemable. */
+export const unreadGemas = (s: Pick<AccountSnapshot, "unread">): number => playable(s.unread ?? []);
+
+/** The Vault's line for Gemas the read could not value. */
+export const unreadNote = (n: number): string => `${fmtGemas(n)} ${n === 1 ? "Gema" : "Gemas"} couldn't be read right now. Try again later.`;
 
 export function fromSnapshot(s: AccountSnapshot) {
   const holdings: GemaHolding[] = s.holdings
@@ -164,7 +174,7 @@ export function fromSnapshot(s: AccountSnapshot) {
     } satisfies Match;
   });
   const openMatches = s.matches.filter((m) => m.status === "open" || m.status === "active");
-  return { holdings, positions, matches, openMatches, total: heldGemas(s) };
+  return { holdings, positions, matches, openMatches, total: heldGemas(s), unread: unreadGemas(s) };
 }
 
 /**
@@ -196,7 +206,7 @@ export function useAccount(): AccountView {
     positions: mock ? mockPositions : (real?.positions ?? []),
     holdings,
     matches: mock ? mockMatches : (real?.matches ?? []),
-    gemas: gemaTotals({ total, redeemable, reserved, waiting }),
+    gemas: gemaTotals({ total, redeemable, reserved, waiting, unread: mock ? 0 : (real?.unread ?? 0) }),
     onChain,
     loading: auth.status === "loading" || (onChain && (chain.loading || !auth.addresses.solana)),
     ready: mock || (onChain && chain.snapshot !== null),

@@ -169,6 +169,24 @@ describe("Account read: prize Gemas", () => {
   });
 });
 
+describe("a prize Source with no shares left", () => {
+  it("is held but neither redeemable nor offered for Redeem: it would pay nothing", async () => {
+    const chain = await chainOf(LINES);
+    chain.set(PRIZE_3.toBase58(), await encode("prizeSourceState", prizeSource(PRIZE_3, 3, 692, 0)));
+    const snap = await readAccountState(sourceOf(chain), authority, accountKey);
+    const h = snap.holdings.find((x) => x.source.equals(PRIZE_3))!;
+    expect(h.amount).toBe(59n);
+    expect(h.redeemable).toBe(0n);
+    expect(h.pending).toBe(0n);
+    expect(h.native).toBe(false);
+    expect(redeemPayoutShares(h, h.amount, RATE_SCALE)).toBe(0n);
+  });
+
+  it("pays 0 shares at a zero price instead of dividing by zero", () => {
+    expect(redeemPayoutShares({ unitNum: 10n, unitDen: 0n }, 59n, RATE_SCALE)).toBe(0n);
+  });
+});
+
 describe("prize Gema price", () => {
   it("prices a prize Gema so the Redeem sheet's payout is the escrow shares redeem_prize pays", () => {
     const rate = (RATE_SCALE * 1_183n) / 1_000n; // 1 simSOL = 1.183 SOL
