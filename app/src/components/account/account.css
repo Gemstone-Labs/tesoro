@@ -45,6 +45,9 @@
 .pa-all:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
 .pa-all svg { width: 16px; height: 16px; }
 .pa-prot ul, .pa-recent ul { list-style: none; margin: 0; padding: 0; }
+/* One grid for the whole list: the amount and time columns are as wide as the widest row's, so every row lines up (rows join it by subgrid). */
+.pa-recent ul { display: grid; grid-template-columns: 64px 40px minmax(0, 1fr) 36px auto auto; column-gap: 10px; }
+.pa-recent li { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; }
 .pa-prot li, .pa-recent li { border-top: 1px solid var(--line); }
 .pa-prot-row { all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; gap: 8px; width: 100%; min-height: 48px; padding: 0 16px; font-size: var(--fs-16); font-weight: 600; }
 .pa-prot-row span:first-child { flex: 1; }
@@ -53,7 +56,7 @@
 .pa-prot-row svg { width: 18px; height: 18px; color: var(--fg-2); }
 .pa-prot-row:hover { background: rgba(234, 239, 236, 0.04); }
 .pa-prot-row:focus-visible { outline: 2px solid var(--fg); outline-offset: -2px; }
-.pa-recent-row { display: grid; grid-template-columns: 64px 40px minmax(0, 1fr) 36px 84px 40px; align-items: center; gap: 10px; min-height: 60px; padding: 8px 16px; color: var(--fg); }
+.pa-recent-row { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; min-height: 60px; padding: 8px 16px; color: var(--fg); }
 .pa-recent-row:hover { background: rgba(234, 239, 236, 0.04); }
 .pa-res { --c: 6px; --edge: var(--edge-2); padding: 5px 0; text-align: center; font-size: var(--fs-13); font-weight: 600; background: transparent; }
 .pa-res.lost { color: var(--fg-2); }
@@ -195,13 +198,16 @@
   .pa-chart figcaption { flex-direction: column; }
   .pa-read { text-align: left; }
   .pa-end { font-size: var(--fs-12); }
-  .pa-recent-row { grid-template-columns: 56px 36px minmax(0, 1fr) 32px 74px 30px; gap: 8px; padding-inline: 12px; }
+  .pa-recent ul { grid-template-columns: 56px 36px minmax(0, 1fr) 32px auto auto; column-gap: 8px; }
+  .pa-recent-row { padding-inline: 12px; }
+  .pa-recent-who b { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: normal; line-height: 1.15; }
   .pa-recent-game { width: 36px; height: 36px; }
   .pa-recent-opp { width: 32px; height: 32px; }
 }
-@media (max-width: 380px) {
+/* On a phone the name under the game says who the opponent was: the avatar gives its room to the game name and the amount. */
+@media (max-width: 480px) {
   .pa-recent-opp { display: none; }
-  .pa-recent-row { grid-template-columns: 56px 36px minmax(0, 1fr) 74px 30px; }
+  .pa-recent ul { grid-template-columns: 56px 36px minmax(0, 1fr) auto auto; }
 }
 
 /* ——— A Player's name with its verified mark ——— */

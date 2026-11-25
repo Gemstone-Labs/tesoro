@@ -38,7 +38,7 @@ export function RailcarRoute() {
         brake={r.brake}
         offer={r.offer}
         watch={r.watch}
-        actions={{ onBoard: r.signedIn ? () => void r.board() : undefined, onSignIn: () => auth.openSignIn(), onStepOff: () => void r.stepOff(), onJump: () => void r.jump(), onPlayAgain: r.playAgain, onShare: share, onHowTo: () => setHow(true) }}
+        actions={{ onBoard: r.signedIn ? () => void r.board() : undefined, boardDisabled: r.readsFailing, onSignIn: () => auth.openSignIn(), onStepOff: () => void r.stepOff(), onJump: () => void r.jump(), onPlayAgain: r.playAgain, onShare: share, onHowTo: () => setHow(true) }}
       />
       <HowToPlay game="railcar" open={how} onClose={() => setHow(false)} end="game-page" practiceHref={practiceHref("railcar")} />
     </>

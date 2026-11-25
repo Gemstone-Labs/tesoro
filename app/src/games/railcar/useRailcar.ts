@@ -205,6 +205,8 @@ export interface RailcarPage {
   match: PublicKey | null;
   busy: string | null;
   error: string | null;
+  /** Reads keep failing: the page cannot see the car, so Board waits for a read that works. */
+  readsFailing: boolean;
   signedIn: boolean;
   /** Set while this page watches a ride it is not in. */
   watch: RailcarWatch | null;
@@ -818,7 +820,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   const blocked = offerProblem ? new BackingError(offerProblem).message : snap?.backerSeated ? "Your Backer is in this car: board the next one" : null;
   const shownOffer: RailcarOffer | null = offer ? { backer: offer.backer, sharePct: offer.shareBps / 100, ...(blocked ? { blocked } : {}) } : null;
   const missing = offerAddress && offer === null ? new BackingError("missing").message : null;
-  return { view, match: snap?.car?.match ?? null, busy, error: error ?? readError ?? (stepTrouble && now - stepTrouble.at < STEP_TROUBLE_SHOWN_MS ? stepTrouble.text : null) ?? missing, signedIn: !!wallet, watch, offer: shownOffer, offerSpent: offer?.status === "consumed", board, stepOff, jump, brake, playAgain };
+  return { view, match: snap?.car?.match ?? null, busy, error: error ?? readError ?? (stepTrouble && now - stepTrouble.at < STEP_TROUBLE_SHOWN_MS ? stepTrouble.text : null) ?? missing, readsFailing: readError !== null, signedIn: !!wallet, watch, offer: shownOffer, offerSpent: offer?.status === "consumed", board, stepOff, jump, brake, playAgain };
 }
 
 /** A share of the finish (finalize, room, chunks, closes) through the relayer, sized against the server's lookup tables. */
