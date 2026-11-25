@@ -71,7 +71,7 @@ async function verifyPrizeSetup(prizeSource: PublicKey, ata: { address: PublicKe
     route = null;
   }
   if (!route) return bad("The prize Source could not be read.");
-  if (!route.equals(nativeCustodyPda())) bad("Only native-route prizes pay simSOL to the holder's wallet.");
+  if (!route.equals(nativeCustodyPda())) bad("Only Season prizes on the SOL route pay test SOL to your wallet.");
   if (!ata) return { rent: 0n, ataGrant: null };
   if (!ata.mint.equals(SIM_SOL_MINT)) bad("The token account's mint is not the payout asset.");
   if (await chain.account(ata.address)) bad("The payout token account already exists; no setup is needed.");
