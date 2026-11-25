@@ -1,10 +1,12 @@
 import type { GameId } from "../mock/types";
+import type { HistoryGame } from "./history";
 
 /** A settled Match anyone may see: the Lobby ticker. Winners are shown by short key (no names on chain). */
 export interface SettledMatch {
   /** The Match key, `<opener>-<n>`. */
   id: string;
-  game: GameId;
+  /** Railcar rides arrive here too: the history lists every Game's wins. */
+  game: HistoryGame;
   entry: number;
   /** TesoroAccount key of the winning Player. */
   winner: string;
