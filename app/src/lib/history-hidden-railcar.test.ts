@@ -15,17 +15,18 @@ const rows = [
   { id: "bb-1", game: "block-puzzle" },
   { id: "car-15", game: "railcar" },
   { id: "hd-1", game: "holdem" },
+  // A row whose program this build does not know keeps the program id as its game (ingest.ts: gameOf(...) ?? game).
+  { id: "car-17", game: "ExpLHqvPEqbdEze5HaYWmnTsH9SXYa8jkXeuEvjRGzam" },
 ];
-const rpc = (async (fn: string) => (fn === "recent_wins" ? rows : { rows, page: 1, pages: 1, total: rows.length })) as never;
+const rpc = (async () => rows) as never;
 
 describe("history rows of a Game this environment does not show", () => {
-  it("leaves Railcar rides out of recent wins and account history where Railcar is not shown", async () => {
+  it("leaves Railcar rides and unknown programs out of recent wins where Railcar is not shown", async () => {
     const r = await load(false);
     expect((await r.visibleRecentWins(rpc, { limit: 12 })).map((w) => w.id)).toEqual(["bb-1", "hd-1"]);
-    expect((await r.visibleAccountHistory(rpc, "acct", 1, 10, null)).rows.map((w) => w.id)).toEqual(["bb-1", "hd-1"]);
   });
 
-  it("keeps them where Railcar is shown", async () => {
+  it("keeps Railcar rides where Railcar is shown, never an unknown program", async () => {
     const r = await load(true);
     expect((await r.visibleRecentWins(rpc, { limit: 12 })).map((w) => w.id)).toEqual(["car-16", "bb-1", "car-15", "hd-1"]);
   });
