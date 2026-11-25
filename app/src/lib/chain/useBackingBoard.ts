@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BackingBoard, PlayerRecord } from "./backing";
-import type { ChainMatch } from "./read";
 import { withTimeout } from "./timeout";
 import { plainError } from "@/lib/errors";
 
@@ -63,18 +62,23 @@ export function recordText(r: PlayerRecord): string {
   return `${r.wins} of ${r.matches} won (${Math.round((r.wins / r.matches) * 100)}%) · ${r.matches} settled ${r.matches === 1 ? "Match" : "Matches"}`;
 }
 
-/** The signed-in Player's own record from their settled Matches (same rule the Request shows to Backers). */
-export function recordFromMatches(matches: ChainMatch[]): PlayerRecord {
-  let n = 0;
-  let wins = 0;
-  for (const m of matches) {
-    if (m.status !== "settled" || m.seat === null) continue;
-    const result = m.session ? m.session.result : m.winner;
-    if (!result || result === "draw") continue;
-    n += 1;
-    if ((result === "opener") === (m.seat === 0)) wins += 1;
-  }
-  return { matches: n, wins };
+/**
+ * The signed-in Player's own record, read from the same history Backers see on their Requests (finished Matches' accounts are
+ * closed, so the chain no longer has them). Undefined while it loads, null when the history is unavailable.
+ */
+export function useOwnRecord(player: string | null, enabled: boolean): PlayerRecord | null | undefined {
+  const [read, setRead] = useState<{ player: string; record: PlayerRecord | null } | null>(null);
+  useEffect(() => {
+    if (!player || !enabled) return;
+    let live = true;
+    void import("./backing").then(({ fetchPlayerRecord }) => fetchPlayerRecord(player)).then((record) => {
+      if (live) setRead({ player, record });
+    });
+    return () => {
+      live = false;
+    };
+  }, [player, enabled]);
+  return read && read.player === player ? read.record : undefined;
 }
 
 /** "38 Matches · 61% won": the win rate always carries its sample size. */
