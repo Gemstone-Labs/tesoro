@@ -4,7 +4,7 @@ import { RecentMatches } from "./RecentMatches";
 import type { PlayedRow } from "@/lib/chain/player-account";
 
 vi.mock("@/components/account/Player", () => ({ PlayerAvatar: () => <i />, usePlayerLabel: () => "Ben" }));
-vi.mock("next/image", () => ({ default: () => <img alt="" /> }));
+vi.mock("next/image", () => ({ default: () => <span /> }));
 
 const NOW = 1_000_000_000;
 const row = (id: string, delta: number, agoSecs: number, opp: string | null): PlayedRow => ({ id, game: "block-puzzle", result: delta < 0 ? "lost" : "won", delta, at: NOW - agoSecs, opp, match: id }) as unknown as PlayedRow;
