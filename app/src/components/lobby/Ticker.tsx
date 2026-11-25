@@ -7,7 +7,7 @@ import { ago } from "@/lib/catalogue";
 import { scoreLine } from "@/lib/chain/settled";
 import { useRecentSettled } from "@/lib/chain/useRecentSettled";
 import { fmtGemas } from "@/lib/format";
-import { GAME_NAMES } from "@/lib/mock";
+import { historyGameName } from "@/lib/chain/history";
 import { PlayerName } from "@/components/account/Player";
 
 const STEP_MS = 4500;
@@ -34,7 +34,7 @@ export function Ticker() {
         <span key={m.id.toString()} className="ticker-line">
           <b>{m.winner === me ? "You" : <PlayerName account={m.winner} />}</b> won <b>{fmtGemas(m.payout)}</b> Gemas
           <i aria-hidden="true">·</i>
-          {GAME_NAMES[m.game]}
+          {historyGameName(m.game)}
           {scoreLine(m.scores) && (
             <>
               <i aria-hidden="true">·</i>

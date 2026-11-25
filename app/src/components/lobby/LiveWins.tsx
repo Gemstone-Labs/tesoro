@@ -6,8 +6,8 @@ import { useAccount } from "@/lib/account";
 import { ago } from "@/lib/catalogue";
 import { useRecentSettled } from "@/lib/chain/useRecentSettled";
 import { scoreLine, type SettledMatch } from "@/lib/chain/settled";
+import { historyGameName, matchHref } from "@/lib/chain/history";
 import { fmtGemas } from "@/lib/format";
-import { GAME_NAMES } from "@/lib/mock";
 import { PlayerAvatar, PlayerName } from "@/components/account/Player";
 
 /** Recent wins, settled on Solana devnet, as one slow strip under the hero. Pauses on hover and focus. */
@@ -20,7 +20,7 @@ export function LiveWins() {
 
   const item = (m: SettledMatch, copy: boolean) => (
     <li key={`${copy ? "c" : "o"}${m.id.toString()}`} aria-hidden={copy || undefined}>
-      <Link href={`/play/match/${m.id.toString()}`} tabIndex={copy ? -1 : undefined}>
+      <Link href={matchHref(m)} tabIndex={copy ? -1 : undefined}>
         <PlayerAvatar className="lw-av" account={m.winner} size={28} />
         <b>{m.winner === me ? "You" : <PlayerName account={m.winner} />}</b>
         <span>won</span>
@@ -30,7 +30,7 @@ export function LiveWins() {
           <GemaUsd value={m.payout} />
         </strong>
         <span>
-          {GAME_NAMES[m.game]}
+          {historyGameName(m.game)}
           {scoreLine(m.scores) && ` ${scoreLine(m.scores)}`} · {ago(m.at)}
         </span>
       </Link>
