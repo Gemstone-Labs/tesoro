@@ -181,9 +181,7 @@
 
 /* ——— The bomb's warnings on the train: light on the real car, from the moment each Tell fires. The latest stage shows (DAMAGE_ART). ——— */
 .rc-dmg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; user-select: none; }
-.rc-dmg-sparks { animation: rc-flick 0.16s steps(2, jump-none) infinite alternate; }
 .rc-dmg-panel { animation: rc-breathe 1.2s ease-in-out infinite alternate; }
-@keyframes rc-flick { from { opacity: 1; translate: 0 0; } to { opacity: 0.82; translate: 1px 1px; } }
 @keyframes rc-breathe { from { opacity: 0.85; } to { opacity: 1; } }
 .rc-glow-pulse { animation: rc-pulse 1s ease-out both; }
 @keyframes rc-pulse { 0% { opacity: 0; } 15% { opacity: 1; filter: brightness(1.8); } 100% { opacity: 0; } }
