@@ -133,6 +133,6 @@ describe("NEXT_PUBLIC_HIDDEN_GAMES", () => {
     expect(h).toMatchObject({ total: 3, pages: 2 });
     expect((await visibleAccountHistory(rpc, "acct", 2, 2, null, hidden)).rows.map((r) => r.id)).toEqual(["e"]);
     expect((await visibleAccountHistory(rpc, "acct", 1, 10, null, new Set())).total).toBe(5);
-    expect((await visibleRecentWins(rpc, { limit: 10 }, hidden)).map((w) => w.id)).toEqual(["a", "c", "e"]);
+    expect((await visibleRecentWins(rpc, { limit: 10 }, (g) => !hidden.has(g as GameId))).map((w) => w.id)).toEqual(["a", "c", "e"]);
   });
 });

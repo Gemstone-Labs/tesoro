@@ -10,7 +10,7 @@ import type { GetToken } from "./demo-client";
 import type { ChainHolding } from "./read";
 import { SponsorError, sponsorStatus, sponsoredSend } from "./sponsor-client";
 import coreIdl from "./idl/tesoro_core.json";
-import { SIM_SOL_MINT, TESORO_CORE_ID, accountPda, redeemIx, simSolAta, sourcePda, unlockIx, type LineTarget, type PrevAdvance } from "./native";
+import { SIM_SOL_MINT, TESORO_CORE_ID, accountPda, nativeCustodyPda, redeemIx, redeemPrizeIx, simSolAta, sourcePda, unlockIx, type LineTarget, type PrevAdvance } from "./native";
 import { createAtaIdempotentIx, tokenAta } from "./stake-pool";
 import { stakePoolRefreshIxs } from "./stake-pool-refresh";
 import { redeemStakeIx, stakeTokenOf, unlockStakeIx, type StakeToken } from "./stake";
@@ -108,8 +108,15 @@ async function ataIx(conn: Reader, me: PublicKey, token: StakeToken | null): Pro
   return [createAtaIdempotentIx(me, me, token?.mint ?? SIM_SOL_MINT)];
 }
 
-/** The instructions that Redeem `gemas` of one line of a Solana Source, with the token account created if missing. */
-export async function redeemLineIxs(conn: Reader, me: PublicKey, h: Pick<ChainHolding, "line" | "accounts" | "source" | "position" | "stakeMint">, gemas: bigint): Promise<TransactionInstruction[]> {
+/**
+ * The instructions that Redeem `gemas` of one line of a Solana Source, with the token account created if missing. A Season prize
+ * line has no book and the program refuses it in Redeem, so it goes through `redeem_prize`: every Redeem of the app is built here.
+ */
+export async function redeemLineIxs(conn: Reader, me: PublicKey, h: Pick<ChainHolding, "line" | "accounts" | "source" | "position" | "stakeMint" | "prize">, gemas: bigint): Promise<TransactionInstruction[]> {
+  if (h.prize) {
+    if (!h.prize.route.equals(nativeCustodyPda())) throw new Error("This Season prize pays on a route this version of the app cannot Redeem yet.");
+    return [...(await ataIx(conn, me, null)), redeemPrizeIx(me, h.source, gemas)];
+  }
   const { accounts, create } = await sourceAccounts(conn, h.source, h.accounts, me);
   const target: LineTarget = { line: h.line, accounts };
   const token = tokenOf(h.stakeMint);

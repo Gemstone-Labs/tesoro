@@ -4,7 +4,7 @@ import { planExit } from "./exit-route";
 import { unlockStakeIx, JITOSOL } from "./stake";
 import { initCkptPageIx } from "./redeem";
 import { createAtaIdempotentIx } from "./stake-pool";
-import { sourcePda } from "./native";
+import { SIM_SOL_MINT, redeemPrizeIx, sourcePda } from "./native";
 
 const player = Keypair.generate().publicKey;
 const relayer = Keypair.generate().publicKey;
@@ -27,6 +27,13 @@ describe("how an exit is sent", () => {
     expect(r.ixs.slice(0, -1).every((ix) => ix.keys[0].pubkey.equals(relayer))).toBe(true);
     expect(r.ixs.at(-1)).toBe(unlock);
     expect(ata.keys[0].pubkey.equals(player)).toBe(true);
+  });
+  it("lets the relayer pay a missing simSOL account in front of a Season prize Redeem", () => {
+    const ata = createAtaIdempotentIx(player, player, SIM_SOL_MINT);
+    const prize = redeemPrizeIx(player, Keypair.generate().publicKey, 59n);
+    const r = planExit([ata, prize], player, relayer);
+    expect(r.kind).toBe("prepared");
+    expect(r.ixs[0].keys[0].pubkey.equals(relayer)).toBe(true);
   });
   it("is self-pay, paid by the Player, for anything else", () => {
     const foreign = SystemProgram.transfer({ fromPubkey: player, toPubkey: relayer, lamports: 1 });

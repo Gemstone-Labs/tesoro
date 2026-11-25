@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { CarView, SeatPageView, SeatView } from "../../lib/chain/many-seat";
 import type { TableView } from "./chain";
 import { NO_TELLS } from "./tell-state";
-import { boardingSteps, departureDue, mayFinish, nextRideStep, pageIntervalMs, previousDone, queueChoice, signalIntervalMs, watchedRide } from "./flow";
+import { JUMP_NOT_STARTED, boardingSteps, departureDue, mayFinish, nextRideStep, pageIntervalMs, previousDone, queueChoice, seatToJump, signalIntervalMs, watchedRide } from "./flow";
 
 const key = () => Keypair.generate().publicKey;
 const T0 = 1_762_300_000;
@@ -255,5 +255,58 @@ describe("what a Spectator watches", () => {
   it("nothing riding: none (the page shows the boarding car)", () => {
     expect(watchedRide([t(0, 0n, "idle"), t(1, 0n, "idle")], T0)).toBeNull();
     expect(watchedRide([], T0)).toBeNull();
+  });
+});
+
+describe("the seat a Jump names (ticket 40)", () => {
+  const qsA = key();
+  const phone = key();
+  const rideSeat = (tableSeat: number, account: PublicKey) => ({ tableSeat, seat: tableSeat, order: 0, jumpMs: 0, refund: 0n, account, signer: key(), brakeMs: null });
+  // Car 18 on staging: Table 0 still held car 16 (qsA in seat 0) when the car left; car 18 put the phone in seat 0, qsA in 1.
+  const car16 = table({ index: 0, carNo: 16n, phase: "over", outcome: "placed", seats: [rideSeat(0, qsA)] });
+  const car18 = (phase: TableView["phase"]) => table({ index: 0, carNo: 18n, phase, seats: [rideSeat(0, phone), rideSeat(1, qsA)] });
+  const jumpOn = (first: TableView | null, later: (TableView | null)[], waitMs = 10_000) => {
+    let clock = 0;
+    const reads = [...later];
+    const f = { reads: 0 };
+    const seat = seatToJump({
+      carNo: 18n,
+      me: qsA,
+      table: first,
+      reread: async () => {
+        f.reads++;
+        return reads.length > 1 ? reads.shift()! : reads[0];
+      },
+      waitMs,
+      pollMs: 800,
+      sleep: async (ms) => {
+        clock += ms;
+      },
+      now: () => clock,
+    });
+    return { seat, f };
+  };
+
+  it("a Table still holding the previous car names no seat: the Jump waits for this car's ride and names qsA's seat in it", async () => {
+    const { seat, f } = jumpOn(car16, [car16, car18("drawing"), car18("riding")]);
+    expect(await seat).toBe(1);
+    expect(f.reads).toBe(3);
+  });
+
+  it("a Table riding this car names the seat at once", async () => {
+    const { seat, f } = jumpOn(car18("riding"), []);
+    expect(await seat).toBe(1);
+    expect(f.reads).toBe(0);
+  });
+
+  it("a ride that never starts on the Table: the Jump stops after the wait and says so", async () => {
+    await expect(jumpOn(car16, [car16]).seat).rejects.toThrow(JUMP_NOT_STARTED);
+    await expect(jumpOn(null, [null]).seat).rejects.toThrow(JUMP_NOT_STARTED);
+  });
+
+  it("this car's ride already over: nothing to send", async () => {
+    const { seat, f } = jumpOn(car18("over"), []);
+    expect(await seat).toBeNull();
+    expect(f.reads).toBe(0);
   });
 });

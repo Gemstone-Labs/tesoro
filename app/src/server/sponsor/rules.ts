@@ -313,7 +313,10 @@ export interface Plan {
   pages?: CkptPage[];
   /** Only atomic first-payout preparation; live Position and Book semantics are verified by the service. */
   setup?: {
-    position: PublicKey;
+    /** The payout's Lock; null for a Season prize Redeem, which names `prizeSource` instead. */
+    position: PublicKey | null;
+    /** `redeem_prize`: the prize Source paid from; its only setup is the holder's payout token account. */
+    prizeSource?: PublicKey;
     /** Null for an Unlock without checkpoint pages: it needs no Source check. */
     source: PublicKey | null;
     pages: { book: PublicKey; page: PublicKey; classId: number; pageNo: number }[];
@@ -352,21 +355,24 @@ function checkPoolUpdate(ix: Ix): PublicKey {
 function planPreparedExit(ixs: Ix[], relayer: PublicKey, player: PublicKey): Plan {
   const terminal = ixs.at(-1)!;
   const decoded = terminal.programId.equals(CORE_ID) ? coder.decode(Buffer.from(terminal.data)) : null;
-  if (!decoded || !["redeem", "request_instant_redeem", "unlock"].includes(decoded.name) || ixs.length > 32) throw new RuleError("bad-shape", "Payout setup must finish with one Redeem, Instant Redeem request or Unlock.");
+  if (!decoded || !["redeem", "redeem_prize", "request_instant_redeem", "unlock"].includes(decoded.name) || ixs.length > 32) throw new RuleError("bad-shape", "Payout setup must finish with one Redeem, prize Redeem, Instant Redeem request or Unlock.");
+  const prize = decoded.name === "redeem_prize";
   const plan = planCore([terminal], relayer);
   const def = idlIx(decoded.name)!;
   const named = new Map(def.accounts.map((a, i) => [a.name, terminal.keys[i].pubkey]));
   if (!(named.get("holder_authority") ?? named.get("owner_authority"))?.equals(player)) throw new RuleError("bad-signer", "The Player must own the payout being prepared.");
-  const position = named.get("position")!;
+  const position = prize ? null : named.get("position")!;
   // An Unlock names no Source: the one it closes travels in its remaining accounts, found by the book its pages point at.
   // The service checks it is the Position's open Advance.
   const unlockSource = (book: PublicKey) => terminal.keys.slice(def.accounts.length).find((k) => k.isWritable && bookPda(k.pubkey).equals(book))?.pubkey;
   let source: PublicKey | null = named.get("source") ?? null;
-  const setup: NonNullable<Plan["setup"]> = { source, position, pages: [] };
+  const setup: NonNullable<Plan["setup"]> = { source, position, pages: [], ...(prize ? { prizeSource: named.get("prize_source")! } : {}) };
   const used = new Set<string>();
   const inPayout = (key: PublicKey) => terminal.keys.some((k) => k.pubkey.equals(key) && k.isWritable);
   let cuExtra = 0;
   for (const [at, ix] of ixs.slice(0, -1).entries()) {
+    // A prize line has no book and pays simSOL from the native custody: only the payout token account can precede it.
+    if (prize && !ix.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID)) throw new RuleError("bad-shape", "Only the payout token account may precede a prize Redeem.");
     if (isPoolUpdate(ix)) {
       if (at !== 0 || setup.poolUpdate) throw new RuleError("bad-shape", "One stake pool update may open the transaction.");
       const pool = checkPoolUpdate(ix);

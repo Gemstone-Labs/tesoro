@@ -41,7 +41,7 @@ import {
 } from "@/lib/chain/backing";
 import { liveRequestFor, onePerPlayer } from "@/lib/chain/requests";
 import { backedSplit, EntryError } from "@/lib/chain/ledger";
-import { recordFromMatches, recordText, timeLeft, useBackingBoard } from "@/lib/chain/useBackingBoard";
+import { recordText, timeLeft, useBackingBoard, useOwnRecord } from "@/lib/chain/useBackingBoard";
 import { fmtGemas } from "@/lib/format";
 import { backingQuery } from "@/lib/game-params";
 import { backedEntries, backedGameName, backedGames, type BackedGame } from "@/lib/backing/games";
@@ -114,6 +114,7 @@ export default function Backing() {
   const [tab, setTab] = useState<Tab>("requests");
   const [sort, setSort] = useState<Sort>("recent");
   const [postOpen, setPostOpen] = useState(false);
+  const ownRecord = useOwnRecord(me, postOpen);
 
   const requests = board?.requests ?? [];
   const offers = board?.offers ?? [];
@@ -396,7 +397,7 @@ export default function Backing() {
       </div>
       <Sheet open={postOpen} onClose={() => setPostOpen(false)} title="Post a Request">
         <PostRequest
-          record={recordFromMatches(snapshot?.matches ?? [])}
+          record={ownRecord}
           signedIn={onChain}
           busy={busy === "post-request"}
           disabled={busy !== null}
@@ -466,6 +467,8 @@ function Empty({ title, body }: { title: string; body: string }) {
   );
 }
 
+const ownRecordLine = (r: PlayerRecord | null | undefined) => (r === undefined ? ": reading it…" : r === null ? "" : `: ${recordText(r)}`);
+
 function PostRequest({
   record,
   signedIn,
@@ -473,7 +476,8 @@ function PostRequest({
   disabled,
   onPost,
 }: {
-  record: { matches: number; wins: number };
+  /** Undefined while it loads, null when the history is unavailable. */
+  record: PlayerRecord | null | undefined;
   signedIn: boolean;
   busy: boolean;
   disabled: boolean;
@@ -488,7 +492,7 @@ function PostRequest({
     <section aria-label="Post a Request">
       <div className="stack">
         <p className="meta">
-          Ask to be backed for one Match. Backers see your real record{signedIn ? `: ${recordText(record)}` : ""}. A Request carries no
+          Ask to be backed for one Match. Backers see your real record{signedIn ? ownRecordLine(record) : ""}. A Request carries no
           split: Backers answer with Offers and you accept one.
         </p>
         <div className="field">

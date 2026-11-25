@@ -12,7 +12,7 @@ import { encodeBook, encodeStore, freshClass, lineOf } from "@/lib/chain/basket-
 import { initCkptPageIx } from "@/lib/chain/settle-plan";
 import { fp } from "@/lib/chain/book";
 import { bookPda, ckptPda, countersPda } from "@/lib/chain/basket";
-import { SIM_SOL_MINT, protectionsPda, sourcePda } from "@/lib/chain/native";
+import { SIM_SOL_MINT, nativeCustodyPda, protectionsPda, sourcePda } from "@/lib/chain/native";
 import { redeemLineIxs, unlockIxs } from "@/lib/chain/redeem";
 import { planExit } from "@/lib/chain/exit-route";
 import { getChain } from "@/lib/chain/client";
@@ -279,6 +279,48 @@ describe("first payout account funding", () => {
     const extra = await coreIx("init_ckpt_page", [3, 1], { payer: s.relayer.publicKey, book: bookPda(source), page: ckptPda(source, 3, 1) });
     ixs.at(-1)!.keys.push({ pubkey: ckptPda(source, 3, 1), isWritable: true, isSigner: false });
     await expect(s.sponsor.build(s.player.publicKey, wire([extra, ...ixs]))).rejects.toMatchObject({ code: "bad-setup" });
+  });
+});
+
+describe("first prize Redeem account funding", () => {
+  /** A Season prize Source on `route` and the app's redeem_prize for it, the holder's simSOL account missing. */
+  async function prizePayout(s: ReturnType<typeof setup>, route = nativeCustodyPda()) {
+    const prizeSource = key();
+    s.accounts.set(prizeSource.toBase58(), { owner: CORE_ID, data: await new BorshAccountsCoder(coreIdl as Idl).encode("PrizeSourceState", { bump: 1, route, season: 4, inner: { source: Array.from(prizeSource.toBytes()), shares: new BN(1000), gemas: new BN(100) } }) });
+    const reader = { getMultipleAccountsInfo: (keys: PublicKey[]) => Promise.all(keys.map((k) => s.deps.chain.account(k))) };
+    const h = { line: { side: 1, dueAt: 0n, class: 3, tranche: 0 }, accounts: [] as PublicKey[], source: prizeSource, position: PublicKey.default, stakeMint: null, prize: { route: nativeCustodyPda(), season: 4 } };
+    const ixs = await redeemLineIxs(reader, s.player.publicKey, h, 50n);
+    expect(ixs).toHaveLength(2);
+    ixs[0].keys[0].pubkey = s.relayer.publicKey;
+    return { ixs, prizeSource };
+  }
+  it("funds a zero-SOL Player's missing simSOL account for a Season prize Redeem, as for Redeem", async () => {
+    const s = setup({ paused: true, gemas: 0n, limits: { accountPerDay: 0, globalPerDay: 0 } });
+    const { ixs } = await prizePayout(s);
+    const built = await s.sponsor.build(s.player.publicKey, wire(ixs));
+    expect(built.class).toBe("exit");
+    await s.sponsor.submit(playerSigns(built, s.player), built.meta, built.mac);
+    expect(s.sent[0].message.staticAccountKeys[0]).toEqual(s.relayer.publicKey);
+  });
+  it("shares the one first-use grant with Redeem: a second prize Redeem account is not gifted", async () => {
+    const s = setup(); const { ixs } = await prizePayout(s);
+    const b = await s.sponsor.build(s.player.publicKey, wire(ixs));
+    await s.sponsor.submit(playerSigns(b, s.player), b.meta, b.mac);
+    await expect(s.sponsor.build(s.player.publicKey, wire(ixs))).rejects.toMatchObject({ code: "setup-already-funded" });
+  });
+  it("refuses when the named prize Source is not a prize Source", async () => {
+    const s = setup(); const { ixs, prizeSource } = await prizePayout(s);
+    s.accounts.set(prizeSource.toBase58(), { owner: CORE_ID, data: new Uint8Array(101) });
+    await expect(s.sponsor.build(s.player.publicKey, wire(ixs))).rejects.toMatchObject({ code: "bad-setup" });
+  });
+  it("refuses anything but the token account in front of it: a prize line has no book to page", async () => {
+    const s = setup(); const { ixs, prizeSource } = await prizePayout(s);
+    const page = await coreIx("init_ckpt_page", [3, 0], { payer: s.relayer.publicKey, book: bookPda(prizeSource), page: ckptPda(prizeSource, 3, 0) });
+    await expect(s.sponsor.build(s.player.publicKey, wire([page, ...ixs]))).rejects.toMatchObject({ code: "bad-shape" });
+  });
+  it("refuses a prize on another route: only the native route pays simSOL", async () => {
+    const s = setup(); const { ixs } = await prizePayout(s, key());
+    await expect(s.sponsor.build(s.player.publicKey, wire(ixs))).rejects.toMatchObject({ code: "bad-setup" });
   });
 });
 
