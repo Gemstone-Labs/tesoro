@@ -1,7 +1,7 @@
 import { holdings as mockHoldings, matches as mockMatches, positions as mockPositions } from "./mock";
 import { useAuth } from "./auth/context";
 import { useChainData } from "./chain/ChainDataProvider";
-import type { AccountSnapshot, ChainMatch } from "./chain/read";
+import type { AccountSnapshot, ChainHolding, ChainMatch } from "./chain/read";
 import { accountHistory } from "./chain/history";
 import { waitingGemas } from "./chain/overflow";
 import type { EntryError } from "./chain/ledger";
@@ -105,7 +105,15 @@ export function pendingBySource(holdings: GemaHolding[]): PendingSource[] {
 
 const short = (k: string) => `${k.slice(0, 4)}…${k.slice(-4)}`;
 
-function fromSnapshot(s: AccountSnapshot) {
+/** Where a holding's Gemas came from, as the Vault lists it. */
+export const holdingOrigin = (h: Pick<ChainHolding, "isOwn" | "sourceOwner" | "prize">): string =>
+  h.prize ? `Season ${h.prize.season} prize` : h.isOwn ? "Your Lock" : `${short(h.sourceOwner)}'s Lock`;
+
+/** Playable Gemas of the snapshot: every General or Extension line, the ones whose Source could not be read included (they are still the Player's). */
+export const heldGemas = (s: Pick<AccountSnapshot, "holdings" | "unread">): number =>
+  [...s.holdings, ...(s.unread ?? [])].filter((h) => h.amount > 0n && h.classId >= 3).reduce((t, h) => t + Number(h.amount), 0);
+
+export function fromSnapshot(s: AccountSnapshot) {
   const holdings: GemaHolding[] = s.holdings
     // fee-class lines (an outside Studio's fee) are not Gemas the Player can enter with
     .filter((h) => h.amount > 0n && h.classId >= 3)
@@ -114,7 +122,7 @@ function fromSnapshot(s: AccountSnapshot) {
         positionId: h.position.toBase58(),
         chain: h.asset,
         asset: h.asset,
-        owner: h.isOwn ? "Your Lock" : `${short(h.sourceOwner)}'s Lock`,
+        owner: holdingOrigin(h),
         advanceId: h.source.toBase58(),
       },
       gemas: Number(h.amount),
@@ -156,7 +164,7 @@ function fromSnapshot(s: AccountSnapshot) {
     } satisfies Match;
   });
   const openMatches = s.matches.filter((m) => m.status === "open" || m.status === "active");
-  return { holdings, positions, matches, openMatches };
+  return { holdings, positions, matches, openMatches, total: heldGemas(s) };
 }
 
 /**
@@ -173,7 +181,7 @@ export function useAccount(): AccountView {
 
   const real = chain.snapshot ? fromSnapshot(chain.snapshot) : null;
   const holdings = mock ? mockHoldings : (real?.holdings ?? []);
-  const total = holdings.reduce((s, h) => s + h.gemas, 0);
+  const total = mock ? holdings.reduce((s, h) => s + h.gemas, 0) : (real?.total ?? 0);
   const reserved = onChain ? Number((chain.snapshot?.reservedTotal ?? 0n) + (chain.snapshot?.ticketNeed ?? 0n)) : 0;
   const waiting = onChain ? Number(waitingGemas(chain.snapshot?.waiting ?? [])) : 0;
   const redeemable = holdings.reduce((s, h) => s + redeemableOf(h), 0);

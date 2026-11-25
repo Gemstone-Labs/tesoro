@@ -712,7 +712,7 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
   const ethCtx = useEthCtx();
   const deliveryTerms = useDeliveryTerms(ethRows.flatMap((h) => (h.eth ? [h.eth.vault] : [])));
   const pool = snapshot?.market?.pool ?? null;
-  const from = (h: ChainHolding) => (h.isOwn ? `Your ${h.asset} Lock` : `Won · ${h.sourceOwner.slice(0, 4)}…${h.sourceOwner.slice(-4)}`);
+  const from = (h: ChainHolding) => (h.prize ? `Season ${h.prize.season} prize` : h.isOwn ? `Your ${h.asset} Lock` : `Won · ${h.sourceOwner.slice(0, 4)}…${h.sourceOwner.slice(-4)}`);
   const payouts: RedeemPayout[] = [
     ...rows.map((h) => ({
       key: h.key,
@@ -728,6 +728,7 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
       token: h.stakeMint ? (snapshot?.market?.stake?.token.symbol ?? tokenSymbol(h.stakeMint)) : "test SOL",
       later: false,
       yieldFeeBps: h.yieldFeeBps,
+      prize: !!h.prize,
     })),
     ...ethRows.map((h) => {
       const gross = (gemasInAsset(h.redeemable, h) * (10_000 - h.yieldFeeBps)) / 10_000;

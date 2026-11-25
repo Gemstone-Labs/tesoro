@@ -4,14 +4,14 @@ import { CLUSTER } from "../cluster-settings";
 import { basketPda, decodeStore, lineRefOf, mergedLines, spillPda, bookPda, SIDE_OWN, type Line, type Store } from "./basket";
 import { debtGemasOf, decodeBook, fpFloor, readyNow, syncPreview, type SourceBookView } from "./book";
 import { bookAccounts } from "./draw";
-import { SIM_SOL_MINT, TESORO_CORE_ID, marketFrom, marketKeys, nativeInfoFrom, nativeNow, speedupOf, stakeGrowthOf, type NativeInfo } from "./native";
+import { RATE_SCALE, SIM_SOL_MINT, TESORO_CORE_ID, marketFrom, marketKeys, nativeCustodyPda, nativeInfoFrom, nativeNow, rateAt, speedupOf, stakeGrowthOf, type NativeInfo } from "./native";
 import { stakeMarketFrom, stakeMarketKeys } from "./stake";
 import { positionAccrued } from "./yield";
 import { clockOf } from "./native";
 import { positionBytes } from "./position-size";
 import { parseEthPositionId } from "./eth";
 import type { WaitingRecord } from "./overflow";
-import type { AccountSnapshot, ChainAdvance, ChainHolding, ChainPosition, StoreSummary } from "./read";
+import type { AccountSnapshot, ChainAdvance, ChainHolding, ChainPosition, StoreSummary, UnreadLine } from "./read";
 
 const pk = (bytes: number[] | Uint8Array) => new PublicKey(Uint8Array.from(bytes));
 const big = (n: { toString(): string }) => BigInt(n.toString());
@@ -32,7 +32,7 @@ export interface StateSource {
   infos(keys: PublicKey[]): Promise<Info[]>;
   balance(authority: PublicKey): Promise<number>;
   /** Decodes a tesoro_core account by IDL name; throws on a layout it does not know. */
-  decode(name: "tesoroAccount" | "sourceState" | "positionState", data: Buffer): any;
+  decode(name: "tesoroAccount" | "sourceState" | "prizeSourceState" | "positionState", data: Buffer): any;
 }
 
 const decodeOr = (src: StateSource, name: Parameters<StateSource["decode"]>[0], info: Info) => {
@@ -146,6 +146,8 @@ export async function readAccountState(src: StateSource, authority: PublicKey, a
   await read.load(wanted);
 
   const sourceStates = new Map(heldSources.map((k) => [k.toBase58(), decodeOr(src, "sourceState", read.get(k))]));
+  // A Season prize's line comes from a PrizeSourceState: no Position, no book, fully covered from the start.
+  const prizeStates = new Map(heldSources.filter((k) => !sourceStates.get(k.toBase58())).map((k) => [k.toBase58(), decodeOr(src, "prizeSourceState", read.get(k))]));
   const books = new Map<string, SourceBookView | null>();
   const bookOf = (source: PublicKey) => {
     const id = source.toBase58();
@@ -208,17 +210,34 @@ export async function readAccountState(src: StateSource, authority: PublicKey, a
   };
 
   const holdings: ChainHolding[] = [];
+  const unread: UnreadLine[] = [];
+  const skip = (line: Line, why: string) => {
+    unread.push({ key: keyOf(line), source: line.source, amount: line.amount, classId: line.classId, why });
+    console.warn(`Account ${accountKey.toBase58()}: line of ${line.amount} Gemas from ${line.source.toBase58()} not read (${why})`);
+  };
   for (const line of lines) {
+    const prize: any = prizeStates.get(line.source.toBase58());
+    if (prize) {
+      holdings.push(prizeHolding(line, prize, inSpill.has(keyOf(line)) ? "spill" : "basket", market?.pool ? rateAt(market.pool) : null));
+      continue;
+    }
     const state: any = sourceStates.get(line.source.toBase58());
-    if (!state) continue;
+    if (!state) {
+      skip(line, "its Source could not be read");
+      continue;
+    }
     const position = pk(state.inner.position);
     const pos = positionByKey.get(position.toBase58());
     const book = syncedOf(line.source, state, pos);
-    if (!book) continue;
+    if (!book) {
+      skip(line, "its Source book could not be read");
+      continue;
+    }
     let ready = 0n;
     try {
       ready = fpFloor(readyNow(book, line));
     } catch {
+      skip(line, "its Source book does not cover it");
       continue;
     }
     const isOwn = line.side === SIDE_OWN;
@@ -300,6 +319,7 @@ export async function readAccountState(src: StateSource, authority: PublicKey, a
     ...empty,
     exists: true,
     ...(records.length ? { waiting: records } : {}),
+    ...(unread.length ? { unread } : {}),
     ownTotal: (basket?.header.ownTotal ?? 0n) + (spill?.header.ownTotal ?? 0n),
     wonTotal: (basket?.header.wonTotal ?? 0n) + (spill?.header.wonTotal ?? 0n),
     reservedTotal: basket?.header.reservedTotal ?? 0n,
@@ -308,6 +328,59 @@ export async function readAccountState(src: StateSource, authority: PublicKey, a
     stores: { basket: summary(basket), spill: summary(spill) },
     holdings,
     positions,
+  };
+}
+
+/** A Yield Source's `unitNum`: one Gema is `1e13 / unitDen` base units, `unitDen` being the asset's price in micro-USD. */
+const PRIZE_UNIT_NUM = 10_000_000_000_000n;
+
+/**
+ * A prize Source's Gema in the units a Yield Source's Gema is in (SOL base units): one prize Gema is `shares / gemas` escrow
+ * shares, worth `rate / RATE_SCALE` SOL units each. So `redeemPayoutShares` gives the shares `redeem_prize` pays and
+ * `gemasInAsset` their SOL value. Without a pool rate one share counts as one base unit.
+ */
+export function prizeUnits(gemas: bigint, shares: bigint, rate: bigint | null): { unitNum: bigint; unitDen: bigint } {
+  const value = shares * (rate ?? RATE_SCALE);
+  return { unitNum: PRIZE_UNIT_NUM, unitDen: value === 0n ? 0n : (PRIZE_UNIT_NUM * gemas * RATE_SCALE) / value };
+}
+
+/**
+ * A Season prize line (`prize_line_key`: won, due at once, General). Prize Gemas are fully covered when issued and pay
+ * `k / gemas` of the prize Source's escrowed shares through `redeem_prize`, never through Redeem. Only the native route
+ * pays to a Solana wallet in this app; another route is shown and counted but not offered for Redeem (`native` false).
+ */
+function prizeHolding(line: Line, prize: any, store: "basket" | "spill", rate: bigint | null): ChainHolding {
+  const route = new PublicKey(prize.route);
+  const units = prizeUnits(big(prize.inner.gemas), big(prize.inner.shares), rate);
+  const native = route.equals(nativeCustodyPda());
+  return {
+    key: keyOf(line),
+    line: lineRefOf(line),
+    store,
+    source: line.source,
+    position: PublicKey.default,
+    isOwn: false,
+    classId: line.classId,
+    tranche: line.tranche,
+    dueAt: Number(line.dueAt),
+    amount: line.amount,
+    reserved: 0n,
+    free: line.amount,
+    redeemable: line.amount,
+    pending: 0n,
+    yieldFeeBps: 0,
+    poolBps: 0,
+    sourceDebt: 0n,
+    ...units,
+    sourceOwner: "",
+    native,
+    stakeMint: null,
+    eth: null,
+    asset: "SOL",
+    sourceIndex: 0,
+    open: false,
+    accounts: [],
+    prize: { route, season: Number(prize.season) },
   };
 }
 

@@ -138,6 +138,17 @@ export interface ChainHolding {
   open: boolean;
   /** Checkpoint pages a Redeem of this line must pass, with the Source's book (see `bookAccounts`). */
   accounts: PublicKey[];
+  /** A Season prize line: its Source is a PrizeSourceState on custody `route`, it has no book, and it pays through `redeem_prize`. */
+  prize?: { route: PublicKey; season: number };
+}
+
+/** A line in the basket or spill whose Source the read could not turn into a holding: still the Player's Gemas, so still counted. */
+export interface UnreadLine {
+  key: string;
+  source: PublicKey;
+  amount: bigint;
+  classId: number;
+  why: string;
 }
 
 export interface StoreSummary {
@@ -199,6 +210,8 @@ export interface AccountSnapshot {
   market: NativeMarket | null;
   /** Matches this Account funded as a Backer without playing them. */
   funded: ChainMatch[];
+  /** Lines whose Source could not be read (absent when every line read): counted in the Gemas, never offered for Redeem. */
+  unread?: UnreadLine[];
   /** Overflow records: Gemas that found no room in the stores (a win, a refund, a prize) and wait to be claimed. */
   waiting?: WaitingRecord[];
   /** False while `matches` and `funded` are not read yet (they arrive after the rest of the Account). */

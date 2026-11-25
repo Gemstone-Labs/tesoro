@@ -4,7 +4,7 @@ import { ASSOCIATED_TOKEN_PROGRAM_ID, TESORO_CORE_ID } from "./native";
 import { STAKE_TOKENS } from "./stake";
 
 /** The Player's own exits that may carry setup (their token account, checkpoint pages) paid by the relayer. */
-const PREPARED_EXITS = ["redeem", "request_instant_redeem", "unlock"];
+const PREPARED_EXITS = ["redeem", "redeem_prize", "request_instant_redeem", "unlock"];
 
 export type ExitRoute =
   /** Every instruction is a core one the relayer signs for as it is. */
