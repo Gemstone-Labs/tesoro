@@ -23,6 +23,12 @@ export const isHiddenGame = (g: GameId): boolean => HIDDEN_GAMES.has(g);
  */
 export const RAILCAR_SHOWN = process.env.NEXT_PUBLIC_SHOW_RAILCAR === "1";
 
+/**
+ * Games whose rows the history reads leave out here. Staging and Production share one history, so Railcar rides reach
+ * Production's rows before Railcar does: they stay out wherever Railcar is not shown.
+ */
+export const HISTORY_HIDDEN_GAMES: ReadonlySet<string> = RAILCAR_SHOWN ? HIDDEN_GAMES : new Set<string>([...HIDDEN_GAMES, "railcar"]);
+
 /** Every Game shown here, in the order the app lists them. */
 export const GAME_LIST = (Object.keys(KNOWN) as GameId[]).filter((g) => !HIDDEN_GAMES.has(g));
 
