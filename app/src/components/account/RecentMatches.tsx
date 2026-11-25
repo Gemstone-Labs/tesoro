@@ -56,10 +56,12 @@ function RecentRow({ r, now }: { r: PlayedRow; now: number }) {
         <b>{historyGameName(r.game)}</b>
         {r.opp && <small>vs {opp}</small>}
       </span>
-      {r.opp && (
+      {r.opp ? (
         <span className="cut cut-btn avatar pa-recent-opp">
           <PlayerAvatar account={r.opp} size={40} />
         </span>
+      ) : (
+        <span className="pa-recent-opp" aria-hidden="true" />
       )}
       <span className={`pa-recent-delta${r.delta > 0 ? " won" : r.delta < 0 ? " lost" : ""}`}>
         <GemaMark size={14} />

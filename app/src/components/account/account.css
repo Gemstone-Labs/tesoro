@@ -53,7 +53,7 @@
 .pa-prot-row svg { width: 18px; height: 18px; color: var(--fg-2); }
 .pa-prot-row:hover { background: rgba(234, 239, 236, 0.04); }
 .pa-prot-row:focus-visible { outline: 2px solid var(--fg); outline-offset: -2px; }
-.pa-recent-row { display: grid; grid-template-columns: 64px 40px minmax(0, 1fr) 36px auto 28px; align-items: center; gap: 10px; min-height: 60px; padding: 8px 16px; color: var(--fg); }
+.pa-recent-row { display: grid; grid-template-columns: 64px 40px minmax(0, 1fr) 36px 84px 40px; align-items: center; gap: 10px; min-height: 60px; padding: 8px 16px; color: var(--fg); }
 .pa-recent-row:hover { background: rgba(234, 239, 236, 0.04); }
 .pa-res { --c: 6px; --edge: var(--edge-2); padding: 5px 0; text-align: center; font-size: var(--fs-13); font-weight: 600; background: transparent; }
 .pa-res.lost { color: var(--fg-2); }
@@ -62,10 +62,10 @@
 .pa-recent-who b { overflow: hidden; font-size: var(--fs-15); white-space: nowrap; text-overflow: ellipsis; }
 .pa-recent-who small { overflow: hidden; color: var(--fg-2); font-size: var(--fs-13); white-space: nowrap; text-overflow: ellipsis; }
 .pa-recent-opp { width: 36px; height: 36px; --c: 8px; }
-.pa-recent-delta { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-16); font-weight: 800; justify-self: end; }
+.pa-recent-delta { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-16); font-weight: 800; justify-self: end; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pa-recent-delta.won { color: var(--em-hi); }
 .pa-recent-delta.lost { color: var(--danger); }
-.pa-recent time { color: var(--fg-2); font-size: var(--fs-14); text-align: right; }
+.pa-recent time { color: var(--fg-2); font-size: var(--fs-14); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* Gemas won and lost, with the running total */
 .pa-panel { --edge: var(--edge-1); background: var(--surface); padding: 22px 24px; display: grid; gap: 12px; align-content: start; }
@@ -195,13 +195,13 @@
   .pa-chart figcaption { flex-direction: column; }
   .pa-read { text-align: left; }
   .pa-end { font-size: var(--fs-12); }
-  .pa-recent-row { grid-template-columns: 56px 36px minmax(0, 1fr) 32px auto 24px; gap: 8px; padding-inline: 12px; }
+  .pa-recent-row { grid-template-columns: 56px 36px minmax(0, 1fr) 32px 74px 30px; gap: 8px; padding-inline: 12px; }
   .pa-recent-game { width: 36px; height: 36px; }
   .pa-recent-opp { width: 32px; height: 32px; }
 }
 @media (max-width: 380px) {
   .pa-recent-opp { display: none; }
-  .pa-recent-row { grid-template-columns: 56px 36px minmax(0, 1fr) auto 24px; }
+  .pa-recent-row { grid-template-columns: 56px 36px minmax(0, 1fr) 74px 30px; }
 }
 
 /* ——— A Player's name with its verified mark ——— */

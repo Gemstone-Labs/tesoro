@@ -58,7 +58,7 @@ export function plainError(e: unknown): string {
   const program = /Error Message: ([^\n]+)/.exec(text);
   if (program) return program[1].replace(/\.$/, "");
   if (/not confirmed|was not confirmed|confirmation timed? ?out|block height exceeded/i.test(text)) return UNCONFIRMED;
-  if (/\b429\b|rate.?limit|too many requests|exceeds defined limit|took too long|timed? ?out|blockhash|failed to fetch|fetch failed|network ?error|unknown RPC error/i.test(text)) return BUSY;
+  if (/\b429\b|rate.?limit|too many requests|exceeds defined limit|took too long|timed? ?out|blockhash|failed to fetch|fetch failed|network ?error|unknown RPC error|\b50[0-4]\b|service unavailable|bad gateway|gateway time-?out|ECONNRESET|ECONNREFUSED|ENOTFOUND/i.test(text)) return BUSY;
   if (/insufficient (funds|lamports)|attempt to debit an account but found no record/i.test(text)) return "Not enough SOL to cover the network fee. Try again in a moment.";
   const first = text.split("\n")[0];
   if (/tx failed|\bfailed [1-9A-HJ-NP-Za-km-z]{32,}|InstructionError|Custom\b|"Custom"|simulation failed|transaction failed|custom program error|base layer|rollup|delegat|\bTEE\b|\bcommit/i.test(first)) return RETRY;
