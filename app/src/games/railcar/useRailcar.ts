@@ -35,7 +35,7 @@ import { backerSeatedIn, boardWithRetry, boardingEntry, type BoardingBacking } f
 import { stepOffFor } from "./step-off";
 import { sendStepOff } from "./step-off-send";
 import { PENDING_SKIP_POLL_MS, checkPendingSkips, finishRide, type FinishResult, type PendingSkip } from "./finish";
-import { mayFinish, nextRideStep, pageIntervalMs, poissonGapMs, queueChoice, rememberedCarGone, seatToJump, watchedRide } from "./flow";
+import { JUMP_WAIT_MS, mayFinish, nextRideStep, pageIntervalMs, poissonGapMs, queueChoice, rememberedCarGone, seatToJump, watchedRide } from "./flow";
 import type { RailcarWatch } from "./RailcarScreen";
 import { boardingSigner, brakeRoute, finishSender, joinSeatKey, jumpSigner } from "./signers";
 import type { RailcarBrake, RailcarOffer } from "./RailcarScreen";
@@ -732,12 +732,25 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
       act("jump", async () => {
         if (!wallet || !me || !snap?.car) return;
         const car = snap.car;
-        const tableSeat = await seatToJump({ carNo: car.carNo, me, table: snap.rollup });
+        // Only a Table riding this car names the seat: one still holding the previous car names that car's seats.
+        const tableSeat = await seatToJump({
+          carNo: car.carNo,
+          me,
+          table: snap.rollup,
+          reread: async () => {
+            const s = await refresh();
+            return s.car?.carNo === car.carNo ? s.rollup : null;
+          },
+          waitMs: JUMP_WAIT_MS,
+          pollMs: RIDING_POLL_MS,
+          sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+          now: Date.now,
+        });
         if (tableSeat === null) return;
         const signer = jumpSigner(wallet, seat);
         await getChain().sendTee(signer, [jumpIx(signer.publicKey, car.table, car.carNo, tableSeat)]);
       }),
-    [act, wallet, me, seat, snap],
+    [act, wallet, me, seat, snap, refresh],
   );
 
   const pressBrake = useCallback(() => {

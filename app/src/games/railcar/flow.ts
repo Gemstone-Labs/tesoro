@@ -191,14 +191,36 @@ export function rememberedCarGone(core: CarView | null, seats: SeatView[], me: P
   return false;
 }
 
+/** A Jump tapped as the car leaves waits this long for its ride to start on the Table. */
+export const JUMP_WAIT_MS = 10_000;
+export const JUMP_NOT_STARTED = "The ride has not started yet. Jump again once the car moves.";
+
 export interface JumpSeatFacts {
   carNo: bigint;
   me: PublicKey;
   /** The rollup Table the page read last. */
   table: TableView | null;
+  /** Reads the Table again. */
+  reread: () => Promise<TableView | null>;
+  waitMs: number;
+  pollMs: number;
+  sleep: (ms: number) => Promise<void>;
+  now: () => number;
 }
 
-/** The Table seat a Player's Jump names. */
+/**
+ * The Table seat a Player's Jump names, read only from a Table riding this car. Between the departure and the start of its
+ * ride the Table still holds the previous car, whose seats are other riders' seats in this one: a Jump naming the Player's
+ * old seat lands once the ride starts and core refuses it as another Player's (6014 NotAPlayer, car 18, ticket 40). A Jump
+ * tapped then waits for the ride, reading the Table every `pollMs`, and throws after `waitMs`. Null when this car's ride is
+ * over or holds no seat of the Player's: nothing to send.
+ */
 export async function seatToJump(f: JumpSeatFacts): Promise<number | null> {
-  return f.table?.seats.find((x) => x.account.equals(f.me))?.tableSeat ?? null;
+  const until = f.now() + f.waitMs;
+  for (let t = f.table; ; t = await f.reread()) {
+    if (t && t.carNo === f.carNo && t.phase === "riding") return t.seats.find((x) => x.account.equals(f.me))?.tableSeat ?? null;
+    if (t && t.carNo === f.carNo && t.phase === "over") return null;
+    if (f.now() >= until) throw new Error(JUMP_NOT_STARTED);
+    await f.sleep(f.pollMs);
+  }
 }
