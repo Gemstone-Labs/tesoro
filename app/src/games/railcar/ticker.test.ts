@@ -268,3 +268,16 @@ describe("RideTicker with random gaps and an at-once Brake", () => {
     expect(new Set(gaps.map((g) => Math.round(g / 50))).size).toBeGreaterThan(10);
   });
 });
+
+describe("the hash a Jump borrows (ticket 41)", () => {
+  it("the ride's ticker holds the newest hash it fetched, so the page's Jump needs no round trip for one; none before the first comes, none once it is 30 s old", async () => {
+    const { io } = rollup({ hashMs: 340 });
+    const t = new RideTicker(io, page({ intervalMs: () => 60_000, startDelayMs: 60_000 }).opts);
+    expect(t.recentHash()).toBeNull();
+    await vi.advanceTimersByTimeAsync(400);
+    expect(t.recentHash()).toBe(hashAt(1));
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(t.recentHash()).toBeNull();
+    t.stop();
+  });
+});

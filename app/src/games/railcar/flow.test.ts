@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { CarView, SeatPageView, SeatView } from "../../lib/chain/many-seat";
 import type { TableView } from "./chain";
 import { NO_TELLS } from "./tell-state";
-import { JUMP_NOT_STARTED, boardingSteps, departureDue, mayFinish, nextRideStep, pageIntervalMs, previousDone, queueChoice, seatToJump, signalIntervalMs, watchedRide } from "./flow";
+import { JUMP_NOT_STARTED, JUMP_POLL_MS, boardingSteps, departureDue, mayFinish, nextRideStep, pageIntervalMs, previousDone, queueChoice, seatToJump, sendJump, signalIntervalMs, watchedRide, withPushedTable } from "./flow";
 
 const key = () => Keypair.generate().publicKey;
 const T0 = 1_762_300_000;
@@ -308,5 +308,97 @@ describe("the seat a Jump names (ticket 40)", () => {
     const { seat, f } = jumpOn(car18("over"), []);
     expect(await seat).toBeNull();
     expect(f.reads).toBe(0);
+  });
+});
+
+describe("a Jump goes out without waiting on page work (ticket 41)", () => {
+  const qsB = key();
+  const rideSeat = (tableSeat: number, account: PublicKey) => ({ tableSeat, seat: tableSeat, order: 0, jumpMs: 0, refund: 0n, account, signer: key(), brakeMs: null });
+  const car19 = (phase: TableView["phase"]) => table({ index: 1, carNo: 19n, phase, seats: [rideSeat(0, key()), rideSeat(1, qsB)] });
+  const car17 = table({ index: 1, carNo: 17n, phase: "over", seats: [rideSeat(0, qsB)] });
+
+  /** A page as the Jump sees it, on a clock the test moves: what it holds, and a log of every request with its time. */
+  const page = (o: { held: (ms: number) => TableView | null; readTable?: (ms: number) => TableView | null; tickerHash?: string | null; rttMs?: number }) => {
+    let clock = 0;
+    const rtt = o.rttMs ?? 340;
+    const log: string[] = [];
+    const done = sendJump({
+      carNo: 19n,
+      me: qsB,
+      held: () => o.held(clock),
+      read: async () => {
+        log.push(`read@${clock}`);
+        clock += rtt;
+        return (o.readTable ?? o.held)(clock);
+      },
+      heldHash: () => o.tickerHash ?? null,
+      fetchHash: async () => {
+        log.push(`hash@${clock}`);
+        return "fetched";
+      },
+      send: async (seat, hash) => {
+        log.push(`send@${clock} seat ${seat} ${hash}`);
+        return "sig";
+      },
+      sleep: async (ms) => {
+        clock += ms;
+      },
+      now: () => clock,
+    });
+    return { done, log };
+  };
+
+  it("car 19's qsB: riding and the ride ticker holds a recent hash, so the Jump is the first request, at the tap", async () => {
+    const { done, log } = page({ held: () => car19("riding"), tickerHash: "ticker" });
+    expect(await done).toBe("sig");
+    expect(log).toEqual(["send@0 seat 1 ticker"]);
+  });
+
+  it("no hash held yet: the one hash request goes out at the tap, and no Table read", async () => {
+    const { done, log } = page({ held: () => car19("riding") });
+    await done;
+    expect(log).toEqual(["hash@0", "send@0 seat 1 fetched"]);
+  });
+
+  it("car 19's qsA, tapped 1.05 s before the ride: the Jump goes out within one poll of the pushed Table riding, with no rollup read and the hash fetched during the wait", async () => {
+    const pushed = (ms: number) => (ms < 1_050 ? car17 : ms < 1_400 ? car19("drawing") : car19("riding"));
+    const { done, log } = page({ held: pushed });
+    await done;
+    expect(log[0]).toBe("hash@0");
+    expect(log.filter((l) => l.startsWith("read"))).toEqual([]);
+    const at = Number(log[1].match(/^send@(\d+)/)![1]);
+    expect(at).toBeGreaterThanOrEqual(1_400);
+    expect(at).toBeLessThanOrEqual(1_400 + JUMP_POLL_MS);
+  });
+
+  it("the page holds no fresh Table (a silent websocket): it reads the rollup Table itself and sends as that read answers riding", async () => {
+    const { done, log } = page({ held: () => null, readTable: () => car19("riding"), tickerHash: "ticker" });
+    await done;
+    expect(log).toEqual(["read@0", "send@340 seat 1 ticker"]);
+  });
+
+  it("this car's ride is over: nothing goes out", async () => {
+    const { done, log } = page({ held: () => car19("over"), tickerHash: "ticker" });
+    expect(await done).toBeNull();
+    expect(log).toEqual([]);
+  });
+});
+
+describe("a Table the websocket pushes shows at once (ticket 41)", () => {
+  const car = { carNo: 19n, table: 1, match: key() };
+  const snap = { car, rollup: table({ index: 1, carNo: 19n, tells: NO_TELLS }), base: null };
+  const glow = table({ index: 1, carNo: 19n, tells: { screws: 1, panel: false, sparks: false } });
+
+  it("the car shown, on its Table: the snapshot takes the pushed Table (car 19's Glow), and keeps the rest", () => {
+    const next = withPushedTable(snap, 1, glow);
+    expect(next?.rollup?.tells.screws).toBe(1);
+    expect(next?.car).toBe(car);
+  });
+
+  it("a push for another Table, or the Table still holding another car, changes nothing", () => {
+    expect(withPushedTable(snap, 0, glow)).toBeNull();
+    expect(withPushedTable(snap, 1, table({ index: 1, carNo: 17n, phase: "over" }))).toBeNull();
+    expect(withPushedTable(null, 1, glow)).toBeNull();
+    expect(withPushedTable({ car: null, rollup: null }, 1, glow)).toBeNull();
   });
 });

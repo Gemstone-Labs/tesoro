@@ -224,3 +224,59 @@ export async function seatToJump(f: JumpSeatFacts): Promise<number | null> {
     await f.sleep(f.pollMs);
   }
 }
+
+/** A waiting Jump looks at the Table the page holds this often (a memory read: the websocket keeps it fresh). */
+export const JUMP_POLL_MS = 50;
+
+export interface JumpFacts {
+  carNo: bigint;
+  me: PublicKey;
+  /** The rollup Table as the page holds it now (its websocket feed), or null when it holds none fresh. No request. */
+  held: () => TableView | null;
+  /** One read of the rollup Table, for when the page holds none fresh. */
+  read: () => Promise<TableView | null>;
+  /** A recent rollup blockhash the page already holds (the ride ticker's), or null. */
+  heldHash: () => string | null;
+  fetchHash: () => Promise<string>;
+  /** Signs and sends the Jump from `tableSeat` under `blockhash`. */
+  send: (tableSeat: number, blockhash: string) => Promise<string>;
+  sleep: (ms: number) => Promise<void>;
+  now: () => number;
+}
+
+/**
+ * Sends the Player's Jump. Jumps are ranked by when they land, so nothing the page does stands between the tap and the send
+ * (ticket 41): the seat comes from the Table the websocket pushed, and the hash from the ride ticker, which keeps a fresh one.
+ * A page without one fetches it at the tap, while the Jump waits for the ride if the car has not started yet, so the wait never
+ * adds a round trip. A waiting Jump looks at the pushed Table every `JUMP_POLL_MS` and reads the rollup Table itself only
+ * when the page holds none fresh: never the page's full read of the chain, which takes several base round trips (car 19's
+ * early Jump went out 3.4 s after the ride started that way). Null when there is nothing to send (`seatToJump`).
+ */
+export async function sendJump(f: JumpFacts): Promise<string | null> {
+  const held = f.heldHash();
+  const hash = held ? Promise.resolve(held) : f.fetchHash();
+  // a wait that gives up throws before the hash is used
+  hash.catch(() => undefined);
+  const seat = await seatToJump({
+    carNo: f.carNo,
+    me: f.me,
+    table: f.held() ?? (await f.read()),
+    reread: async () => f.held() ?? (await f.read()),
+    waitMs: JUMP_WAIT_MS,
+    pollMs: JUMP_POLL_MS,
+    sleep: f.sleep,
+    now: f.now,
+  });
+  if (seat === null) return null;
+  return f.send(seat, f.heldHash() ?? (await hash));
+}
+
+/**
+ * The page's snapshot with a Table its websocket pushed, when that is the Table of the car shown and holds that car: a Tell,
+ * a Jump or the wall shows when it is pushed, not at the page's next full read of the chain (car 19's phone showed the first
+ * Glow 1.7 s late). Null when the push says nothing about the car shown.
+ */
+export function withPushedTable<S extends { car: { carNo: bigint; table: number } | null; rollup: TableView | null }>(s: S | null, table: number, view: TableView): S | null {
+  if (!s?.car || s.car.table !== table || view.carNo !== s.car.carNo) return null;
+  return { ...s, rollup: view };
+}
