@@ -1,66 +1,10 @@
 #!/usr/bin/env bash
-# Blocks commits that contain private keys or secrets, app sources that fail lint, or unformatted Rust.
+# Hands this git hook to lefthook, which runs the checks listed for it in lefthook.yml.
 # Bypass only with an explicit human decision. Tests: scripts/test-githooks.py
 set -euo pipefail
-fail=0
-staged=$(git diff --cached --name-only --diff-filter=ACMR)
-[ -z "$staged" ] && exit 0
-
-# 1. Files that look like key material or env files.
-while IFS= read -r f; do
-  case "$f" in
-    *.env|*.env.*|*/.env|.env) [[ "$f" == *.env.example ]] || { echo "pre-commit: refusing env file: $f"; fail=1; } ;;
-    *id.json|*keypair*.json|*-key.json|*.key|*.pem|*.p12|*/deploy-keys/*|*/.keys/*) echo "pre-commit: refusing key file: $f"; fail=1 ;;
-  esac
-done <<< "$staged"
-
-# 2. Secret-shaped content in the staged diff (added lines only), skipping vendored code.
-diff=$(git diff --cached -U0 --diff-filter=ACMR -- . ':(exclude)contracts/lib/**' ':(exclude).githooks/**' ':(exclude)**/node_modules/**' ':(exclude)pnpm-lock.yaml' ':(exclude)**/Cargo.lock' | grep -E '^\+[^+]' || true)
-check() { if printf '%s\n' "$diff" | grep -qE -- "$1"; then echo "pre-commit: possible $2 in staged changes"; printf '%s\n' "$diff" | grep -nE -- "$1" | cut -c1-120 | head -3; fail=1; fi; }
-check '\[([0-9]{1,3}, ?){63}[0-9]{1,3}\]' 'Solana keypair byte array'
-check '(PRIVATE_KEY|private_?key|secret_?key|mnemonic|seed_?phrase)["'"'"' ]*[=:] *["'"'"']?(0x)?[0-9a-fA-F]{64}' 'hex private key'
-check '-----BEGIN [A-Z ]*PRIVATE KEY-----' 'PEM private key'
-check '\b[1-9A-HJ-NP-Za-km-z]{87,88}\b' 'base58 secret key'
-check '(sk_live_|sk_test_|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|xox[baprs]-)' 'API token'
-check '(alchemy\.com/v2/|helius-rpc\.com/\?api-key=)[A-Za-z0-9_-]{20,}' 'RPC API key'
-
-if [ "$fail" -ne 0 ]; then
-  echo "pre-commit: commit blocked. Remove the secret (keys live in ~/.config, never in the repo)."
+hook=$(basename "$0")
+if ! command -v lefthook > /dev/null; then
+  echo "$hook: lefthook is not installed, so no check can run. Install it (https://lefthook.dev/install), then try again."
   exit 1
 fi
-
-# 3. Lint the staged app sources.
-mapfile -d '' ts < <(git diff --cached --name-only -z --diff-filter=ACMR -- 'app/src/*.ts' 'app/src/*.tsx')
-if [ "${#ts[@]}" -gt 0 ]; then
-  if [ ! -x app/node_modules/.bin/eslint ]; then
-    echo "pre-commit: cannot lint, app/node_modules is missing. Run \`pnpm install --frozen-lockfile\` at the repo root, then commit again."
-    exit 1
-  fi
-  if ! (cd app && ./node_modules/.bin/eslint --max-warnings=0 -- "${ts[@]#app/}"); then
-    echo "pre-commit: commit blocked by lint. Fix what is listed above, stage it, then commit again."
-    exit 1
-  fi
-fi
-
-# 4. Formatting of the staged Rust in the root workspace. Files another session left unformatted do not block.
-mapfile -d '' rs < <(git diff --cached --name-only -z --diff-filter=ACMR -- 'programs/*.rs' 'crates/*.rs')
-if [ "${#rs[@]}" -gt 0 ] && ! out=$(cargo fmt --all --check -- -l 2>&1); then
-  unformatted=()
-  listed=0
-  while IFS= read -r line; do
-    [ -f "$line" ] || continue
-    listed=1
-    for f in "${rs[@]}"; do [[ "$line" == */"$f" ]] && unformatted+=("$f"); done
-  done <<< "$out"
-  if [ "$listed" -eq 0 ]; then
-    echo "pre-commit: the Rust format check could not run:"
-    printf '%s\n' "$out" | head -5
-    exit 1
-  fi
-  if [ "${#unformatted[@]}" -gt 0 ]; then
-    echo "pre-commit: commit blocked, these files are not formatted:"
-    printf '  %s\n' "${unformatted[@]}"
-    echo "Run \`cargo fmt --all\`, stage the result, then commit again."
-    exit 1
-  fi
-fi
+exec lefthook run "$hook" --no-auto-install "$@"

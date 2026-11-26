@@ -1,5 +1,6 @@
-"""Runs .githooks/pre-commit and .githooks/pre-push in a throwaway repo, with eslint, cargo, pnpm and systemd-run
-replaced by stubs that record how they were called. Run: python3 scripts/test-githooks.py"""
+"""Runs .githooks/pre-commit and .githooks/pre-push in a throwaway repo that holds this repo's lefthook.yml and
+.githooks, with eslint, cargo, pnpm and systemd-run replaced by stubs that record how they were called.
+Needs lefthook on PATH. Run: python3 scripts/test-githooks.py"""
 import os
 import shutil
 import subprocess
@@ -7,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-HOOKS = Path(__file__).parent.parent / ".githooks"
+ROOT = Path(__file__).parent.parent
 ZERO = "0" * 40
 GITHUB = "https://github.com/Gemstone-Labs/tesoro.git"
 
@@ -40,6 +41,8 @@ class HookCase(unittest.TestCase):
             "GIT_COMMITTER_EMAIL": "t@example.com",
         }
         self.git("init", "-q", "-b", "main")
+        shutil.copytree(ROOT / ".githooks", self.repo / ".githooks")
+        shutil.copy(ROOT / "lefthook.yml", self.repo)
         self.write(".gitignore", ".stubs/\n.stub-log\nnode_modules/\n")
         self.write("README.md", "start\n")
         self.base = self.commit("start")
@@ -71,13 +74,22 @@ class HookCase(unittest.TestCase):
         return self.git("rev-parse", "HEAD")
 
     def run_hook(self, name, *args, stdin="", **env):
-        return subprocess.run([str(HOOKS / name), *args], cwd=self.repo, env={**self.env, **env}, input=stdin, capture_output=True, text=True)
+        return subprocess.run(
+            [str(self.repo / ".githooks" / name), *args],
+            cwd=self.repo, env={**self.env, **env}, input=stdin, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        )
 
     def calls(self):
         return self.log.read_text().splitlines() if self.log.exists() else []
 
 
 class PreCommit(HookCase):
+    def test_without_lefthook_the_commit_is_refused_with_the_install_command(self):
+        self.stage("docs/notes.md", "hello\n")
+        result = self.run_hook("pre-commit", PATH=f"{self.bin}{os.pathsep}/usr/bin{os.pathsep}/bin")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("https://lefthook.dev/install", result.stdout)
+
     def test_other_files_run_no_checks(self):
         self.install_deps()
         self.stage("docs/notes.md", "hello\n")
@@ -92,14 +104,14 @@ class PreCommit(HookCase):
         self.write("app/src/lib/unstaged.ts", "export const b = 2;\n")
         result = self.run_hook("pre-commit")
         self.assertEqual(result.returncode, 0, result.stdout)
-        self.assertEqual(self.calls(), ["eslint --max-warnings=0 -- src/app/(app)/account/[key]/page.tsx src/lib/money.ts"])
+        self.assertEqual(self.calls(), ["eslint --max-warnings=0 -- ./src/app/(app)/account/[key]/page.tsx ./src/lib/money.ts"])
 
     def test_lint_failure_blocks_the_commit(self):
         self.install_deps()
         self.stage("app/src/lib/money.ts")
         result = self.run_hook("pre-commit", ESLINT_EXIT="1")
         self.assertEqual(result.returncode, 1)
-        self.assertIn("commit blocked by lint", result.stdout)
+        self.assertIn("lint: Fix what is listed above, stage it, then commit again.", result.stdout)
 
     def test_missing_dependencies_name_the_install_command(self):
         self.stage("app/src/lib/money.ts")
