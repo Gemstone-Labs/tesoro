@@ -13,6 +13,10 @@ describe("plainError", () => {
   });
   it("turns rate limits and timeouts into a busy line", () => {
     expect(plainError(new Error("429 Too Many Requests"))).toBe(BUSY);
+    expect(plainError(new Error('429 : {"jsonrpc":"2.0","error":{"code": 429, "message":"Too many requests for a specific RPC call"}, "id": "x" }'))).toBe(BUSY);
+  });
+  it("turns 5xx and dropped connections into the busy line", () => {
+    for (const m of ["503 Service Unavailable", "502 Bad Gateway", "504 Gateway Timeout", "read ECONNRESET", "getaddrinfo ENOTFOUND api.devnet.solana.com"]) expect(plainError(new Error(m))).toBe(BUSY);
   });
   it("never tells the Player to retry a send that may still land", () => {
     expect(plainError(new Error("Transaction was not confirmed in 30.00 seconds"))).toBe(UNCONFIRMED);

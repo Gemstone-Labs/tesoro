@@ -16,6 +16,8 @@ import { AddressLookupTableAccount, ComputeBudgetProgram, Keypair, PublicKey, ty
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { accountOfSigner, keypairSigner, walletOf, type ChainSigner } from "@/games/block-puzzle/chain";
 import { useAccount } from "@/lib/account";
+import { plainError } from "@/lib/errors";
+import { ReadHealth } from "./read-health";
 import { BackingError, backingProblem, fetchOffer, type ChainOffer } from "@/lib/chain/backing";
 import { countersPda, matchPda, settledPda } from "@/lib/chain/basket";
 import { getChain } from "@/lib/chain/client";
@@ -203,6 +205,8 @@ export interface RailcarPage {
   match: PublicKey | null;
   busy: string | null;
   error: string | null;
+  /** Reads keep failing: the page cannot see the car, so Board waits for a read that works. */
+  readsFailing: boolean;
   signedIn: boolean;
   /** Set while this page watches a ride it is not in. */
   watch: RailcarWatch | null;
@@ -267,6 +271,9 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   const [seat, setSeat] = useState<SeatKey | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Set while the page's own reads keep failing (the RPC refuses or is down); clears with the next read that works.
+  const readHealth = useRef(new ReadHealth());
+  const [readError, setReadError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   // A key made for this page: it signs the rollup's anyone-may steps (signals, start, commit) so the wallet is never asked.
   const pageKey = useRef<ChainSigner>(keypairSigner(Keypair.generate()));
@@ -363,11 +370,19 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   useEffect(() => {
     let stop = false;
     let timer: ReturnType<typeof setTimeout>;
+    const health = readHealth.current;
     const loop = async () => {
-      const s = await refresh().catch(() => null);
+      let s: Snapshot | null = null;
+      try {
+        s = await refresh();
+        health.succeeded();
+      } catch (e) {
+        health.failed(e);
+      }
       if (stop) return;
+      setReadError(health.problem());
       const riding = s?.rollup?.phase === "riding" || s?.rollup?.phase === "drawing";
-      timer = setTimeout(loop, riding ? RIDING_POLL_MS : IDLE_POLL_MS);
+      timer = setTimeout(loop, health.delay(riding ? RIDING_POLL_MS : IDLE_POLL_MS));
     };
     void loop();
     return () => {
@@ -647,7 +662,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
         await fn();
         await refresh();
       } catch (e) {
-        setError(e instanceof Error ? e.message.split("\n")[0] : "That did not go through. Try again.");
+        setError(plainError(e));
       } finally {
         setBusy(null);
         setOfferReads((n) => n + 1);
@@ -813,7 +828,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   const blocked = offerProblem ? new BackingError(offerProblem).message : snap?.backerSeated ? "Your Backer is in this car: board the next one" : null;
   const shownOffer: RailcarOffer | null = offer ? { backer: offer.backer, sharePct: offer.shareBps / 100, ...(blocked ? { blocked } : {}) } : null;
   const missing = offerAddress && offer === null ? new BackingError("missing").message : null;
-  return { view, match: snap?.car?.match ?? null, busy, error: error ?? (stepTrouble && now - stepTrouble.at < STEP_TROUBLE_SHOWN_MS ? stepTrouble.text : null) ?? missing, signedIn: !!wallet, watch, offer: shownOffer, offerSpent: offer?.status === "consumed", board, stepOff, jump, brake, playAgain };
+  return { view, match: snap?.car?.match ?? null, busy, error: error ?? readError ?? (stepTrouble && now - stepTrouble.at < STEP_TROUBLE_SHOWN_MS ? stepTrouble.text : null) ?? missing, readsFailing: readError !== null, signedIn: !!wallet, watch, offer: shownOffer, offerSpent: offer?.status === "consumed", board, stepOff, jump, brake, playAgain };
 }
 
 /** A share of the finish (finalize, room, chunks, closes) through the relayer, sized against the server's lookup tables. */

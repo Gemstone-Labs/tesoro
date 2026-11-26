@@ -82,6 +82,11 @@ export const PrizePileDropping: StoryObj = {
 };
 const brake = (o: Partial<BrakeFacts>): RailcarBrake => ({ ...brakeState({ aboard: true, allBound: true, myBound: true, canSign: true, walletCopied: true, pressMs: null, pending: false, rideMs: 72_000, ...o })!, onBrake: noop });
 /** Your Brake, ready: one per ride, halves the car for 5 s, only you see it. */
+/** The base RPC refused reads (429): a plain line, never the raw reply. It goes away on the next read that works. */
+export const ReadsBusy = screen(fx.boardingCountdown(), { error: "The network is busy right now. Wait a few seconds and try again." });
+export const ReadsBusy390: StoryObj = { ...ReadsBusy, ...phone };
+export const ReadsBusy1440: StoryObj = { ...ReadsBusy, ...desk };
+
 export const RidingBrakeReady = screen(fx.riding(), { brake: brake({}) });
 /** Pressed: it rides on your page's next tick (no transaction of its own). */
 export const RidingBrakeSending = screen(fx.riding(), { brake: brake({ pending: true }) });

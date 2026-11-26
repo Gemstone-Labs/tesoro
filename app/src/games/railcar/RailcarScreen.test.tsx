@@ -298,3 +298,21 @@ describe("a ride that never started: Delayed instead of a clock stuck at 0:00", 
     expect(text(html(rideDelayed(PLAYERS[0], true)))).toContain("Delayed, refund is open");
   });
 });
+
+describe("Board while the page cannot read the chain", () => {
+  const board = (actions: object, view = boardingNotAboard()) => renderToStaticMarkup(<RailcarScreen view={view} actions={{ onBoard: () => undefined, ...actions }} />);
+  const boardDisabled = (h: string) => /<button[^>]*disabled[^>]*>(?:(?!<\/button>).)*Board/s.test(h);
+  it("is disabled while reads fail, and enabled again once they work", () => {
+    expect(boardDisabled(board({ boardDisabled: true }))).toBe(true);
+    expect(boardDisabled(board({}))).toBe(false);
+  });
+  it("the next-ride button of a Spectator is held too", () => {
+    const watching = (boardDisabled: boolean) => renderToStaticMarkup(<RailcarScreen view={riding(null)} watch={{ signedIn: true, nextSeated: 12 }} actions={{ onBoard: () => undefined, boardDisabled }} />);
+    expect(/<button[^>]*disabled[^>]*>(?:(?!<\/button>).)*Play the next ride/s.test(watching(true))).toBe(true);
+    expect(/<button[^>]*disabled[^>]*>(?:(?!<\/button>).)*Play the next ride/s.test(watching(false))).toBe(false);
+  });
+  it("Jump and Step off keep their own rules", () => {
+    const h = renderToStaticMarkup(<RailcarScreen view={boardingCountdown()} actions={{ onStepOff: () => undefined, boardDisabled: true }} />);
+    expect(/<button[^>]*disabled[^>]*>(?:(?!<\/button>).)*Step off/s.test(h)).toBe(false);
+  });
+});
