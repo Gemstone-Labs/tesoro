@@ -82,7 +82,7 @@ pnpm --filter @tesoro/app storybook       # every screen on fixtures, http://loc
 
 The bridge is its own Anchor workspace: `cd bridge && anchor build --no-idl -- --tools-version v1.54`. Keeper jobs and keys: [`keeper/README.md`](keeper/README.md).
 
-`pnpm install` turns on the git hooks in `.githooks`, which run the checks listed in [`lefthook.yml`](lefthook.yml) and need [lefthook](https://lefthook.dev/install) on your `PATH`. A commit is refused when it holds a secret, a staged app source that fails lint, or unformatted Rust in `programs/` or `crates/`. A push to GitHub is refused when the app or the keeper does not type-check.
+`pnpm install` turns on the git hooks in `.githooks`, which run the checks listed in [`lefthook.yml`](lefthook.yml) and need [lefthook](https://lefthook.dev/install) on your `PATH`. A commit is refused when it holds a secret, a staged app source that fails lint, or unformatted Rust in `programs/` or `crates/`. A push to GitHub that changes the app, the keeper or the workspace's dependencies is refused when the app or the keeper does not type-check, or when files on disk differ from the pushed commit. Both hooks check the files on disk, so a commit can still miss a file that was never staged; the push check is the one that compares with the commit.
 
 </details>
 

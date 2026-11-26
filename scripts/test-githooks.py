@@ -132,6 +132,21 @@ class PreCommit(HookCase):
         self.write("programs/holdem/src/lib.rs", "fn b(){}\n")
         result = self.run_hook("pre-commit", CARGO_EXIT="1", CARGO_OUT=str(self.repo / "programs/holdem/src/lib.rs"))
         self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.calls(), ["cargo fmt --all --check -- -l"])
+
+    def test_a_staged_file_that_does_not_parse_blocks_the_commit(self):
+        self.stage("programs/tesoro_core/src/lib.rs", "fn a( {\n")
+        out = f"error: this file contains an unclosed delimiter\n --> {self.repo}/programs/tesoro_core/src/lib.rs:1:7"
+        result = self.run_hook("pre-commit", CARGO_EXIT="1", CARGO_OUT=out)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("  programs/tesoro_core/src/lib.rs", result.stdout)
+        self.assertIn("unclosed delimiter", result.stdout)
+
+    def test_another_sessions_file_that_does_not_parse_does_not_block(self):
+        self.stage("programs/tesoro_core/src/lib.rs", "fn a() {}\n")
+        out = f"error: this file contains an unclosed delimiter\n --> {self.repo}/programs/holdem/src/lib.rs:1:7"
+        result = self.run_hook("pre-commit", CARGO_EXIT="1", CARGO_OUT=out)
+        self.assertEqual(result.returncode, 0, result.stdout)
 
     def test_a_format_check_that_cannot_run_blocks_the_commit(self):
         self.stage("programs/tesoro_core/src/lib.rs", "fn a() {}\n")
@@ -146,19 +161,35 @@ class PreCommit(HookCase):
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertEqual(self.calls(), [])
 
-    def test_secrets_are_still_refused(self):
+    def test_a_key_file_is_refused(self):
         self.stage("keeper/id.json", "[]\n")
         result = self.run_hook("pre-commit")
         self.assertEqual(result.returncode, 1)
         self.assertIn("refusing key file", result.stdout)
+
+    def test_a_private_key_in_a_staged_file_is_refused(self):
+        self.stage("docs/notes.md", "-----BEGIN RSA " + "PRIVATE KEY-----\n")
+        result = self.run_hook("pre-commit")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("possible PEM private key", result.stdout)
+
+    def test_git_commit_runs_the_hook_and_a_refused_commit_is_not_made(self):
+        self.install_deps()
+        self.git("config", "core.hooksPath", ".githooks")
+        self.stage("app/src/lib/money.ts")
+        result = subprocess.run(
+            ["git", "commit", "-m", "lint fails"], cwd=self.repo, env={**self.env, "ESLINT_EXIT": "1"}, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(self.git("rev-parse", "HEAD"), self.base)
 
 
 class PrePush(HookCase):
     APP = "pnpm --filter @tesoro/app typecheck"
     KEEPER = "pnpm --filter @tesoro/keeper typecheck"
 
-    def push(self, local, remote_sha, url=GITHUB, **env):
-        line = f"refs/heads/work {local} refs/heads/work {remote_sha}\n"
+    def push(self, local, remote_sha, url=GITHUB, ref="refs/heads/work", **env):
+        line = f"{ref} {local} {ref} {remote_sha}\n"
         return self.run_hook("pre-push", "origin", url, stdin=line, **env)
 
     def change(self, rel):
@@ -185,6 +216,31 @@ class PrePush(HookCase):
         result = self.push(head, self.base)
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertEqual(self.calls(), [self.APP, self.KEEPER])
+
+    def test_a_dependency_change_type_checks_the_app_and_the_keeper(self):
+        self.install_deps()
+        head = self.change("pnpm-lock.yaml")
+        result = self.push(head, self.base)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.calls(), [self.APP, self.KEEPER])
+
+    def test_files_that_differ_from_the_pushed_commit_block_the_push(self):
+        self.install_deps()
+        head = self.change("app/src/lib/money.ts")
+        self.write("app/src/lib/not-committed.ts", "export const b = 2;\n")
+        result = self.push(head, self.base)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("app/src/lib/not-committed.ts", result.stdout)
+        self.assertIn("Commit them", result.stdout)
+        self.assertEqual(self.calls(), [])
+
+    def test_a_tag_is_not_checked(self):
+        self.install_deps()
+        self.change("app/src/lib/money.ts")
+        self.git("tag", "-a", "v1", "-m", "v1")
+        result = self.push(self.git("rev-parse", "v1"), ZERO, ref="refs/tags/v1")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.calls(), [])
 
     def test_a_keeper_change_type_checks_the_keeper_only(self):
         self.install_deps()
