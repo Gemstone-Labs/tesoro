@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "next typegen && NODE_OPTIONS=--max-old-space-size=3072 tsc --noEmit",
     "check:landing-scroll": "BASE=${BASE:-http://localhost:3301} node scripts/landing-scroll-check.mjs",
     "check:holdem-phone-table": "BASE=${BASE:-http://localhost:3301} node scripts/holdem-phone-table-check.mjs",
     "test": "vitest run",

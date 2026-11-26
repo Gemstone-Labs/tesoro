@@ -74,13 +74,15 @@ pnpm --filter @tesoro/keeper start --once --dry-run
 pnpm --filter @tesoro/keeper test
 
 pnpm build:app
-pnpm --filter @tesoro/app exec tsc --noEmit
+pnpm --filter @tesoro/app typecheck       # generates the route types first, so it works in a fresh checkout
 pnpm --filter @tesoro/app exec eslint src
 pnpm --filter @tesoro/app test
 pnpm --filter @tesoro/app storybook       # every screen on fixtures, http://localhost:6006
 ```
 
 The bridge is its own Anchor workspace: `cd bridge && anchor build --no-idl -- --tools-version v1.54`. Keeper jobs and keys: [`keeper/README.md`](keeper/README.md).
+
+`pnpm install` turns on the git hooks in `.githooks`. A commit is refused when it holds a secret, a staged app source that fails lint, or unformatted Rust in `programs/` or `crates/`. A push to GitHub is refused when the app or the keeper does not type-check.
 
 </details>
 
