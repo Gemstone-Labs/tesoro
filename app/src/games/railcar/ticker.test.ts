@@ -53,6 +53,18 @@ function rollup(o: { hashMs?: number; sendMs?: number; confirmMs?: number; sameH
   return { io, sent };
 }
 
+/** Uniform draws in [0, 1) from a fixed seed (mulberry32), so a test of random gaps sees the same gaps every run. */
+function seeded(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 /** A tick every beat; a pressed Brake rides every beat until one lands. */
 function page(over: Partial<TickerOptions> = {}) {
   const state = { brake: false, landedBrakes: 0, ended: 0 };
@@ -258,7 +270,10 @@ describe("RideTicker with random gaps and an at-once Brake", () => {
 
   it("beats at random gaps with the given mean, never in lockstep", async () => {
     const { io, sent } = rollup({ confirmMs: 50 });
-    const t = new RideTicker(io, page({ intervalMs: () => 1_000, gap: poissonGapMs, startDelayMs: 0, maxInFlight: 50 }).opts);
+    // Seeded draws: the mean of ~300 gaps of a near-exponential with mean 1 s varies by about 50 ms (one sigma), so Math.random
+    // put it outside 900-1,100 in about one run in eight (ticket 41: 2 of 15 runs failed on d13bd784).
+    const u = seeded(41);
+    const t = new RideTicker(io, page({ intervalMs: () => 1_000, gap: (m) => poissonGapMs(m, u()), startDelayMs: 0, maxInFlight: 50 }).opts);
     await vi.advanceTimersByTimeAsync(300_000);
     t.stop();
     const gaps = sent.slice(1).map((s, i) => s.at - sent[i].at);
@@ -266,5 +281,18 @@ describe("RideTicker with random gaps and an at-once Brake", () => {
     expect(mean).toBeGreaterThan(900);
     expect(mean).toBeLessThan(1_100);
     expect(new Set(gaps.map((g) => Math.round(g / 50))).size).toBeGreaterThan(10);
+  });
+});
+
+describe("the hash a Jump borrows (ticket 41)", () => {
+  it("the ride's ticker holds the newest hash it fetched, so the page's Jump needs no round trip for one; none before the first comes, none once it is 30 s old", async () => {
+    const { io } = rollup({ hashMs: 340 });
+    const t = new RideTicker(io, page({ intervalMs: () => 60_000, startDelayMs: 60_000 }).opts);
+    expect(t.recentHash()).toBeNull();
+    await vi.advanceTimersByTimeAsync(400);
+    expect(t.recentHash()).toBe(hashAt(1));
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(t.recentHash()).toBeNull();
+    t.stop();
   });
 });

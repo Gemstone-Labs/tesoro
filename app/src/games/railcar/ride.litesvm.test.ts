@@ -83,7 +83,7 @@ import { decodeMatchRecords, type InnerInstruction } from "../../server/history/
 import { ingestMatchRecords } from "../../server/history/ingest";
 import { accountHistory, matchPage } from "../../server/history/reads";
 import { testDb } from "../../server/history/test-db";
-import { nextRideStep, queueChoice, seatToJump } from "./flow";
+import { JUMP_POLL_MS, nextRideStep, queueChoice, seatToJump, sendJump } from "./flow";
 import { readSnapshot } from "./useRailcar";
 import { settledPda } from "../../lib/chain/basket";
 import { railcarView } from "./view";
@@ -1493,6 +1493,65 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     const t = decodeTable(w.get(tablePda(car.table))!.data);
     expect(t.seats.find((s) => s.account.equals(ana.account))!.order).toBe(1);
     expect(t.seats.find((s) => s.account.equals(riders[0].account))!.order).toBe(0);
+  });
+
+  it("car 19 (ticket 41): Ana taps Jump as car 2 leaves; her page's Jump waits on the Table its websocket pushes, reads nothing from base, and goes out within one poll of the ride starting, under the hash it fetched at the tap", { timeout: 300_000 }, async () => {
+    const draw = drawWhere((x) => x.crashMs >= 30_000);
+    const c0 = await rideCar(5, draw, WORKED);
+    const w = c0.world;
+    const ana = c0.riders[ANA];
+    await rideCar(5, draw, WORKED, { again: { world: w, riders: Array.from({ length: 5 }, () => w.rider()) } });
+    const riders = [w.rider(), ana, w.rider(), w.rider(), w.rider()];
+    w.riders = riders;
+    w.phase = "boarding";
+    for (const p of riders) await w.board(p);
+    const carNo = decodeConfig(w.info(configPda())!.data).nextCar - 1n;
+    const carAcct = decodeCarAccount(w.info(carPda(carNo))!.data);
+    const car = { carNo, table: carAcct.table, match: carAcct.tesoroMatch };
+    w.setTime(w.now + 30);
+    w.send([checkDepartureIx(carNo, car.match)], w.relayer);
+    // Ana's page holds Table 0 from its websocket: still car 0 at the tap. Another page starts the ride 1.05 s later (car 19).
+    let clock = 0;
+    let startedAt: number | null = null;
+    const log: string[] = [];
+    const sig = await sendJump({
+      carNo,
+      me: ana.account,
+      held: () => decodeTable(w.get(tablePda(car.table))!.data),
+      read: async () => {
+        log.push("rollup read");
+        return null;
+      },
+      heldHash: () => null,
+      fetchHash: async () => {
+        log.push(`hash@${clock}`);
+        return "hash-at-tap";
+      },
+      send: async (tableSeat, blockhash) => {
+        log.push(`send@${clock} under ${blockhash}`);
+        w.phase = "jumps";
+        w.rollup([jumpIx(ana.seat.publicKey, car.table, carNo, tableSeat)], ana.seat, car.table);
+        return "jump";
+      },
+      sleep: async (ms) => {
+        clock += ms;
+        if (startedAt === null && clock >= 1_050) {
+          startedAt = clock;
+          await startRideOn(w, car, draw);
+          w.setSlot(w.rideSlot(car.table) + 100n);
+        }
+      },
+      now: () => clock,
+    });
+    expect(sig).toBe("jump");
+    expect(log[0]).toBe("hash@0");
+    expect(log[1]).toMatch(/under hash-at-tap$/);
+    expect(log).not.toContain("rollup read");
+    const sentAt = Number(log[1].match(/^send@(\d+)/)![1]);
+    expect(sentAt - startedAt!).toBeLessThanOrEqual(JUMP_POLL_MS);
+    const t = decodeTable(w.get(tablePda(car.table))!.data);
+    expect(t.seats.find((x) => x.account.equals(ana.account))!.order).toBe(1);
+    expect(t.seats.find((x) => x.account.equals(riders[0].account))!.order).toBe(0);
   });
 
   it("a page refunds car 2 before it rode: the refund lands, the next sponsored chunk fails, the page resumes at settle and forgets the car, and still passes it over on its own; the keeper closes its Car; car 4 starts on that Table", { timeout: 300_000 }, async () => {
