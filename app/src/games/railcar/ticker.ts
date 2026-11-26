@@ -140,6 +140,11 @@ export class RideTicker {
     this.schedule();
   }
 
+  /** The newest hash this ticker fetched, while it is usable: the page's Jump goes out under it without a round trip. */
+  recentHash(): string | null {
+    return this.usableHash()?.value ?? null;
+  }
+
   private usableHash() {
     return this.hash && Date.now() - this.hash.at < HASH_MAX_AGE_MS ? this.hash : null;
   }

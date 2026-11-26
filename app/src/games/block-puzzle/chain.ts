@@ -186,12 +186,13 @@ export class BlockPuzzleChain {
     return txOutcome(this.base, e.sig, e.lastValidBlockHeight);
   }
 
-  async sendTee(signer: ChainSigner, ixs: TransactionInstruction[]): Promise<string> {
+  /** `blockhash`: a recent rollup hash the caller holds, which saves the round trip for one. */
+  async sendTee(signer: ChainSigner, ixs: TransactionInstruction[], blockhash?: string): Promise<string> {
     checkLegacy(signer.publicKey, ixs);
     const conn = await this.tee(signer);
     const tx = new Transaction().add(...ixs);
     tx.feePayer = signer.publicKey;
-    tx.recentBlockhash = (await conn.getLatestBlockhash()).blockhash;
+    tx.recentBlockhash = blockhash ?? (await conn.getLatestBlockhash()).blockhash;
     const signed = await signer.signTransaction(tx);
     const sig = await conn.sendRawTransaction(signed.serialize(), { skipPreflight: true });
     for (let i = 0; i < 60; i++) {

@@ -36,6 +36,8 @@ export const latestTell = (t: Tells) => TELLS.reduce((last, tell, i) => (tell.on
 
 export interface RailcarActions {
   onBoard?: () => void;
+  /** The page's reads keep failing, so it cannot see the car: Board waits until a read works. */
+  boardDisabled?: boolean;
   onStepOff?: () => void;
   onJump?: () => void;
   onPlayAgain?: () => void;
@@ -254,7 +256,7 @@ function RailcarBody({
             <>
               {offer && <BackedBy offer={offer} entry={view.entry} />}
               <div className="rc-act-main">
-                <Button variant="money" size="lg" block onClick={actions.onBoard} disabled={!!busy || !actions.onBoard || !!offer?.blocked}>
+                <Button variant="money" size="lg" block onClick={actions.onBoard} disabled={!!busy || !actions.onBoard || !!offer?.blocked || !!actions.boardDisabled}>
                   {busy === "board" ? "Boarding…" : (
                     <>
                       Board · <GemaMark size={16} /> {fmtGemas(g(view.entry))}
@@ -319,7 +321,7 @@ export function PrizePile({ prize, pile }: { prize: bigint; pile: number }) {
 function NextRide({ watch, actions, busy }: { watch: RailcarWatch; actions: RailcarActions; busy?: string | null }) {
   return (
     <>
-      <Button variant="money" size="lg" block onClick={watch.signedIn ? actions.onBoard : actions.onSignIn} disabled={!!busy}>
+      <Button variant="money" size="lg" block onClick={watch.signedIn ? actions.onBoard : actions.onSignIn} disabled={!!busy || (watch.signedIn && !!actions.boardDisabled)}>
         {busy === "board" ? "Boarding…" : "Play the next ride"}
       </Button>
       <p className="rc-caption">
@@ -524,7 +526,7 @@ function RailcarResult({ view, actions, watch, practice, waiting }: { view: Extr
       </ul>
       <div className={`rc-res-acts${practice ? " practice" : ""}`}>
         {watch && !mine ? (
-          <Button variant="money" size="lg" block onClick={watch.signedIn ? actions.onBoard : actions.onSignIn}>
+          <Button variant="money" size="lg" block onClick={watch.signedIn ? actions.onBoard : actions.onSignIn} disabled={watch.signedIn && !!actions.boardDisabled}>
             Play the next ride
           </Button>
         ) : (

@@ -14,8 +14,10 @@
  */
 import { AddressLookupTableAccount, ComputeBudgetProgram, Keypair, PublicKey, type Connection, type TransactionInstruction } from "@solana/web3.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { accountOfSigner, keypairSigner, type ChainSigner } from "@/games/block-puzzle/chain";
+import { accountOfSigner, keypairSigner, walletOf, type ChainSigner } from "@/games/block-puzzle/chain";
 import { useAccount } from "@/lib/account";
+import { plainError } from "@/lib/errors";
+import { ReadHealth } from "./read-health";
 import { BackingError, backingProblem, fetchOffer, type ChainOffer } from "@/lib/chain/backing";
 import { countersPda, matchPda, settledPda } from "@/lib/chain/basket";
 import { getChain } from "@/lib/chain/client";
@@ -35,7 +37,7 @@ import { backerSeatedIn, boardWithRetry, boardingEntry, type BoardingBacking } f
 import { stepOffFor } from "./step-off";
 import { sendStepOff } from "./step-off-send";
 import { PENDING_SKIP_POLL_MS, checkPendingSkips, finishRide, type FinishResult, type PendingSkip } from "./finish";
-import { JUMP_WAIT_MS, mayFinish, nextRideStep, pageIntervalMs, poissonGapMs, queueChoice, rememberedCarGone, seatToJump, watchedRide } from "./flow";
+import { mayFinish, nextRideStep, pageIntervalMs, poissonGapMs, queueChoice, rememberedCarGone, sendJump, watchedRide, withPushedTable } from "./flow";
 import type { RailcarWatch } from "./RailcarScreen";
 import { boardingSigner, brakeRoute, finishSender, joinSeatKey, jumpSigner } from "./signers";
 import type { RailcarBrake, RailcarOffer } from "./RailcarScreen";
@@ -203,6 +205,8 @@ export interface RailcarPage {
   match: PublicKey | null;
   busy: string | null;
   error: string | null;
+  /** Reads keep failing: the page cannot see the car, so Board waits for a read that works. */
+  readsFailing: boolean;
   signedIn: boolean;
   /** Set while this page watches a ride it is not in. */
   watch: RailcarWatch | null;
@@ -258,12 +262,18 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   const { auth } = useAccount();
   const wallet: ChainSigner | null = auth.signer ?? null;
   const getToken = auth.getAccessToken;
-  const me = wallet ? accountOfSigner(wallet) : null;
+  // One Account object per wallet: a new one each render would make `refresh` new each render, and the poll below would then
+  // start a full read of the chain at every render (ticket 41: ~50 base reads a second, the hosted page's 429 storm).
+  const walletAddress = wallet ? walletOf(wallet).toBase58() : null;
+  const me = useMemo(() => (walletAddress ? accountOfSigner({ publicKey: new PublicKey(walletAddress) }) : null), [walletAddress]);
   const meKey = me?.toBase58() ?? null;
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [seat, setSeat] = useState<SeatKey | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Set while the page's own reads keep failing (the RPC refuses or is down); clears with the next read that works.
+  const readHealth = useRef(new ReadHealth());
+  const [readError, setReadError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   // A key made for this page: it signs the rollup's anyone-may steps (signals, start, commit) so the wallet is never asked.
   const pageKey = useRef<ChainSigner>(keypairSigner(Keypair.generate()));
@@ -360,11 +370,19 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   useEffect(() => {
     let stop = false;
     let timer: ReturnType<typeof setTimeout>;
+    const health = readHealth.current;
     const loop = async () => {
-      const s = await refresh().catch(() => null);
+      let s: Snapshot | null = null;
+      try {
+        s = await refresh();
+        health.succeeded();
+      } catch (e) {
+        health.failed(e);
+      }
       if (stop) return;
+      setReadError(health.problem());
       const riding = s?.rollup?.phase === "riding" || s?.rollup?.phase === "drawing";
-      timer = setTimeout(loop, riding ? RIDING_POLL_MS : IDLE_POLL_MS);
+      timer = setTimeout(loop, health.delay(riding ? RIDING_POLL_MS : IDLE_POLL_MS));
     };
     void loop();
     return () => {
@@ -388,6 +406,8 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
         decode: (info) => decodeTable(info.data),
         onValue: (view) => {
           feed.current = { table: feedTable, view, at: Date.now() };
+          // shown at once (a Tell, a Jump, the wall), not at the next full read
+          setSnap((s) => withPushedTable(s, feedTable, view) ?? s);
         },
         pollMs: FEED_QUIET_MS,
       });
@@ -642,7 +662,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
         await fn();
         await refresh();
       } catch (e) {
-        setError(e instanceof Error ? e.message.split("\n")[0] : "That did not go through. Try again.");
+        setError(plainError(e));
       } finally {
         setBusy(null);
         setOfferReads((n) => n + 1);
@@ -732,25 +752,28 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
       act("jump", async () => {
         if (!wallet || !me || !snap?.car) return;
         const car = snap.car;
-        // Only a Table riding this car names the seat: one still holding the previous car names that car's seats.
-        const tableSeat = await seatToJump({
+        const signer = jumpSigner(wallet, seat);
+        const chain = getChain();
+        await sendJump({
           carNo: car.carNo,
           me,
-          table: snap.rollup,
-          reread: async () => {
-            const s = await refresh();
-            return s.car?.carNo === car.carNo ? s.rollup : null;
+          held: () => {
+            const f = feed.current;
+            return f && f.table === car.table && Date.now() - f.at < FED_FRESH_MS ? f.view : null;
           },
-          waitMs: JUMP_WAIT_MS,
-          pollMs: RIDING_POLL_MS,
+          read: async () => {
+            const conn = await tee();
+            const info = conn ? await conn.getAccountInfo(tablePda(car.table), "confirmed").catch(() => null) : null;
+            return info ? decodeTable(info.data) : null;
+          },
+          heldHash: () => tickerRef.current?.recentHash() ?? null,
+          fetchHash: async () => (await (await chain.tee(signer)).getLatestBlockhash()).blockhash,
+          send: (tableSeat, blockhash) => chain.sendTee(signer, [jumpIx(signer.publicKey, car.table, car.carNo, tableSeat)], blockhash),
           sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
           now: Date.now,
         });
-        if (tableSeat === null) return;
-        const signer = jumpSigner(wallet, seat);
-        await getChain().sendTee(signer, [jumpIx(signer.publicKey, car.table, car.carNo, tableSeat)]);
       }),
-    [act, wallet, me, seat, snap, refresh],
+    [act, wallet, me, seat, snap, tee],
   );
 
   const pressBrake = useCallback(() => {
@@ -805,7 +828,7 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
   const blocked = offerProblem ? new BackingError(offerProblem).message : snap?.backerSeated ? "Your Backer is in this car: board the next one" : null;
   const shownOffer: RailcarOffer | null = offer ? { backer: offer.backer, sharePct: offer.shareBps / 100, ...(blocked ? { blocked } : {}) } : null;
   const missing = offerAddress && offer === null ? new BackingError("missing").message : null;
-  return { view, match: snap?.car?.match ?? null, busy, error: error ?? (stepTrouble && now - stepTrouble.at < STEP_TROUBLE_SHOWN_MS ? stepTrouble.text : null) ?? missing, signedIn: !!wallet, watch, offer: shownOffer, offerSpent: offer?.status === "consumed", board, stepOff, jump, brake, playAgain };
+  return { view, match: snap?.car?.match ?? null, busy, error: error ?? readError ?? (stepTrouble && now - stepTrouble.at < STEP_TROUBLE_SHOWN_MS ? stepTrouble.text : null) ?? missing, readsFailing: readError !== null, signedIn: !!wallet, watch, offer: shownOffer, offerSpent: offer?.status === "consumed", board, stepOff, jump, brake, playAgain };
 }
 
 /** A share of the finish (finalize, room, chunks, closes) through the relayer, sized against the server's lookup tables. */
