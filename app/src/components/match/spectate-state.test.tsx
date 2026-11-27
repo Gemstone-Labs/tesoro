@@ -5,7 +5,7 @@ import { chainMatchFromPage, toChainMatch, type ChainMatch } from "@/lib/chain/r
 import { setLeaderboardSince } from "@/lib/chain/season";
 import type { MatchPage } from "@/server/history/reads";
 import { SpectateView } from "./MatchSpectate";
-import { laterRead, readSpectated, spectateFee, spectateHeadline, spectateState, type Spectated } from "./spectate-state";
+import { keepsReading, laterRead, readSpectated, spectateFee, spectateHeadline, spectateState, stateOf, type Spectated } from "./spectate-state";
 import qa from "./fixtures/qa-untabled-refund-match.json";
 
 /**
@@ -84,6 +84,19 @@ describe("what a spectator's Match page says, from the Match's stage and its tab
     const noShow = during({ stage: { settling: {} }, run: run({ noShow: {} }, [4, 0, 0]) });
     expect(spectateState(noShow, true)).toBe("refunding");
     expect(spectateFee(noShow, "refunding")).toEqual({ label: "Fee charged", fee: 4 });
+    const page = text(view(noShow, true));
+    expect(page).toContain("Each entry is on its way back, less the Platform Fee.");
+    expect(page).not.toContain("Both entries are on their way back");
+  });
+
+  it("a draw being paid says the entries go back, not that a Pot is paid out", () => {
+    const draw = during({ stage: { refunding: {} }, run: run({ draw: {} }) });
+    expect(spectateState(draw, true)).toBe("settling");
+    const page = text(view(draw, true));
+    expect(page).toContain("Draw");
+    expect(page).toContain("The result is final and both entries are on their way back.");
+    expect(page).not.toContain("Pot is being paid out");
+    expect(text(view(winning, true))).toContain("The result is final and the Pot is being paid out.");
   });
 });
 
@@ -138,6 +151,7 @@ describe("a spectator who keeps the page open", () => {
     let seen: Spectated | null | undefined;
     const out: string[] = [];
     for (const [i, r] of reads.entries()) {
+      // As the page does: once a table was seen, the Assignment is not read again.
       const next = await readSpectated("id", {
         fetchMatch: async () => {
           if (r.m === "fails") throw new Error("read failed");
@@ -148,9 +162,9 @@ describe("a spectator who keeps the page open", () => {
           return r.tabled ?? false;
         },
         now: () => (JOINED_AT + i * 5) * 1000,
-      });
+      }, !!seen?.tabled);
       seen = laterRead(seen, next);
-      out.push(seen ? spectateHeadline(spectateState(seen.m, seen.tabled), "Ben") : seen === null ? "Match not found" : "Loading");
+      out.push(seen ? spectateHeadline(stateOf(seen), "Ben") : seen === null ? "Match not found" : "Loading");
     }
     return out;
   }
@@ -167,6 +181,10 @@ describe("a spectator who keeps the page open", () => {
     ]);
   });
 
+  it("stays In play once a table was seen, without reading the Assignment again", async () => {
+    expect(await watch([{ m: waiting, tabled: true }, { m: waiting, tabled: "fails" }, { m: waiting, tabled: false }])).toEqual(["In play", "In play", "In play"]);
+  });
+
   it("keeps what it showed when a read fails or the closed Match is not in the history yet", async () => {
     // The Match account is closed a moment before the history has its result: a read then finds nothing, or a page without a result.
     const lagging = { ...chainMatchFromPage({ id: refunding.id, game: "block-puzzle", entry: 100, status: "seen", kind: null, challenge: false, asset: 0, openedAt: refunding.openedAt, settledAt: null, sides: [{ player: refunding.sides[0].player, funder: refunding.sides[0].funder }, { player: refunding.sides[1]!.player, funder: refunding.sides[1]!.funder }], winnerSide: null, winner: null, loser: null, points: null, season: null, fees: { platform: 0, studio: 0, leaderboard: 0 }, chunks: 0, scores: null, parties: [] }, null)! };
@@ -180,9 +198,20 @@ describe("a spectator who keeps the page open", () => {
     expect(await watch([{ m: null }])).toEqual(["Match not found"]);
   });
 
-  it("stops reading once the Match is refunded or settled, and not before", () => {
-    const final = (m: ChainMatch, tabled: boolean) => ["settled", "refunded"].includes(spectateState(m, tabled));
-    expect([open, waiting, refunding, winning].map((m) => final(m, true))).toEqual([false, false, false, false]);
-    expect([refunded, won].map((m) => final(m, true))).toEqual([true, true]);
+  it("a fresh link to a Match that is closed but not in the history yet says it is over, and keeps reading for the result", async () => {
+    const lagging = chainMatchFromPage({ id: refunding.id, game: "block-puzzle", entry: 100, status: "seen", kind: null, challenge: false, asset: 0, openedAt: refunding.openedAt, settledAt: null, sides: [{ player: refunding.sides[0].player, funder: refunding.sides[0].funder }, { player: refunding.sides[1]!.player, funder: refunding.sides[1]!.funder }], winnerSide: null, winner: null, loser: null, points: null, season: null, fees: { platform: 0, studio: 0, leaderboard: 0 }, chunks: 0, scores: null, parties: [] }, null)!;
+    expect(await watch([{ m: lagging }, { m: lagging }, { m: refunded }])).toEqual(["Match over", "Match over", "Refunded"]);
+    const seen = (await readSpectated("id", { fetchMatch: async () => lagging, tabled: async () => true, now: () => 0 }))!;
+    expect(stateOf(seen)).toBe("over");
+    expect(keepsReading(seen)).toBe(true);
+    const page = text(renderToStaticMarkup(<SpectateView seen={seen} />));
+    expect(page).toContain("Its result is still being recorded");
+    expect(page).not.toMatch(/In play|Fee on a win|Fee charged/);
+  });
+
+  it("reads again until the Match is refunded or settled, and not after", () => {
+    const at = (m: ChainMatch, tabled = true): Spectated => ({ m, tabled, at: 0 });
+    expect([undefined, at(open, false), at(waiting, false), at(waiting), at(refunding), at(winning)].map(keepsReading)).toEqual([true, true, true, true, true, true]);
+    expect([null, at(refunded), at(won)].map(keepsReading)).toEqual([false, false, false]);
   });
 });

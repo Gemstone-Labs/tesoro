@@ -12,7 +12,7 @@ import type { GameId } from "@/lib/mock";
 import { gameQuery } from "@/lib/game-params";
 import { DuelSpectate } from "./DuelSpectate";
 import { EndStateNote } from "./EndStateNote";
-import { isFinal, laterRead, readSpectated, spectateFee, spectateHeadline, spectateLine, spectateState, type Spectated } from "./spectate-state";
+import { keepsReading, laterRead, readSpectated, spectateFee, spectateHeadline, spectateLine, stateOf, type Spectated } from "./spectate-state";
 import { VanguardSpectate } from "@/games/vanguard/VanguardSpectate";
 import { RULES } from "./MatchResult";
 import "./match.css";
@@ -51,7 +51,7 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
       const now = laterRead(shown.current, next);
       shown.current = now;
       setSeen(now);
-      if (now === undefined || (now && !isFinal(spectateState(now.m, now.tabled)))) timer = setTimeout(read, 5000);
+      if (keepsReading(now)) timer = setTimeout(read, 5000);
     };
     void read();
     return () => {
@@ -70,7 +70,7 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
 /** The spectator's page for one read of the Match. */
 export function SpectateView({ seen, onSignIn }: { seen: Spectated; onSignIn?: () => void }) {
   const { m } = seen;
-  const state = spectateState(m, seen.tabled);
+  const state = stateOf(seen);
   const over = state === "settled" || state === "settling";
   const result = m.session ? (m.session.settled ? m.session.result : null) : m.winner;
   const winSeat = over && (result === "opener" || result === "joiner") ? (result === "opener" ? 0 : 1) : null;
