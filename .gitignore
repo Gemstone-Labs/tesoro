@@ -36,3 +36,8 @@ deploy-keys/
 .env*
 programs/trading_duel/scripts/evidence-*.json
 __pycache__/
+
+# Riptide run state (auto-added by riptide init)
+.riptide/runs/
+.riptide/last-run.json
+.riptide/sim/artifacts/*/rerun.sh

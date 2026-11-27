@@ -1,0 +1,105 @@
+# Riptide adapter for tesoro_core (Solana-native LST position vault, advances, yield & instant redeem).
+
+protocol = "generic"
+program_so = "target/deploy/tesoro_core.so"
+idl_path = "app/src/lib/chain/idl/tesoro_core.json"
+
+[lineage]
+idl_source = "app/src/lib/chain/idl/tesoro_core.json"
+
+[accounts.config]
+kind = "shared"
+space = 256
+
+[accounts.treasury]
+kind = "shared"
+space = 256
+
+[accounts.custody]
+kind = "shared"
+space = 256
+
+[accounts.economy]
+kind = "shared"
+space = 256
+
+[accounts.price_feed]
+kind = "shared"
+space = 128
+
+[accounts.pool]
+kind = "shared"
+space = 256
+
+[accounts.mint]
+kind = "shared"
+space = 82
+
+[accounts.vault]
+kind = "shared"
+space = 165
+
+[accounts.position]
+kind = "agent"
+space = 256
+
+[accounts.source]
+kind = "agent"
+space = 256
+
+[accounts.book]
+kind = "agent"
+space = 512
+
+[accounts.owner_account]
+kind = "agent"
+space = 256
+
+[accounts.protections]
+kind = "agent"
+space = 128
+
+[accounts.basket]
+kind = "agent"
+space = 1024
+
+[accounts.spill]
+kind = "agent"
+space = 1024
+
+[accounts.owner_token]
+kind = "agent"
+space = 165
+
+[instructions]
+open_native_position = { action = "open_position", amount = "lst_amount", args = { nonce = 1 } }
+take_native_advance = { action = "take_advance", amount = "min_gemas", args = { horizon_months = 2 } }
+unlock = { action = "unlock" }
+
+[actions.open_position]
+label = "Open native LST position"
+takes = []
+
+[actions.take_advance]
+label = "Take native yield advance"
+takes = []
+
+[actions.unlock]
+label = "Unlock repaid position"
+takes = []
+
+[state_mapping]
+"position.principal" = "position.principal"
+"position.paid_shares" = "position.paid_shares"
+"treasury.yield_fee_bps" = "treasury.yield_fee_bps"
+
+[observations]
+"position.principal" = "uint"
+"position.paid_shares" = "uint"
+"treasury.yield_fee_bps" = "uint"
+
+[personas.staker]
+label = "LST Staker"
+action_rate_multiplier = 1.0
+action_weights = { open_position = 0.4, take_advance = 0.4, unlock = 0.2 }
+triggers = []

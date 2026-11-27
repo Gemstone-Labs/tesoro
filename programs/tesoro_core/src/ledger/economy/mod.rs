@@ -746,4 +746,6 @@ pub fn whole(v: u128) -> u64 {
 }
 
 #[cfg(test)]
+mod stateful_proptest;
+#[cfg(test)]
 mod tests;

@@ -62,13 +62,16 @@ jobs:
         run: |
           sh -c "$(curl -sSfL https://release.anza.xyz/v2.2.15/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
-      - name: Build SBF binaries (tesoro_core, tesoro_bridge, mock_endpoint)
+      - name: Build SBF binaries (tesoro_core, sim_lst, tesoro_bridge, mock_endpoint)
         run: |
           mkdir -p target/deploy bridge/target/deploy
           cargo build-sbf --manifest-path programs/tesoro_core/Cargo.toml --sbf-out-dir target/deploy --tools-version v1.54
+          cargo build-sbf --manifest-path programs/sim_lst/Cargo.toml --sbf-out-dir target/deploy --tools-version v1.54
           (cd bridge && \
             cargo build-sbf --manifest-path programs/tesoro_bridge/Cargo.toml --sbf-out-dir target/deploy --tools-version v1.54 && \
             cargo build-sbf --manifest-path test-programs/mock_endpoint/Cargo.toml --sbf-out-dir target/deploy --tools-version v1.54)
+      - name: Run tesoro_core LiteSVM Treasury cash-out & Pool liability test
+        run: cargo test -p tesoro_core --test native the_treasury_redeems_what_it_bought_and_owes_the_pool_its_share -- --exact
       - name: Fetch and verify LayerZero V2 endpoint fixture (mandatory)
         run: |
           solana program dump -u https://rpc.magicblock.app/devnet 76y77prsiCMvXMjuoZ5VRrhG5qYBrUMYTE5WgHqgjEn6 /tmp/lz-endpoint.so

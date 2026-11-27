@@ -1,0 +1,29 @@
+# Riptide guided simulation manifest for tesoro_core (Solana-native LST positions + advances + instant redeem).
+
+[[sim.programs]]
+address = "WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F"
+program = "../../target/deploy/sim_lst.so"
+loader = "direct"
+
+[sim.sweep]
+name = "sol_price_drop_bps"
+values = [0, 1000, 2000, 3000, 4000, 5000, 6000]
+seeds_per_value = 4
+
+[sim.positive_control]
+value = 0
+
+[sim.lifecycle]
+required_flows = [
+  "open_native_position",
+  "take_native_advance",
+  "set_price_shock",
+  "request_instant_redeem",
+  "fill_instant_redeem",
+  "redeem",
+  "unlock",
+]
+
+[sim.cartography]
+class = "lst.v1"
+risk_objective = "Native LST position solvency, yield-mint bounds, early-unlock enforcement, and Treasury instant-redeem buffer utilization under exogenous SOL/USD price shocks (0-60%)"

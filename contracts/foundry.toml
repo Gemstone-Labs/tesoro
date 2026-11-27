@@ -17,8 +17,13 @@ ethereum = "${ETH_MAINNET_RPC}"
 hyperevm = "${HYPEREVM_MAINNET_RPC}"
 
 [invariant]
-runs = 64
-depth = 60
+runs = 128
+depth = 128
+fail_on_revert = false
+
+[profile.deep.invariant]
+runs = 256
+depth = 128
 fail_on_revert = false
 
 [fuzz]
