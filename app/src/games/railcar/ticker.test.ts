@@ -200,6 +200,8 @@ describe("RideTicker", () => {
   });
 
   it("reads the interval at every beat: a car with fewer aboard beats faster without a restart", async () => {
+    // The recheck after the change finds the next beat (last + 500) already due, so it waits a random part of the new interval.
+    const spy = vi.spyOn(Math, "random").mockReturnValue(0.5);
     const { io, sent } = rollup();
     let interval = 1_000;
     const t = new RideTicker(io, page({ intervalMs: () => interval }).opts);
@@ -207,7 +209,8 @@ describe("RideTicker", () => {
     interval = 500;
     await vi.advanceTimersByTimeAsync(2_000);
     t.stop();
-    // beats at 0, 1 000, 2 000 (which set the next for 3 000), then every 500: 3 000, 3 500, 4 000
+    spy.mockRestore();
+    // beats at 0, 1 000, 2 000; the recheck at 2 500 sees the new interval and waits 0.5 × 500, then every 500: 2 750, 3 250, 3 750
     expect(sent.length).toBe(6);
   });
 
