@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { ride } from "./engine";
+import { impactMs as clockAt, ride } from "./engine";
 import { ANA, DEE, drawWithCrash, storedWorkedRide } from "./fixtures";
 import { RideHistory } from "./RideHistory";
 
@@ -13,10 +13,12 @@ describe("a finished ride's page", () => {
     expect(t).toContain("Last off");
     expect(t).toContain("You get 203");
     const d = ride(drawWithCrash(30_000));
-    expect(t).toContain("Bomb time 0:30");
-    expect(t).toContain(`Glow ${secs(d.screwLeadMs)} before the bomb`);
-    expect(t).toContain(`Hot seams ${secs(d.boltLeadMs!)} before the bomb`);
-    expect(t).toContain(`White-hot ${secs(d.sparkLeadMs!)} before the bomb`);
+    expect(t).toContain("Bomb time drawn 0:30.0");
+    expect(t).toContain("Blast on the clock 0:30.0");
+    expect(t).toContain(`Glow ${secs(d.screwLeadMs)} before the blast`);
+    expect(t).toContain(`Hot seams ${secs(d.boltLeadMs!)} before the blast`);
+    expect(t).toContain(`White-hot ${secs(d.sparkLeadMs!)} before the blast`);
+    expect(t).toContain(`Glow ${secs(d.screwLeadMs)}, Hot seams`);
     expect(t).not.toContain("Did not show");
     expect(t).toContain("Nobody braked");
     expect(t).toContain(storedWorkedRide().ride.draw!.slice(0, 16));
@@ -26,20 +28,27 @@ describe("a finished ride's page", () => {
 
   it("a Tell the ride did not show says so, and the replay still matches (decisions Q39)", () => {
     const sparkless = text(renderToStaticMarkup(<RideHistory page={storedWorkedRide({ shows: { sparks: false } })} me={null} />));
-    expect(sparkless).toMatch(/Hot seams [\d.]+ s before the bomb/);
+    expect(sparkless).toMatch(/Hot seams [\d.]+ s before the blast/);
     expect(sparkless).toContain("White-hot Did not show");
     expect(sparkless).toContain("Replayed with the published rules: every place and every amount matches what was paid.");
     const screwsOnly = text(renderToStaticMarkup(<RideHistory page={storedWorkedRide({ shows: { panel: false, sparks: false } })} me={null} />));
-    expect(screwsOnly).toMatch(/Glow [\d.]+ s before the bomb/);
+    expect(screwsOnly).toMatch(/Glow [\d.]+ s before the blast/);
     expect(screwsOnly).toContain("Hot seams Did not show");
     expect(screwsOnly).toContain("White-hot Did not show");
   });
 
   it("a Brake: when it was pressed, and where the bomb then went off on the clock", () => {
     const t = text(renderToStaticMarkup(<RideHistory page={storedWorkedRide({ brake: true })} me={null} />));
-    expect(t).toContain("Bomb time 0:30");
-    expect(t).toContain("Blast on the clock 0:32");
-    expect(t).toMatch(/Braked at 0:20/);
+    expect(t).toContain("Bomb time drawn 0:30.0");
+    expect(t).toContain("Blast on the clock 0:32.5");
+    expect(t).toMatch(/Braked at 0:20.0/);
+    // Every row's interval is the blast on the clock less the moment it showed.
+    const blast = 32_500;
+    const d = ride(drawWithCrash(30_000));
+    for (const [name, lead] of [["Glow", d.screwLeadMs], ["Hot seams", d.boltLeadMs!], ["White-hot", d.sparkLeadMs!]] as const) {
+      const shownAt = Math.round(clockAt([20_000], 30_000 - lead) / 100) * 100;
+      expect(t).toContain(`${name} ${secs(blast - shownAt)} before the blast`);
+    }
     // A spectator: no "You get", the headline is the ride's.
     expect(t).not.toContain("You get");
     expect(t).toContain("Ride over");
