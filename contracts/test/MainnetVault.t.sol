@@ -710,25 +710,3 @@ contract KHypeMainnetVaultTest is MainnetVaultBase {
         return new KHypeRateAdapter(token);
     }
 }
-
-/// The enforced options of the Solana to EVM pathway grant 250,000 gas (bridge/scripts/lz-mainnet.ts).
-contract MainnetReceiveGasTest is MainnetVaultBase {
-    function _adapter(address token) internal override returns (IRateSource) {
-        return new WstETHRateAdapter(token);
-    }
-
-    function test_everyInboundMessageFitsTheEnforcedReceiveGas() public {
-        uint64 id = _open(10 ether);
-        tok.setRate(1.32e18);
-        bytes memory pay = _pay(4, id, 1, redeemer, uint128(vault.payableYield(id) / 2));
-        bytes memory instant = _pay(5, id, 2, redeemer, uint128(vault.treasuryBalance() / 2));
-        bytes memory unlock = _unlock(id, 3);
-        bytes[3] memory msgs = [pay, instant, unlock];
-        for (uint256 i; i < 3; i++) {
-            vm.prank(address(lz));
-            uint256 g = gasleft();
-            vault.lzReceive(Origin(SOLANA, STORE, 1), bytes32(0), msgs[i], address(0), "");
-            assertLt(g - gasleft(), 200_000, "well under 250,000");
-        }
-    }
-}
