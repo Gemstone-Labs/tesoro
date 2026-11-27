@@ -23,11 +23,13 @@ import { countersPda, matchPda, settledPda } from "@/lib/chain/basket";
 import { getChain } from "@/lib/chain/client";
 import { drawRemaining, freshPot, nextMatchOf, readNextTicket, sendEntryTx } from "@/lib/chain/entry";
 import { matchKeyOf } from "@/lib/chain/match-id";
-import { joinSeatIx } from "@/lib/chain/many-seat";
+import { SEATS_TAKE_SEAT_KEYS, joinSeatIx } from "@/lib/chain/many-seat";
 import { loadCar, type LoadedCar } from "@/lib/chain/many-seat-plan";
 import { connReader, fits, simulatedUnits, type Reader } from "@/lib/chain/settle-plan";
-import { sponsorStatus, sponsoredSend } from "@/lib/chain/sponsor-client";
+import { SponsorError, sponsorStatus, sponsoredSend } from "@/lib/chain/sponsor-client";
 import { prepareEntryTicket, readyBackingTicket } from "@/lib/chain/ticket";
+import { joinTargetTag, seatSpends } from "@/lib/chain/ticket-target";
+import { cosigned, ticketSteps } from "@/lib/seat/cosigned";
 import { seatKeys, type SeatKey } from "@/lib/seat/seat-key";
 import { countingFor } from "@/lib/seat/signature-counter";
 import { browserStore } from "@/lib/storage";
@@ -693,19 +695,24 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
         // The entry draws the Player's Gemas (more lines than one transaction draws are staged in an Entry Ticket first), or
         // under a Backing always comes from the Offer's Backing Ticket, opened now (or found again after a reload).
         const { funder, preview } = await boardingEntry(chain.base, me, backing ?? undefined);
+        // The Entry Ticket is bound to the car the rider boards (the one joined, or the one this rider opens), so the seat key
+        // alone opens and boards it: one wallet signature in all, `open_ticket`'s. A Backed rider who opens sends the open first.
+        const targetTag = await joinTargetTag(match);
         const staging = { signer: wallet, seat: seatKey, getToken, game: RAILCAR_PROGRAM_ID, entry: BigInt(ENTRY_GEMAS), lines: preview.ticketLines };
-        const ticket = backing ? await readyBackingTicket({ ...staging, ...backing }) : preview.needsTicket ? await prepareEntryTicket(staging) : null;
+        const ticket = backing ? await readyBackingTicket({ ...staging, ...backing }) : preview.needsTicket ? await prepareEntryTicket({ ...staging, targetTag }) : null;
+        const seatAlone = !backing && !!ticket && targetTag !== 0n && SEATS_TAKE_SEAT_KEYS && seatSpends(ticket, targetTag);
         const remaining = ticket ? [] : await drawRemaining(preview.plan);
         // A Backed Player who opens the car opens it first: the open and a Backed join do not fit one transaction.
         const opensFirst = choice.kind === "open" && !!backing;
-        const build = async (payer: PublicKey, sponsored: boolean) => {
+        const build = (alone: boolean) => async (payer: PublicKey, sponsored: boolean) => {
           const pot = ticket ? { address: ticket.address, nonce: ticket.nonce, lines: ticket.lineCap } : freshPot(funder, preview.potLines, await readNextTicket(funder));
-          const join = joinSeatIx({ payer, player: wallet.publicKey, car: match, game: RAILCAR_PROGRAM_ID, page: choice.kind === "join" ? choice.page : 0, pot, backing: backing ?? undefined, remaining, seatSigner: joinSeatKey(seatKey) });
+          const join = joinSeatIx({ payer, player: wallet.publicKey, car: match, game: RAILCAR_PROGRAM_ID, page: choice.kind === "join" ? choice.page : 0, pot, backing: backing ?? undefined, remaining, seatSigner: joinSeatKey(seatKey), walletSigns: !(alone && sponsored) });
           const ixs: TransactionInstruction[] = sponsored ? [] : [ComputeBudgetProgram.setComputeUnitLimit({ units: SELF_PAID_UNITS })];
           if (choice.kind === "join" || opensFirst) ixs.push(join, checkDepartureIx(choice.carNo, match));
           else {
             if (choice.departFirst) ixs.push(checkDepartureIx(choice.departFirst.carNo, choice.departFirst.car));
-            ixs.push(openCarIx({ payer, opener: wallet.publicKey, config: s.config!, n }), join, checkDepartureIx(choice.carNo, match));
+            const opener = alone && sponsored && ticket ? { ticket: ticket.address, seat: seatKey.publicKey } : undefined;
+            ixs.push(openCarIx({ payer, opener: wallet.publicKey, config: s.config!, n, seatAlone: opener }), join, checkDepartureIx(choice.carNo, match));
           }
           return ixs;
         };
@@ -716,8 +723,16 @@ export function useRailcar(offerAddress: string | null = null): RailcarPage {
             openCarIx({ payer, opener: wallet.publicKey, config: s.config!, n }),
           ]);
         }
-        // The one wallet signature of the ride (the seat key co-signs once core names seat keys); the relayer pays.
-        await sendEntryTx(boardingSigner(wallet, seatKey), getToken, build);
+        // The one wallet signature of the ride (the seat key co-signs); the relayer pays. With a bound Entry Ticket the wallet
+        // signed `open_ticket` already and the seat key boards alone (the wallet signs when it pays the fee itself).
+        const send = (alone: boolean) => sendEntryTx(alone ? ticketSteps(wallet, seatKey) : boardingSigner(wallet, seatKey), getToken, build(alone), alone ? { selfPay: cosigned(wallet, seatKey) } : {});
+        try {
+          await send(seatAlone);
+        } catch (e) {
+          // the sponsor wants the wallet after all (the car moved on, the window closed): once more, with it
+          if (!(seatAlone && e instanceof SponsorError && e.code === "wallet-signs")) throw e;
+          await send(false);
+        }
         const carNo = choice.carNo;
         remember(meKey, { carNo: carNo.toString(), table: Number(carNo % BigInt(s.config.tables)), match: match.toBase58(), matchKey: key, ...(backing && offer ? { backing: { backer: offer.backer, shareBps: offer.shareBps } } : {}) });
         setSeat(seatKey);

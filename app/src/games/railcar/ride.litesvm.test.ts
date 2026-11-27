@@ -34,7 +34,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { CLASS_STUDIO, basketPda, bookPda, ckptPda, countersPda, matchPda, spillPda } from "../../lib/chain/basket";
+import { CLASS_STUDIO, basketPda, bookPda, ckptPda, countersPda, matchPda, spillPda, ticketPda } from "../../lib/chain/basket";
 import { coreIx } from "../../lib/chain/core-ix";
 import { drawRemaining, freshPot, nextMatchOf, previewEntry, readEntryStores, readNextTicket } from "../../lib/chain/entry";
 import coreIdl from "../../lib/chain/idl/tesoro_core.json";
@@ -46,7 +46,8 @@ import { decodeStore } from "../../lib/chain/pot-store";
 import { OVERFLOW_STORE_AT, matchOverflowPda } from "../../lib/chain/overflow";
 import { CHUNK_CU_TARGET, fits, initCkptPageIx, type Reader } from "../../lib/chain/settle-plan";
 import { checkedV0, instructionName, messageSize, type TxSize } from "../../lib/chain/tx-size";
-import { backingTicketOf, nextStageIx, openBackingTicketIxs, type TicketView } from "../../lib/chain/ticket";
+import { backingTicketOf, decodeTicket, nextStageIx, openBackingTicketIxs, openTicketIx, type TicketView } from "../../lib/chain/ticket";
+import { joinTargetTag, seatSpends } from "../../lib/chain/ticket-target";
 import { Sponsor, sponsoredInstructions, type ChainReads } from "../../server/sponsor/service";
 import { DEFAULT_LIMITS } from "../../server/sponsor/policy";
 import { MemoryUsageStore } from "../../server/sponsor/store";
@@ -480,6 +481,60 @@ class World {
     return p;
   }
 
+  /**
+   * A Player whose Gemas sit in `count` small Sources (about 5 Gemas each): the 100 entry draws more lines than one
+   * transaction moves, so it is staged in an Entry Ticket first (seat-keys ticket 14).
+   */
+  ticketRider(count = 22): Person {
+    const p = this.person();
+    this.send([coreIx("grow_store", { payer: p.key, account: p.account, basket: basketPda(p.account), spill: spillPda(p.account) }, { which: { Basket: {} }, extra_lines: count + 4 })], p.kp);
+    for (let i = 0; i < count; i++) {
+      this.stakes++;
+      const id = Buffer.alloc(32, 0);
+      id.writeUInt32LE(this.stakes, 0);
+      id[31] = 0xee;
+      const position = corePda("position", Buffer.from([0]), id);
+      const asset = Keypair.generate().publicKey;
+      this.send([coreIx("open_position", { oracle: this.oracle.publicKey, config: corePda("config"), owner_account: p.account, position }, { source_chain: { Solana: {} }, position_id: Array.from(id), source_asset: asset, decimals: 9, principal: 7_000_000n, rate_bps: 1_000 })], this.oracle);
+      const source = corePda("source", position.toBuffer(), u32(0));
+      this.send(
+        [
+          coreIx(
+            "take_advance",
+            { oracle: this.oracle.publicKey, owner_authority: p.key, config: corePda("config"), treasury: corePda("treasury"), owner_account: p.account, protections: corePda("protections", p.account.toBuffer()), position, source, book: corePda("book", source.toBuffer()), basket: basketPda(p.account), spill: spillPda(p.account), economy: corePda("economy") },
+            { horizon_months: 6, price_micro_usd: 150_000_000n, min_gemas: 1n },
+            [{ pubkey: corePda("onchain_price", asset.toBuffer()), isSigner: false, isWritable: false }],
+          ),
+        ],
+        this.oracle,
+        [p.kp],
+      );
+    }
+    this.ensureSpill(p, 48);
+    return p;
+  }
+
+  /**
+   * The Entry Ticket of a rider's entry, as the page prepares it: the wallet opens it bound to `car` (`joinTargetTag`) with
+   * the seat key co-signing, the seat key alone stages the rest. The relayer pays.
+   */
+  async stageEntry(p: Person, car: PublicKey): Promise<TicketView> {
+    const conn = this.reader();
+    const { preview } = await boardingEntry(conn, p.account);
+    expect(preview.needsTicket).toBe(true);
+    const nonce = await readNextTicket(p.account, conn);
+    const open = openTicketIx({ payer: this.relayer.publicKey, authority: p.key, seatSigner: p.seat.publicKey, owner: p.account, nonce, kind: "entry", game: RAILCAR_PROGRAM_ID, target: 100n, lines: preview.ticketLines, targetTag: await joinTargetTag(car), sponsored: true });
+    this.send(sponsoredInstructions({ cu: 400_000, grows: [], ixs: [open], assignment: null }), this.relayer, [p.kp, p.seat]);
+    const address = ticketPda(p.account, nonce);
+    for (let i = 0; i < 20; i++) {
+      const t = decodeTicket(address, this.get(address)!.data);
+      const ix = await nextStageIx(p.seat.publicKey, t, await readEntryStores(p.account, conn), conn);
+      if (!ix) return t;
+      this.send(sponsoredInstructions({ cu: 1_000_000, grows: [], ixs: [ix], assignment: null }), this.relayer, [p.seat]);
+    }
+    throw new Error("the Entry Ticket did not fill");
+  }
+
   ensureSpill(p: Person, free: number) {
     const s = decodeStore(this.get(spillPda(p.account))!.data);
     let need = free - (s.capacity - s.len - s.roomReserved);
@@ -503,7 +558,7 @@ class World {
   // ---- the app's steps -------------------------------------------------------------------------------------------------
 
   /** The Queue as the page boards: read the config and the boarding car, choose, and send the wallet's one transaction. */
-  async board(p: Person, backing?: BoardingBacking): Promise<string> {
+  async board(p: Person, backing?: BoardingBacking, viaTicket = false): Promise<string> {
     const conn = this.reader();
     const config = decodeConfig(this.info(configPda())!.data);
     let boarding = null;
@@ -522,7 +577,14 @@ class World {
     // A backed seat boards from its Offer's Backing Ticket, opened at the entry and staged by the seat key.
     let pot: ReturnType<typeof freshPot>;
     let remaining: AccountMeta[] = [];
-    if (backing) {
+    // A large entry staged in an Entry Ticket bound to the car: the seat key alone opens and boards (the wallet signed `open_ticket`).
+    const car = choice.kind === "join" ? choice.car : matchPda(p.account, nextMatchOf(this.info(countersPda(p.account))?.data));
+    const ticket = viaTicket ? await this.stageEntry(p, car) : null;
+    const seatAlone = ticket && seatSpends(ticket, await joinTargetTag(car), this.now) ? { ticket: ticket.address, seat: seatKey.publicKey } : undefined;
+    if (viaTicket) expect(seatAlone).toBeDefined();
+    if (ticket) {
+      pot = { address: ticket.address, nonce: ticket.nonce, lines: ticket.lineCap, ticket: true };
+    } else if (backing) {
       const t = await this.stageBacking(p, backing, seatKey);
       pot = { address: t.address, nonce: t.nonce, lines: t.lineCap, ticket: true };
     } else {
@@ -533,16 +595,16 @@ class World {
     }
     const ixs: TransactionInstruction[] = [];
     if (choice.kind === "join") {
-      ixs.push(joinSeatIx({ payer, player: p.key, car: choice.car, game: RAILCAR_PROGRAM_ID, page: choice.page, pot, backing, remaining, seatSigner: seatKey.publicKey }), checkDepartureIx(choice.carNo, choice.car));
+      ixs.push(joinSeatIx({ payer, player: p.key, car: choice.car, game: RAILCAR_PROGRAM_ID, page: choice.page, pot, backing, remaining, seatSigner: seatKey.publicKey, walletSigns: !seatAlone }), checkDepartureIx(choice.carNo, choice.car));
     } else {
       const n = nextMatchOf(this.info(countersPda(p.account))?.data);
       const match = matchPda(p.account, n);
-      const join = joinSeatIx({ payer, player: p.key, car: match, game: RAILCAR_PROGRAM_ID, page: 0, pot, backing, remaining, seatSigner: seatKey.publicKey });
+      const join = joinSeatIx({ payer, player: p.key, car: match, game: RAILCAR_PROGRAM_ID, page: 0, pot, backing, remaining, seatSigner: seatKey.publicKey, walletSigns: !seatAlone });
       if (backing) {
         // A Backed Player opens the car first, as the page does: the open and a Backed join do not fit one transaction.
         this.send(sponsoredInstructions({ cu: 1_000_000, grows: [], ixs: [openCarIx({ payer, opener: p.key, config, n })], assignment: null }), this.relayer, [p.kp]);
         ixs.push(join, checkDepartureIx(choice.carNo, match));
-      } else ixs.push(openCarIx({ payer, opener: p.key, config, n }), join, checkDepartureIx(choice.carNo, match));
+      } else ixs.push(openCarIx({ payer, opener: p.key, config, n, seatAlone }), join, checkDepartureIx(choice.carNo, match));
     }
     this.send(sponsoredInstructions({ cu: 1_000_000, grows: [], ixs, assignment: null }), this.relayer, [p.kp, seatKey]);
     return choice.kind;
@@ -735,6 +797,8 @@ interface RideRun {
 let rooms = 0;
 
 interface RideOpts {
+  /** Riders (by index) whose entry is staged in an Entry Ticket bound to the car: they board with the seat key alone. */
+  ticketRiders?: number[];
   /** Railcar set up by the devnet setup script's plan (`World.setUpByScript`). */
   setup?: "script";
   brakes?: [number, number][];
@@ -780,7 +844,8 @@ async function rideToImpact(n: number, draw: Uint8Array, jumps: [number, number]
   const w = o.again?.world ?? (await World.create({ setup: o.setup }));
   if (o.native && !o.again) await w.nativeSetUp();
   // A backed rider has no Gemas of their own: their Backer's entry boards for them.
-  w.riders = o.again?.riders ?? Array.from({ length: n }, (_, i) => (i === backed?.seat ? w.person() : o.native ? w.nativeRider() : w.rider()));
+  const viaTicket = new Set(o.ticketRiders ?? []);
+  w.riders = o.again?.riders ?? Array.from({ length: n }, (_, i) => (i === backed?.seat ? w.person() : viaTicket.has(i) ? w.ticketRider() : o.native ? w.nativeRider() : w.rider()));
   const riders = w.riders;
   // A Player who boards without a seat key names the wallet as the seat's signer (core: "the wallet itself when it wants none").
   const keyless = new Set(o.noSeatKey ?? []);
@@ -791,7 +856,12 @@ async function rideToImpact(n: number, draw: Uint8Array, jumps: [number, number]
 
   // Boarding: the first opens the car, the others join it, each in one wallet transaction.
   w.phase = "boarding";
-  for (const [i, p] of riders.entries()) await w.board(p, i === backed?.seat ? backing : undefined);
+  for (const [i, p] of riders.entries()) {
+    const signed = w.walletSigs.boarding ?? 0;
+    await w.board(p, i === backed?.seat ? backing : undefined, viaTicket.has(i));
+    // a rider whose entry is staged signs once, `open_ticket`: the seat key opens or joins and boards alone
+    if (viaTicket.has(i)) expect((w.walletSigs.boarding ?? 0) - signed).toBe(1);
+  }
   const config = decodeConfig(w.info(configPda())!.data);
   const carNo = config.nextCar - 1n;
   const carAcct = decodeCarAccount(w.info(carPda(carNo))!.data);
@@ -1049,6 +1119,24 @@ describe.skipIf(!BUILT)("a Railcar ride in LiteSVM, sent with the app's builders
     expect(r.history.deltas).toEqual([-100, 42, 25, 103, -100]);
     expect(r.history.replay.differences).toEqual([]);
     expect(r.history.replay.seats.map((s) => s.gets)).toEqual(r.deltas);
+  });
+
+  it("riders whose entries need an Entry Ticket, the car's opener among them, sign once each: open_ticket", { timeout: 180_000 }, async () => {
+    const r = await rideCar(
+      5,
+      drawWhere((x) => x.crashMs >= 30_000),
+      [
+        [ANA, 8],
+        [CY, 27],
+        [BEN, 28],
+        [DEE, 29],
+      ],
+      { ticketRiders: [0, 2] },
+    );
+    // the worked example's payouts: an Entry Ticket changes how a rider stages the entry, not what the ride pays
+    expect(r.deltas).toEqual([0n, 142n, 125n, 203n, 0n]);
+    expect(r.walletSigs).toEqual({ boarding: 5 });
+    expect(r.history.replay.differences).toEqual([]);
   });
 
   it("the devnet setup script's steps set Railcar up from nothing, a re-run finds nothing to do, and the worked example rides on it", { timeout: 120_000 }, async () => {

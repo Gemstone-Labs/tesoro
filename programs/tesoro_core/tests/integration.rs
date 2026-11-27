@@ -65,8 +65,21 @@ fn ticket_pda(account: APk, nonce: u64) -> APk {
     pda(&[TICKET_SEED, account.as_ref(), &nonce.to_le_bytes()])
 }
 
-/// `open_ticket` for an Entry Ticket at `nonce`.
+/// `open_ticket` for an Entry Ticket at `nonce`, bound to no Match.
 fn open_ticket_ix(p: &Person, nonce: u64, entry: u64, lines: u32, seat: APk) -> Instruction {
+    open_ticket_tagged_ix(p, nonce, entry, lines, seat, 0)
+}
+
+/// `open_ticket` for an Entry Ticket at `nonce` whose seat key alone may spend it on the Match
+/// `target_tag` names (`pots::open_target_tag` / `join_target_tag`).
+fn open_ticket_tagged_ix(
+    p: &Person,
+    nonce: u64,
+    entry: u64,
+    lines: u32,
+    seat: APk,
+    target_tag: u64,
+) -> Instruction {
     ix(
         accounts::OpenTicket {
             payer: p.key,
@@ -88,6 +101,7 @@ fn open_ticket_ix(p: &Person, nonce: u64, entry: u64, lines: u32, seat: APk) -> 
             game: GAME,
             target: entry,
             lines,
+            target_tag,
         },
         vec![],
     )
@@ -188,6 +202,13 @@ struct Env {
     seat_key: Option<Keypair>,
     /// The seat key is named but does not sign (to test that it has to).
     seat_unsigned: bool,
+    /// The target tag the next Ticket opened is bound to (0: none).
+    ticket_tag: u64,
+    /// The next Match entries are paid by this key and the wallet does not sign them: only the
+    /// seat key does (an entry from a complete Entry Ticket bound to its Match).
+    walletless: Option<Keypair>,
+    /// With `walletless`: the wallet still signs, as `player_authority` only (the sponsored shape).
+    wallet_cosigns: bool,
     last_cu: u64,
     /// The native custody and its rate Pool, when `install_native_rates` set them up: a chunk then
     /// passes them and open-Advance Sources are native Positions.
@@ -257,6 +278,9 @@ impl Env {
             pre_ixs: Vec::new(),
             seat_key: None,
             seat_unsigned: false,
+            ticket_tag: 0,
+            walletless: None,
+            wallet_cosigns: false,
             last_cu: 0,
             last_size: 0,
             native_rates: None,
@@ -364,6 +388,14 @@ impl Env {
                 Err(e)
             }
         }
+    }
+
+    /// Who pays the next Match entry and signs it as the payer: the Player's wallet, or the
+    /// `walletless` relayer (then the wallet does not sign at all).
+    fn entry_payer(&self, p: &Person) -> Keypair {
+        self.walletless
+            .as_ref()
+            .map_or_else(|| p.kp.insecure_clone(), |k| k.insecure_clone())
     }
 
     /// The seat key the next entry names (the `seat_key` set, else the wallet itself) and the
@@ -1098,7 +1130,7 @@ impl Env {
     ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
         self.ensure_spill(&p.kp, p.account, lines as usize);
         let (seat, signers) = self.seat_for(p);
-        let open = open_ticket_ix(p, nonce, entry, lines, seat);
+        let open = open_ticket_tagged_ix(p, nonce, entry, lines, seat, self.ticket_tag);
         self.send(&[open], &p.kp, &signers.iter().collect::<Vec<_>>())
     }
 
@@ -1137,6 +1169,7 @@ impl Env {
                 game: GAME,
                 target: entry,
                 lines,
+                target_tag: self.ticket_tag,
             },
             vec![],
         );
@@ -1485,9 +1518,10 @@ impl Env {
             self.ensure_spill(&p.kp, b, room);
         }
         let (seat, signers) = self.seat_for(p);
+        let payer = self.entry_payer(p);
         let open = ix(
             accounts::OpenMatch {
-                payer: p.key,
+                payer: a(payer.pubkey()),
                 player_authority: p.key,
                 seat_signer: seat,
                 config: pda(&[CONFIG_SEED]),
@@ -1521,7 +1555,13 @@ impl Env {
             },
             remaining,
         );
-        self.send(&[open], &p.kp, &signers.iter().collect::<Vec<_>>())?;
+        let mut open = open;
+        let mut signers = signers;
+        if self.wallet_cosigns && self.walletless.is_some() {
+            open.accounts[1].is_signer = true;
+            signers.push(p.kp.insecure_clone());
+        }
+        self.send(&[open], &payer, &signers.iter().collect::<Vec<_>>())?;
         self.matches.push(MRef {
             key,
             opener: p.account,
@@ -1598,9 +1638,10 @@ impl Env {
             }
         }
         let (seat, signers) = self.seat_for(p);
+        let payer = self.entry_payer(p);
         let join = ix(
             accounts::JoinMatch {
-                payer: p.key,
+                payer: a(payer.pubkey()),
                 player_authority: p.key,
                 seat_signer: seat,
                 player_account: p.account,
@@ -1635,7 +1676,7 @@ impl Env {
         );
         let mut ixs = std::mem::take(&mut self.pre_ixs);
         ixs.push(join);
-        self.send(&ixs, &p.kp, &signers.iter().collect::<Vec<_>>())
+        self.send(&ixs, &payer, &signers.iter().collect::<Vec<_>>())
     }
 
     fn opener_account(&self, id: u64) -> APk {

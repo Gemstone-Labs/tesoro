@@ -193,6 +193,23 @@ const MAX_GROWS = 5;
 const grows = (n: number) => Array<string>(n).fill("grow_store_sponsored");
 /** Rows that never travel alone: a many-seat join goes in Railcar's boarding shapes (rules-railcar.ts), with its departure check. */
 const NOT_ALONE = new Set(["join_many_seat_match"]);
+
+/** The entries whose wallet may stay out (seat-keys ticket 14, core's `require_entry_authority`). */
+export const SEAT_ALONE_ENTRIES = new Set(["open_match", "join_match", "join_many_seat_match"]);
+
+/** An entry sent by the seat key alone: what the service checks against the Ticket on chain. */
+export interface SeatAloneEntry {
+  name: string;
+  /** The wallet the entry is for (`player_authority`, not signing). */
+  authority: PublicKey;
+  /** The Pot: the Entry Ticket being spent. */
+  ticket: PublicKey;
+  seat: PublicKey;
+  /** The Match or car being entered. */
+  match: PublicKey;
+  /** `open_match`'s terms, part of the target tag; null for a join or a boarding. */
+  open: { challenge: boolean; asset: number } | null;
+}
 export const TX_SHAPES: readonly (readonly string[])[] = [
   ...Object.keys(ROWS)
     .filter((n) => !NOT_ALONE.has(n))
@@ -294,6 +311,11 @@ export interface Plan {
   seatSigners?: PublicKey[];
   /** The signer of each Ticket step (`stage_entry`, `cancel_ticket`) with its Ticket: a seat key when the Ticket recorded it at `open_ticket`. */
   ticketSigners?: { ticket: PublicKey; signer: PublicKey }[];
+  /**
+   * Entries the seat key sends without the wallet (seat-keys ticket 14): the Pot is an Entry Ticket the service must find
+   * complete, the Player's, naming that seat key and bound to `tag` (the Match being entered), or it does not pay.
+   */
+  seatAlone?: SeatAloneEntry[];
   /** An instruction in the plan is the Player's own: the Player who asks must be one of its signers. */
   playerSigns: boolean;
   /** Accounts whose Gemas fund the admission when they are not the Player's own (the Backer of a Backing Ticket). */
@@ -474,6 +496,7 @@ export function planCore(ixs: Ix[], relayer: PublicKey, inviteKey?: PublicKey, p
   let stagedBacking = false;
   const seatSigners = new Map<string, PublicKey>();
   const ticketSigners: { ticket: PublicKey; signer: PublicKey }[] = [];
+  const seatAlone: SeatAloneEntry[] = [];
 
   for (const ix of ixs) {
     const decoded = coder.decode(Buffer.from(ix.data));
@@ -517,7 +540,8 @@ export function planCore(ixs: Ix[], relayer: PublicKey, inviteKey?: PublicKey, p
         return;
       }
       const placeholder = acc.optional && k.pubkey.equals(CORE_ID);
-      const wantSigner = !!acc.signer;
+      // an entry's wallet: core takes it signed, or unsigned when the seat key alone spends a bound Entry Ticket
+      const wantSigner = SEAT_ALONE_ENTRIES.has(name) && acc.name === "player_authority" ? k.isSigner : !!acc.signer;
       const wantWritable = !!acc.writable && !placeholder;
       if (k.isSigner !== wantSigner || k.isWritable !== wantWritable) {
         throw new RuleError("bad-flags", `${name}: ${acc.name} has the wrong signer or writable flag.`);
@@ -545,6 +569,14 @@ export function planCore(ixs: Ix[], relayer: PublicKey, inviteKey?: PublicKey, p
     if (name === "join_match") pair = byName.get("pair") ?? null;
     const seat = byName.get("seat_signer");
     if (seat) seatSigners.set(seat.toBase58(), seat);
+    if (SEAT_ALONE_ENTRIES.has(name) && !ix.keys[def.accounts.findIndex((a) => a.name === "player_authority")].isSigner) {
+      const ticket = byName.get("pot") as PublicKey;
+      const seat = byName.get("seat_signer") as PublicKey;
+      const match = byName.get("match_state") as PublicKey;
+      const authority = byName.get("player_authority") as PublicKey;
+      const terms = name === "open_match" ? { challenge: !!args.challenge, asset: Number(args.asset) } : null;
+      seatAlone.push({ name, authority, ticket, seat, match, open: terms });
+    }
     if (name === "stage_entry" || name === "cancel_ticket") {
       const ticket = byName.get("ticket");
       const signer = byName.get("signer");
@@ -582,6 +614,7 @@ export function planCore(ixs: Ix[], relayer: PublicKey, inviteKey?: PublicKey, p
     signers: [...signers.values()],
     seatSigners: [...seatSigners.values()],
     ticketSigners,
+    seatAlone,
     playerSigns,
     funders: [...funders.values()],
     onboarding: names.length === 1 && names[0] === "create_account",

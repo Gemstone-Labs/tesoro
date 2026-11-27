@@ -33,6 +33,7 @@ import { GAME_IDS } from "@/lib/chain/games";
 import { POT_AT, STORE_HEADER, TICKET_HEAD, TICKET_VERSION } from "@/lib/chain/pot-store";
 import { stageEntryIx } from "@/lib/chain/ticket";
 import { offerPda } from "@/lib/chain/backing-ix";
+import { joinTargetTag, openTargetTag } from "@/lib/chain/ticket-target";
 
 const SOL = 1_000_000_000n;
 const wire = (ixs: Ix[]): { ixs: WireIx[] } => ({
@@ -1499,5 +1500,74 @@ describe("a Backing Ticket staged by the Requester's seat key", () => {
   it("refuses a hint that is not an address", async () => {
     const w = world();
     await expect(w.s.sponsor.build(w.s.player.publicKey, { ...wire([]), offer: "not a key" }, "did:privy:ana", { kind: "token" })).rejects.toMatchObject({ code: "bad-request" });
+  });
+});
+
+describe("an entry the seat key sends alone (seat-keys 14)", () => {
+  // Ana's Entry Ticket as pots.rs lays it out: open (state 0), entry (kind 0), her Account at 8, opened a minute ago (expires at
+  // 120), her seat key at 152, the target tag at 184
+  const headOf = (o: { account: PublicKey; seat: PublicKey; tag: bigint; kind?: number; state?: number; openedSecs: number }) => {
+    const head = Buffer.alloc(TICKET_HEAD);
+    head[0] = TICKET_VERSION;
+    head[2] = o.kind ?? 0;
+    head[3] = o.state ?? 0;
+    head.set(o.account.toBytes(), 8);
+    head.writeBigInt64LE(BigInt(o.openedSecs + 3600), 120);
+    head.set(o.seat.toBytes(), 152);
+    head.writeBigUInt64LE(o.tag, 184);
+    return new Uint8Array(Buffer.concat([Buffer.alloc(8), head, Buffer.alloc(STORE_HEADER)]));
+  };
+  const matchOf = (ix: Ix) => ix.keys[coreIdl.instructions.find((i) => i.name === "open_match")!.accounts.findIndex((a) => a.name === "match_state")].pubkey;
+
+  async function world(join = false) {
+    const s = setup();
+    const seat = key();
+    const ticket = key();
+    const nowSecs = s.deps.now() / 1000;
+    const joined = key();
+    if (join) s.accounts.set(joined.toBase58(), { owner: CORE_ID, data: new Uint8Array(10) });
+    const ix = join
+      ? await joinMatchIx(s.relayer.publicKey, s.player.publicKey, s.game, { pot: ticket, seatSigner: seat, matchState: joined }, { walletSigns: false })
+      : await openMatchIx(s.relayer.publicKey, s.player.publicKey, s.game, { pot: ticket, seatSigner: seat }, { walletSigns: false });
+    const match = join ? ix.keys[coreIdl.instructions.find((i) => i.name === "join_match")!.accounts.findIndex((a) => a.name === "match_state")].pubkey : matchOf(ix);
+    const tag = join ? await joinTargetTag(match) : await openTargetTag(match, false, 0);
+    const put = (o: Partial<Parameters<typeof headOf>[0]> = {}) =>
+      s.accounts.set(ticket.toBase58(), { owner: CORE_ID, data: headOf({ account: accountPda(s.player.publicKey), seat, tag, openedSecs: nowSecs - 60, ...o }) });
+    put();
+    const build = () => s.sponsor.build(s.player.publicKey, wire([ix]), "did:privy:ana", { kind: "token" });
+    return { s, seat, tag, put, build, ix };
+  }
+
+  it("builds Ana's open and join from a bound Ticket with no wallet signature", async () => {
+    for (const join of [false, true]) {
+      const w = await world(join);
+      expect(w.ix.keys.some((k) => k.isSigner && k.pubkey.equals(w.s.player.publicKey))).toBe(false);
+      await expect(w.build()).resolves.toMatchObject({ class: "admission" });
+    }
+  });
+
+  it("asks for the wallet when the Ticket is not bound to this Match, not Ana's, not her key's, a Backing Ticket, closed, or past its window", async () => {
+    const cases: [string, (w: Awaited<ReturnType<typeof world>>) => void][] = [
+      ["unbound", (w) => w.put({ tag: 0n })],
+      ["another Match", (w) => w.put({ tag: w.tag + 1n })],
+      ["Ben's Ticket", (w) => w.put({ account: accountPda(key()) })],
+      ["another seat key", (w) => w.put({ seat: key() })],
+      ["a Backing Ticket", (w) => w.put({ kind: 1 })],
+      ["cancelling", (w) => w.put({ state: 1 })],
+      ["past its window", (w) => w.s.tick(15 * 60 * 1000)],
+      ["no Ticket (a fresh Pot)", (w) => w.s.accounts.delete(w.ix.keys.find((k, i) => coreIdl.instructions.find((x) => x.name === "open_match")!.accounts[i]?.name === "pot")!.pubkey.toBase58())],
+    ];
+    for (const [what, spoil] of cases) {
+      const w = await world();
+      spoil(w);
+      await expect(w.build(), what).rejects.toMatchObject({ code: "wallet-signs" });
+    }
+  });
+
+  it("still takes the same entry signed by the wallet", async () => {
+    const s = setup();
+    const ix = await openMatchIx(s.relayer.publicKey, s.player.publicKey, s.game);
+    expect(ix.keys.find((k) => k.pubkey.equals(s.player.publicKey))?.isSigner).toBe(true);
+    await expect(s.sponsor.build(s.player.publicKey, wire([ix]))).resolves.toMatchObject({ class: "admission" });
   });
 });

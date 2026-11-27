@@ -1876,7 +1876,9 @@ export type Railcar = {
       "docs": [
         "Base, the opening Player. Opens the next car (core's many-seat open at `ENTRY_GEMAS`, 5",
         "to 100 seats, signed by Railcar's authority) when no car can still take seats. The opener",
-        "boards with core's join like everyone else, in the same transaction."
+        "boards with core's join like everyone else, in the same transaction. The opener's wallet",
+        "signs, or the seat key of the Entry Ticket the opener boards with, bound to this car (core",
+        "checks it: `opener_ticket`, `seat_signer`)."
       ],
       "discriminator": [
         174,
@@ -1896,7 +1898,9 @@ export type Railcar = {
         },
         {
           "name": "opener",
-          "signer": true
+          "docs": [
+            "The opener's wallet. It signs, unless `opener_ticket` and its `seat_signer` stand in for it."
+          ]
         },
         {
           "name": "config",
@@ -2306,6 +2310,21 @@ export type Railcar = {
         {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "openerTicket",
+          "docs": [
+            "The Entry Ticket the opener boards this car with, when the wallet does not sign."
+          ],
+          "optional": true
+        },
+        {
+          "name": "seatSigner",
+          "docs": [
+            "The seat key `opener_ticket` names, when the wallet does not sign."
+          ],
+          "signer": true,
+          "optional": true
         }
       ],
       "args": [

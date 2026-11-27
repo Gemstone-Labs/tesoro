@@ -34,7 +34,7 @@ import {
   type Store,
 } from "./basket";
 import { decodeBook } from "./book";
-import { coreIx as rawCoreIx, metaOf, type AccountsByName } from "./core-ix";
+import { coreIx as rawCoreIx, metaOf, walletSigned, type AccountsByName } from "./core-ix";
 import { type DemoError, ensureSol, type GetToken } from "./demo-client";
 import { DrawError, bookAccounts, planDraw, sourcesTouched, type DrawPlan } from "./draw";
 import { gameAccounts, pairPda } from "./game-record";
@@ -355,13 +355,15 @@ export interface OpenArgs {
   remaining?: AccountMeta[];
   /** The seat key that co-signs the entry and plays the Match; the wallet names itself when absent. */
   seatSigner?: PublicKey;
+  /** False: the seat key alone sends it (the Pot is a complete Entry Ticket bound to this Match). Default true. */
+  walletSigns?: boolean;
 }
 
 /** `open_match`. `player` is the wallet (authority). */
 export function openMatchIx(a: OpenArgs): TransactionInstruction {
   const account = accountOf(a.player);
   const game = GAME_IDS[a.game];
-  return coreIx(
+  return walletSigned(coreIx(
     "open_match",
     {
       payer: a.payer,
@@ -382,7 +384,7 @@ export function openMatchIx(a: OpenArgs): TransactionInstruction {
     },
     { game, entry: new BN(a.entry.toString()), n: new BN(a.n.toString()), potNonce: new BN(a.pot.nonce.toString()), challenge: a.challenge, asset: a.asset, potLines: a.pot.lines },
     a.remaining ?? [],
-  );
+  ), a.player, a.walletSigns !== false);
 }
 
 // ---- join ----------------------------------------------------------------------------------
@@ -476,6 +478,8 @@ export interface JoinArgs {
   remaining?: AccountMeta[];
   /** The seat key that co-signs the entry and plays the Match; the wallet names itself when absent. */
   seatSigner?: PublicKey;
+  /** False: the seat key alone sends it (the Pot is a complete Entry Ticket bound to this Match). Default true. */
+  walletSigns?: boolean;
 }
 
 /** `join_match`: both of the opener's baskets and spills are accounts of it. */
@@ -504,7 +508,7 @@ export function joinMatchIx(a: JoinArgs): TransactionInstruction {
     systemProgram: SystemProgram.programId,
     ...backerAccounts(a.backing),
   };
-  return coreIx("join_match", accounts, { potNonce: new BN(a.pot.nonce.toString()), potLines: a.pot.lines }, a.remaining ?? []);
+  return walletSigned(coreIx("join_match", accounts, { potNonce: new BN(a.pot.nonce.toString()), potLines: a.pot.lines }, a.remaining ?? []), a.player, a.walletSigns !== false);
 }
 
 /**

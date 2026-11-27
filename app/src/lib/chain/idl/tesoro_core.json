@@ -6598,7 +6598,10 @@
         },
         {
           "name": "player_authority",
-          "signer": true
+          "docs": [
+            "The Player's wallet. It signs the boarding, unless the Pot is a complete Entry Ticket bound",
+            "to this car whose seat key signs."
+          ]
         },
         {
           "name": "player_account",
@@ -6894,7 +6897,10 @@
         },
         {
           "name": "player_authority",
-          "signer": true
+          "docs": [
+            "The Player's wallet. It signs the entry, unless the Pot is a complete Entry Ticket bound to",
+            "this Match whose seat key signs."
+          ]
         },
         {
           "name": "seat_signer",
@@ -7692,7 +7698,9 @@
         },
         {
           "name": "opener_authority",
-          "signer": true
+          "docs": [
+            "The opener's wallet. It signs, unless `opener_ticket` and its `seat_signer` stand in for it."
+          ]
         },
         {
           "name": "game_authority",
@@ -7841,6 +7849,21 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "opener_ticket",
+          "docs": [
+            "The Entry Ticket the opener boards this car with, when the wallet does not sign."
+          ],
+          "optional": true
+        },
+        {
+          "name": "seat_signer",
+          "docs": [
+            "The seat key that Ticket names, when the wallet does not sign."
+          ],
+          "signer": true,
+          "optional": true
         }
       ],
       "args": [
@@ -7893,7 +7916,10 @@
         },
         {
           "name": "player_authority",
-          "signer": true
+          "docs": [
+            "The Player's wallet. It signs the entry, unless the Pot is a complete Entry Ticket bound to",
+            "this Match whose seat key signs."
+          ]
         },
         {
           "name": "seat_signer",
@@ -9002,6 +9028,10 @@
         {
           "name": "lines",
           "type": "u32"
+        },
+        {
+          "name": "target_tag",
+          "type": "u64"
         }
       ]
     },

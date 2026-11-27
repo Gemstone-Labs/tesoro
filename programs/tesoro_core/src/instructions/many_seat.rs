@@ -24,7 +24,7 @@ use crate::error::{core_err, seat_err, ManySeatError, MatchError, TesoroError};
 use crate::instructions::basket::move_lamports;
 use crate::instructions::matching::{
     add_hold, check_store, counters_pda, judged_slot_at, lc_err, listing, protections_pda,
-    require_tickets_offer, take_entry, terms_of,
+    require_entry_authority, require_tickets_offer, take_entry, terms_of,
 };
 use crate::instructions::overflow::cover_room;
 use crate::instructions::settlement::ChainSettlement;
@@ -217,12 +217,19 @@ fn is_empty(info: &AccountInfo) -> bool {
 
 /// The Game opens an empty car for `entry` with its seat bounds. The opener's Account names it
 /// (`n` is its `next_match`); the opener boards with `join_many_seat_match` like anyone else.
+///
+/// The opener's wallet signs, or (seat-keys ticket 14) the seat key of the Entry Ticket the opener
+/// boards this car with signs instead: `opener_ticket` bound to this car (`join_target_tag`) and
+/// in its window (`require_entry_authority`). Nothing moves here; the wallet's say is over the
+/// Account's Match number this car takes.
 #[derive(Accounts)]
 #[instruction(entry: u64, n: u64)]
 pub struct OpenManySeatMatch<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    pub opener_authority: Signer<'info>,
+    /// The opener's wallet. It signs, unless `opener_ticket` and its `seat_signer` stand in for it.
+    /// CHECK: the seed of `opener_account`; who signs is checked by `require_entry_authority`.
+    pub opener_authority: UncheckedAccount<'info>,
     /// The Game's settle authority (a server key, or the Game's PDA by CPI).
     pub game_authority: Signer<'info>,
     #[account(seeds = [CONFIG_SEED], bump = config.bump)]
@@ -257,6 +264,11 @@ pub struct OpenManySeatMatch<'info> {
     )]
     pub match_state: AccountLoader<'info, ManySeatMatch>,
     pub system_program: Program<'info, System>,
+    /// The Entry Ticket the opener boards this car with, when the wallet does not sign.
+    /// CHECK: read by `require_entry_authority` (owner, address, kind, Account, seat key, tag).
+    pub opener_ticket: Option<UncheckedAccount<'info>>,
+    /// The seat key that Ticket names, when the wallet does not sign.
+    pub seat_signer: Option<Signer<'info>>,
 }
 
 pub(crate) fn open_many_seat_match(
@@ -268,6 +280,23 @@ pub(crate) fn open_many_seat_match(
     asset: u8,
 ) -> Result<()> {
     let ts = now()?;
+    if !ctx.accounts.opener_authority.is_signer {
+        let (ticket, seat) = ctx
+            .accounts
+            .opener_ticket
+            .as_ref()
+            .zip(ctx.accounts.seat_signer.as_ref())
+            .ok_or(MatchError::WalletMustSign)?;
+        require_entry_authority(
+            &ctx.accounts.opener_authority,
+            &seat.key(),
+            &ctx.accounts.opener_account.key(),
+            ticket,
+            false,
+            join_target_tag(&ctx.accounts.match_state.key()),
+            ts,
+        )?;
+    }
     let record = &ctx.accounts.game_record;
     require_keys_eq!(
         ctx.accounts.game_authority.key(),
@@ -354,7 +383,10 @@ pub(crate) fn open_many_seat_match(
 pub struct JoinManySeatMatch<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    pub player_authority: Signer<'info>,
+    /// The Player's wallet. It signs the boarding, unless the Pot is a complete Entry Ticket bound
+    /// to this car whose seat key signs.
+    /// CHECK: the seed of `player_account`; who signs is checked by `require_entry_authority`.
+    pub player_authority: UncheckedAccount<'info>,
     #[account(
         seeds = [ACCOUNT_SEED, player_authority.key().as_ref()],
         bump = player_account.bump
@@ -562,6 +594,15 @@ pub(crate) fn join_many_seat_match<'info>(
     let mark_info = ctx.accounts.seat_mark.to_account_info();
     require_no_mark(&mark_info)?;
     let backed = ctx.accounts.offer.is_some();
+    require_entry_authority(
+        &ctx.accounts.player_authority,
+        &ctx.accounts.seat_signer.key(),
+        &ctx.accounts.player_account.key(),
+        &ctx.accounts.pot,
+        backed,
+        join_target_tag(&ctx.accounts.match_state.key()),
+        ts,
+    )?;
     if backed {
         // a Backer's Gemas follow only a Game listed now, listed when the car opened, same build
         let (listed, slot) = listing(

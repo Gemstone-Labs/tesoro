@@ -69,6 +69,8 @@ impl Env {
                 counters: counters_pda(opener.account),
                 match_state: key,
                 system_program: anchor_lang::system_program::ID,
+                opener_ticket: None,
+                seat_signer: None,
             },
             instruction::OpenManySeatMatch {
                 entry: car_entry(),
@@ -81,6 +83,49 @@ impl Env {
         );
         let kp = opener.kp.insecure_clone();
         self.send(&[open], &kp, &[game_signer])?;
+        Ok(Car { key })
+    }
+
+    /// Opens `opener`'s next car without the wallet: the relayer pays, the seat key of the Entry
+    /// Ticket `ticket` signs (seat-keys ticket 14).
+    fn open_car_by_seat(
+        &mut self,
+        opener: &Person,
+        ticket: APk,
+        seat: &Keypair,
+        relayer: &Keypair,
+    ) -> Result<Car, litesvm::types::FailedTransactionMetadata> {
+        let n = self.counters_next(opener.account);
+        let key = pda(&[MATCH_SEED, opener.account.as_ref(), &n.to_le_bytes()]);
+        let (game_record, game_program, program_data) = self.game_accounts();
+        let game = self.game_auth.insecure_clone();
+        let open = ix(
+            accounts::OpenManySeatMatch {
+                payer: a(relayer.pubkey()),
+                opener_authority: opener.key,
+                game_authority: a(game.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                economy: pda(&[ECONOMY_SEED]),
+                game_record,
+                game_program,
+                program_data,
+                opener_account: opener.account,
+                counters: counters_pda(opener.account),
+                match_state: key,
+                system_program: anchor_lang::system_program::ID,
+                opener_ticket: Some(ticket),
+                seat_signer: Some(a(seat.pubkey())),
+            },
+            instruction::OpenManySeatMatch {
+                entry: car_entry(),
+                n,
+                min_seats: 2,
+                max_seats: 10,
+                asset: 0,
+            },
+            vec![],
+        );
+        self.send(&[open], relayer, &[&game, seat])?;
         Ok(Car { key })
     }
 
@@ -161,7 +206,10 @@ impl Env {
             remaining,
             (None, named),
         );
-        let kp = p.kp.insecure_clone();
+        let mut join = join;
+        let kp = self.entry_payer(p);
+        // the payer is the first account: a walletless boarding is paid by the relayer
+        join.accounts[0].pubkey = kp.pubkey();
         match seat_key {
             Some(k) => self.send(&[join], &kp, &[k])?,
             None => self.send(&[join], &kp, &[])?,
@@ -1002,4 +1050,120 @@ fn another_riders_key_a_stranger_and_an_old_key_cannot_step_a_rider_off() {
     let err = env.step_off(&old, car, &riders[0]).unwrap_err();
     assert_eq!(custom_code(&err), seat_err(ManySeatError::NotYourSeat));
     assert_eq!(env.total_gemas(&riders[0]), 1_500);
+}
+
+/// Seat-keys ticket 14: a rider whose entry is staged in an Entry Ticket bound to the car boards
+/// with the seat key alone (one wallet signature, `open_ticket`); bound to another car, the wallet
+/// signs.
+#[test]
+fn a_ticket_bound_to_the_car_boards_with_the_seat_key_alone() {
+    const WALLET_MUST_SIGN: u32 = 6400 + tesoro_core::error::MatchError::WalletMustSign as u32;
+    let mut env = Env::new();
+    let opener = env.rider(2_000);
+    let other_opener = env.rider(2_000);
+    let ana = env.person();
+    env.grow_basket_to(&ana, 40);
+    let sources: Vec<APk> = (0..25).map(|i| env.forge_source(60 + i as u8, 0)).collect();
+    env.give_lines(&ana, &sources, 20, |i| i as i64);
+    let car = env.open_car(&opener, (2, 10));
+    let other = env.open_car(&other_opener, (2, 10));
+    let key = env.fresh_key();
+    let stage = |env: &mut Env, nonce: u64, tag: u64| {
+        env.seat_key = Some(key.insecure_clone());
+        env.ticket_tag = tag;
+        env.open_ticket(&ana, nonce, car_entry(), 26)
+            .expect("ticket");
+        env.ticket_tag = 0;
+        while env.load_ticket_staged(&ana, nonce) < car_entry() {
+            env.stage_with(&key, &ana, nonce, 255, vec![])
+                .expect("stage");
+        }
+    };
+    let relayer = env.fresh_key();
+
+    // bound to the other car: the seat key alone cannot board this one
+    stage(&mut env, 5, tesoro_core::pots::join_target_tag(&other.key));
+    env.walletless = Some(relayer.insecure_clone());
+    let pot = (5, 1, ticket_pda(ana.account, 5));
+    let err = env
+        .board_keyed(&ana, car, 0, pot, vec![], Some(&key))
+        .unwrap_err();
+    assert_eq!(custom_code(&err), WALLET_MUST_SIGN);
+    // the car it is bound to
+    let seat = env
+        .board_keyed(&ana, other, 0, pot, vec![], Some(&key))
+        .expect("the seat key alone boards");
+    assert_eq!(env.total_gemas(&ana), 0);
+    assert_eq!(
+        env.page(other, 0).seats[seat as usize].pot(),
+        ticket_pda(ana.account, 5).to_bytes()
+    );
+}
+
+/// Seat-keys ticket 14: the rider who opens a car opens it and boards it with the seat key of an
+/// Entry Ticket bound to that car; the wallet signed only `open_ticket`.
+#[test]
+fn a_ticket_bound_to_the_next_car_opens_it_and_boards_with_the_seat_key_alone() {
+    const WALLET_MUST_SIGN: u32 = 6400 + tesoro_core::error::MatchError::WalletMustSign as u32;
+    let mut env = Env::new();
+    let ana = env.person();
+    env.grow_basket_to(&ana, 40);
+    let sources: Vec<APk> = (0..25).map(|i| env.forge_source(60 + i as u8, 0)).collect();
+    env.give_lines(&ana, &sources, 20, |i| i as i64);
+    let key = env.fresh_key();
+    let relayer = env.fresh_key();
+    let n = env.counters_next(ana.account);
+    let car_key = pda(&[MATCH_SEED, ana.account.as_ref(), &n.to_le_bytes()]);
+    let next_car = pda(&[MATCH_SEED, ana.account.as_ref(), &(n + 1).to_le_bytes()]);
+    let stage = |env: &mut Env, nonce: u64, tag: u64| {
+        env.seat_key = Some(key.insecure_clone());
+        env.ticket_tag = tag;
+        env.open_ticket(&ana, nonce, car_entry(), 26)
+            .expect("ticket");
+        env.ticket_tag = 0;
+        while env.load_ticket_staged(&ana, nonce) < car_entry() {
+            env.stage_with(&key, &ana, nonce, 255, vec![])
+                .expect("stage");
+        }
+    };
+    // bound to the car after this one: neither the open nor anything else goes without the wallet
+    stage(&mut env, 5, tesoro_core::pots::join_target_tag(&next_car));
+    let err = env
+        .open_car_by_seat(&ana, ticket_pda(ana.account, 5), &key, &relayer)
+        .unwrap_err();
+    assert_eq!(custom_code(&err), WALLET_MUST_SIGN);
+    // another key than the Ticket's
+    let stranger = env.fresh_key();
+    let err = env
+        .open_car_by_seat(&ana, ticket_pda(ana.account, 5), &stranger, &relayer)
+        .unwrap_err();
+    assert_eq!(custom_code(&err), WALLET_MUST_SIGN);
+    let books = env.books_of(ana.account);
+    while env.ticket_state(&ana, 5) != tesoro_core::ledger::draw::TicketState::Cancelled {
+        env.cancel_ticket_with(&key, &ana, 5, 32, books.clone())
+            .expect("cancel");
+    }
+
+    // bound to this car: the seat key opens it, then boards it
+    stage(&mut env, 6, tesoro_core::pots::join_target_tag(&car_key));
+    let car = env
+        .open_car_by_seat(&ana, ticket_pda(ana.account, 6), &key, &relayer)
+        .expect("the seat key opens the car");
+    assert_eq!(car.key, car_key);
+    env.walletless = Some(relayer.insecure_clone());
+    let seat = env
+        .board_keyed(
+            &ana,
+            car,
+            0,
+            (6, 1, ticket_pda(ana.account, 6)),
+            vec![],
+            Some(&key),
+        )
+        .expect("and boards it");
+    assert_eq!(env.total_gemas(&ana), 0);
+    assert_eq!(
+        env.page(car, 0).seats[seat as usize].pot(),
+        ticket_pda(ana.account, 6).to_bytes()
+    );
 }

@@ -545,3 +545,4 @@ fn every_wallet_only_instruction_is_refused_for_a_seat_key_that_an_open_match_na
         }
     }
 }
+mod ticket_entry;

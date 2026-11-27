@@ -930,6 +930,8 @@ impl Env {
                 authority: authority(),
                 tesoro_program: tesoro_core::ID,
                 system_program: anchor_lang::system_program::ID,
+                opener_ticket: None,
+                seat_signer: None,
             },
             railcar::instruction::OpenCar { n },
             vec![],
@@ -3668,4 +3670,36 @@ fn a_car_closes_only_once_core_froze_it_and_its_rent_goes_back() {
     env.run_car(&car);
     let after: Vec<u64> = riders.iter().map(|p| env.gemas(p)).collect();
     assert!(after.iter().zip(&before).all(|(a, b)| a - b == 100));
+}
+
+/// Seat-keys ticket 14: core's `opener_authority` is unchecked now, so Railcar's open passes on the
+/// wallet's own signature as the transaction carries it. The relayer pays and the opener's wallet
+/// signs: the car opens; with no wallet signature and no Ticket: refused.
+#[test]
+fn a_relayer_paid_open_carries_the_openers_wallet_signature_and_refuses_without_it() {
+    const WALLET_MUST_SIGN: u32 = 6400 + tesoro_core::error::MatchError::WalletMustSign as u32;
+    let mut env = Env::new(2);
+    let ana = env.rider();
+    let relayer = Keypair::new();
+    env.svm
+        .airdrop(&relayer.pubkey(), 100 * SOL)
+        .expect("airdrop");
+    let mut open = env.open_car_ix(&ana);
+    open.accounts[0].pubkey = relayer.pubkey();
+    // without the wallet's signature
+    open.accounts[1].is_signer = false;
+    let err = env.send(&[open.clone()], &relayer, &[]).unwrap_err();
+    // today's core (before ticket 14) refuses it as Anchor's AccountNotSigner: the deploy-order run
+    const ACCOUNT_NOT_SIGNER: u32 = 3010;
+    assert!(
+        [WALLET_MUST_SIGN, ACCOUNT_NOT_SIGNER].contains(&code(&err)),
+        "{}",
+        code(&err)
+    );
+    // with it
+    open.accounts[1].is_signer = true;
+    let kp = ana.kp.insecure_clone();
+    env.send(&[open], &relayer, &[&kp])
+        .expect("the wallet's signature reaches core");
+    assert_eq!(env.config().next_car, 1);
 }

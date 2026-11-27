@@ -11,7 +11,7 @@ import { BorshAccountsCoder, type Idl } from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram, type AccountMeta, type TransactionInstruction } from "@solana/web3.js";
 import { DELEGATION_PROGRAM_ID, EPHEMERAL_VAULT_ID, PERMISSION_PROGRAM_ID, permissionPdaFromAccount } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { TESORO_CORE, matchPda, settledPda } from "../../lib/chain/basket";
-import { idlIxBuilder } from "../../lib/chain/core-ix";
+import { idlIxBuilder, walletSigned } from "../../lib/chain/core-ix";
 import { seatPagePda } from "../../lib/chain/many-seat";
 import { MAGICBLOCK } from "../../lib/cluster-settings";
 import idl from "../../lib/chain/idl/railcar.json";
@@ -247,17 +247,19 @@ export function decodeTable(data: Uint8Array): TableView {
 
 export interface OpenCarArgs {
   payer: PublicKey;
-  /** The opening Player's wallet (it signs). */
+  /** The opening Player's wallet (it signs, unless `seatAlone`). */
   opener: PublicKey;
   config: RailcarConfigView;
   /** The opener's `next_match` (the new core Match is `["match", opener Account, n]`). */
   n: bigint;
+  /** The wallet stays out (seat-keys ticket 14): the Entry Ticket the opener boards with, bound to this car, and its seat key. */
+  seatAlone?: { ticket: PublicKey; seat: PublicKey };
 }
 
 /** `open_car`: opens the next car (core's many-seat Match for 100 Gemas, 5 to 100 seats) when none can take seats. */
 export function openCarIx(a: OpenCarArgs): TransactionInstruction {
   const account = coreAccountOf(a.opener);
-  return railcarIx(
+  const ix = railcarIx(
     "open_car",
     {
       payer: a.payer,
@@ -275,9 +277,13 @@ export function openCarIx(a: OpenCarArgs): TransactionInstruction {
       counters: corePda("counters", account.toBuffer()),
       authority: authorityPda(),
       system_program: SystemProgram.programId,
+      opener_ticket: a.seatAlone?.ticket,
+      seat_signer: a.seatAlone?.seat,
     },
     { n: a.n },
   );
+  // the IDL leaves the opener unsigned (core takes the Ticket's seat key instead): the wallet signs unless it stays out
+  return walletSigned(ix, a.opener, !a.seatAlone);
 }
 
 /** `check_departure`: anyone; makes a due car leave, else does nothing (so every join carries it). */

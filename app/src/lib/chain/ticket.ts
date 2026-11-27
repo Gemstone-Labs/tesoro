@@ -59,6 +59,8 @@ export interface TicketView {
   lines: number;
   /** Backing: reservation not staged yet. */
   reservedLeft: bigint;
+  /** The Match the seat key alone may spend this Entry Ticket on (`ticket-target.ts`); 0n for none. */
+  targetTag: bigint;
   /** The staged lines, in key order. */
   stagedLines: Line[];
 }
@@ -85,6 +87,7 @@ export function decodeTicket(address: PublicKey, data: Uint8Array): TicketView {
     staged: store.header.ownTotal + store.header.wonTotal,
     lines: store.header.len,
     reservedLeft: dv.getBigUint64(136, true),
+    targetTag: f.targetTag,
     stagedLines: store.lines,
   };
 }
@@ -172,6 +175,8 @@ export interface OpenTicketArgs {
   lines: number;
   /** Backing: the accepted Offer. */
   offer?: PublicKey;
+  /** The Match an Entry Ticket is for (`ticket-target.ts`): its seat key alone may then spend it there. 0n or absent: none. */
+  targetTag?: bigint;
   sponsored: boolean;
 }
 
@@ -194,7 +199,7 @@ export function openTicketIx(a: OpenTicketArgs): TransactionInstruction {
       counters: countersPda(a.owner),
       systemProgram: SystemProgram.programId,
     },
-    { nonce: new BN(a.nonce.toString()), kind: a.kind === "backing" ? { Backing: {} } : { Entry: {} }, game: typeof a.game === "string" ? GAME_IDS[a.game] : a.game, target: new BN(a.target.toString()), lines: Math.min(a.lines, MAX_INITIAL_TICKET_LINES) },
+    { nonce: new BN(a.nonce.toString()), kind: a.kind === "backing" ? { Backing: {} } : { Entry: {} }, game: typeof a.game === "string" ? GAME_IDS[a.game] : a.game, target: new BN(a.target.toString()), lines: Math.min(a.lines, MAX_INITIAL_TICKET_LINES), targetTag: new BN((a.targetTag ?? 0n).toString()) },
   );
 }
 
@@ -249,6 +254,8 @@ export interface PrepareArgs {
   entry: bigint;
   /** Lines the draw needs (`previewEntry(...).ticketLines`). */
   lines: number;
+  /** An Entry Ticket's target (`openTargetTag` / `joinTargetTag` of the Match it enters): the seat key then sends the entry alone. */
+  targetTag?: bigint;
   onProgress?: (s: StagedEntry) => void;
 }
 
@@ -288,7 +295,7 @@ export async function prepareEntryTicket(a: PrepareArgs): Promise<TicketView> {
   let nonce = 0n;
   await sendEntryTx(a.seat ? cosigned(a.signer, a.seat) : a.signer, a.getToken, async (payer, sponsored) => {
     nonce = await readNextTicket(owner);
-    return [openTicketIx({ payer, authority: a.signer.publicKey, seatSigner: a.seat?.publicKey, owner, nonce, kind: "entry", game: a.game, target: a.entry, lines: first, sponsored })];
+    return [openTicketIx({ payer, authority: a.signer.publicKey, seatSigner: a.seat?.publicKey, owner, nonce, kind: "entry", game: a.game, target: a.entry, lines: first, targetTag: a.seat ? a.targetTag : undefined, sponsored })];
   });
   const address = ticketPda(owner, nonce);
   if (a.lines > first) {

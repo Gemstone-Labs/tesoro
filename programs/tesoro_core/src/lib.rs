@@ -829,8 +829,9 @@ pub mod tesoro_core {
         game: Pubkey,
         target: u64,
         lines: u32,
+        target_tag: u64,
     ) -> Result<()> {
-        instructions::ticket::open_ticket(ctx, nonce, kind, game, target, lines)
+        instructions::ticket::open_ticket(ctx, nonce, kind, game, target, lines, target_tag)
     }
 
     pub fn grow_ticket(ctx: Context<GrowTicket>, extra_lines: u32) -> Result<()> {

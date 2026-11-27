@@ -587,6 +587,8 @@ fn the_sponsored_backed_join_with_a_seat_key_fits_a_transaction_with_no_table() 
     let relayer = env.fresh_key();
     let mut join = env.backed_join_ix(&ben, &bob, offer, car, Some(&key));
     join.accounts[0].pubkey = s(a(relayer.pubkey()));
+    // a backed entry is the wallet's (seat-keys 14 leaves `player_authority` unsigned only for a bound Entry Ticket)
+    join.accounts[1].is_signer = true;
     let ixs = [cu_limit(1_400_000), cu_price(1_000), join];
     let m = v0::Message::try_compile(&relayer.pubkey(), &ixs, &[], env.svm.latest_blockhash())
         .expect("compile");

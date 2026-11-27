@@ -308,12 +308,46 @@ pub(crate) fn take_entry<'b, 'info>(
                 .consume(pool, &game.to_bytes(), entry)
                 .map_err(ticket_err)
         })?;
+        // the target tag shares its bytes with the Pot's `counted_in`: a Pot starts with none
+        set_target_tag(ticket.pages.bytes_mut().head_mut(), 0);
         // the slots the Ticket held for its lines are the Match's now
         let held = extra.spill_room;
         extra.spill_room = 0;
         save_ticket(&mut ticket, &extra);
         Ok((ticket.into_pot(), held))
     }
+}
+
+/// Who may spend a Player's entry. The invariant: no Gemas leave an Account for a Match without the
+/// wallet's signature, or the signature of the seat key the wallet named in `open_ticket` on a
+/// complete Entry Ticket of that Account, bound to this Match (`target_tag`, the tag of what is
+/// being entered) and spent within `SEAT_ENTRY_SECS` of its opening. A fresh Pot and a backed entry
+/// always need the wallet. Runs before `take_entry`, which consumes the Ticket and checks the rest
+/// (the Ticket's address, Account, kind, Game, entry, and that it is complete).
+pub(crate) fn require_entry_authority(
+    player_authority: &AccountInfo,
+    seat_signer: &Pubkey,
+    player_account: &Pubkey,
+    pot: &AccountInfo,
+    backed: bool,
+    target_tag: u64,
+    now: i64,
+) -> Result<()> {
+    if player_authority.is_signer {
+        return Ok(());
+    }
+    let head = (!backed).then(|| seat_entry_head(pot)).flatten();
+    let ok = head.is_some_and(|h| {
+        h.entry_kind
+            && h.open
+            && h.account == *player_account
+            && h.signer == *seat_signer
+            && h.tag != 0
+            && h.tag == target_tag
+            && now < h.opened_at.saturating_add(SEAT_ENTRY_SECS)
+    });
+    require!(ok, MatchError::WalletMustSign);
+    Ok(())
 }
 
 /// Adds `slots` to `account`'s share of the Match's held room.
@@ -351,7 +385,10 @@ pub(crate) fn add_hold(
 pub struct OpenMatch<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    pub player_authority: Signer<'info>,
+    /// The Player's wallet. It signs the entry, unless the Pot is a complete Entry Ticket bound to
+    /// this Match whose seat key signs.
+    /// CHECK: the seed of `player_account`; who signs is checked by `require_entry_authority`.
+    pub player_authority: UncheckedAccount<'info>,
     /// The seat key that plays this side of the Match, recorded as the side's `signer`. A wallet
     /// that wants no seat key passes itself (the same account twice).
     pub seat_signer: Signer<'info>,
@@ -534,6 +571,15 @@ pub(crate) fn open_match<'info>(
         &ctx.accounts.program_data.to_account_info(),
     )?;
     let player = ctx.accounts.player_account.key();
+    require_entry_authority(
+        &ctx.accounts.player_authority,
+        &ctx.accounts.seat_signer.key(),
+        &player,
+        &ctx.accounts.pot,
+        ctx.accounts.offer.is_some(),
+        open_target_tag(&ctx.accounts.match_state.key(), challenge, asset),
+        ts,
+    )?;
     let seat_signer = ctx.accounts.seat_signer.key().to_bytes();
     // a backed Player puts none of their own Gemas at risk: nothing counts against their limit
     // (the Backer's limit counted the entry when the Offer was made)
@@ -723,7 +769,10 @@ pub(crate) fn open_match<'info>(
 pub struct JoinMatch<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    pub player_authority: Signer<'info>,
+    /// The Player's wallet. It signs the entry, unless the Pot is a complete Entry Ticket bound to
+    /// this Match whose seat key signs.
+    /// CHECK: the seed of `player_account`; who signs is checked by `require_entry_authority`.
+    pub player_authority: UncheckedAccount<'info>,
     /// The seat key that plays this side of the Match (see `OpenMatch`).
     pub seat_signer: Signer<'info>,
     #[account(
@@ -870,6 +919,15 @@ pub(crate) fn join_match<'info>(
         ts,
     )?;
     let player = ctx.accounts.player_account.key();
+    require_entry_authority(
+        &ctx.accounts.player_authority,
+        &ctx.accounts.seat_signer.key(),
+        &player,
+        &ctx.accounts.pot,
+        backed,
+        join_target_tag(&ctx.accounts.match_state.key()),
+        ts,
+    )?;
     let seat_signer = ctx.accounts.seat_signer.key().to_bytes();
     // a seat key acts for one side only: a joiner cannot reuse the key that plays the opener's side
     require!(

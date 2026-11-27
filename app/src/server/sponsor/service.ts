@@ -41,6 +41,7 @@ import { assetOfIndex } from "@/games/trading-duel/chain";
 import { RIDE_STEP_NAMES } from "@/games/railcar/finish-steps";
 import { countersPda } from "@/lib/chain/basket";
 import { decodeTicketHead, type TicketFacts } from "@/lib/chain/pot-store";
+import { inSeatWindow, joinTargetTag, openTargetTag } from "@/lib/chain/ticket-target";
 import { offerPda } from "@/lib/chain/backing-ix";
 import { GROW_COUNTERS_CU, GROW_COUNTERS_RENT, growIxsFor } from "@/lib/chain/grow-counters";
 import { canAssign } from "./assign-ix";
@@ -61,6 +62,8 @@ export const BUILD_TTL_MS = 75_000;
 export type BuildAuth = { kind: "wallet" } | { kind: "token" } | { kind: "seat"; signer: PublicKey; match: PublicKey };
 
 /** What a token-only request may build: the entry and the growth that travels with it. */
+/** Time a seat-key-only entry must still have in its window when built (the page asks with a 60 s margin of its own). */
+const SEAT_ALONE_MARGIN_SECS = 30;
 const ENTRY_NAMES = new Set(["open_match", "join_match", "open_ticket", "stage_entry", "grow_store_sponsored", "join_many_seat_match", "open_car", "check_departure"]);
 /** What a seat key may ask for: a Game's finish steps and the Match's own finish, never a move of value. */
 /** What a seat key may ask the sponsor for (by instruction name). */
@@ -468,6 +471,39 @@ export class Sponsor {
   }
 
   /**
+   * Entries the seat key sends without the wallet (seat-keys ticket 14). Each must spend this Player's open Entry Ticket that
+   * names that seat key, is bound to the Match it enters and is inside its window: core's `require_entry_authority`, read
+   * here so the relayer does not pay for an entry core refuses. Refused with `wallet-signs`: the page then asks the wallet.
+   */
+  private async seatAloneEntries(plan: Plan, player: PublicKey): Promise<boolean> {
+    const entries = plan.seatAlone ?? [];
+    if (!entries.length) return false;
+    const refuse = () => new DemoHttpError(403, "wallet-signs", "This entry needs your wallet.");
+    for (const e of entries) {
+      if (!e.authority.equals(player)) throw refuse();
+      const a = await this.d.chain.account(e.ticket);
+      let head: TicketFacts;
+      try {
+        if (!a || !a.owner.equals(CORE_ID)) throw refuse();
+        head = decodeTicketHead(a.data);
+      } catch {
+        throw refuse();
+      }
+      const tag = e.open ? await openTargetTag(e.match, e.open.challenge, e.open.asset) : await joinTargetTag(e.match);
+      const ok =
+        head.kind === "entry" &&
+        head.state === "open" &&
+        head.account.equals(accountPda(player)) &&
+        head.signer.equals(e.seat) &&
+        head.targetTag !== 0n &&
+        head.targetTag === tag &&
+        inSeatWindow(head.expiresAt, this.d.now() / 1000, SEAT_ALONE_MARGIN_SECS);
+      if (!ok) throw refuse();
+    }
+    return true;
+  }
+
+  /**
    * A Ticket step signed by the seat key the Ticket recorded at `open_ticket` (core checks the same), for this Player: their
    * own Entry Ticket, or a Backing Ticket they opened as the Requester of the Offer the request names (`hint.offer`).
    */
@@ -610,7 +646,9 @@ export class Sponsor {
       if (await this.d.chain.account(plan.topUp.protections)) throw new DemoHttpError(409, "has-protections", "This Account's protections already exist, so a Break needs no top-up.");
       if (!(await this.d.store.take(`topup:${who}`, 1, 1, TOPUP_WINDOW_MS, now))) throw new DemoHttpError(429, "topup-limit", "A top-up for your Break was just built. Try again in a few minutes.");
     }
-    if (plan.class === "admission" && !plan.signers.some((s) => s.equals(player))) throw new DemoHttpError(400, "bad-signer", "The Player must sign what is sponsored for them.");
+    // an entry the seat key sends alone stands in for the wallet's signature only once its Ticket checks out on chain
+    const seatAlone = await this.seatAloneEntries(plan, player);
+    if (plan.class === "admission" && !seatAlone && !plan.signers.some((s) => s.equals(player))) throw new DemoHttpError(400, "bad-signer", "The Player must sign what is sponsored for them.");
     // A seat request's key, checked above to be this Player's for the Match, signs for the Player (core's `acts_for`).
     const signsForPlayer = (sg: PublicKey) => sg.equals(player) || (auth.kind === "seat" && sg.equals(auth.signer));
     if (plan.playerSigns && !plan.signers.some(signsForPlayer)) throw new DemoHttpError(400, "bad-signer", "The Player must sign what is sponsored for them.");

@@ -3,7 +3,7 @@ import { AnchorProvider, BN, Program, type Idl } from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { linkEvmIx } from "@/lib/chain/eth";
-import { CORE_ID, GAME_STEPS, type Ix } from "./rules";
+import { CORE_ID, GAME_STEPS, SEAT_ALONE_ENTRIES, type Ix } from "./rules";
 import { matchIndexOf, stepKeyCount, stepSlots, type StepName } from "./game-steps";
 
 const provider = new AnchorProvider(
@@ -24,15 +24,18 @@ export const u64 = (n: number | bigint) => {
 };
 
 /** An instruction of Tesoro Core: `accounts` fills what the IDL cannot derive (and any override). */
-export async function coreIx(name: string, args: unknown[], accounts: Record<string, PublicKey | null>): Promise<Ix> {
+export async function coreIx(name: string, args: unknown[], accounts: Record<string, PublicKey | null>, opts: { walletSigns?: boolean } = {}): Promise<Ix> {
   const ix = await (program.methods as any)[name.replace(/_(\w)/g, (_: string, c: string) => c.toUpperCase())](...args)
     .accountsPartial(accounts)
     .instruction();
+  // an entry's wallet is unsigned in the IDL (the seat key may send a bound Ticket entry alone): it signs unless told not to
+  const wallet = accounts.playerAuthority;
+  if (wallet && SEAT_ALONE_ENTRIES.has(name) && opts.walletSigns !== false) for (const k of ix.keys) if (k.pubkey.equals(wallet)) k.isSigner = true;
   return { programId: ix.programId, keys: ix.keys, data: ix.data };
 }
 
 /** A complete, valid `open_match` for `authority` paid by `relayer`. */
-export async function openMatchIx(relayer: PublicKey, authority: PublicKey, game: PublicKey, over: Record<string, PublicKey | null> = {}): Promise<Ix> {
+export async function openMatchIx(relayer: PublicKey, authority: PublicKey, game: PublicKey, over: Record<string, PublicKey | null> = {}, opts: { walletSigns?: boolean } = {}): Promise<Ix> {
   return coreIx("open_match", [game, new BN(500), new BN(1), new BN(7), false, 0, 4], {
     payer: relayer,
     playerAuthority: authority,
@@ -47,11 +50,11 @@ export async function openMatchIx(relayer: PublicKey, authority: PublicKey, game
     backerBasket: null,
     backerSpill: null,
     ...over,
-  });
+  }, opts);
 }
 
 /** A complete, valid `join_match` for `authority` paid by `relayer`. */
-export async function joinMatchIx(relayer: PublicKey, authority: PublicKey, game: PublicKey): Promise<Ix> {
+export async function joinMatchIx(relayer: PublicKey, authority: PublicKey, game: PublicKey, over: Record<string, PublicKey | null> = {}, opts: { walletSigns?: boolean } = {}): Promise<Ix> {
   return coreIx("join_match", [new BN(1), 4], {
     payer: relayer,
     playerAuthority: authority,
@@ -73,7 +76,8 @@ export async function joinMatchIx(relayer: PublicKey, authority: PublicKey, game
     backerProtections: null,
     backerBasket: null,
     backerSpill: null,
-  });
+    ...over,
+  }, opts);
 }
 
 /** A `grow_store_sponsored` of the spill of `account`, fronted by `relayer`. */
@@ -127,7 +131,7 @@ export async function backingPairIx(relayer: PublicKey, parties: { requester?: P
   const backer = parties.backer ?? key();
   const backerAccount = accountOf(backer);
   const ticket = pda([s("ticket"), backerAccount.toBuffer(), u64(1)]);
-  const open = await coreIx("open_ticket", [new BN(1), { backing: {} }, key(), new BN(500), 4], {
+  const open = await coreIx("open_ticket", [new BN(1), { backing: {} }, key(), new BN(500), 4, new BN(0)], {
     payer: relayer,
     authority: requester,
     seatSigner: requester,

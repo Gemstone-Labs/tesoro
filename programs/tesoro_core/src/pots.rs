@@ -30,7 +30,7 @@
 //! | 136 | reserved_left u64 (Backing: reservation not yet staged) |
 //! | 144 | sponsored_lamports u64 (rent the sponsor fronted, returned to it first) |
 //! | 152 | signer [32] (the seat key that co-signed `open_ticket`; may stage and cancel an Entry Ticket) |
-//! | 184 | counted_in i64 (a Pot: start of the funder's Entry Limit period the entry counted in, 0 = none) |
+//! | 184 | a Ticket: target tag u64 (`open_ticket`: the Match the seat key alone may spend it on, 0 = none); a Pot: counted_in i64 (start of the funder's Entry Limit period the entry counted in, 0 = none) |
 
 use crate::error::TesoroError;
 use crate::ledger::draw::{PotBacking, PotPages, Ticket, TicketKind, TicketState};
@@ -80,6 +80,90 @@ pub fn counted_in(head: &[u8]) -> i64 {
 
 pub fn set_counted_in(head: &mut [u8], period: i64) {
     head[H_COUNTED..H_COUNTED + 8].copy_from_slice(&period.to_le_bytes());
+}
+
+/// How long after `open_ticket` the seat key alone may spend a complete Entry Ticket on its target
+/// (`require_entry_authority`); after that the wallet signs the entry, as for any other Ticket.
+pub const SEAT_ENTRY_SECS: i64 = 15 * 60;
+
+const TAG_DOMAIN: &[u8] = b"tesoro-ticket-target";
+
+fn tag_of(parts: &[&[u8]]) -> u64 {
+    let h = anchor_lang::solana_program::hash::hashv(parts).to_bytes();
+    u64::from_le_bytes(arr(&h[..8]))
+}
+
+/// The target tag of an Entry Ticket that will open the Match at `match_key` (`["match", account,
+/// n]`) with these terms.
+pub fn open_target_tag(match_key: &Pubkey, challenge: bool, asset: u8) -> u64 {
+    tag_of(&[
+        TAG_DOMAIN,
+        &[0],
+        match_key.as_ref(),
+        &[challenge as u8, asset],
+    ])
+}
+
+/// The target tag of an Entry Ticket that will join the Match (or board the car) at `match_key`.
+pub fn join_target_tag(match_key: &Pubkey) -> u64 {
+    tag_of(&[TAG_DOMAIN, &[1], match_key.as_ref()])
+}
+
+/// A Ticket's target tag (0: none). The same bytes are `counted_in` once the Ticket is a Pot.
+pub fn target_tag(head: &[u8]) -> u64 {
+    u64::from_le_bytes(arr(&head[H_COUNTED..H_COUNTED + 8]))
+}
+
+pub fn set_target_tag(head: &mut [u8], tag: u64) {
+    head[H_COUNTED..H_COUNTED + 8].copy_from_slice(&tag.to_le_bytes());
+}
+
+/// What `require_entry_authority` reads from a Ticket head, without loading its line store (the
+/// entry's own `take_entry` loads and checks the whole Ticket right after).
+pub struct SeatEntryHead {
+    pub entry_kind: bool,
+    pub open: bool,
+    pub account: Pubkey,
+    pub signer: Pubkey,
+    pub opened_at: i64,
+    pub tag: u64,
+}
+
+/// The head of the core-owned Ticket at `info` (owner, discriminator, version and its own
+/// address checked), or `None` when it is not one.
+pub fn seat_entry_head(info: &AccountInfo) -> Option<SeatEntryHead> {
+    use anchor_lang::Discriminator;
+    if info.owner != &crate::ID {
+        return None;
+    }
+    let data = info.try_borrow_data().ok()?;
+    if data.len() < POT_AT || data[..DISC] != *TicketHead::DISCRIMINATOR {
+        return None;
+    }
+    let h = &data[DISC..POT_AT];
+    if h[H_VERSION] != TICKET_VERSION {
+        return None;
+    }
+    // the Ticket's own address (`["ticket", account, nonce]`), as `load_ticket` checks it
+    let account: [u8; 32] = arr(&h[H_ACCOUNT..H_ACCOUNT + 32]);
+    let nonce: [u8; 8] = arr(&h[H_NONCE..H_NONCE + 8]);
+    let at = Pubkey::create_program_address(
+        &[crate::state::TICKET_SEED, &account, &nonce, &[h[H_BUMP]]],
+        &crate::ID,
+    )
+    .ok()?;
+    if at != *info.key {
+        return None;
+    }
+    let expires = i64::from_le_bytes(arr(&h[H_EXPIRES..H_EXPIRES + 8]));
+    Some(SeatEntryHead {
+        entry_kind: h[H_KIND] == kind_byte(TicketKind::Entry),
+        open: h[H_STATE] == state_byte(TicketState::Open),
+        account: Pubkey::new_from_array(account),
+        signer: Pubkey::new_from_array(arr(&h[H_SIGNER..H_SIGNER + 32])),
+        opened_at: expires.saturating_sub(crate::ledger::draw::TICKET_WINDOW_SECS),
+        tag: target_tag(h),
+    })
 }
 
 /// Bytes of a Ticket account with `lines` lines.

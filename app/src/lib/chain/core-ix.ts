@@ -61,4 +61,13 @@ export const coreIx: IxBuilder = core.build;
 
 export const metaOf = (pubkey: PublicKey, isWritable = false, isSigner = false): AccountMeta => ({ pubkey, isSigner, isWritable });
 
+/**
+ * An entry's wallet signs it unless the entry spends a complete Entry Ticket bound to its Match with the seat key alone
+ * (seat-keys ticket 14): the IDL leaves `player_authority` unsigned, so the builders mark it here.
+ */
+export function walletSigned(ix: TransactionInstruction, wallet: PublicKey, signs: boolean): TransactionInstruction {
+  if (signs) for (const k of ix.keys) if (k.pubkey.equals(wallet)) k.isSigner = true;
+  return ix;
+}
+
 export const coreIxName = (ix: Pick<TransactionInstruction, "programId" | "data">): string | null => (ix.programId.equals(CORE_PROGRAM_ID) ? core.nameOf(ix.data) : null);

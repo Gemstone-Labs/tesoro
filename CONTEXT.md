@@ -136,7 +136,7 @@ A seat for a Match that Block Burst, Hold'em, Trading Duel and Vanguard keep rea
 _Avoid_: room, lobby, server
 
 **Seat key**:
-A key made on the Player's device for one Match. The Player's wallet signs the entry once and names the Seat key, which then signs everything else in that Match: check-in, moves, the rollup login and the finish requests. It can act only for that Player's seat in that Match and never moves Gemas out of the Account. Players never see it.
+A key made on the Player's device for one Match. The Player's wallet signs the entry once and names the Seat key, which then signs everything else in that Match: check-in, moves, the rollup login and the finish requests. It can act only for that Player's seat in that Match. Beyond staging and placing the entry the wallet approved for that Match (a large entry's Ticket names the Match it is for), it never moves Gemas out of the Account. Players never see it.
 _Avoid_: session key, burner wallet, device wallet
 
 **Chips**:

@@ -1,7 +1,7 @@
 import "./polyfill";
 import { PublicKey, SystemProgram, type AccountMeta, type TransactionInstruction } from "@solana/web3.js";
 import { TESORO_CORE } from "./basket";
-import { coreIx, metaOf } from "./core-ix";
+import { coreIx, metaOf, walletSigned } from "./core-ix";
 import coreIdlJson from "./idl/tesoro_core.json";
 import { layoutOf, type IdlWithTypes } from "./idl-layout";
 import { matchOverflowPda } from "./overflow";
@@ -299,13 +299,15 @@ export interface JoinSeatArgs {
   seatSigner?: PublicKey;
   /** Books of the Sources the entry draws (and the funder's overflow record). */
   remaining?: AccountMeta[];
+  /** False: the seat key alone boards (the Pot is a complete Entry Ticket bound to this car). Default true. */
+  walletSigns?: boolean;
 }
 
 /** `join_many_seat_match`: takes the lowest empty seat of `page` with the Player's (or the Backer's) entry. */
 export function joinSeatIx(a: JoinSeatArgs): TransactionInstruction {
   const account = coreAccountOf(a.player);
   const b = a.backing;
-  return coreIx(
+  const ix = coreIx(
     "join_many_seat_match",
     {
       payer: a.payer,
@@ -337,6 +339,7 @@ export function joinSeatIx(a: JoinSeatArgs): TransactionInstruction {
     { pot_nonce: a.pot.nonce, pot_lines: a.pot.lines, page: a.page },
     a.remaining ?? [],
   );
+  return walletSigned(ix, a.player, a.walletSigns !== false);
 }
 
 /** The page a join should name: the first page with an empty seat, or the next page to create. */

@@ -93,9 +93,12 @@ describe("open_match", () => {
     const ix = openMatchIx({ payer, player, game: "holdem", entry: 500n, n: 7n, challenge: true, asset: 0, pot });
     const spec = idlIx("open_match");
     expect(ix.keys).toHaveLength(spec.accounts.length);
-    spec.accounts.forEach((a, i) => expect(ix.keys[i].isSigner, a.name).toBe(!!a.signer && !(a.optional && ix.keys[i].pubkey.equals(new PublicKey(coreIdl.address)))));
+    // the IDL leaves the wallet unsigned (a bound Entry Ticket's seat key may enter alone); the builder signs it by default
+    spec.accounts.forEach((a, i) => expect(ix.keys[i].isSigner, a.name).toBe((!!a.signer || a.name === "player_authority") && !(a.optional && ix.keys[i].pubkey.equals(new PublicKey(coreIdl.address)))));
     const byName = (n: string) => ix.keys[spec.accounts.findIndex((a) => a.name === n)].pubkey;
     expect(byName("payer")).toEqual(payer);
+    const alone = openMatchIx({ payer, player, game: "holdem", entry: 500n, n: 7n, challenge: true, asset: 0, pot, walletSigns: false });
+    expect(alone.keys[spec.accounts.findIndex((a) => a.name === "player_authority")].isSigner).toBe(false);
     expect(byName("player_authority")).toEqual(player);
     expect(byName("basket")).toEqual(basketPda(account));
     expect(byName("spill")).toEqual(spillPda(account));

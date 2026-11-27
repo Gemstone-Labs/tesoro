@@ -122,8 +122,9 @@ describe("refused", () => {
     refused([ix], "bad-accounts");
   });
   it("a wrong signer or writable flag", async () => {
+    // the seat key must sign (the wallet may stay out of a bound Ticket entry: service.ts checks that Ticket)
     const open = await openMatchIx(relayer, player, game);
-    open.keys[1].isSigner = false;
+    open.keys[2].isSigner = false;
     refused([open], "bad-flags");
     const open2 = await openMatchIx(relayer, player, game);
     open2.keys[2].isWritable = true;

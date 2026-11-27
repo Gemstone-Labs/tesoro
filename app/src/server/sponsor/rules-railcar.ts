@@ -29,6 +29,7 @@ interface IdlAccount {
   name: string;
   writable?: boolean;
   signer?: boolean;
+  optional?: boolean;
 }
 const layout = (name: string): IdlAccount[] => (railcarIdl.instructions as unknown as { name: string; accounts: IdlAccount[] }[]).find((i) => i.name === name)!.accounts;
 
@@ -100,7 +101,11 @@ function checkRailcar(ix: Ix, name: string, relayer: PublicKey, relayerSlot: str
   const byName = new Map<string, PublicKey>();
   accounts.forEach((a, i) => {
     const k = ix.keys[i];
-    if (k.isSigner !== !!a.signer || k.isWritable !== !!a.writable) throw new RuleError("bad-flags", `${name}: ${a.name} has the wrong signer or writable flag.`);
+    // an optional account left out is Railcar's own id, neither signing nor writable
+    const none = !!a.optional && k.pubkey.equals(RAILCAR_ID);
+    // the car opener's wallet: signed, or unsigned when the seat key of the Ticket it boards with opens (`openedCar`)
+    const wantSigner = name === "open_car" && a.name === "opener" ? k.isSigner : !none && !!a.signer;
+    if (k.isSigner !== wantSigner || k.isWritable !== (!none && !!a.writable)) throw new RuleError("bad-flags", `${name}: ${a.name} has the wrong signer or writable flag.`);
     if (k.pubkey.equals(relayer) && a.name !== relayerSlot && !receives.includes(a.name)) throw new RuleError("relayer-in-accounts", `${name}: the relayer may not be ${a.name}.`);
     const want = fixed(a.name);
     if (want && !k.pubkey.equals(want)) throw new RuleError("bad-account", `${name}: ${a.name} is not the expected address.`);
@@ -116,10 +121,21 @@ function checkRailcar(ix: Ix, name: string, relayer: PublicKey, relayerSlot: str
 
 const base = (names: string[]): Omit<Plan, "class" | "spend" | "cu"> => ({ kind: "core", names, obligations: [], pair: null, signers: [], seatSigners: [], playerSigns: false, funders: [], onboarding: false, invite: false, noGemas: false });
 
-/** Checks an `open_car` of the Player's own next car (the relayer paying); returns the car's Match. */
-function openedCar(ix: Ix, relayer: PublicKey, player: PublicKey): PublicKey {
+/**
+ * Checks an `open_car` of the Player's own next car (the relayer paying); returns the car's Match. `seatAlone`: the opener's
+ * wallet may stay out when its Entry Ticket (the join's Pot) and that Ticket's seat key (the join's) open the car instead; the
+ * service checks the join's Ticket on chain (`seatAloneEntries`), core checks the open.
+ */
+function openedCar(ix: Ix, relayer: PublicKey, player: PublicKey, seatAlone?: { ticket: PublicKey; seat: PublicKey }): PublicKey {
   const a = checkRailcar(ix, "open_car", relayer, "payer");
   if (!a.get("opener")!.equals(player)) throw new RuleError("bad-signer", "The Player opens the car they board.");
+  const opener = ix.keys[layout("open_car").findIndex((x) => x.name === "opener")];
+  if (!opener.isSigner) {
+    const same = !!seatAlone && a.get("opener_ticket")!.equals(seatAlone.ticket) && a.get("seat_signer")!.equals(seatAlone.seat);
+    if (!same) throw new RuleError("bad-signer", "The Player's wallet opens the car, or the seat key of the Ticket they board it with.");
+  } else if (!a.get("opener_ticket")!.equals(RAILCAR_ID) || !a.get("seat_signer")!.equals(RAILCAR_ID)) {
+    throw new RuleError("bad-accounts", "open_car: a car the wallet opens names no Ticket.");
+  }
   const n = BigInt((coder.decode(Buffer.from(ix.data))!.data as { n: { toString(): string } }).n.toString());
   const account = corePda(s("account"), player.toBuffer());
   const nBytes = Buffer.alloc(8);
@@ -185,7 +201,9 @@ export function planRailcar(ixs: Ix[], relayer: PublicKey, player: PublicKey, is
   let cu = join.cu + 100_000 * departs.filter(Boolean).length;
   const openAt = names.indexOf("open_car");
   if (openAt >= 0) {
-    if (!openedCar(ixs[openAt], relayer, player).equals(match)) throw new RuleError("bad-shape", "open_car opens the car the Player joins.");
+    // a boarding the seat key sends alone opens the car with the same Ticket and key
+    const alone = join.seatAlone?.[0];
+    if (!openedCar(ixs[openAt], relayer, player, alone && { ticket: alone.ticket, seat: alone.seat }).equals(match)) throw new RuleError("bad-shape", "open_car opens the car the Player joins.");
     spend = { refundable: spend.refundable + CAR_RENT + CAR_MATCH_RENT, sunk: spend.sunk };
     cu += 200_000;
     // A full car that has not left yet leaves first, in the same transaction.

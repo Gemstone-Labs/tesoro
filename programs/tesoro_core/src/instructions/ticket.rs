@@ -164,11 +164,13 @@ pub(crate) fn sponsor_rent<'info>(
 /// Opens a Ticket with room for `lines` lines of storage. `payer` pays the rent, refundably; with
 /// the sponsor accounts it is the relayer, made whole from the sponsor at once, within the caps.
 ///
-/// An Entry Ticket is the owner's (`authority` is the owner's wallet). A Backing Ticket is for an
+/// An Entry Ticket is the owner's (`authority` is the owner's wallet). `target_tag` names the Match
+/// it is for (`pots::open_target_tag` / `join_target_tag`), so its seat key alone may spend it
+/// there; 0 names none. A Backing Ticket is for an
 /// accepted Offer and needs the Requester's signature: `authority` is the Requester's wallet,
 /// `owner` is the Backer's Account whose lines will be staged.
 #[derive(Accounts)]
-#[instruction(nonce: u64, kind: TicketKindArg, game: Pubkey, target: u64, lines: u32)]
+#[instruction(nonce: u64, kind: TicketKindArg, game: Pubkey, target: u64, lines: u32, target_tag: u64)]
 pub struct OpenTicket<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
@@ -235,6 +237,7 @@ pub(crate) fn open_ticket(
     game: Pubkey,
     target: u64,
     lines: u32,
+    target_tag: u64,
 ) -> Result<()> {
     let ts = now()?;
     require!(
@@ -306,6 +309,13 @@ pub(crate) fn open_ticket(
     }
     let fields = HeadFields::of(&ticket);
     init_head(ticket.pages.bytes_mut(), &fields, &extra);
+    // the Match the seat key alone may spend an Entry Ticket on (`require_entry_authority`); a
+    // Backing Ticket names none (the wallet signs a backed entry)
+    require!(
+        target_tag == 0 || matches!(kind, TicketKindArg::Entry),
+        MatchError::BadBacking
+    );
+    set_target_tag(ticket.pages.bytes_mut().head_mut(), target_tag);
     Ok(())
 }
 

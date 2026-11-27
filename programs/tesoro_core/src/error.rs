@@ -232,6 +232,8 @@ pub enum MatchError {
         "the joiner's seat key is the opener's: the two sides of a Match need different seat keys"
     )]
     SeatKeyShared,
+    #[msg("the wallet signs this entry: only a complete Entry Ticket bound to this Match, within its seat-key window, is spent by its seat key alone")]
+    WalletMustSign,
 }
 
 /// Errors of the many-seat Match path (ADR 0015).

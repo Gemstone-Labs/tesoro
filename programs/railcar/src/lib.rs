@@ -650,7 +650,9 @@ pub mod railcar {
 
     /// Base, the opening Player. Opens the next car (core's many-seat open at `ENTRY_GEMAS`, 5
     /// to 100 seats, signed by Railcar's authority) when no car can still take seats. The opener
-    /// boards with core's join like everyone else, in the same transaction.
+    /// boards with core's join like everyone else, in the same transaction. The opener's wallet
+    /// signs, or the seat key of the Entry Ticket the opener boards with, bound to this car (core
+    /// checks it: `opener_ticket`, `seat_signer`).
     pub fn open_car(ctx: Context<OpenCar>, n: u64) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         require!(
@@ -659,31 +661,54 @@ pub mod railcar {
         );
         let bump = [ctx.bumps.authority];
         let signer: &[&[&[u8]]] = &[&[AUTHORITY_SEED, &bump]];
-        tesoro_core::cpi::open_many_seat_match(
-            CpiContext::new_with_signer(
-                ctx.accounts.tesoro_program.to_account_info(),
-                tesoro_core::cpi::accounts::OpenManySeatMatch {
-                    payer: ctx.accounts.payer.to_account_info(),
-                    opener_authority: ctx.accounts.opener.to_account_info(),
-                    game_authority: ctx.accounts.authority.to_account_info(),
-                    config: ctx.accounts.core_config.to_account_info(),
-                    economy: ctx.accounts.economy.to_account_info(),
-                    game_record: ctx.accounts.game_record.to_account_info(),
-                    game_program: ctx.accounts.game_program.to_account_info(),
-                    program_data: ctx.accounts.program_data.to_account_info(),
-                    opener_account: ctx.accounts.opener_account.to_account_info(),
-                    counters: ctx.accounts.counters.to_account_info(),
-                    match_state: ctx.accounts.match_state.to_account_info(),
-                    system_program: ctx.accounts.system_program.to_account_info(),
+        let accounts = tesoro_core::cpi::accounts::OpenManySeatMatch {
+            payer: ctx.accounts.payer.to_account_info(),
+            opener_authority: ctx.accounts.opener.to_account_info(),
+            game_authority: ctx.accounts.authority.to_account_info(),
+            config: ctx.accounts.core_config.to_account_info(),
+            economy: ctx.accounts.economy.to_account_info(),
+            game_record: ctx.accounts.game_record.to_account_info(),
+            game_program: ctx.accounts.game_program.to_account_info(),
+            program_data: ctx.accounts.program_data.to_account_info(),
+            opener_account: ctx.accounts.opener_account.to_account_info(),
+            counters: ctx.accounts.counters.to_account_info(),
+            match_state: ctx.accounts.match_state.to_account_info(),
+            system_program: ctx.accounts.system_program.to_account_info(),
+            opener_ticket: ctx
+                .accounts
+                .opener_ticket
+                .as_ref()
+                .map(|t| t.to_account_info()),
+            seat_signer: ctx
+                .accounts
+                .seat_signer
+                .as_ref()
+                .map(|k| k.to_account_info()),
+        };
+        // core's `opener_authority` is unchecked (the seat key of the opener's Ticket may stand in
+        // for it), so the generated CPI would always pass it unsigned: the wallet's signature, when
+        // it signed, travels on as it is
+        let opener = ctx.accounts.opener.key();
+        let mut metas = accounts.to_account_metas(None);
+        for m in metas.iter_mut().filter(|m| m.pubkey == opener) {
+            m.is_signer |= ctx.accounts.opener.is_signer;
+        }
+        let open = anchor_lang::solana_program::instruction::Instruction {
+            program_id: tesoro_core::ID,
+            accounts: metas,
+            data: anchor_lang::InstructionData::data(
+                &tesoro_core::instruction::OpenManySeatMatch {
+                    entry: ENTRY_GEMAS,
+                    n,
+                    min_seats: MIN_SEATS,
+                    max_seats: MAX_SEATS,
+                    asset: 0,
                 },
-                signer,
             ),
-            ENTRY_GEMAS,
-            n,
-            MIN_SEATS,
-            MAX_SEATS,
-            0,
-        )?;
+        };
+        let mut infos = accounts.to_account_infos();
+        infos.push(ctx.accounts.tesoro_program.to_account_info());
+        anchor_lang::solana_program::program::invoke_signed(&open, &infos, signer)?;
         let config = &mut ctx.accounts.config;
         let car_no = config.next_car;
         let table = u16::try_from(car_no % u64::from(config.tables))
@@ -1557,7 +1582,9 @@ pub struct DelegateFuel<'info> {
 pub struct OpenCar<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    pub opener: Signer<'info>,
+    /// The opener's wallet. It signs, unless `opener_ticket` and its `seat_signer` stand in for it.
+    /// CHECK: the seed of `opener_account`; tesoro_core checks who signs.
+    pub opener: UncheckedAccount<'info>,
     #[account(mut, seeds = [CONFIG_SEED], bump = config.bump)]
     pub config: Box<Account<'info, RailcarConfig>>,
     #[account(
@@ -1606,6 +1633,11 @@ pub struct OpenCar<'info> {
     pub authority: UncheckedAccount<'info>,
     pub tesoro_program: Program<'info, tesoro_core::program::TesoroCore>,
     pub system_program: Program<'info, System>,
+    /// The Entry Ticket the opener boards this car with, when the wallet does not sign.
+    /// CHECK: checked by tesoro_core.
+    pub opener_ticket: Option<UncheckedAccount<'info>>,
+    /// The seat key `opener_ticket` names, when the wallet does not sign.
+    pub seat_signer: Option<Signer<'info>>,
 }
 
 #[derive(Accounts)]
