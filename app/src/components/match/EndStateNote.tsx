@@ -13,6 +13,8 @@ export function EndStateNote({ m }: { m: ChainMatch }) {
   const finished = m.status === "settled" || m.status === "refunded";
   const end = useEndState(m.address.toBase58(), finished && !!game, game ?? "holdem");
   if (!game || !finished) return null;
+  // A refunded Match may never have had a table: without a kept board there is nothing to say about one.
+  if (m.status === "refunded" && end.status === "none") return null;
   return <EndStateLine end={end} />;
 }
 

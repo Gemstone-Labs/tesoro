@@ -1,0 +1,31 @@
+# The checks that run before a commit and before a push. The files in .githooks hand each git hook to lefthook.
+# To add a check, add a job here. Tests: scripts/test-githooks.py
+glob_matcher: doublestar
+output: [summary, failure, execution_out]
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: key-scan
+      run: .githooks/checks/key-scan.sh
+
+    - name: lint
+      root: app/
+      glob: "app/src/**/*.{ts,tsx}"
+      run: |
+        if [ ! -x node_modules/.bin/eslint ]; then
+          echo "pre-commit: cannot lint, app/node_modules is missing. Run \`pnpm install --frozen-lockfile\` at the repo root, then commit again."
+          exit 1
+        fi
+        ./node_modules/.bin/eslint --max-warnings=0 -- {staged_files}
+      fail_text: "Fix what is listed above, stage it, then commit again."
+
+    - name: rust-format
+      glob: "{programs,crates}/**/*.rs"
+      run: .githooks/checks/rust-format.sh {staged_files}
+
+pre-push:
+  jobs:
+    - name: types
+      run: .githooks/checks/push-typecheck.sh {1} {2}
+      use_stdin: true

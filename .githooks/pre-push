@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Hands this git hook to lefthook, which runs the checks listed for it in lefthook.yml.
+# Bypass only with an explicit human decision. Tests: scripts/test-githooks.py
+set -euo pipefail
+hook=$(basename "$0")
+if ! command -v lefthook > /dev/null; then
+  echo "$hook: lefthook is not installed, so no check can run. Install it (https://lefthook.dev/install), then try again."
+  exit 1
+fi
+exec lefthook run "$hook" --no-auto-install "$@"
