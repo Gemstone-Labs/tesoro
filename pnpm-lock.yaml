@@ -99,6 +99,9 @@ importers:
         specifier: ^2.57.1
         version: 2.57.1(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@3.25.76)
     devDependencies:
+      '@antithesishq/bombadil':
+        specifier: 0.8.0
+        version: 0.8.0
       '@electric-sql/pglite':
         specifier: ^0.5.10
         version: 0.5.10
@@ -215,6 +218,10 @@ packages:
 
   '@adraffy/ens-normalize@1.11.1':
     resolution: {integrity: sha512-nhCBV3quEgesuf7c7KYfperqSS14T8bYuvJ8PcLJp6znkZpFc0AuW4qBtr8eKVyPPe/8RSr7sglCWPU5eaxwKQ==}
+
+  '@antithesishq/bombadil@0.8.0':
+    resolution: {integrity: sha512-BVMjC4vDR2wOhSS0uWMiS3KqVWb8Y9BdN+KiJwBSXi7+vZ5HkLkBfTCk83Dal5E0Evb3wSOT46SFxLgNCGXbmQ==}
+    hasBin: true
 
   '@aptos-labs/aptos-client@2.2.0':
     resolution: {integrity: sha512-lYgHI8ehgD+Ykhix0IwzLaTCknHp1KNmExbq2bPZk8IeTwQg79D5BOkD46MjW0jGbJbl+J/RBtVF9vM7Te/hWA==}
@@ -7500,6 +7507,8 @@ snapshots:
   '@adraffy/ens-normalize@1.10.1': {}
 
   '@adraffy/ens-normalize@1.11.1': {}
+
+  '@antithesishq/bombadil@0.8.0': {}
 
   '@aptos-labs/aptos-client@2.2.0(got@11.8.6)':
     dependencies:

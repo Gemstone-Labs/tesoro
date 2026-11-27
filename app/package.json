@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "bombadil": "bash scripts/run-bombadil.sh",
     "lint": "eslint",
     "typecheck": "next typegen && NODE_OPTIONS=--max-old-space-size=3072 tsc --noEmit",
     "check:landing-scroll": "BASE=${BASE:-http://localhost:3301} node scripts/landing-scroll-check.mjs",
@@ -45,6 +46,7 @@
     "viem": "^2.57.1"
   },
   "devDependencies": {
+    "@antithesishq/bombadil": "0.8.0",
     "@electric-sql/pglite": "^0.5.10",
     "@storybook/addon-docs": "10.6.1",
     "@storybook/nextjs-vite": "10.6.1",
