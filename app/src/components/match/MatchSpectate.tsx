@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AccountLink } from "@/components/account/AccountLink";
 import { Button, CheckIcon, GemaMark, MinusIcon, Notice } from "@/components/ui";
 import { matchFee } from "@/lib/chain/ledger";
+import { getBurst, getHoldem, getTradingDuel, getVanguard } from "@/lib/chain/client";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
@@ -11,6 +12,7 @@ import type { GameId } from "@/lib/mock";
 import { gameQuery } from "@/lib/game-params";
 import { DuelSpectate } from "./DuelSpectate";
 import { EndStateNote } from "./EndStateNote";
+import { isFinal, laterRead, readSpectated, spectateFee, spectateHeadline, spectateLine, spectateState, type Spectated } from "./spectate-state";
 import { VanguardSpectate } from "@/games/vanguard/VanguardSpectate";
 import { RULES } from "./MatchResult";
 import "./match.css";
@@ -25,21 +27,31 @@ export function spectatorPot(m: ChainMatch): { fee: number; payout: number } {
   return { fee, payout: m.entry * 2 - fee };
 }
 
+/** Whether the Match's Game has written its Assignment: the table it plays on. */
+async function hasTable(m: ChainMatch): Promise<boolean> {
+  const game = m.game === "block-puzzle" ? getBurst() : m.game === "holdem" ? getHoldem() : m.game === "trading-duel" ? getTradingDuel() : getVanguard();
+  return (await game.readAssignment(m.address)) !== null;
+}
+
 /**
- * Someone else's Match, read-only: both Players (each leading to their Account), the result and the Pot. Open and live Matches are
- * re-read every few seconds until they finish; runs and hands stay hidden until settlement.
+ * Someone else's Match, read-only: both Players (each leading to their Account), where the Match stands and the Pot. The Match
+ * and its table are re-read every few seconds until it is settled or refunded; runs and hands stay hidden until settlement.
  */
 export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn?: () => void }) {
-  const [m, setM] = useState<ChainMatch | null | undefined>(undefined);
+  const [seen, setSeen] = useState<Spectated | null | undefined>(undefined);
+  const shown = useRef<Spectated | null | undefined>(undefined);
 
   useEffect(() => {
     let live = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    shown.current = undefined;
     const read = async () => {
-      const next = await fetchMatch(matchId, null).catch(() => undefined);
+      const next = await readSpectated(matchId, { fetchMatch: (id) => fetchMatch(id, null), tabled: hasTable, now: Date.now }, !!shown.current?.tabled);
       if (!live) return;
-      if (next !== undefined) setM(next);
-      if (next === undefined || (next && (next.status === "open" || next.status === "active"))) timer = setTimeout(read, 5000);
+      const now = laterRead(shown.current, next);
+      shown.current = now;
+      setSeen(now);
+      if (now === undefined || (now && !isFinal(spectateState(now.m, now.tabled)))) timer = setTimeout(read, 5000);
     };
     void read();
     return () => {
@@ -48,30 +60,26 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
     };
   }, [matchId]);
 
-  const settledResult = m ? (m.session ? (m.session.settled ? m.session.result : null) : m.winner) : null;
-  const winnerLabel = usePlayerLabel(m && m.status === "settled" && (settledResult === "opener" || settledResult === "joiner") ? m.sides[settledResult === "opener" ? 0 : 1]?.player : undefined);
-
-  if (m === undefined) return <p className="status" role="status">Loading the Match…</p>;
-  if (m === null) {
+  if (seen === undefined) return <p className="status" role="status">Loading the Match…</p>;
+  if (seen === null) {
     return <Notice title="Match not found" body="This Match doesn’t exist, or the link is incomplete." />;
   }
+  return <SpectateView seen={seen} onSignIn={onSignIn} />;
+}
 
+/** The spectator's page for one read of the Match. */
+export function SpectateView({ seen, onSignIn }: { seen: Spectated; onSignIn?: () => void }) {
+  const { m } = seen;
+  const state = spectateState(m, seen.tabled);
+  const over = state === "settled" || state === "settling";
   const result = m.session ? (m.session.settled ? m.session.result : null) : m.winner;
-  const winSeat = m.status === "settled" && (result === "opener" || result === "joiner") ? (result === "opener" ? 0 : 1) : null;
+  const winSeat = over && (result === "opener" || result === "joiner") ? (result === "opener" ? 0 : 1) : null;
+  const winnerLabel = usePlayerLabel(winSeat !== null ? m.sides[winSeat]?.player : undefined);
   const { fee, payout } = spectatorPot(m);
-  const scores = m.session && m.status === "settled" ? m.session.scores : null;
+  const feeLine = spectateFee(m, state);
+  const scores = m.session && over ? m.session.scores : null;
   const rules = RULES[m.game];
-
-  const headline =
-    winSeat !== null
-      ? `${winnerLabel} won`
-      : m.status === "settled"
-        ? "Draw"
-        : m.status === "refunded"
-          ? "Refunded"
-          : m.status === "open"
-            ? "Waiting for an opponent"
-            : "In play";
+  const headline = spectateHeadline(state, winSeat !== null ? winnerLabel : null);
   const Icon = winSeat !== null ? CheckIcon : MinusIcon;
 
   const side = (i: 0 | 1) => {
@@ -129,23 +137,21 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
                 <GemaMark size={26} /> {fmtGemas(m.entry)} <small>Gemas</small>
               </b>
             </div>
-            <div>
-              <span>Fee</span>
-              <b>
-                <GemaMark size={26} /> {fmtGemas(winSeat !== null ? fee : 0)} <small>Gemas</small>
-              </b>
-            </div>
+            {feeLine && (
+              <div>
+                <span>{feeLine.label}</span>
+                <b>
+                  <GemaMark size={26} /> {fmtGemas(feeLine.fee)} <small>Gemas</small>
+                </b>
+              </div>
+            )}
           </div>
 
           {m.game === "trading-duel" && <DuelSpectate m={m} />}
           {m.game === "vanguard" && <VanguardSpectate m={m} />}
           <EndStateNote m={m} />
 
-          <p className="mr-copy">
-            {m.status === "open" || m.status === "active"
-              ? `You are watching a Match you are not part of. ${SPECTATE_HIDDEN[m.game]} stay hidden until it settles.`
-              : "You are viewing a Match you were not part of. The result is final."}
-          </p>
+          <p className="mr-copy">{spectateLine(m, state, seen.at, SPECTATE_HIDDEN[m.game])}</p>
         </div>
       </section>
 
