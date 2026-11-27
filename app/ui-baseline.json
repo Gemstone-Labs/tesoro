@@ -1,0 +1,36 @@
+{
+  "name": "tesoro",
+  "viewports": [
+    "390x844"
+  ],
+  "storybook": {
+    "url": "http://localhost:6006",
+    "ids": [
+      "games-block-burst--play-with-seed",
+      "games-hold-em--preflop",
+      "games-railcar--boarding-waiting",
+      "games-trading-grid--head-start",
+      "games-vanguard--practice",
+      "screens-account--own",
+      "screens-backing--board",
+      "screens-docs--overview",
+      "screens-help--default",
+      "screens-invite-entry--empty",
+      "screens-landing--dark",
+      "screens-leaderboard--live-season",
+      "screens-match--block-puzzle-waiting-for-opponent",
+      "screens-match-flow--block-puzzle-queue-opens",
+      "screens-match-vanguard-clock-and-endings--ring-opening-turn",
+      "screens-matches--history",
+      "screens-orders--open",
+      "screens-page-not-found--default",
+      "screens-play--block-puzzle",
+      "screens-play-home--signed-in",
+      "screens-review--flags",
+      "screens-vanguard-resilience--reconnecting-phone",
+      "screens-vault--new-player",
+      "screens-wallet--with-positions"
+    ]
+  },
+  "clock": "2026-11-27T12:00:00Z"
+}
