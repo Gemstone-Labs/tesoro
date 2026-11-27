@@ -10,6 +10,8 @@
 
 /* Short landscape screens (a phone on its side): Resume beside the actions, the actions in two columns. */
 @media (orientation: landscape) and (max-height: 480px) {
+  /* Out of full screen the app's bars sit above the game: a paused game rises over them so the whole card can be reached. */
+  .fx-arena:has(.practice-paused) { z-index: 60; }
   .practice-paused { position: fixed; place-items: safe center; }
   .practice-paused-card { grid-template-columns: minmax(0, 1fr) minmax(0, 1.8fr); grid-template-areas: "label actions" "resume actions"; align-items: center; gap: 8px 16px; width: min(640px, calc(100% - 24px)); }
   .practice-paused-card > .label { grid-area: label; align-self: end; }

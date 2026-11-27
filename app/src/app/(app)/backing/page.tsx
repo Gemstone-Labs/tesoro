@@ -345,6 +345,7 @@ export default function Backing() {
           {tab === "mine" && (
             <section aria-label="My Backings" className="stack">
               {myView === "sign-in" && <MyBackingsSignIn onSignIn={() => auth.openSignIn("see your Backings")} />}
+              {myView === "loading" && <p className="status" role="status">Loading your Backings…</p>}
               {(myView === "empty" || myView === "list") && <Label>Offers you funded</Label>}
               {myView === "empty" && (
                 <Empty title="No Backings yet" body="Pick a Player under Requests and make an Offer. The Player accepts or declines." />

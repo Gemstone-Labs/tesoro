@@ -6,7 +6,7 @@ describe("My Backings view", () => {
     expect(myBackingsView({ status: "signed-out", accountKnown: false, boardLoaded: true, backings: 0 })).toBe("sign-in");
     expect(myBackingsView({ status: "signed-out", accountKnown: false, boardLoaded: false, backings: 0 })).toBe("sign-in");
   });
-  it("shows nothing while sign-in, the Account or the board is still loading", () => {
+  it("is loading, never the empty state, while sign-in, the Account or the board is still loading", () => {
     expect(myBackingsView({ status: "loading", accountKnown: false, boardLoaded: true, backings: 0 })).toBe("loading");
     expect(myBackingsView({ status: "unconfigured", accountKnown: false, boardLoaded: true, backings: 0 })).toBe("loading");
     expect(myBackingsView({ status: "signed-in", accountKnown: false, boardLoaded: true, backings: 0 })).toBe("loading");
