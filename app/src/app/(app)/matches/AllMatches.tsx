@@ -10,16 +10,13 @@ import { Button, Card } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { useChainData } from "@/lib/chain/ChainDataProvider";
 import { fetchAllHistory } from "@/lib/chain/history-client";
-import { RESULTS, historyPage, resultFilter, type HistoryRow } from "@/lib/chain/history";
-import { GAME_NAMES } from "@/lib/mock";
+import { RESULTS, historyGameName, historyPage, resultFilter, type HistoryRow } from "@/lib/chain/history";
 
 /** Every finished Match of the signed-in Account (played or backed), newest first, 10 banners per page. */
 export function AllMatches() {
   const { auth, onChain, snapshot, openMatches } = useAccount();
   const { error, refresh } = useChainData();
   const params = useSearchParams();
-  const game = gameFilter(params.get("game"));
-  const results = resultFilter(params.get("result"));
   const [now] = useState(() => Date.now());
 
   const accountKey = onChain && snapshot ? snapshot.accountKey.toBase58() : null;
@@ -33,6 +30,24 @@ export function AllMatches() {
       live = false;
     };
   }, [accountKey]);
+  return <MatchesView auth={auth} snapshot={snapshot} openMatches={openMatches} history={history} error={error} refresh={refresh} params={params} now={now} />;
+}
+
+type View = {
+  auth: ReturnType<typeof useAccount>["auth"];
+  snapshot: ReturnType<typeof useAccount>["snapshot"];
+  openMatches: ReturnType<typeof useAccount>["openMatches"];
+  history: HistoryRow[] | null | undefined;
+  error: unknown;
+  refresh: () => Promise<unknown>;
+  params: Pick<URLSearchParams, "get">;
+  now: number;
+};
+
+/** The Matches page for a given history: the Game and result filters and the page come from `params`. */
+export function MatchesView({ auth, snapshot, openMatches, history, error, refresh, params, now }: View) {
+  const game = gameFilter(params.get("game"));
+  const results = resultFilter(params.get("result"));
   const rows = useMemo(() => (history ?? []).filter((r) => !game || r.game === game), [history, game]);
   const shown = rows.filter((r) => results.includes(r.result));
   const open = openMatches.filter((m) => !game || m.game === game);
@@ -75,17 +90,17 @@ export function AllMatches() {
       {snapshot?.matchesLoaded && history === null && <p className="note">Your finished Matches aren’t available right now. Matches in progress are shown above.</p>}
       {snapshot?.matchesLoaded && history && (rows.length === 0 ? (
         <div className="mh-state">
-          <p>{game ? `No finished ${GAME_NAMES[game]} Matches yet.` : "No finished Matches yet."} They appear here when they finish.</p>
+          <p>{game ? `No finished ${historyGameName(game)} Matches yet.` : "No finished Matches yet."} They appear here when they finish.</p>
           <Button size="sm" href={game ? `/play/${game}` : "/play"}>Play a Match</Button>
         </div>
       ) : shown.length === 0 ? (
         <div className="mh-state">
-          <p>No {game ? `${GAME_NAMES[game]} ` : ""}Matches with these results.</p>
+          <p>No {game ? `${historyGameName(game)} ` : ""}Matches with these results.</p>
           <Button size="sm" href={historyHref("/matches", game, 1, RESULTS)}>Show all results</Button>
         </div>
       ) : (
         <>
-          <div className="mb-list" aria-label={`${game ? GAME_NAMES[game] : "All"} Matches, page ${view.page} of ${view.pages}`} role="list">
+          <div className="mb-list" aria-label={`${game ? historyGameName(game) : "All"} Matches, page ${view.page} of ${view.pages}`} role="list">
             {view.rows.map((r) => (
               <div key={r.id} role="listitem">
                 <MatchBanner r={r} account={snapshot.accountKey.toBase58()} now={now} me={snapshot.accountKey.toBase58()} />
