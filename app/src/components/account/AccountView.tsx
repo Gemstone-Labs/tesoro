@@ -9,10 +9,9 @@ import { ChallengeSheet } from "@/components/match/ChallengeSheet";
 import { Bust, Button, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { accountKeyOf, parseAccountKey } from "@/lib/chain/account-key";
-import { RESULTS, historyPage, resultFilter } from "@/lib/chain/history";
+import { RESULTS, historyGameName, historyPage, resultFilter } from "@/lib/chain/history";
 import { backingLine, summaryOfRows, topGames, type PlayerAccount } from "@/lib/chain/player-account";
 import { usePlayerAccount } from "@/lib/chain/usePlayerAccount";
-import { GAME_NAMES } from "@/lib/mock";
 import { AccountHero } from "./AccountHero";
 import { AccountSkeleton } from "./AccountSkeleton";
 import { shownIdentity } from "@/lib/identity/display";
@@ -117,15 +116,15 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
             <ResultFilter base={base} game={game} results={results} counts={resultCounts(ofGame)} />
           </header>
           {ofGame.length === 0 ? (
-            rows.length > 0 && <p className="pa-none">No finished {game ? GAME_NAMES[game] : ""} Matches yet.</p>
+            rows.length > 0 && <p className="pa-none">No finished {game ? historyGameName(game) : ""} Matches yet.</p>
           ) : shown.length === 0 ? (
             <div className="mh-state">
-              <p>No {game ? `${GAME_NAMES[game]} ` : ""}Matches with these results.</p>
+              <p>No {game ? `${historyGameName(game)} ` : ""}Matches with these results.</p>
               <Button size="sm" href={historyHref(base, game, 1, RESULTS)}>Show all results</Button>
             </div>
           ) : (
             <>
-              <div className="mb-list" role="list" aria-label={`${game ? GAME_NAMES[game] : "All"} Matches, page ${view.page} of ${view.pages}`}>
+              <div className="mb-list" role="list" aria-label={`${game ? historyGameName(game) : "All"} Matches, page ${view.page} of ${view.pages}`}>
                 {view.rows.map((r) => (
                   <div key={r.id} role="listitem">
                     <MatchBanner r={r} account={address} now={now} backing={backingLine(r)} me={me} />

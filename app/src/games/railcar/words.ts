@@ -6,6 +6,15 @@ export const clock = (ms: number) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
 
+/** `ms` in whole tenths of a second, to the nearest. */
+export const tenths = (ms: number) => Math.round(Math.max(0, ms) / 100);
+
+/** m:ss.t of a ride time, for readings that are subtracted from one another. */
+export const clockTenths = (ms: number) => {
+  const t = tenths(ms);
+  return `${clock(t * 100)}.${t % 10}`;
+};
+
 /** A place by finishing order: 1 = last off. */
 export const PLACE_WORDS = ["Last off", "Second-last off", "Third-last off"] as const;
 

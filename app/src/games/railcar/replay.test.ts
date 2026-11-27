@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RULES_Q39, RULES_ROUND1, ride, type RulesVersion } from "./engine";
-import { replayRide, type RideRecord } from "./replay";
+import { replayRide, tellOnClock, type RideRecord } from "./replay";
 
 /** A draw whose crash point under `rules` is exactly `crashMs` (the Rust ride tests' search: words 1-3 fixed, word 0 searched). */
 function drawWithCrash(crashMs: number, rules?: RulesVersion): Uint8Array {
@@ -288,5 +288,31 @@ describe("a car that rode under older rules replays with its own odds and payout
     const ben = r.seats.find((s) => s.player === BEN)!;
     expect([ben.positionMs, ben.refundPct, ben.gets]).toEqual([18_500, 80, 400n]);
     expect(r.differences).toEqual([]);
+  });
+});
+
+describe("a Tell's interval on the ride clock", () => {
+  it("a Tell drawn before the ride began shows at the start, and the interval is the whole ride to the blast", () => {
+    expect(tellOnClock([], 11_900, 17_600)).toEqual({ atMs: 0, blastLeadMs: 11_900 });
+    expect(tellOnClock([], 11_900, 3_800)).toEqual({ atMs: 8_100, blastLeadMs: 3_800 });
+  });
+
+  it("a Brake moves the blast later, so a Tell after it is longer than its drawn lead", () => {
+    // Brake at 7 s on 11.9 s of track: 5 s at half speed adds 2.5 s, the blast is at 14.4 s; a Tell at track 8.1 s shows at 9.2 s.
+    expect(tellOnClock([7_000], 11_900, 3_800)).toEqual({ atMs: 9_200, blastLeadMs: 5_200 });
+  });
+
+  it("the QA ride: a Glow drawn 17.6 s ahead of an 11.9 s bomb and a Brake at 0:07", () => {
+    expect(tellOnClock([7_000], 11_900, 17_600)).toEqual({ atMs: 0, blastLeadMs: 14_400 });
+  });
+
+  it("a Tell the ride did not show has no time and no interval", () => {
+    expect(tellOnClock([7_000], 11_900, null)).toEqual({ atMs: null, blastLeadMs: null });
+  });
+
+  it("every Tell on a replayed ride reads as the blast less when it showed, in tenths", () => {
+    const rec = { ...workedExample(drawWithCrash(30_000)), brakes: [{ seat: 3, ms: 20_000 }] };
+    const r = replayRide(rec);
+    for (const t of r.tells) if (t.atMs !== null) expect(t.blastLeadMs).toBe(Math.round(r.impactMs! / 100) * 100 - Math.round(t.atMs / 100) * 100);
   });
 });

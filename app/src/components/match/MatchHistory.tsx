@@ -2,23 +2,23 @@ import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { ChevronLeft, ChevronRight, LayoutGrid } from "lucide-react";
-import { PLAYED, RESULTS, resultParam, toggleResult } from "@/lib/chain/history";
-import { GAME_NAMES } from "@/lib/mock";
-import type { GameId, MatchResult } from "@/lib/mock";
-import { isGameId } from "@/lib/games";
-import { CATALOGUE, LOBBY_ORDER } from "@/lib/catalogue";
+import { PLAYED, RESULTS, historyGameName, resultParam, toggleResult, type HistoryGame } from "@/lib/chain/history";
+import type { MatchResult } from "@/lib/mock";
+import { historyGameShown } from "@/lib/games";
+import { CATALOGUE } from "@/lib/catalogue";
 import "./history.css";
 
-const SHORT: Partial<Record<GameId, string>> = { holdem: "Hold'em" };
-/** All, then the games in Play's order. */
-const FILTERS: [GameId | null, string][] = [[null, "All"], ...LOBBY_ORDER.map((g): [GameId, string] => [g, SHORT[g] ?? GAME_NAMES[g]])];
-const tileOf = (g: GameId) => CATALOGUE.find((c) => c.game === g)?.tile;
+const SHORT: Partial<Record<HistoryGame, string>> = { holdem: "Hold'em" };
+const catalogueGame = (c: (typeof CATALOGUE)[number]) => (c.game ?? c.key) as HistoryGame;
+/** All, then every live Game of the catalogue in Play's order: a Game added there gets its chip. */
+const FILTERS: [HistoryGame | null, string][] = [[null, "All"], ...CATALOGUE.filter((c) => c.live).map((c): [HistoryGame, string] => [catalogueGame(c), SHORT[catalogueGame(c)] ?? historyGameName(catalogueGame(c))])];
+const tileOf = (g: HistoryGame) => CATALOGUE.find((c) => catalogueGame(c) === g)?.tile;
 
 /** The game a `?game=` value names, null for all games. */
-export const gameFilter = (v: string | null): GameId | null => (isGameId(v) ? v : null);
+export const gameFilter = (v: string | null): HistoryGame | null => (v !== null && historyGameShown(v) ? (v as HistoryGame) : null);
 
 /** A Match history address: the game, the results shown and the page live in the URL. */
-export function historyHref(base: string, game: GameId | null, page: number, results: readonly MatchResult[] = PLAYED): string {
+export function historyHref(base: string, game: HistoryGame | null, page: number, results: readonly MatchResult[] = PLAYED): string {
   const q = new URLSearchParams();
   if (game) q.set("game", game);
   const r = resultParam(results);
@@ -29,7 +29,7 @@ export function historyHref(base: string, game: GameId | null, page: number, res
 }
 
 /** All and one chip per game (its art and short name) over a Match history; scrolls sideways when it does not fit. */
-export function GameTabs({ base, game, results = PLAYED }: { base: string; game: GameId | null; results?: readonly MatchResult[] }) {
+export function GameTabs({ base, game, results = PLAYED }: { base: string; game: HistoryGame | null; results?: readonly MatchResult[] }) {
   return (
     <nav className="mh-tabs" aria-label="Game">
       {FILTERS.map(([id, label]) => (
@@ -47,7 +47,7 @@ export function GameTabs({ base, game, results = PLAYED }: { base: string; game:
 const RESULT_LABEL: Record<MatchResult, string> = { won: "Won", lost: "Lost", draw: "Draw", "no-show": "No-show", refunded: "Refunded" };
 
 /** Which results a Match history shows, one toggle each with its count; results with no Matches are left out. Refunded starts off. */
-export function ResultFilter({ base, game, results, counts }: { base: string; game: GameId | null; results: readonly MatchResult[]; counts: Record<MatchResult, number> }) {
+export function ResultFilter({ base, game, results, counts }: { base: string; game: HistoryGame | null; results: readonly MatchResult[]; counts: Record<MatchResult, number> }) {
   const present = RESULTS.filter((r) => counts[r] > 0);
   if (present.length < 2) return null;
   return (
@@ -80,7 +80,7 @@ export function resultCounts(rows: readonly { result: MatchResult }[]): Record<M
 }
 
 /** Newer / Older under a Match history, with the page and the count. */
-export function HistoryPages({ base, game, results = PLAYED, page, pages, total }: { base: string; game: GameId | null; results?: readonly MatchResult[]; page: number; pages: number; total: number }) {
+export function HistoryPages({ base, game, results = PLAYED, page, pages, total }: { base: string; game: HistoryGame | null; results?: readonly MatchResult[]; page: number; pages: number; total: number }) {
   if (pages <= 1) return null;
   return (
     <nav className="mh-pages" aria-label="Pages">

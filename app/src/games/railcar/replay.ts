@@ -8,7 +8,7 @@ import { RULES_CURRENT, impactMs as clockAt, placeSharesBps, positionMs, refund,
 import type { RideReason } from "./chain";
 import { RAILCAR_FEES, planPayout, splitByShare } from "./payout";
 import { seatSplit, type RailcarView, type ResultRow, type RowBacking } from "./view";
-import { PLACE_WORDS, clock as rideClock } from "./words";
+import { PLACE_WORDS, clock as rideClock, tenths } from "./words";
 
 /** What the Match history keeps of a ride (Railcar's `RideSettled` plus core's places and fees). */
 export interface RideRecord {
@@ -35,10 +35,23 @@ export interface RideRecord {
 
 export interface ReplayTell {
   stage: "screws" | "panel" | "sparks";
-  /** Track ms before the wall the Tell starts; null when the ride did not show it. */
+  /** The draw's lead: track ms before the wall the Tell starts, which may be longer than the ride ran; null when the ride did not show it. */
   leadMs: number | null;
-  /** Ride-clock ms it showed (later than its track position when a Brake ran); null when the ride did not show it. */
+  /** Ride-clock ms it showed (later than its track position when a Brake ran, never before the start); null when the ride did not show it. */
   atMs: number | null;
+  /** Ride-clock ms from the Tell showing to the blast, in whole tenths so it subtracts exactly from the clock readings; null when the ride did not show it. */
+  blastLeadMs: number | null;
+}
+
+/**
+ * A Tell on the ride clock. The draw's lead counts track ms back from the wall, so a Tell drawn earlier than the ride
+ * began shows at the start, and a Brake slows the car and puts the blast later: the interval the Player felt is the
+ * blast on the clock less the moment the Tell showed, both read in tenths.
+ */
+export function tellOnClock(presses: readonly number[], crashMs: number, leadMs: number | null): Pick<ReplayTell, "atMs" | "blastLeadMs"> {
+  if (leadMs === null) return { atMs: null, blastLeadMs: null };
+  const atMs = clockAt(presses, Math.max(0, crashMs - leadMs));
+  return { atMs, blastLeadMs: (tenths(clockAt(presses, crashMs)) - tenths(atMs)) * 100 };
 }
 
 export interface ReplaySeat {
@@ -90,7 +103,7 @@ export function replayRide(rec: RideRecord): RideReplay {
   const onClock = (trackMs: number) => clockAt(presses, trackMs);
   const impact = d ? onClock(d.crashMs) : null;
   const tells: ReplayTell[] = d
-    ? [d.screwLeadMs, d.boltLeadMs, d.sparkLeadMs].map((leadMs, i) => ({ stage: STAGES[i], leadMs, atMs: leadMs === null ? null : onClock(Math.max(0, d.crashMs - leadMs)) }))
+    ? [d.screwLeadMs, d.boltLeadMs, d.sparkLeadMs].map((leadMs, i) => ({ stage: STAGES[i], leadMs, ...tellOnClock(presses, d.crashMs, leadMs) }))
     : [];
   const base = (s: RideRecord["seats"][number]) => ({ seat: s.seat, player: s.player, funder: s.funder, brakeMs: brakeOf.get(s.seat) ?? null });
   const shown = (seat: number) => seat + 1;

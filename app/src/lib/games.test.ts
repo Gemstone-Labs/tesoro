@@ -40,3 +40,19 @@ describe("Railcar visibility", () => {
     expect(shown.ALL_PAGES.map((p) => p.href)).toContain("/docs/railcar");
   });
 });
+
+describe("the history filter and Railcar", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it("names Railcar only where it is shown", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SHOW_RAILCAR", "");
+    vi.resetModules();
+    expect((await import("@/components/match/MatchHistory")).gameFilter("railcar")).toBeNull();
+    vi.stubEnv("NEXT_PUBLIC_SHOW_RAILCAR", "1");
+    vi.resetModules();
+    expect((await import("@/components/match/MatchHistory")).gameFilter("railcar")).toBe("railcar");
+  });
+});
