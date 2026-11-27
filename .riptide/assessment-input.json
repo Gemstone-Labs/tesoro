@@ -1,0 +1,126 @@
+{
+  "verdict": "ready_to_send",
+  "protocol": {
+    "name": "tesoro_core (Solana-native LST positions & advances)"
+  },
+  "riskPlan": {
+    "protocol_class": "lst.v1",
+    "target_claim": "Across all 28 fixed-seed guided-sim iterations spanning exogenous SOL/USD price shocks from 0 to 6000 bps (0% to -60%), every hard protocol solvency invariant held on the real tesoro_core.so and sim_lst.so binaries: vault LST balance covered open principal at every step, early unlock while debt remained rejected with Custom(6110) (DebtOutstanding), minted yield stayed strictly within the 2-month accrual bound (40,077,776 vs 116,763,898 lamports), and post-repayment unlock returned the full 10 simSOL principal. Crucially, Treasury share outlay for a 1,000-Gema fill_instant_redeem remained flat at 39,999,999 lamports (33.33% of the 0.12 simSOL seeded buffer) across the entire 0-60% SOL/USD crash because tesoro_core prices instant-redeem shares off the Source's locked issuance unit_num/unit_den rather than the post-shock spot PriceFeed — structurally insulating share-denominated Treasury reserves from post-issuance SOL/USD drops. This is evidence over the declared single-position, 2-month native-LST configuration only, not unconditional protocol safety.",
+    "evidence_profile": ["ci-regression"],
+    "p0_flows": [
+      "open_native_position",
+      "take_native_advance",
+      "early_unlock_rejected",
+      "set_price_shock",
+      "request_instant_redeem",
+      "fill_instant_redeem",
+      "redeem",
+      "unlock"
+    ],
+    "p1_flows": [
+      "extend_native_advance",
+      "withdraw_treasury",
+      "take_stake_advance"
+    ],
+    "expected_failure_modes": [
+      "Vault principal dilution or under-collateralization during instant redeem or normal yield payouts",
+      "Early principal unlock bypassing outstanding Advance debt",
+      "Excessive Treasury buffer drain under post-issuance SOL/USD price crashes",
+      "Unbounded sim_lst yield minting beyond accrued yield"
+    ],
+    "guided_sim_boundaries": [
+      "Oracle price updates are driven deterministically via tesoro_core::set_price; Pyth PriceUpdateV2 receiver staleness and confidence checks (take_native_advance_onchain) are out of scope of this sweep.",
+      "Simulated yield runs against the real sim_lst.so binary at fixed 7% APY / 4,380x speedup over a single 10 simSOL 2-month position and 0.12 simSOL seeded Treasury.",
+      "Cross-chain LayerZero V2 EVM vault messaging (PositionVaultOApp / tesoro_bridge) and SPL stake-pool slashing are verified separately by Foundry invariants and Rust ledger proptests."
+    ],
+    "known_coverage_limits": [
+      "Single-position, single-actor lifecycle per iteration (multi-position concurrency and stake-pool rate slashes are covered by Rust ledger stateful proptests).",
+      "Does not exercise LayerZero V2 cross-chain bridge instructions or Pyth mainnet receiver accounts."
+    ]
+  },
+  "coverage": [
+    {
+      "priority": "P0",
+      "flow": "open_native_position",
+      "status": "covered by guided sim",
+      "evidence_tier": "guided-sim-sbf",
+      "commands": [
+        "riptide sim run .riptide/sim --flows 1 --seed 1337 --out .riptide/sim/artifacts/sol-price-shock"
+      ],
+      "artifacts": [
+        ".riptide/sim/artifacts/sol-price-shock/guided-sim-run.json"
+      ],
+      "notes": "HELD across 28/28 runs: locks 10 simSOL into shared native custody vault and preserves vault_principal_solvency."
+    },
+    {
+      "priority": "P0",
+      "flow": "take_native_advance",
+      "status": "covered by guided sim",
+      "evidence_tier": "guided-sim-sbf",
+      "commands": [
+        "riptide sim run .riptide/sim --flows 1 --seed 1337 --out .riptide/sim/artifacts/sol-price-shock"
+      ],
+      "artifacts": [
+        ".riptide/sim/artifacts/sol-price-shock/guided-sim-run.json"
+      ],
+      "notes": "HELD across 28/28 runs: issues 1,750 Gemas for a 2-month advance at $150/SOL and initializes SourceBook + checkpoint pages."
+    },
+    {
+      "priority": "P0",
+      "flow": "early_unlock_rejected",
+      "status": "covered by guided sim",
+      "evidence_tier": "guided-sim-sbf",
+      "commands": [
+        "riptide sim run .riptide/sim --flows 1 --seed 1337 --out .riptide/sim/artifacts/sol-price-shock"
+      ],
+      "artifacts": [
+        ".riptide/sim/artifacts/sol-price-shock/guided-sim-run.json"
+      ],
+      "notes": "HELD (negative control) across 28/28 runs: unlock before debt repayment deterministically rejected with Custom(6110) (DebtOutstanding)."
+    },
+    {
+      "priority": "P0",
+      "flow": "request_instant_redeem & fill_instant_redeem",
+      "status": "covered by guided sim",
+      "evidence_tier": "guided-sim-sbf",
+      "commands": [
+        "riptide sim run .riptide/sim --flows 1 --seed 1337 --out .riptide/sim/artifacts/sol-price-shock"
+      ],
+      "artifacts": [
+        ".riptide/sim/artifacts/sol-price-shock/guided-sim-run.json"
+      ],
+      "notes": "HELD (structural robustness) across 0-6000 bps SOL/USD shock: 1,000-Gema fill consumed exactly 39,999,999 lamports (33.33% of 0.12 simSOL buffer) at every shock level because pricing binds to Source issuance unit_num/unit_den."
+    },
+    {
+      "priority": "P0",
+      "flow": "redeem & unlock",
+      "status": "covered by guided sim",
+      "evidence_tier": "guided-sim-sbf",
+      "commands": [
+        "riptide sim run .riptide/sim --flows 1 --seed 1337 --out .riptide/sim/artifacts/sol-price-shock"
+      ],
+      "artifacts": [
+        ".riptide/sim/artifacts/sol-price-shock/guided-sim-run.json"
+      ],
+      "notes": "HELD across 28/28 runs: post-horizon redeem minted 40,077,776 lamports (within 116,763,898 bound) and unlock returned >= 10,000,000,000 simSOL principal."
+    },
+    {
+      "priority": "P1",
+      "flow": "take_native_advance_onchain (Pyth PriceUpdateV2)",
+      "status": "out of scope",
+      "evidence_tier": "none",
+      "commands": [],
+      "artifacts": [],
+      "notes": "Out of scope for this sweep; oracle shock is driven via tesoro_core::set_price."
+    },
+    {
+      "priority": "P1",
+      "flow": "tesoro_bridge LayerZero V2 cross-chain messaging",
+      "status": "out of scope",
+      "evidence_tier": "none",
+      "commands": [],
+      "artifacts": [],
+      "notes": "Out of scope for Solana-only guided sim; covered separately by EVM PositionVaultOApp Foundry invariants and bridge LiteSVM suite."
+    }
+  ]
+}

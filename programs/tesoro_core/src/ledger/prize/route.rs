@@ -140,7 +140,7 @@ impl RouteLedger {
         self.treasury_shares = treasury;
         self.pool_owed = owed;
         self.pool_realised_total = realised;
-        Ok((fee_shares - pool, pool))
+        Ok((fee_shares.saturating_sub(pool), pool))
     }
 
     /// The Pool's fifth of the Instant Redeem Fee, owed when the Treasury redeems the Gemas it
@@ -186,7 +186,10 @@ impl RouteLedger {
         if shares > self.spendable() {
             return Err(CoreError::OverSpendable);
         }
-        self.treasury_shares -= shares;
+        self.treasury_shares = self
+            .treasury_shares
+            .checked_sub(shares)
+            .ok_or(CoreError::OverSpendable)?;
         Ok(())
     }
 
@@ -264,7 +267,10 @@ impl RouteLedger {
             Some(p) => add(self.escrow_backing, p.shares)?,
             None => self.escrow_backing,
         };
-        self.treasury_shares -= moved;
+        self.treasury_shares = self
+            .treasury_shares
+            .checked_sub(moved)
+            .ok_or(CoreError::Math)?;
         self.pool_owed = 0;
         self.pool_funded_total = funded;
         self.escrow_unissued = if issued.is_some() { 0 } else { unissued };
@@ -328,8 +334,8 @@ impl RouteLedger {
     pub fn redeem_prize(&mut self, ps: &mut PrizeSource, k: u64) -> CoreResult<u128> {
         let shares = Self::payout_shares(ps, k)?;
         let backing = sub(self.escrow_backing, shares)?;
-        ps.shares -= shares;
-        ps.gemas -= k;
+        ps.shares = ps.shares.checked_sub(shares).ok_or(CoreError::Math)?;
+        ps.gemas = ps.gemas.checked_sub(k).ok_or(CoreError::Math)?;
         self.escrow_backing = backing;
         Ok(shares)
     }
@@ -340,8 +346,8 @@ impl RouteLedger {
         let shares = Self::payout_shares(ps, k)?;
         let backing = sub(self.escrow_backing, shares)?;
         let pending = add(self.escrow_pending, shares)?;
-        ps.shares -= shares;
-        ps.gemas -= k;
+        ps.shares = ps.shares.checked_sub(shares).ok_or(CoreError::Math)?;
+        ps.gemas = ps.gemas.checked_sub(k).ok_or(CoreError::Math)?;
         self.escrow_backing = backing;
         self.escrow_pending = pending;
         Ok(PrizePayout { shares, gemas: k })

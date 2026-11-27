@@ -1,0 +1,8 @@
+id: no-public-devnet-rpc-ts
+snapshots:
+  "const rpc = 'https://api.devnet.solana.com';":
+    labels:
+    - source: https://api.devnet.solana.com
+      style: primary
+      start: 13
+      end: 42

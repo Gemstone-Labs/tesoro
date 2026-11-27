@@ -100,9 +100,11 @@ fn read_upgradeable(
         return Err(ProofError::NotAProgram);
     }
     let named = Pubkey::new_from_array(
-        program.data[4..36]
-            .try_into()
-            .map_err(|_| ProofError::NotAProgram)?,
+        program
+            .data
+            .get(4..36)
+            .and_then(|s| s.try_into().ok())
+            .ok_or(ProofError::NotAProgram)?,
     );
     let derived = Pubkey::find_program_address(&[game.as_ref()], &LOADER_UPGRADEABLE).0;
     let pd = program_data.ok_or(ProofError::BadProgramData)?;
@@ -113,16 +115,18 @@ fn read_upgradeable(
         return Err(ProofError::BadProgramData);
     }
     let slot = u64::from_le_bytes(
-        pd.data[4..12]
-            .try_into()
-            .map_err(|_| ProofError::BadProgramData)?,
+        pd.data
+            .get(4..12)
+            .and_then(|s| s.try_into().ok())
+            .ok_or(ProofError::BadProgramData)?,
     );
-    let controller = match pd.data[12] {
+    let controller = match pd.data.get(12).copied().ok_or(ProofError::BadProgramData)? {
         0 => None,
         1 => Some(Pubkey::new_from_array(
-            pd.data[13..45]
-                .try_into()
-                .map_err(|_| ProofError::BadProgramData)?,
+            pd.data
+                .get(13..45)
+                .and_then(|s| s.try_into().ok())
+                .ok_or(ProofError::BadProgramData)?,
         )),
         _ => return Err(ProofError::BadProgramData),
     };
@@ -138,19 +142,25 @@ fn read_v4(game: &Pubkey, program: &View) -> std::result::Result<Deploy, ProofEr
         return Err(ProofError::NotAProgram);
     }
     let slot = u64::from_le_bytes(
-        program.data[0..8]
-            .try_into()
-            .map_err(|_| ProofError::NotAProgram)?,
+        program
+            .data
+            .get(0..8)
+            .and_then(|s| s.try_into().ok())
+            .ok_or(ProofError::NotAProgram)?,
     );
     let other = Pubkey::new_from_array(
-        program.data[8..40]
-            .try_into()
-            .map_err(|_| ProofError::NotAProgram)?,
+        program
+            .data
+            .get(8..40)
+            .and_then(|s| s.try_into().ok())
+            .ok_or(ProofError::NotAProgram)?,
     );
     let status = u64::from_le_bytes(
-        program.data[40..48]
-            .try_into()
-            .map_err(|_| ProofError::NotAProgram)?,
+        program
+            .data
+            .get(40..48)
+            .and_then(|s| s.try_into().ok())
+            .ok_or(ProofError::NotAProgram)?,
     );
     match status {
         1 => Ok(Deploy {
@@ -174,21 +184,24 @@ fn read_v4(game: &Pubkey, program: &View) -> std::result::Result<Deploy, ProofEr
 pub fn trimmed_len(data: &[u8]) -> usize {
     let mut end = data.len();
     while !end.is_multiple_of(8) {
-        if data[end - 1] != 0 {
+        let prev = end.saturating_sub(1);
+        if data.get(prev).copied().unwrap_or(0) != 0 {
             return end;
         }
-        end -= 1;
+        end = prev;
     }
-    for chunk in data[..end].rchunks_exact(8) {
-        let mut word = [0u8; 8];
-        word.copy_from_slice(chunk);
-        if u64::from_le_bytes(word) != 0 {
-            break;
+    if let Some(prefix) = data.get(..end) {
+        for chunk in prefix.rchunks_exact(8) {
+            let mut word = [0u8; 8];
+            word.copy_from_slice(chunk);
+            if u64::from_le_bytes(word) != 0 {
+                break;
+            }
+            end = end.saturating_sub(8);
         }
-        end -= 8;
     }
-    while end > 0 && data[end - 1] == 0 {
-        end -= 1;
+    while end > 0 && data.get(end.saturating_sub(1)).copied() == Some(0) {
+        end = end.saturating_sub(1);
     }
     end
 }
@@ -207,9 +220,10 @@ pub fn code_hash(
     if data.len() > MAX_CODE_BYTES || data.len() < from {
         return Err(ProofError::TooLarge);
     }
-    let code = &data[from..];
+    let code = data.get(from..).ok_or(ProofError::BadProgramData)?;
     let end = trimmed_len(code);
-    Ok(anchor_lang::solana_program::hash::hash(&code[..end]).to_bytes())
+    let trimmed = code.get(..end).ok_or(ProofError::BadProgramData)?;
+    Ok(anchor_lang::solana_program::hash::hash(trimmed).to_bytes())
 }
 
 /// The PDA a program signs with when it can no longer be upgraded.

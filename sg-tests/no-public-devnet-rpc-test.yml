@@ -1,0 +1,11 @@
+id: no-public-devnet-rpc-ts
+valid:
+  - "const rpc = 'https://rpc.magicblock.app/devnet';"
+invalid:
+  - "const rpc = 'https://api.devnet.solana.com';"
+---
+id: no-public-devnet-rpc-tsx
+valid:
+  - "export const Rpc = () => <span>{'https://rpc.magicblock.app/devnet'}</span>;"
+invalid:
+  - "export const Rpc = () => <span>{'https://api.devnet.solana.com'}</span>;"

@@ -22,7 +22,7 @@ pub const MAX_SEATS: u8 = 100;
 /// Fewest seats a many-seat Match departs with.
 pub const MIN_SEATS: u8 = 2;
 pub const SEATS_PER_PAGE: usize = 10;
-pub const MAX_SEAT_PAGES: u8 = MAX_SEATS / SEATS_PER_PAGE as u8;
+pub const MAX_SEAT_PAGES: u8 = MAX_SEATS / 10;
 /// Seats and departure stop this long before the absolute deadline.
 pub const BOARDING_MARGIN_SECS: i64 = MATCH_TIMEOUT_SECS;
 
@@ -205,8 +205,8 @@ impl ManySeatRecord {
 
     /// Usable slots of page `page`: a car of 25 seats has pages of 10, 10 and 5.
     pub fn page_slots(&self, page: u8) -> usize {
-        let start = page as usize * SEATS_PER_PAGE;
-        (self.max_seats as usize)
+        let start = usize::from(page).saturating_mul(SEATS_PER_PAGE);
+        usize::from(self.max_seats)
             .saturating_sub(start)
             .min(SEATS_PER_PAGE)
     }
@@ -227,7 +227,7 @@ impl ManySeatRecord {
         if self.seated >= self.max_seats {
             return Err(SeatError::Full);
         }
-        self.seated += 1;
+        self.seated = self.seated.saturating_add(1);
         if self.seated == self.min_seats {
             self.min_since = now.to_le_bytes();
         }
@@ -278,7 +278,10 @@ impl ManySeatRecord {
 
 /// Index of a seat in its Match.
 pub fn seat_index(page: u8, slot: usize) -> u8 {
-    (page as usize * SEATS_PER_PAGE + slot) as u8
+    let idx = usize::from(page)
+        .saturating_mul(SEATS_PER_PAGE)
+        .saturating_add(slot);
+    u8::try_from(idx).unwrap_or(u8::MAX)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

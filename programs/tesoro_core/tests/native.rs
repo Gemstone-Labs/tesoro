@@ -1766,8 +1766,15 @@ fn op() -> impl Strategy<Value = Op> {
     ]
 }
 
+fn native_proptest_cases() -> u32 {
+    std::env::var("PROPTEST_CASES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(48)
+}
+
 proptest! {
-    #![proptest_config(ProptestConfig { cases: 12, ..ProptestConfig::default() })]
+    #![proptest_config(ProptestConfig { cases: native_proptest_cases(), ..ProptestConfig::default() })]
 
     #[test]
     fn invariants_hold_over_random_sequences(

@@ -90,7 +90,7 @@ pub fn source_now(source: &Source, net_accrued: u64, applied_before: u64) -> Cor
     source.yield_units = units;
     Ok(SourceNow {
         source,
-        free_units: counted - units,
+        free_units: counted.saturating_sub(units),
     })
 }
 

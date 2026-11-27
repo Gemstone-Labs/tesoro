@@ -53,14 +53,14 @@ fn disc_is(info: &AccountInfo, disc: &[u8]) -> bool {
     info.owner == &crate::ID
         && info
             .try_borrow_data()
-            .map(|d| d.len() >= DISC && &d[..DISC] == disc)
+            .map(|d| d.get(..DISC) == Some(disc))
             .unwrap_or(false)
 }
 
 /// The owner key and bump a store keeps in its header.
 fn store_owner(info: &AccountInfo) -> Option<(Key, u8)> {
     let data = info.try_borrow_data().ok()?;
-    let store = LineStore::new(&data[DISC..]).ok()?;
+    let store = LineStore::new(data.get(DISC..)?).ok()?;
     Some((store.account(), store.bump()))
 }
 
@@ -108,7 +108,10 @@ impl<'info> ChainSettlement<'info> {
             let data = info.try_borrow_data()?;
             let (_, kind, id) = crate::instructions::overflow::head_of(&data)
                 .ok_or_else(|| error!(crate::error::MatchError::OverflowRecordInvalid))?;
-            let owner = LineStore::new(&data[OVERFLOW_STORE_AT..])
+            let body = data
+                .get(OVERFLOW_STORE_AT..)
+                .ok_or_else(|| error!(crate::error::MatchError::OverflowRecordInvalid))?;
+            let owner = LineStore::new(body)
                 .map_err(|_| error!(crate::error::MatchError::OverflowRecordInvalid))?
                 .account();
             drop(data);
@@ -192,7 +195,7 @@ impl<'info> ChainSettlement<'info> {
             .map(|(_, _, _, info)| *info)
             .ok_or(full)?;
         if crate::instructions::overflow::put_in_record(record, &mut self.books, line)? {
-            self.overflowed += 1;
+            self.overflowed = self.overflowed.saturating_add(1);
             Ok(Placed::Overflow)
         } else {
             Err(full)
@@ -287,8 +290,10 @@ impl<'info> Settlement for ChainSettlement<'info> {
             .spill
             .try_borrow_mut_data()
             .map_err(|_| LifecycleError::MissingAccount)?;
-        let mut basket = LineStore::new(&mut b[DISC..])?;
-        let mut spill = LineStore::new(&mut s[DISC..])?;
+        let b_body = b.get_mut(DISC..).ok_or(LifecycleError::MissingAccount)?;
+        let s_body = s.get_mut(DISC..).ok_or(LifecycleError::MissingAccount)?;
+        let mut basket = LineStore::new(b_body)?;
+        let mut spill = LineStore::new(s_body)?;
         let mut pool = Pool::new(&mut basket, &mut spill);
         let share = self.holds.iter_mut().find(|(k, _)| k == owner);
         pool.set_hold(share.as_ref().map_or(0, |(_, l)| *l));
@@ -322,10 +327,12 @@ impl<'info> Settlement for ChainSettlement<'info> {
                     return Err(LifecycleError::Inconsistent("not a fee class"));
                 };
                 let blank = SourceBook::blank_line(SIDE_OWN, 0, line.source, class, 0);
-                let mut counter = self
-                    .books
-                    .counter(&line.source, slot as u8)
-                    .unwrap_or(blank);
+                let slot_u8 = u8::try_from(slot).map_err(|_| {
+                    LifecycleError::Draw(DrawError::Book(
+                        crate::ledger::book::BookError::NoSuchClass,
+                    ))
+                })?;
+                let mut counter = self.books.counter(&line.source, slot_u8).unwrap_or(blank);
                 if !counter_line_ok(&line.source, class, &counter) {
                     return Err(LifecycleError::Inconsistent("malformed fee counter"));
                 }
@@ -334,7 +341,7 @@ impl<'info> Settlement for ChainSettlement<'info> {
                     let (book, history) = self.books.book_with_history(&line.source)?;
                     book.transfer(&mut moving, &mut counter, line.amount, &*history)?;
                 }
-                if !self.books.set_counter(&line.source, slot as u8, &counter) {
+                if !self.books.set_counter(&line.source, slot_u8, &counter) {
                     return Err(LifecycleError::Draw(DrawError::Book(
                         crate::ledger::book::BookError::NoSuchClass,
                     )));

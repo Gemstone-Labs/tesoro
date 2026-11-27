@@ -21,7 +21,7 @@
 //!   the caller can make room, and the instruction fails with `SpillFull`, state unchanged.
 
 use crate::books::OnchainBooks;
-use crate::error::{MatchError, TesoroError};
+use crate::error::{BasketError, MatchError, TesoroError};
 use crate::instructions::basket::move_lamports;
 use crate::instructions::economy::{draw_err, with_pool};
 use crate::instructions::ticket::try_hold;
@@ -53,12 +53,14 @@ fn store_err(_: crate::ledger::line_store::LineStoreError) -> Error {
 
 /// The payer, kind and id a record keeps in its head.
 pub(crate) fn head_of(data: &[u8]) -> Option<(Pubkey, u8, [u8; 40])> {
-    if data.len() < OVERFLOW_STORE_AT + HEADER_LEN || data[..DISC] != *OverflowHead::DISCRIMINATOR {
+    if data.len() < OVERFLOW_STORE_AT + HEADER_LEN
+        || data.get(..DISC) != Some(OverflowHead::DISCRIMINATOR)
+    {
         return None;
     }
-    let payer = Pubkey::new_from_array(data[DISC..DISC + 32].try_into().ok()?);
-    let kind = data[DISC + 32];
-    let id: [u8; 40] = data[DISC + 33..DISC + 73].try_into().ok()?;
+    let payer = Pubkey::new_from_array(data.get(DISC..DISC + 32)?.try_into().ok()?);
+    let kind = *data.get(DISC + 32)?;
+    let id: [u8; 40] = data.get(DISC + 33..DISC + 73)?.try_into().ok()?;
     Some((payer, kind, id))
 }
 
@@ -75,8 +77,10 @@ pub(crate) fn check_record(
     let data = info.try_borrow_data()?;
     let (payer, k, i) = head_of(&data).ok_or_else(|| error!(MatchError::OverflowRecordInvalid))?;
     require!(k == kind && i == *id, MatchError::OverflowRecordInvalid);
-    let store = LineStore::new(&data[OVERFLOW_STORE_AT..])
-        .map_err(|_| error!(MatchError::OverflowRecordInvalid))?;
+    let body = data
+        .get(OVERFLOW_STORE_AT..)
+        .ok_or_else(|| error!(MatchError::OverflowRecordInvalid))?;
+    let store = LineStore::new(body).map_err(|_| error!(MatchError::OverflowRecordInvalid))?;
     require!(
         store.account() == owner.to_bytes(),
         MatchError::OverflowRecordInvalid
@@ -151,11 +155,20 @@ fn create_record<'info>(
         &crate::ID,
     )?;
     let mut data = record.try_borrow_mut_data()?;
-    data[..DISC].copy_from_slice(OverflowHead::DISCRIMINATOR);
-    data[DISC..DISC + 32].copy_from_slice(&payer.key.to_bytes());
-    data[DISC + 32] = kind;
-    data[DISC + 33..DISC + 73].copy_from_slice(id);
-    LineStore::init(&mut data[OVERFLOW_STORE_AT..], owner.to_bytes(), bump).map_err(store_err)?;
+    data.get_mut(..DISC)
+        .ok_or(BasketError::BadStore)?
+        .copy_from_slice(OverflowHead::DISCRIMINATOR);
+    data.get_mut(DISC..DISC + 32)
+        .ok_or(BasketError::BadStore)?
+        .copy_from_slice(&payer.key.to_bytes());
+    *data.get_mut(DISC + 32).ok_or(BasketError::BadStore)? = kind;
+    data.get_mut(DISC + 33..DISC + 73)
+        .ok_or(BasketError::BadStore)?
+        .copy_from_slice(id);
+    let body = data
+        .get_mut(OVERFLOW_STORE_AT..)
+        .ok_or(BasketError::BadStore)?;
+    LineStore::init(body, owner.to_bytes(), bump).map_err(store_err)?;
     Ok(())
 }
 
@@ -185,9 +198,8 @@ pub(crate) fn reserve_record<'info>(
     check_record(record, owner, kind, id)?;
     let have = {
         let data = record.try_borrow_data()?;
-        LineStore::new(&data[OVERFLOW_STORE_AT..])
-            .map_err(store_err)?
-            .capacity()
+        let body = data.get(OVERFLOW_STORE_AT..).ok_or(BasketError::BadStore)?;
+        LineStore::new(body).map_err(store_err)?.capacity()
     };
     if have >= lines {
         return Ok(());
@@ -250,7 +262,8 @@ pub(crate) fn cover_room<'info>(
             require!(must_pass != Some(*account), MatchError::StudioStoresMissing);
             continue;
         };
-        let extra = (*want - have) as u32;
+        let extra = u32::try_from(want.saturating_sub(have))
+            .map_err(|_| ProgramError::ArithmeticOverflow)?;
         if try_hold(&basket, &spill, extra)? {
             crate::instructions::matching::add_hold(room, *account, extra)?;
         } else {
@@ -305,7 +318,10 @@ pub(crate) fn put_in_record(
     let mut data = info
         .try_borrow_mut_data()
         .map_err(|_| DrawError::Store(crate::ledger::line_store::LineStoreError::BadStore))?;
-    let mut store = LineStore::new(&mut data[OVERFLOW_STORE_AT..])?;
+    let body = data.get_mut(OVERFLOW_STORE_AT..).ok_or(DrawError::Store(
+        crate::ledger::line_store::LineStoreError::BadStore,
+    ))?;
+    let mut store = LineStore::new(body)?;
     put_line(&mut store, books, line)
 }
 
@@ -388,8 +404,10 @@ pub(crate) fn require_routes_claimed(
         require_keys_eq!(*record.owner, crate::ID, MatchError::OverflowRecordInvalid);
         let data = record.try_borrow_data()?;
         require!(head_of(&data).is_some(), MatchError::OverflowRecordInvalid);
-        let store = LineStore::new(&data[OVERFLOW_STORE_AT..])
-            .map_err(|_| error!(MatchError::OverflowRecordInvalid))?;
+        let body = data
+            .get(OVERFLOW_STORE_AT..)
+            .ok_or_else(|| error!(MatchError::OverflowRecordInvalid))?;
+        let store = LineStore::new(body).map_err(|_| error!(MatchError::OverflowRecordInvalid))?;
         require!(
             !store.lines().any(|l| l.amount > 0),
             MatchError::PoolOverflowUnclaimed
@@ -473,7 +491,10 @@ pub(crate) fn claim_overflow<'info>(
         &ctx.accounts.spill.to_account_info(),
         |pool| {
             let mut data = record.try_borrow_mut_data()?;
-            let mut store = LineStore::new(&mut data[OVERFLOW_STORE_AT..]).map_err(store_err)?;
+            let body = data
+                .get_mut(OVERFLOW_STORE_AT..)
+                .ok_or(BasketError::BadStore)?;
+            let mut store = LineStore::new(body).map_err(store_err)?;
             while moved < max as u32 {
                 let Some(line) = store.get(0) else { break };
                 match pool.put(&mut books, &line) {
@@ -482,9 +503,9 @@ pub(crate) fn claim_overflow<'info>(
                     Err(e) => return Err(draw_err(e)),
                 }
                 store.remove_at(0).map_err(store_err)?;
-                moved += 1;
+                moved = moved.saturating_add(1);
             }
-            Ok(store.len() as u32)
+            Ok(u32::try_from(store.len()).unwrap_or(u32::MAX))
         },
     )?;
     books.flush()?;

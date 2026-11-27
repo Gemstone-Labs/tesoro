@@ -205,10 +205,12 @@ pub(crate) fn check_store(info: &AccountInfo, seed: &[u8], owner: &Pubkey) -> Re
         SpillHead::DISCRIMINATOR
     };
     require!(
-        data.len() >= DISC + crate::ledger::line_store::HEADER_LEN && data[..DISC] == *disc,
+        data.len() >= DISC + crate::ledger::line_store::HEADER_LEN
+            && data.get(..DISC) == Some(disc),
         TesoroError::InvalidAccount
     );
-    let store = crate::ledger::line_store::LineStore::new(&data[DISC..])
+    let body = data.get(DISC..).ok_or(TesoroError::InvalidAccount)?;
+    let store = crate::ledger::line_store::LineStore::new(body)
         .map_err(|_| error!(TesoroError::InvalidAccount))?;
     require!(
         store.account() == owner.to_bytes(),
@@ -330,8 +332,11 @@ pub(crate) fn add_hold(
         .position(|h| h.account == account)
         .or_else(|| room.iter().position(|h| h.account == [0u8; 32]))
         .ok_or_else(|| error!(MatchError::Inconsistent))?;
-    room[at].account = account;
-    room[at].left = room[at]
+    let hold = room
+        .get_mut(at)
+        .ok_or_else(|| error!(MatchError::Inconsistent))?;
+    hold.account = account;
+    hold.left = hold
         .left
         .checked_add(slots)
         .ok_or(ProgramError::ArithmeticOverflow)?;
@@ -531,7 +536,10 @@ pub(crate) fn open_match<'info>(
             MatchError::TooManyOpenMatches
         );
         counters.next_match = n.checked_add(1).ok_or(ProgramError::ArithmeticOverflow)?;
-        counters.open_matches += 1;
+        counters.open_matches = counters
+            .open_matches
+            .checked_add(1)
+            .ok_or(MatchError::TooManyOpenMatches)?;
     }
     let backed = ctx.accounts.offer.is_some();
     let mut books = OnchainBooks::load(ctx.remaining_accounts)?;
@@ -861,7 +869,10 @@ pub(crate) fn join_match<'info>(
             counters.open_matches < MAX_OPEN_MATCHES,
             MatchError::TooManyOpenMatches
         );
-        counters.open_matches += 1;
+        counters.open_matches = counters
+            .open_matches
+            .checked_add(1)
+            .ok_or(MatchError::TooManyOpenMatches)?;
     }
     // the opener's stores, to hold the room the joiner's lines can need
     let opener_stores = [
@@ -1397,7 +1408,12 @@ fn encode_line_batch(
         MatchError::Inconsistent
     );
     let mut data = Vec::with_capacity(
-        79 + report.lines.len() * std::mem::size_of::<lifecycle::SettlementLine>(),
+        79usize.saturating_add(
+            report
+                .lines
+                .len()
+                .saturating_mul(std::mem::size_of::<lifecycle::SettlementLine>()),
+        ),
     );
     let step = if report.lines.is_empty() {
         0
@@ -1423,7 +1439,10 @@ fn encode_line_batch(
     require_eq!(data.len(), 79, MatchError::Inconsistent);
     // The Pod derive rejects padding; its byte-for-byte Borsh equivalence is tested.
     // Fill the vector length and copy the already canonical records in one operation.
-    data[75..79].copy_from_slice(&(report.lines.len() as u32).to_le_bytes());
+    let line_count = u32::try_from(report.lines.len()).map_err(|_| MatchError::Inconsistent)?;
+    data.get_mut(75..79)
+        .ok_or(MatchError::Inconsistent)?
+        .copy_from_slice(&line_count.to_le_bytes());
     data.extend_from_slice(bytemuck::cast_slice(&report.lines));
     Ok(data)
 }
@@ -1601,7 +1620,7 @@ pub(crate) fn close_match<'info>(
         }
         let (is_spill, is_counters) = {
             let data = info.try_borrow_data()?;
-            let has = |d: &[u8]| data.len() >= DISC && data[..DISC] == *d;
+            let has = |d: &[u8]| data.get(..DISC) == Some(d);
             (
                 has(<SpillHead as anchor_lang::Discriminator>::DISCRIMINATOR),
                 has(<AccountCounters as anchor_lang::Discriminator>::DISCRIMINATOR),
@@ -1610,13 +1629,15 @@ pub(crate) fn close_match<'info>(
         if is_spill {
             let owner = {
                 let d = info.try_borrow_data()?;
-                crate::ledger::line_store::LineStore::new(&d[DISC..])
+                let body = d.get(DISC..).ok_or(TesoroError::InvalidAccount)?;
+                crate::ledger::line_store::LineStore::new(body)
                     .map_err(|_| error!(TesoroError::InvalidAccount))?
                     .account()
             };
             check_store(info, SPILL_SEED, &Pubkey::new_from_array(owner))?;
             if let Some(at) = owed.iter().position(|h| h.account == owner) {
-                release_room(info, owed[at].left)?;
+                let left = owed.get(at).ok_or(MatchError::Inconsistent)?.left;
+                release_room(info, left)?;
                 owed.remove(at);
             }
         } else if is_counters {
@@ -1637,8 +1658,14 @@ pub(crate) fn close_match<'info>(
                         None => {
                             let mut d = info.try_borrow_mut_data()?;
                             let at = 8 + 1 + 8;
-                            let open = u32::from_le_bytes(d[at..at + 4].try_into().unwrap());
-                            d[at..at + 4].copy_from_slice(&open.saturating_sub(1).to_le_bytes());
+                            let bytes: [u8; 4] = d
+                                .get(at..at + 4)
+                                .and_then(|s| s.try_into().ok())
+                                .ok_or(TesoroError::InvalidAccount)?;
+                            let open = u32::from_le_bytes(bytes);
+                            d.get_mut(at..at + 4)
+                                .ok_or(TesoroError::InvalidAccount)?
+                                .copy_from_slice(&open.saturating_sub(1).to_le_bytes());
                         }
                     }
                     counted.push(*player);

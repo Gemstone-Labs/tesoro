@@ -1,0 +1,23 @@
+id: no-eval-or-new-function-ts
+language: typescript
+severity: error
+message: "Never use eval() or new Function() in application or keeper code."
+files:
+  - app/src/**/*.ts
+  - keeper/src/**/*.ts
+rule:
+  any:
+    - pattern: eval($$$)
+    - pattern: new Function($$$)
+---
+id: no-eval-or-new-function-tsx
+language: tsx
+severity: error
+message: "Never use eval() or new Function() in application or keeper code."
+files:
+  - app/src/**/*.tsx
+  - keeper/src/**/*.tsx
+rule:
+  any:
+    - pattern: eval($$$)
+    - pattern: new Function($$$)

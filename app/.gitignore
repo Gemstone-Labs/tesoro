@@ -12,6 +12,7 @@
 
 # testing
 /coverage
+/bombadil/*.bin
 
 # next.js
 /.next/

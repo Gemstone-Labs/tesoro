@@ -1,0 +1,11 @@
+id: no-hardcoded-mainnet-rpc-ts
+valid:
+  - "const rpc = process.env.SOLANA_RPC_URL ?? 'https://rpc.magicblock.app/devnet';"
+invalid:
+  - "const rpc = 'https://api.mainnet-beta.solana.com';"
+---
+id: no-hardcoded-mainnet-rpc-tsx
+valid:
+  - "export const Rpc = () => <span>{'https://rpc.magicblock.app/devnet'}</span>;"
+invalid:
+  - "export const Rpc = () => <span>{'https://api.mainnet-beta.solana.com'}</span>;"

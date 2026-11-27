@@ -204,7 +204,10 @@ impl Protections {
         if days == 0 || days > BREAK_MAX_DAYS {
             return Err(CoreError::InvalidBreak);
         }
-        self.break_until = Self::lengthen(self.break_until, now, i64::from(days) * DAY_SECS)?;
+        let span = i64::from(days)
+            .checked_mul(DAY_SECS)
+            .ok_or(CoreError::Math)?;
+        self.break_until = Self::lengthen(self.break_until, now, span)?;
         Ok(())
     }
 
@@ -213,11 +216,10 @@ impl Protections {
         if !(SELF_EXCLUSION_MIN_MONTHS..=SELF_EXCLUSION_MAX_MONTHS).contains(&months) {
             return Err(CoreError::InvalidSelfExclusion);
         }
-        self.self_exclusion_until = Self::lengthen(
-            self.self_exclusion_until,
-            now,
-            i64::from(months) * MONTH_SECS,
-        )?;
+        let span = i64::from(months)
+            .checked_mul(MONTH_SECS)
+            .ok_or(CoreError::Math)?;
+        self.self_exclusion_until = Self::lengthen(self.self_exclusion_until, now, span)?;
         Ok(())
     }
 }

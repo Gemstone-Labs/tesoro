@@ -1,0 +1,11 @@
+id: no-math-random-deterministic-ts
+valid:
+  - "const bytes = crypto.getRandomValues(new Uint8Array(8));"
+invalid:
+  - "const roll = Math.random();"
+---
+id: no-math-random-deterministic-tsx
+valid:
+  - "export const Rng = () => <span>{crypto.randomUUID()}</span>;"
+invalid:
+  - "export const BadRng = () => <span>{Math.random()}</span>;"

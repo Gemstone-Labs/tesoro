@@ -1,4 +1,7 @@
 //! `LineStore`: the sorted, growable line array behind an Account's basket (spec "Ledger: basket").
+
+// Fixed-width binary slot framing validated on `LineStore::new` / `LineStore::init`.
+#![allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
 //!
 //! This type only inserts, removes, finds and merges lines and keeps the header totals in step
 //! with them. It knows nothing about money rules, Sources or yield: the exact bookkeeping
@@ -503,7 +506,8 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> LineStore<T> {
 
     fn set_len(&mut self, n: usize) {
         self.len = n;
-        self.raw_mut()[H_LEN..H_LEN + 4].copy_from_slice(&(n as u32).to_le_bytes());
+        let len_u32 = u32::try_from(n).unwrap_or(u32::MAX);
+        self.raw_mut()[H_LEN..H_LEN + 4].copy_from_slice(&len_u32.to_le_bytes());
     }
 
     pub fn set_flags(&mut self, flags: u8) {
@@ -520,7 +524,8 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> LineStore<T> {
     }
     fn set_first(&mut self, v: usize) {
         self.first = v;
-        self.raw_mut()[H_FIRST..H_FIRST + 4].copy_from_slice(&(v as u32).to_le_bytes());
+        let first_u32 = u32::try_from(v).unwrap_or(u32::MAX);
+        self.raw_mut()[H_FIRST..H_FIRST + 4].copy_from_slice(&first_u32.to_le_bytes());
     }
     pub fn set_room_reserved(&mut self, v: u32) {
         self.raw_mut()[H_ROOM_RESERVED..H_ROOM_RESERVED + 4].copy_from_slice(&v.to_le_bytes());

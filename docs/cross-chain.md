@@ -153,7 +153,7 @@ Ethereum (wstETH) and HyperEVM (kHYPE) run the same `PositionVaultOApp` as the t
 
 **After each deploy** (orchestrator): `setPeer(30168, <Store PDA>)` from the owner, wire the pathway (`pnpm lz-mainnet`, below), register the vault with `set_peer_config` (eid 30101 / 30367, decimals 18, `rate_bps` = the APY Advances on this vault are sized on), deploy the zap, set the app env.
 
-**Wire sizes:** `PositionLocked` 126, `YieldAccrued` 101 (`cumulative u128 | treasuryBalance u128 | instantPaid u128 | reportTime u64`), `Unlock` 61, `PayYield`/`PayInstant` 93 inbound. The pathway's executor accepts messages up to 200 B and the enforced Solana-to-EVM gas is 250,000; the heaviest `lzReceive` (PayYield) uses well under 150,000 (`MainnetReceiveGasTest`). Vault-to-Solana options are `lzReceive` with 200,000 compute units (`setSolanaReceiveCu`).
+**Wire sizes:** `PositionLocked` 126, `YieldAccrued` 101 (`cumulative u128 | treasuryBalance u128 | instantPaid u128 | reportTime u64`), `Unlock` 61, `PayYield`/`PayInstant` 93 inbound. The EVM executor cap and the enforced Solana-to-EVM gas come from `bridge/evm-receive.json` (`maxMessageBytes` 256, `receiveGas` 2,000,000), which `lz-mainnet.ts` wires and `contracts/test/MainnetReceiveGas.t.sol` asserts against: every inbound kind must use at most 85% of the gas, and the largest message the vault sends (the 206 B result of an 8-entry batch) must fit the cap. Measured with each call in its own transaction on a mock endpoint, wstETH or kHYPE adapter: Unlock 218,724; PayYield 237,888 (fee, pool, new recipient); PayInstant 186,278; PayPrize 222,111; an 8-entry batch 1,390,814 (wallet) and 1,425,270 (escrow, first escrow write). The real endpoint's acknowledgement send and the real wstETH and kHYPE transfers are not yet measured. Testnet peers stay at 1,500,000 (`bridge/scripts/lz.ts`); mainnet is wired at 2,000,000. Vault-to-Solana options are `lzReceive` with 200,000 compute units (`setSolanaReceiveCu`).
 
 **APY on the form.** A real-token vault has no APY of its own. The open form shows the `rate_bps` of the vault's `PeerConfig` in `tesoro_bridge` (read by `fetchPeerRateBps`), because that is what `apply_locked` hands to tesoro_core to size every Advance on it; "APY —" and no Advance while the peer is missing or the rate is 0. Ops pick `rate_bps` from the adapter's recent growth: `growth = rate(now) / rate(7 days ago) - 1`, annualised (`cast call <adapter> "underlyingPerShare()(uint256)" --block <n>` on an archive RPC, then `growth x 365 / 7 x 10,000`), and update it with `set_peer_config` when it drifts; the Position keeps the rate it opened with.
 
@@ -222,9 +222,9 @@ The list of production DVNs that exist on all three chains has 20 entries (the m
 | Confirmations Solana -> Ethereum | 32 (Solana send config, mirrored on the Ethereum receive config) | LayerZero's default, read on both sides. |
 | Confirmations HyperEVM -> Solana | 1 (HyperEVM send, Solana receive) | LayerZero's default for 30367 (HyperEVM's consensus finalises per block; not independently checked). Raise with `--send-confirmations` if the founders want a margin. |
 | Confirmations Solana -> HyperEVM | 32 | LayerZero's default. |
-| Executor | The default executor of each chain, max message size 200 B (EVM send) and 10,000 B (Solana send) | Same as the defaults. Our largest message is 126 B (`PositionLocked`). |
+| Executor | The default executor of each chain, max message size 200 B (EVM send) and 10,000 B (Solana send) | Solana send as the default. EVM send raised to 256 B (`bridge/evm-receive.json`), because the acknowledgement of an 8-entry batch is 206 B. |
 | EVM -> Solana receive gas | Set by the vault per message: `solanaReceiveCu` = 200,000 compute units, native drop 0 (`PositionVaultOApp._options`) | Same as testnet. Observed use was about 57,000. The executor caps the native drop to Solana at 0, so rent is paid by `init_position` beforehand (see "Flow and who pays"). |
-| Solana -> EVM receive gas | Enforced options in `PeerConfig`: type-3 `lzReceive` gas 250,000, value 0 (`--evm-receive-gas`) | Same as the testnet default in `bridge/scripts/lz.ts` (`0x0003010011010000000000000000000000000003d090` on the live devnet peers). |
+| Solana -> EVM receive gas | Enforced options in `PeerConfig`: type-3 `lzReceive` gas, value 0 (`--evm-receive-gas`) | Mainnet: 2,000,000 (`receiveGas` in `bridge/evm-receive.json`, `0x000301001101000000000000000000000000001e8480`), one value for every message kind. Testnet: 1,500,000 (`bridge/scripts/lz.ts`, live devnet peers). |
 
 **Trade-off to decide:** LayerZero's own defaults on all three mainnet pathways are 4 required DVNs (LayerZero Labs, Nethermind, Canary, Horizen), read on chain on 2026-10-15. Two required is faster and has fewer liveness dependencies, but a forged message needs only two DVNs to collude or be compromised instead of four. A message mints Gemas against a Position, so the founders should decide whether 2, 3 (`--dvns layerzero-labs,nethermind,canary`) or the default 4 fits. The script takes any subset of the four listed; the verify step checks exactly the set given.
 
@@ -245,7 +245,7 @@ DVNs      layerzero-labs + nethermind (all required, none optional)   confirmati
 == SOLANA (signed by the delegate key until set_admin moves it to the multisig)
 S1. tesoro_bridge init_store (once for the whole bridge, skip on the second pathway)
 S2. tesoro_bridge set_peer_config eid 30101
-    vault 0x1111...1111, decimals 18, rate 300 bps, enforced send options type-3 lzReceive gas 250000 (0x0003010011010000000000000000000000000003d090); also creates VaultTreasury 6gJxmie4naZykwGETsHkjtNNcVHW7PHHTMAw8qKRYMYV
+    vault 0x1111...1111, decimals 18, rate 300 bps, enforced send options type-3 lzReceive gas 2000000 (0x000301001101000000000000000000000000001e8480); also creates VaultTreasury 6gJxmie4naZykwGETsHkjtNNcVHW7PHHTMAw8qKRYMYV and VaultRoute 3dqMHaCxmwDfeq7DDUFNDw67XE8ViNkYcgP8iwxDbAgv
 S3. endpoint pathway init (nonce, send library, receive library) for eid 30101
 S4. ULN config init for eid 30101
 S5. pin send and receive library to ULN 302 for eid 30101
@@ -258,7 +258,7 @@ E1. vault setPeer(30168, Store PDA)
 E2. endpoint setSendLibrary(vault, 30168, SendUln302)      0x1a44...E728c <- 0xbB2Ea70C...dCe1
 E3. endpoint setReceiveLibrary(vault, 30168, ReceiveUln302, grace 0)   <- 0xc02Ab410...24C2
 E4. endpoint setConfig on SendUln302: executor + send ULN
-    executor 0x1732...3059 max 200 B; DVNs layerzero-labs + nethermind; confirmations 15 (Ethereum -> Solana)
+    executor 0x1732...3059 max 256 B; DVNs layerzero-labs + nethermind; confirmations 15 (Ethereum -> Solana)
 E5. endpoint setConfig on ReceiveUln302: receive ULN
     DVNs layerzero-labs + nethermind; confirmations 32 (Solana -> Ethereum)
 ```

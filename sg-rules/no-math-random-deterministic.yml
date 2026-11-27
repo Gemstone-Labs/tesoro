@@ -1,0 +1,22 @@
+id: no-math-random-deterministic-ts
+language: typescript
+severity: error
+message: "Do not use Math.random() in deterministic game engines, chain clients, server settlement routes, or keeper cranks. Use crypto.getRandomValues / VRF / deterministic PRNG."
+files:
+  - app/src/games/*/engine.ts
+  - app/src/games/*/grid.ts
+  - app/src/games/*/chain.ts
+  - app/src/server/**/*.ts
+  - keeper/src/**/*.ts
+rule:
+  pattern: Math.random()
+---
+id: no-math-random-deterministic-tsx
+language: tsx
+severity: error
+message: "Do not use Math.random() in server settlement routes or keeper cranks. Use crypto.getRandomValues / VRF / deterministic PRNG."
+files:
+  - app/src/server/**/*.tsx
+  - keeper/src/**/*.tsx
+rule:
+  pattern: Math.random()

@@ -95,14 +95,17 @@ pub fn derive_seed(ctx: &HandContext, c: &Contributions) -> [u8; 32] {
 pub fn draw_hand(seed: &[u8; 32]) -> [u8; USED_CARDS] {
     let mut deck = [0u8; DECK_SIZE];
     for (i, card) in deck.iter_mut().enumerate() {
-        *card = i as u8;
+        *card = u8::try_from(i).unwrap_or(0);
     }
     for k in 0..USED_CARDS {
-        let digest = hashv(&[DOMAIN, b"draw", seed, &[k as u8]]).to_bytes();
+        let k_u8 = u8::try_from(k).unwrap_or(0);
+        let digest = hashv(&[DOMAIN, b"draw", seed, &[k_u8]]).to_bytes();
         let mut word = [0u8; 8];
         word.copy_from_slice(&digest[..8]);
-        let span = (DECK_SIZE - k) as u64;
-        let j = k + (u64::from_le_bytes(word) % span) as usize;
+        let span = u64::try_from(DECK_SIZE.saturating_sub(k)).unwrap_or(1);
+        let step =
+            usize::try_from(u64::from_le_bytes(word).checked_rem(span).unwrap_or(0)).unwrap_or(0);
+        let j = k.saturating_add(step);
         deck.swap(k, j);
     }
     let mut out = [0u8; USED_CARDS];
@@ -123,9 +126,14 @@ pub fn split_hand(nine: &[u8; USED_CARDS]) -> ([[u8; 2]; 2], [u8; 5]) {
 pub fn board_shares(seed: &[u8; 32], board: &[u8; 5]) -> [[u8; 5]; 2] {
     let pad = hashv(&[DOMAIN, b"share", seed]).to_bytes();
     let mut shares = [[0u8; 5]; 2];
-    for k in 0..5 {
-        shares[0][k] = pad[k];
-        shares[1][k] = board[k] ^ pad[k];
+    let [s0_arr, s1_arr] = &mut shares;
+    for ((s0, s1), (&b, &p)) in s0_arr
+        .iter_mut()
+        .zip(s1_arr.iter_mut())
+        .zip(board.iter().zip(pad.iter()))
+    {
+        *s0 = p;
+        *s1 = b ^ p;
     }
     shares
 }
@@ -133,8 +141,8 @@ pub fn board_shares(seed: &[u8; 32], board: &[u8; 5]) -> [[u8; 5]; 2] {
 /// The board from the two seats' shares.
 pub fn combine_shares(shares: &[[u8; 5]; 2]) -> [u8; 5] {
     let mut board = [0u8; 5];
-    for (k, card) in board.iter_mut().enumerate() {
-        *card = shares[0][k] ^ shares[1][k];
+    for (card, (&a, &b)) in board.iter_mut().zip(shares[0].iter().zip(shares[1].iter())) {
+        *card = a ^ b;
     }
     board
 }

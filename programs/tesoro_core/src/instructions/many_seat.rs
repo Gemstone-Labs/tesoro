@@ -144,20 +144,22 @@ fn close_to(info: &AccountInfo, to: &AccountInfo) -> Result<()> {
 fn page_in<'d>(info: &AccountInfo, data: &'d mut [u8]) -> Result<&'d mut SeatPage> {
     require_keys_eq!(*info.owner, crate::ID, ManySeatError::WrongSeat);
     require!(
-        data.len() == SeatPage::SPACE && data[..DISC] == *SeatPage::DISCRIMINATOR,
+        data.len() == SeatPage::SPACE && data.get(..DISC) == Some(SeatPage::DISCRIMINATOR),
         ManySeatError::WrongSeat
     );
-    Ok(bytemuck::from_bytes_mut(&mut data[DISC..]))
+    let body = data.get_mut(DISC..).ok_or(ManySeatError::WrongSeat)?;
+    Ok(bytemuck::from_bytes_mut(body))
 }
 
 /// The seat mark in `info`'s data: this program's, of a seat mark's size and discriminator.
 fn mark_in<'d>(info: &AccountInfo, data: &'d [u8]) -> Result<&'d SeatMark> {
     require_keys_eq!(*info.owner, crate::ID, ManySeatError::WrongSeat);
     require!(
-        data.len() == SeatMark::SPACE && data[..DISC] == *SeatMark::DISCRIMINATOR,
+        data.len() == SeatMark::SPACE && data.get(..DISC) == Some(SeatMark::DISCRIMINATOR),
         ManySeatError::WrongSeat
     );
-    Ok(bytemuck::from_bytes(&data[DISC..]))
+    let body = data.get(DISC..).ok_or(ManySeatError::WrongSeat)?;
+    Ok(bytemuck::from_bytes(body))
 }
 
 /// The Match id behind a seed (`MatchId::seed`).
@@ -429,7 +431,11 @@ pub(crate) fn join_many_seat_match<'info>(
                 page == state.inner.pages && slots > 0,
                 ManySeatError::BadPage
             );
-            state.inner.pages += 1;
+            state.inner.pages = state
+                .inner
+                .pages
+                .checked_add(1)
+                .ok_or(ManySeatError::BadPage)?;
         }
         let bump = [ctx.bumps.seat_page];
         create_pda(
@@ -440,8 +446,13 @@ pub(crate) fn join_many_seat_match<'info>(
             SeatPage::SPACE,
         )?;
         let mut data = page_info.try_borrow_mut_data()?;
-        data[..DISC].copy_from_slice(SeatPage::DISCRIMINATOR);
-        let p: &mut SeatPage = bytemuck::from_bytes_mut(&mut data[DISC..SeatPage::SPACE]);
+        data.get_mut(..DISC)
+            .ok_or(ManySeatError::WrongSeat)?
+            .copy_from_slice(SeatPage::DISCRIMINATOR);
+        let body = data
+            .get_mut(DISC..SeatPage::SPACE)
+            .ok_or(ManySeatError::WrongSeat)?;
+        let p: &mut SeatPage = bytemuck::from_bytes_mut(body);
         p.match_key = match_key.to_bytes();
         p.payer = payer.key.to_bytes();
         p.bump = ctx.bumps.seat_page;
@@ -454,7 +465,9 @@ pub(crate) fn join_many_seat_match<'info>(
             p.match_key == match_key.to_bytes(),
             ManySeatError::WrongSeat
         );
-        p.seats[..slots]
+        p.seats
+            .get(..slots)
+            .ok_or(ManySeatError::PageFull)?
             .iter()
             .position(|s| s.state() == SeatState::Empty)
             .ok_or_else(|| error!(ManySeatError::PageFull))?
@@ -472,7 +485,10 @@ pub(crate) fn join_many_seat_match<'info>(
             counters.open_matches < MAX_OPEN_MATCHES,
             MatchError::TooManyOpenMatches
         );
-        counters.open_matches += 1;
+        counters.open_matches = counters
+            .open_matches
+            .checked_add(1)
+            .ok_or(MatchError::TooManyOpenMatches)?;
     }
 
     // the entry
@@ -517,15 +533,18 @@ pub(crate) fn join_many_seat_match<'info>(
     {
         let mut data = page_info.try_borrow_mut_data()?;
         let p = page_in(&page_info, &mut data)?;
-        p.seats[slot].fill(&SeatFill {
-            player: player.to_bytes(),
-            funder: player.to_bytes(),
-            share_bps: 0,
-            pot: pot_info.key.to_bytes(),
-            pot_lines: lines,
-            hold,
-            counted: counted.map(|period| (entry, period)),
-        });
+        p.seats
+            .get_mut(slot)
+            .ok_or(ManySeatError::WrongSeat)?
+            .fill(&SeatFill {
+                player: player.to_bytes(),
+                funder: player.to_bytes(),
+                share_bps: 0,
+                pot: pot_info.key.to_bytes(),
+                pot_lines: lines,
+                hold,
+                counted: counted.map(|period| (entry, period)),
+            });
     }
 
     let mark_bump = [ctx.bumps.seat_mark];
@@ -538,8 +557,13 @@ pub(crate) fn join_many_seat_match<'info>(
     )?;
     {
         let mut data = mark_info.try_borrow_mut_data()?;
-        data[..DISC].copy_from_slice(SeatMark::DISCRIMINATOR);
-        let mark: &mut SeatMark = bytemuck::from_bytes_mut(&mut data[DISC..SeatMark::SPACE]);
+        data.get_mut(..DISC)
+            .ok_or(ManySeatError::WrongSeat)?
+            .copy_from_slice(SeatMark::DISCRIMINATOR);
+        let body = data
+            .get_mut(DISC..SeatMark::SPACE)
+            .ok_or(ManySeatError::WrongSeat)?;
+        let mark: &mut SeatMark = bytemuck::from_bytes_mut(body);
         mark.bump = ctx.bumps.seat_mark;
         mark.seat = seat;
         mark.match_key = match_key.to_bytes();
@@ -609,7 +633,7 @@ fn return_lines<'info>(
             }
             pot.pop_last()
                 .map_err(|e| lc_err(LifecycleError::Draw(e)))?;
-            moved += 1;
+            moved = moved.saturating_add(1);
         }
         mark.set_hold(settlement.hold_of(&funder).unwrap_or(0));
         settlement.finish()?;
@@ -664,7 +688,7 @@ pub struct StepOffManySeatMatch<'info> {
         seeds = [
             SEAT_PAGE_SEED,
             match_state.key().as_ref(),
-            &[seat / SEATS_PER_PAGE as u8]
+            &[seat / 10]
         ],
         bump = seat_page.load()?.bump
     )]
@@ -722,7 +746,7 @@ pub(crate) fn step_off_many_seat_match<'info>(
             p.match_key == match_key.to_bytes(),
             ManySeatError::WrongSeat
         );
-        p.seats[slot]
+        *p.seats.get(slot).ok_or(ManySeatError::WrongSeat)?
     };
     let mut mark = *ctx.accounts.seat_mark.load()?;
     require!(
@@ -778,7 +802,13 @@ pub(crate) fn step_off_many_seat_match<'info>(
             period,
         )?;
     }
-    ctx.accounts.seat_page.load_mut()?.seats[slot].clear();
+    ctx.accounts
+        .seat_page
+        .load_mut()?
+        .seats
+        .get_mut(slot)
+        .ok_or(ManySeatError::WrongSeat)?
+        .clear();
     mark.returning = 1;
     mark.match_seed = rec.id().seed();
     mark.funder = s.funder();
@@ -960,9 +990,15 @@ pub(crate) fn close_many_seat_match<'info>(
         state.inner.pages as usize
     };
     let infos = ctx.remaining_accounts;
-    require!(infos.len() == 2 * pages, ManySeatError::PagesMissing);
+    require!(
+        infos.len() == pages.saturating_mul(2),
+        ManySeatError::PagesMissing
+    );
     for (i, pair) in infos.chunks_exact(2).enumerate() {
-        let (page, payer) = (&pair[0], &pair[1]);
+        let (page, payer) = match pair {
+            [page, payer] => (page, payer),
+            _ => return err!(ManySeatError::PagesMissing),
+        };
         let loader = AccountLoader::<SeatPage>::try_from(page)?;
         let expected = {
             let p = loader.load()?;

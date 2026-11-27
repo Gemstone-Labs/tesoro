@@ -242,7 +242,7 @@ contract PrizeModule is PositionVaultBase {
 
         (address to, bool toOk) = _wallet(recipient);
         bool wallet = kind != KIND_LEADERBOARD;
-        uint256 paidNow;
+        uint256 paidNow = 0;
         bool complete = true;
         for (uint256 i; i < b.entries.length; i++) {
             BatchEntry storage e = b.entries[i];
@@ -265,6 +265,7 @@ contract PrizeModule is PositionVaultBase {
             paid = x;
             e.paid += uint128(x);
         }
+        // slither-disable-next-line reentrancy-no-eth -- invoked only via receiveWire from LayerZero endpoint; updates residual reservation after payout
         _holdBack(e, pid, others);
     }
 
@@ -341,24 +342,27 @@ contract PrizeModule is PositionVaultBase {
         r.digest = digest;
         r.shares = uint128(shares);
         (address to, bool toOk) = _wallet(recipient);
-        string memory why;
+        string memory why = "";
         if (shares == 0 || shares > type(uint128).max) why = "zero or oversize shares";
         else if (asset != bytes32(uint256(uint160(address(lst))))) why = "wrong asset";
         else if (!toOk || to == address(this)) why = "bad recipient";
         else if (shares > escrowShares) why = "escrow short";
         if (bytes(why).length == 0) {
+            r.status = PRIZE_PAID;
             escrowShares -= shares;
             if (_real()) treasuryShares -= shares;
             if (_payPrizeOut(payoutId, to, shares, deliveryFee)) {
-                r.status = PRIZE_PAID;
                 emit PrizePaid(payoutId, to, shares);
             } else {
+                // slither-disable-next-line reentrancy-no-eth -- status already locked to PRIZE_PAID before transfer; rollback on failure
+                r.status = 0;
                 escrowShares += shares;
                 if (_real()) treasuryShares += shares;
                 why = "transfer failed";
             }
         }
         if (r.status == 0) {
+            // slither-disable-next-line reentrancy-no-eth -- only reached when _payPrizeOut was skipped or failed after status lock
             r.status = PRIZE_REJECTED;
             emit PrizeRejected(payoutId, why);
         }

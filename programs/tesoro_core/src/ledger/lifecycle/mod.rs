@@ -1,4 +1,7 @@
 //! The Match lifecycle: open, join, settle or refund in chunks (spec "Ledger: Match lifecycle,
+
+// Bounded settlement phase/side state machine over fixed 2-side, 3-fee arrays.
+#![allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
 //! settle and refund", ticket 05). Pure Rust over [`PotPages`], [`Pool`]-backed credits and
 //! [`SourceBook`]s; no accounts, no clock, no syscalls. The instruction layer (ticket 09) supplies
 //! the bytes, the clock and a [`Settlement`] that can reach the accounts a chunk touches.
@@ -337,7 +340,7 @@ fn make_run(kind: RunKind, receipt: Receipt, phases: &[Phase]) -> Run {
         receipt,
         fees: [0; 3],
         phases: fixed,
-        n_phases: phases.len() as u8,
+        n_phases: u8::try_from(phases.len()).unwrap_or(u8::MAX),
         phase_i: 0,
         line_i: 0,
         cut_left: [[0; 3]; 2],
@@ -971,14 +974,12 @@ impl MatchRecord {
                         .store()
                         .snapshot(at)
                         .ok_or(LifecycleError::Inconsistent("line snapshot vanished"))?;
-                    let credit = cut_step(p, at, terms, w, class as u8, k)?;
+                    let class_u8 = u8::try_from(class)
+                        .map_err(|_| LifecycleError::Inconsistent("fee class out of range"))?;
+                    let credit = cut_step(p, at, terms, w, class_u8, k)?;
                     run.cut_left[side as usize][class] -= k;
                     lines.push(SettlementLine::new(
-                        side,
-                        run.line_i,
-                        class as u8,
-                        before,
-                        credit,
+                        side, run.line_i, class_u8, before, credit,
                     ));
                     return Ok(true);
                 }

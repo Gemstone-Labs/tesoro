@@ -109,8 +109,10 @@ pub fn studio_exemption_safe(
     leaderboard_bps: u16,
     max_studio_bps: u16,
 ) -> bool {
-    u128::from(yield_fee_bps) * u128::from(max_studio_bps)
-        <= (u128::from(platform_bps) + u128::from(leaderboard_bps)) * BPS
+    u128::from(yield_fee_bps).saturating_mul(u128::from(max_studio_bps))
+        <= u128::from(platform_bps)
+            .saturating_add(u128::from(leaderboard_bps))
+            .saturating_mul(BPS)
 }
 
 #[cfg(test)]

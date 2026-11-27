@@ -1,3 +1,6 @@
+// Anchor 0.31 #[program] expands AccountInfo::realloc (deprecated in solana-account-info 2.3+).
+#![allow(deprecated)]
+
 //! Trading Duel: a head-to-head price grid on a live oracle price, as a Tesoro Game.
 //!
 //! One Match is 2.5 minutes on one asset (SOL, ETH or HYPE). The grid has 12 columns of 10 seconds
@@ -224,14 +227,33 @@ pub fn read_price(feed: &AccountInfo, asset: u8, now: i64) -> Result<u64> {
     require!(feed.owner == &PRICE_PROGRAM, DuelError::BadPriceFeed);
     let data = feed.try_borrow_data()?;
     require!(data.len() >= 101, DuelError::BadPrice);
-    require!(&data[41..73] == feed.key.as_ref(), DuelError::BadPriceFeed);
-    let price = i64::from_le_bytes(data[73..81].try_into().map_err(|_| DuelError::BadPrice)?);
-    let conf = u64::from_le_bytes(data[81..89].try_into().map_err(|_| DuelError::BadPrice)?);
-    let exponent = i32::from_le_bytes(data[89..93].try_into().map_err(|_| DuelError::BadPrice)?);
-    let published = i64::from_le_bytes(data[93..101].try_into().map_err(|_| DuelError::BadPrice)?);
+    require!(
+        data.get(41..73) == Some(feed.key.as_ref()),
+        DuelError::BadPriceFeed
+    );
+    let price = i64::from_le_bytes(
+        data.get(73..81)
+            .and_then(|s| s.try_into().ok())
+            .ok_or(DuelError::BadPrice)?,
+    );
+    let conf = u64::from_le_bytes(
+        data.get(81..89)
+            .and_then(|s| s.try_into().ok())
+            .ok_or(DuelError::BadPrice)?,
+    );
+    let exponent = i32::from_le_bytes(
+        data.get(89..93)
+            .and_then(|s| s.try_into().ok())
+            .ok_or(DuelError::BadPrice)?,
+    );
+    let published = i64::from_le_bytes(
+        data.get(93..101)
+            .and_then(|s| s.try_into().ok())
+            .ok_or(DuelError::BadPrice)?,
+    );
     require!(exponent == 8 || exponent == -8, DuelError::BadPrice);
     require!(price > 0, DuelError::BadPrice);
-    let price = price as u64;
+    let price = u64::try_from(price).map_err(|_| DuelError::BadPrice)?;
     // A confidence interval wider than 1% of the price is not a price to trade on.
     require!(
         conf.checked_mul(100).ok_or(DuelError::Overflow)? <= price,
@@ -257,15 +279,17 @@ fn require_grid(table: &Table, now: i64) -> Result<i64> {
         now >= table.starts_at && now < table.ends_at,
         DuelError::GridClosed
     );
-    Ok(now - table.starts_at)
+    Ok(now.saturating_sub(table.starts_at))
 }
 
 /// Copies the picks of every locked column from both Books into the public Table.
 fn reveal(duel: &mut Table, books: [&Book; 2], t: i64) {
     for c in 0..COLUMNS {
         if t >= engine::lock_at(c) {
-            for (seat, book) in books.iter().enumerate() {
-                duel.revealed[seat][c] = book.picks[c];
+            for (rev_row, book) in duel.revealed.iter_mut().zip(books.iter()) {
+                if let (Some(dst), Some(&pick)) = (rev_row.get_mut(c), book.picks.get(c)) {
+                    *dst = pick;
+                }
             }
         }
     }
@@ -305,7 +329,8 @@ fn close_book_pair<'info>(
     let table_seeds: &[&[u8]] = &[TABLE_SEED, &gen, &idx, &table_bump];
     let table_info = table.to_account_info();
     for (seat, (book, permission, book_bump)) in books.into_iter().enumerate() {
-        let seat_arr = [seat as u8];
+        let seat_u8 = u8::try_from(seat).map_err(|_| DuelError::NotAPlayer)?;
+        let seat_arr = [seat_u8];
         let bump_arr = [book_bump];
         let seat_seeds: &[&[u8]] = &[BOOK_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
         close_private_seat(
@@ -387,8 +412,8 @@ fn table_acting_seat(table: &Table, signer: &Pubkey) -> Result<usize> {
     let records = [0, 1].map(|seat| SeatRecord {
         seat,
         keys: SeatKeys {
-            player: table.players[seat],
-            signer: table.signers[seat],
+            player: *table.players.get(seat).unwrap_or(&Pubkey::default()),
+            signer: *table.signers.get(seat).unwrap_or(&Pubkey::default()),
         },
         tesoro_match: table.tesoro_match,
         epoch: table.epoch,
@@ -411,7 +436,10 @@ fn require_book(table: &Table, book: &Book, signer: &Pubkey) -> Result<usize> {
     };
     let seat = require_acting_seat(&table_seats(table), &record, signer)
         .map_err(|_| error!(DuelError::NotAPlayer))?;
-    require!(book.signer == table.signers[seat], DuelError::NotAPlayer);
+    require!(
+        table.signers.get(seat) == Some(&book.signer),
+        DuelError::NotAPlayer
+    );
     Ok(seat)
 }
 
@@ -829,10 +857,16 @@ pub mod trading_duel {
         );
         require!(!table.seats_open, DuelError::SeatsOpen);
         let table_key = table.key();
-        let seat_keys = [0, 1].map(|i| SeatKeys {
-            player: table.players[i],
-            signer: table.signers[i],
-        });
+        let seat_keys = [
+            SeatKeys {
+                player: table.players[0],
+                signer: table.signers[0],
+            },
+            SeatKeys {
+                player: table.players[1],
+                signer: table.signers[1],
+            },
+        ];
         let (tesoro_match, epoch) = (table.tesoro_match, table.epoch);
         let gen = table.generation.to_le_bytes();
         let idx = table.index.to_le_bytes();
@@ -853,10 +887,13 @@ pub mod trading_duel {
                     ctx.bumps.book_1,
                 )
             };
-            let seat_arr = [seat as u8];
+            let seat_u8 = u8::try_from(seat).map_err(|_| DuelError::NotAPlayer)?;
+            let seat_arr = [seat_u8];
             let bump_arr = [book_bump];
             let seat_seeds: &[&[u8]] = &[BOOK_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
             let book_info = book.to_account_info();
+            let book_space =
+                u32::try_from(8 + Book::INIT_SPACE).map_err(|_| DuelError::Overflow)?;
             open_private_seat_keyed(
                 &SeatAccounts {
                     table: &table_info,
@@ -868,11 +905,11 @@ pub mod trading_duel {
                 },
                 table_seeds,
                 seat_seeds,
-                (8 + Book::INIT_SPACE) as u32,
+                book_space,
                 keys,
             )?;
             let mut data = book_info.try_borrow_mut_data()?;
-            Book::new(book_bump, table_key, keys, tesoro_match, epoch, seat as u8)
+            Book::new(book_bump, table_key, keys, tesoro_match, epoch, seat_u8)
                 .try_serialize(&mut &mut data[..])?;
         }
         ctx.accounts.table.seats_open = true;
@@ -889,7 +926,11 @@ pub mod trading_duel {
         require!(table.seats_open, DuelError::SeatsNotOpen);
         require!(now <= table.start_deadline, DuelError::StartWindowPassed);
         let seat = table_acting_seat(table, &ctx.accounts.player.key())?;
-        table.checked_in[seat] = true;
+        let checked = table
+            .checked_in
+            .get_mut(seat)
+            .ok_or(DuelError::NotAPlayer)?;
+        *checked = true;
         if table.checked_in == [true; 2] {
             let anchor = read_price(&ctx.accounts.price_feed, table.asset, now)?;
             table.phase = PHASE_LIVE;
@@ -899,7 +940,10 @@ pub mod trading_duel {
                 .ok_or(DuelError::Overflow)?;
             table.ends_at = now.checked_add(MATCH_SECS).ok_or(DuelError::Overflow)?;
             table.anchor = anchor;
-            table.step = engine::step_for(anchor, STEP_PPM[table.asset as usize]);
+            let ppm = *STEP_PPM
+                .get(usize::from(table.asset))
+                .ok_or(DuelError::InvalidAsset)?;
+            table.step = engine::step_for(anchor, ppm);
             table.track.record(0, anchor);
             table.last_tick = now;
         }
@@ -917,17 +961,23 @@ pub mod trading_duel {
             DuelError::NotLive
         );
         require!(now >= table.starts_at, DuelError::GridClosed);
-        let t = now - table.starts_at;
+        let t = now.saturating_sub(table.starts_at);
         eng(engine::check_pick(column as usize, t))?;
         let book = &mut ctx.accounts.book;
         require_book(table, book, &ctx.accounts.player.key())?;
-        let slot = book.picks[column as usize];
+        let slot = *book
+            .picks
+            .get(usize::from(column))
+            .ok_or(DuelError::InvalidColumn)?;
         match (slot == NO_PICK, band == NO_PICK) {
-            (true, false) => book.pick_count += 1,
-            (false, true) => book.pick_count -= 1,
+            (true, false) => book.pick_count = book.pick_count.saturating_add(1),
+            (false, true) => book.pick_count = book.pick_count.saturating_sub(1),
             _ => {}
         }
-        book.picks[column as usize] = band;
+        *book
+            .picks
+            .get_mut(usize::from(column))
+            .ok_or(DuelError::InvalidColumn)? = band;
         Ok(())
     }
 

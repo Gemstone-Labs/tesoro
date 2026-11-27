@@ -1,0 +1,72 @@
+id: no-skip-preflight-keeper
+snapshots:
+  "await conn.sendRawTransaction(tx.serialize(), { 'skipPreflight': true });":
+    labels:
+    - source: "'skipPreflight': true"
+      style: primary
+      start: 48
+      end: 69
+    - source: "'skipPreflight'"
+      style: secondary
+      start: 48
+      end: 63
+    - source: "true"
+      style: secondary
+      start: 65
+      end: 69
+  "await conn.sendRawTransaction(tx.serialize(), { maxRetries: 3, skipPreflight: true });":
+    labels:
+    - source: "skipPreflight: true"
+      style: primary
+      start: 63
+      end: 82
+    - source: skipPreflight
+      style: secondary
+      start: 63
+      end: 76
+    - source: "true"
+      style: secondary
+      start: 78
+      end: 82
+  "await conn.sendRawTransaction(tx.serialize(), { preflightCommitment: 'confirmed', skipPreflight: true, maxRetries: 3 });":
+    labels:
+    - source: "skipPreflight: true"
+      style: primary
+      start: 82
+      end: 101
+    - source: skipPreflight
+      style: secondary
+      start: 82
+      end: 95
+    - source: "true"
+      style: secondary
+      start: 97
+      end: 101
+  "await conn.sendRawTransaction(tx.serialize(), { skipPreflight: true });":
+    labels:
+    - source: "skipPreflight: true"
+      style: primary
+      start: 48
+      end: 67
+    - source: skipPreflight
+      style: secondary
+      start: 48
+      end: 61
+    - source: "true"
+      style: secondary
+      start: 63
+      end: 67
+  "await conn.sendRawTransaction(tx.serialize(), { skipPreflight: true, maxRetries: 3 });":
+    labels:
+    - source: "skipPreflight: true"
+      style: primary
+      start: 48
+      end: 67
+    - source: skipPreflight
+      style: secondary
+      start: 48
+      end: 61
+    - source: "true"
+      style: secondary
+      start: 63
+      end: 67

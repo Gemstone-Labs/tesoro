@@ -31,7 +31,7 @@ pub fn retire_legacy_record<'info>(
     }
     {
         let data = info.try_borrow_data().map_err(|_| LegacyError::NotLegacy)?;
-        if !lengths.contains(&data.len()) || data.len() < 8 || data[..8] != *discriminator {
+        if !lengths.contains(&data.len()) || data.get(..8) != Some(discriminator) {
             return Err(LegacyError::NotLegacy);
         }
     }

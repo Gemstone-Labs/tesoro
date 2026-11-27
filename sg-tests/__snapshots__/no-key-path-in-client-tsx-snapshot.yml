@@ -1,0 +1,8 @@
+id: no-key-path-in-client-tsx
+snapshots:
+  "export const Leak = () => <p>{'~/.config/tesoro/relayer.json'}</p>;":
+    labels:
+    - source: ~/.config/tesoro/relayer.json
+      style: primary
+      start: 31
+      end: 60

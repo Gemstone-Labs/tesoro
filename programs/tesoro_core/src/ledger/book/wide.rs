@@ -4,6 +4,14 @@
 //! little-endian `u64` limbs. Everything here is exact; rounding is always the caller's choice
 //! (`mul_div_u128`, `mul_div_wide` take an explicit direction).
 
+// Fixed 4-limb Knuth Algorithm D arithmetic; proptested against `num-bigint`.
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::indexing_slicing,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+
 use core::cmp::Ordering;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]

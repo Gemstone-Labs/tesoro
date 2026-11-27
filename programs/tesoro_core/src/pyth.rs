@@ -40,35 +40,54 @@ pub fn read_micro_usd(
     max_conf_bps: u16,
 ) -> core::result::Result<u64, PythError> {
     if data.len() != PRICE_UPDATE_V2_LEN
-        || data[0..8] != PRICE_UPDATE_V2
-        || data[40] != 1
-        || data[41..73] != feed_id[..]
+        || data.get(0..8) != Some(&PRICE_UPDATE_V2[..])
+        || data.get(40) != Some(&1)
+        || data.get(41..73) != Some(&feed_id[..])
     {
         return Err(PythError::BadFeed);
     }
-    let price = i64::from_le_bytes(data[73..81].try_into().map_err(|_| PythError::BadFeed)?);
-    let conf = u64::from_le_bytes(data[81..89].try_into().map_err(|_| PythError::BadFeed)?);
-    let exponent = i32::from_le_bytes(data[89..93].try_into().map_err(|_| PythError::BadFeed)?);
-    let published = i64::from_le_bytes(data[93..101].try_into().map_err(|_| PythError::BadFeed)?);
+    let price = i64::from_le_bytes(
+        data.get(73..81)
+            .and_then(|s| s.try_into().ok())
+            .ok_or(PythError::BadFeed)?,
+    );
+    let conf = u64::from_le_bytes(
+        data.get(81..89)
+            .and_then(|s| s.try_into().ok())
+            .ok_or(PythError::BadFeed)?,
+    );
+    let exponent = i32::from_le_bytes(
+        data.get(89..93)
+            .and_then(|s| s.try_into().ok())
+            .ok_or(PythError::BadFeed)?,
+    );
+    let published = i64::from_le_bytes(
+        data.get(93..101)
+            .and_then(|s| s.try_into().ok())
+            .ok_or(PythError::BadFeed)?,
+    );
     if price <= 0 || !(-12..=0).contains(&exponent) {
         return Err(PythError::BadFeed);
     }
-    let price = price as u64;
-    let max_age = max_age_secs.min(MAX_ONCHAIN_PRICE_AGE_SECS) as i64;
+    let price = u64::try_from(price).map_err(|_| PythError::BadFeed)?;
+    let max_age = i64::from(max_age_secs.min(MAX_ONCHAIN_PRICE_AGE_SECS));
     let age = now.checked_sub(published).ok_or(PythError::Stale)?;
     if !(-MAX_FUTURE_SECS..=max_age).contains(&age) {
         return Err(PythError::Stale);
     }
-    let max_conf = max_conf_bps.min(MAX_ONCHAIN_CONF_BPS) as u128;
-    if (conf as u128) * 10_000 > (price as u128) * max_conf {
+    let max_conf = u128::from(max_conf_bps.min(MAX_ONCHAIN_CONF_BPS));
+    if u128::from(conf).saturating_mul(10_000) > u128::from(price).saturating_mul(max_conf) {
         return Err(PythError::LowConfidence);
     }
     // price * 10^exponent USD = price * 10^(exponent + 6) micro-USD.
-    let shift = exponent + 6;
+    let shift = exponent.checked_add(6).ok_or(PythError::BadFeed)?;
     let micro = if shift >= 0 {
-        (price as u128).checked_mul(10u128.pow(shift as u32))
+        let exp = u32::try_from(shift).map_err(|_| PythError::BadFeed)?;
+        u128::from(price).checked_mul(10u128.pow(exp))
     } else {
-        Some(price as u128 / 10u128.pow((-shift) as u32))
+        let exp = u32::try_from(shift.checked_neg().ok_or(PythError::BadFeed)?)
+            .map_err(|_| PythError::BadFeed)?;
+        u128::from(price).checked_div(10u128.pow(exp))
     }
     .and_then(|v| u64::try_from(v).ok())
     .ok_or(PythError::BadFeed)?;

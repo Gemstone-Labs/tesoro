@@ -427,7 +427,9 @@ pub const LEGACY_HOLE_LENGTHS: [usize; 2] = [76, 80];
 const _: () = {
     let mut i = 0;
     while i < LEGACY_HOLE_LENGTHS.len() {
-        assert!(LEGACY_HOLE_LENGTHS[i] != 8 + Hole::INIT_SPACE);
+        #[allow(clippy::indexing_slicing)]
+        let len = LEGACY_HOLE_LENGTHS[i];
+        assert!(len != 8 + Hole::INIT_SPACE);
         i += 1;
     }
 };

@@ -48,7 +48,8 @@ impl CheckpointStore for PageSet<'_, '_> {
         let page_no = idx / PAGE_RECORDS;
         let page = self.find(class, page_no)?;
         let data = page.info.try_borrow_data().ok()?;
-        let view = PageView::new(&data[CKPT_PAGE_AT..], &self.source, class, page_no).ok()?;
+        let body = data.get(CKPT_PAGE_AT..)?;
+        let view = PageView::new(body, &self.source, class, page_no).ok()?;
         view.get(idx % PAGE_RECORDS).ok()?
     }
 
@@ -62,7 +63,10 @@ impl CheckpointStore for PageSet<'_, '_> {
             .try_borrow_mut_data()
             .map_err(|_| BookError::BadCheckpoint)?;
         // checked on load, but a page that was not writable must not reach here half way
-        let mut view = PageViewMut(&mut data[CKPT_PAGE_AT..CKPT_PAGE_AT + PAGE_LEN]);
+        let body = data
+            .get_mut(CKPT_PAGE_AT..CKPT_PAGE_AT + PAGE_LEN)
+            .ok_or(BookError::BadCheckpoint)?;
+        let mut view = PageViewMut(body);
         view.push(idx % PAGE_RECORDS, &rec)
     }
 }
@@ -151,14 +155,20 @@ impl<'a, 'info> OnchainBooks<'a, 'info> {
             check_writable(info)?;
             let data = info.try_borrow_data()?;
             let head: &CkptHead = bytemuck_head(&data)?;
-            let page = &data[CKPT_PAGE_AT..];
+            let page = data
+                .get(CKPT_PAGE_AT..)
+                .ok_or(BasketError::BadCheckpointPage)?;
             require!(page.len() >= PAGE_LEN, BasketError::BadCheckpointPage);
-            let class = page[1];
-            let mut page_no = [0u8; 4];
-            page_no.copy_from_slice(&page[4..8]);
+            let class = *page.get(1).ok_or(BasketError::BadCheckpointPage)?;
+            let page_no: [u8; 4] = page
+                .get(4..8)
+                .and_then(|s| s.try_into().ok())
+                .ok_or(BasketError::BadCheckpointPage)?;
             let page_no = u32::from_le_bytes(page_no);
-            let mut source = [0u8; 32];
-            source.copy_from_slice(&page[8..40]);
+            let source: [u8; 32] = page
+                .get(8..40)
+                .and_then(|s| s.try_into().ok())
+                .ok_or(BasketError::BadCheckpointPage)?;
             let address = Pubkey::create_program_address(
                 &[
                     CKPT_SEED,
@@ -194,11 +204,18 @@ impl<'a, 'info> OnchainBooks<'a, 'info> {
 
     fn write_back(&mut self) -> DrawResult<()> {
         if let (Some(idx), Some(book)) = (self.current.take(), self.book.as_ref()) {
-            let mut data = self.entries[idx]
+            let entry = self
+                .entries
+                .get(idx)
+                .ok_or(DrawError::Book(BookError::Corrupt("source book account")))?;
+            let mut data = entry
                 .info
                 .try_borrow_mut_data()
                 .map_err(|_| DrawError::Book(BookError::Corrupt("source book account")))?;
-            book.encode(&mut data[BOOK_AT..]).map_err(book_err)?;
+            let body = data
+                .get_mut(BOOK_AT..)
+                .ok_or(DrawError::Book(BookError::Corrupt("source book account")))?;
+            book.encode(body).map_err(book_err)?;
         }
         Ok(())
     }
@@ -236,15 +253,29 @@ impl<'a, 'info> OnchainBooks<'a, 'info> {
         if self.current != Some(idx) {
             self.write_back()?;
             let book = self.book.get_or_insert_with(|| Box::new(SourceBook::new()));
-            let data = self.entries[idx]
+            let entry = self
+                .entries
+                .get(idx)
+                .ok_or(DrawError::Book(BookError::Corrupt("source book account")))?;
+            let data = entry
                 .info
                 .try_borrow_data()
                 .map_err(|_| DrawError::Book(BookError::Corrupt("source book account")))?;
-            book.decode_into(&data[BOOK_AT..]).map_err(book_err)?;
+            let body = data
+                .get(BOOK_AT..)
+                .ok_or(DrawError::Book(BookError::Corrupt("source book account")))?;
+            book.decode_into(body).map_err(book_err)?;
             self.current = Some(idx);
         }
-        let book = &mut **self.book.as_mut().expect("decoded above");
-        Ok((book, &mut self.entries[idx].history))
+        let book = &mut **self
+            .book
+            .as_mut()
+            .ok_or(DrawError::Book(BookError::Corrupt("source book account")))?;
+        let entry = self
+            .entries
+            .get_mut(idx)
+            .ok_or(DrawError::Book(BookError::Corrupt("source book account")))?;
+        Ok((book, &mut entry.history))
     }
 }
 
@@ -254,11 +285,18 @@ impl SourceBooks for OnchainBooks<'_, '_> {
     fn snapshot(&mut self, source: &Key) -> DrawResult<()> {
         self.entry(source)?;
         if let (Some(idx), Some(book)) = (self.current, self.book.as_ref()) {
-            let mut data = self.entries[idx]
+            let entry = self
+                .entries
+                .get(idx)
+                .ok_or(DrawError::Book(BookError::Corrupt("source book account")))?;
+            let mut data = entry
                 .info
                 .try_borrow_mut_data()
                 .map_err(|_| DrawError::Book(BookError::Corrupt("source book account")))?;
-            book.encode(&mut data[BOOK_AT..]).map_err(book_err)?;
+            let body = data
+                .get_mut(BOOK_AT..)
+                .ok_or(DrawError::Book(BookError::Corrupt("source book account")))?;
+            book.encode(body).map_err(book_err)?;
         }
         Ok(())
     }
@@ -302,16 +340,15 @@ fn has_discriminator(info: &AccountInfo, disc: &[u8]) -> bool {
     info.owner == &crate::ID
         && info
             .try_borrow_data()
-            .map(|d| d.len() >= DISC && &d[..DISC] == disc)
+            .map(|d| d.get(..DISC) == Some(disc))
             .unwrap_or(false)
 }
 
 /// The zero-copy head after the discriminator.
 fn bytemuck_head<T: anchor_lang::__private::bytemuck::Pod>(data: &[u8]) -> Result<&T> {
     let size = core::mem::size_of::<T>();
-    let raw = data
-        .get(DISC..DISC + size)
-        .ok_or(BasketError::BadSourceBook)?;
+    let end = DISC.checked_add(size).ok_or(BasketError::BadSourceBook)?;
+    let raw = data.get(DISC..end).ok_or(BasketError::BadSourceBook)?;
     anchor_lang::__private::bytemuck::try_from_bytes(raw)
         .map_err(|_| BasketError::BadSourceBook.into())
 }

@@ -105,7 +105,8 @@ pub(crate) fn create_account(ctx: Context<CreateAccount>, evm_address: [u8; 20])
         sponsor_rent(sponsor, &payer, 0, refundable)?;
         repay_permanent(sponsor, &payer, permanent, Spend::Account)?;
         let mut data = basket.try_borrow_mut_data()?;
-        LineStore::new(&mut data[DISC..])
+        let body = data.get_mut(DISC..).ok_or(BasketError::BadStore)?;
+        LineStore::new(body)
             .map_err(store_err)?
             .set_sponsored_lamports(refundable);
     }
@@ -142,13 +143,16 @@ fn repay_permanent<'info>(
             BasketError::ProfilesSponsorCap,
         ),
     };
-    if !spent.checked_add(amount).is_some_and(|v| v <= cap) {
+    if spent.checked_add(amount).is_none_or(|v| v > cap) {
         return Err(over.into());
     }
     let sponsor_info = sponsor.to_account_info();
     let keep = Rent::get()?.minimum_balance(sponsor_info.data_len());
     require!(
-        sponsor_info.lamports() >= amount && sponsor_info.lamports() - amount >= keep,
+        sponsor_info
+            .lamports()
+            .checked_sub(amount)
+            .is_some_and(|rem| rem >= keep),
         BasketError::SponsorShort
     );
     move_lamports(&sponsor_info, payer, amount)?;
@@ -263,9 +267,13 @@ pub(crate) fn set_profile(
     let fresh = profile.account == Pubkey::default();
     touch_profile(profile, ctx.accounts.account.key(), ctx.bumps.profile);
     // `name_is_valid` bounds the length by PROFILE_NAME_MAX.
-    profile.name_len = bytes.len() as u8;
+    profile.name_len = u8::try_from(bytes.len()).map_err(|_| TesoroError::InvalidProfileName)?;
     profile.name = [0; PROFILE_NAME_MAX];
-    profile.name[..bytes.len()].copy_from_slice(bytes);
+    let dst = profile
+        .name
+        .get_mut(..bytes.len())
+        .ok_or(TesoroError::InvalidProfileName)?;
+    dst.copy_from_slice(bytes);
     profile.avatar = avatar;
     let payer = ctx.accounts.payer.to_account_info();
     repay_profile(fresh, ctx.accounts.sponsor.as_mut(), &payer)
@@ -343,11 +351,17 @@ fn evm_link_proves(link: &AccountInfo, evm: &[u8; 20], account: &Pubkey) -> bool
     let Ok(data) = link.try_borrow_data() else {
         return false;
     };
-    if data.len() != EVM_LINK_LEN || data[8..28] != evm[..] || data[28..60] != account.to_bytes() {
+    if data.len() != EVM_LINK_LEN
+        || data.get(8..28) != Some(&evm[..])
+        || data.get(28..60) != Some(account.to_bytes().as_slice())
+    {
         return false;
     }
     // The bridge stored the canonical bump; checking the address with it avoids a bump search.
-    let bump = [data[EVM_LINK_LEN - 1]];
+    let Some(&bump_byte) = data.get(EVM_LINK_LEN.saturating_sub(1)) else {
+        return false;
+    };
+    let bump = [bump_byte];
     Pubkey::create_program_address(&[EVM_LINK_SEED, evm, &bump], &BRIDGE_PROGRAM_ID)
         .map(|expected| expected == link.key())
         .unwrap_or(false)

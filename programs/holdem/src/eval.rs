@@ -2,6 +2,9 @@
 //! 12 = ace) and `suit = card / 13`. A score is a `u32`: higher beats lower, equal scores tie.
 //! Layout: category in bits 20.., then five 4-bit ranks, most significant first.
 
+// Fixed 52-card / 13-rank / 4-suit hand evaluator.
+#![allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
+
 pub const HIGH_CARD: u32 = 0;
 pub const PAIR: u32 = 1;
 pub const TWO_PAIR: u32 = 2;

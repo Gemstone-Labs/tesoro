@@ -159,7 +159,7 @@ impl Position {
             return Err(CoreError::InvalidPrice);
         }
         let unit_num = 10u128
-            .checked_pow(self.decimals as u32 + 4)
+            .checked_pow(u32::from(self.decimals).saturating_add(4))
             .ok_or(CoreError::Math)?;
         let issued = self.advance_gemas(horizon_months, price_micro_usd)?;
         if issued == 0 {
@@ -201,7 +201,7 @@ impl Position {
             BPS * 12,
         )?;
         let unit_num = 10u128
-            .checked_pow(self.decimals as u32 + 4)
+            .checked_pow(u32::from(self.decimals).saturating_add(4))
             .ok_or(CoreError::Math)?;
         to_u64(mul_div_floor(
             projected_units,
@@ -257,7 +257,9 @@ impl Position {
         if cumulative < self.cumulative_yield {
             return Err(CoreError::CumulativeDecreased);
         }
-        let delta = cumulative - self.cumulative_yield;
+        let delta = cumulative
+            .checked_sub(self.cumulative_yield)
+            .ok_or(CoreError::CumulativeDecreased)?;
         match (self.open_advance, source) {
             (Some(index), Some(src)) => {
                 if src.index != index || src.owner != self.owner {
@@ -267,7 +269,7 @@ impl Position {
                 let take = delta.min(need);
                 let free = self
                     .free_yield
-                    .checked_add(delta - take)
+                    .checked_add(delta.saturating_sub(take))
                     .ok_or(CoreError::Math)?;
                 src.yield_units = src.yield_units.checked_add(take).ok_or(CoreError::Math)?;
                 self.free_yield = free;

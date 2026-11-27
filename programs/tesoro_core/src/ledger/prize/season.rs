@@ -108,11 +108,12 @@ impl PoolReservations {
             .iter()
             .position(|(k, _)| k == key)
             .ok_or(CoreError::Math)?;
-        let left = self.entries[i].1.checked_sub(n).ok_or(CoreError::Math)?;
+        let entry = self.entries.get_mut(i).ok_or(CoreError::Math)?;
+        let left = entry.1.checked_sub(n).ok_or(CoreError::Math)?;
         if left == 0 {
             self.entries.swap_remove(i);
         } else {
-            self.entries[i].1 = left;
+            entry.1 = left;
         }
         Ok(())
     }
@@ -165,10 +166,18 @@ impl PrizeSeason {
             return Err(CoreError::SeasonInvalid);
         }
         for (i, r) in ranking.iter().enumerate() {
-            if r.points == 0 || (i > 0 && r.points > ranking[i - 1].points) {
+            if r.points == 0
+                || (i > 0
+                    && ranking
+                        .get(i.saturating_sub(1))
+                        .is_some_and(|prev| r.points > prev.points))
+            {
                 return Err(CoreError::SeasonInvalid);
             }
-            if ranking[..i].iter().any(|o| o.account == r.account) {
+            if ranking
+                .get(..i)
+                .is_some_and(|prev| prev.iter().any(|o| o.account == r.account))
+            {
                 return Err(CoreError::SeasonInvalid);
             }
         }
@@ -185,8 +194,10 @@ impl PrizeSeason {
         free.sort_by(|a, b| a.1.key.cmp(&b.1.key));
         let mut lines = Vec::with_capacity(free.len());
         for w in free.windows(2) {
-            if w[0].1.key == w[1].1.key {
-                return Err(CoreError::SeasonInvalid);
+            if let [a, b] = w {
+                if a.1.key == b.1.key {
+                    return Err(CoreError::SeasonInvalid);
+                }
             }
         }
         let mut next = reservations.clone();
@@ -206,16 +217,21 @@ impl PrizeSeason {
         let mut s = Self {
             number,
             window: SeasonWindow::new(number, now),
-            count: ranking.len() as u8,
+            count: u8::try_from(ranking.len()).map_err(|_| CoreError::SeasonInvalid)?,
             winners: [[0; 32]; PRIZE_PLACES],
             points: [0; PRIZE_PLACES],
             lines,
             cursor: [0; PRIZE_PLACES],
             closed: false,
         };
-        for (i, r) in ranking.iter().enumerate() {
-            s.winners[i] = r.account;
-            s.points[i] = r.points;
+        for ((w, p), r) in s
+            .winners
+            .iter_mut()
+            .zip(s.points.iter_mut())
+            .zip(ranking.iter())
+        {
+            *w = r.account;
+            *p = r.points;
         }
         Ok(s)
     }
@@ -227,12 +243,22 @@ impl PrizeSeason {
             return Err(CoreError::SeasonInvalid);
         }
         let b = self.lines.get(line).ok_or(CoreError::BudgetStep)?;
-        let v = u128::from(b.amount) * u128::from(PRIZE_BPS[rank as usize]) / BPS;
+        let bps = *PRIZE_BPS
+            .get(usize::from(rank))
+            .ok_or(CoreError::SeasonInvalid)?;
+        let v = u128::from(b.amount)
+            .checked_mul(u128::from(bps))
+            .and_then(|n| n.checked_div(BPS))
+            .ok_or(CoreError::Math)?;
         u64::try_from(v).map_err(|_| CoreError::Math)
     }
 
     pub fn rank_paid(&self, rank: u8) -> bool {
-        rank < self.count && self.cursor[rank as usize] as usize == self.lines.len()
+        rank < self.count
+            && self
+                .cursor
+                .get(usize::from(rank))
+                .is_some_and(|&c| usize::from(c) == self.lines.len())
     }
 
     /// `pay_season_rank`, one (rank, line) step. `line` must be the rank's next unpaid line.
@@ -250,23 +276,32 @@ impl PrizeSeason {
             return Err(CoreError::SeasonInvalid);
         }
         self.window.check_pay(rank, now)?;
-        if line != self.cursor[rank as usize] as usize || line >= self.lines.len() {
+        let cur = *self
+            .cursor
+            .get(usize::from(rank))
+            .ok_or(CoreError::SeasonInvalid)?;
+        if line != usize::from(cur) || line >= self.lines.len() {
             return Err(CoreError::BudgetStep);
         }
         let amount = self.amount_for(rank, line)?;
-        let key = self.lines[line].key();
-        let paid = self.lines[line]
-            .paid
-            .checked_add(amount)
-            .ok_or(CoreError::Math)?;
-        if paid > self.lines[line].amount {
-            return Err(CoreError::BudgetStep);
-        }
+        let (key, paid) = {
+            let bl = self.lines.get(line).ok_or(CoreError::BudgetStep)?;
+            let paid = bl.paid.checked_add(amount).ok_or(CoreError::Math)?;
+            if paid > bl.amount {
+                return Err(CoreError::BudgetStep);
+            }
+            (bl.key(), paid)
+        };
         if amount > 0 {
             reservations.release(&key, amount)?;
         }
-        self.lines[line].paid = paid;
-        self.cursor[rank as usize] += 1;
+        let bl = self.lines.get_mut(line).ok_or(CoreError::BudgetStep)?;
+        bl.paid = paid;
+        let cur_slot = self
+            .cursor
+            .get_mut(usize::from(rank))
+            .ok_or(CoreError::SeasonInvalid)?;
+        *cur_slot = cur_slot.checked_add(1).ok_or(CoreError::Math)?;
         Ok(PayStep { key, amount })
     }
 
@@ -278,7 +313,7 @@ impl PrizeSeason {
         if now >= self.window.opens_at()? {
             return Err(CoreError::PayoutWindowClosed);
         }
-        if self.cursor[rank as usize] != 0 {
+        if self.cursor.get(usize::from(rank)).is_none_or(|&c| c != 0) {
             return Err(CoreError::AlreadyPaid);
         }
         if self.window.voided(rank) {
@@ -307,7 +342,7 @@ impl PrizeSeason {
         }
         let mut next = reservations.clone();
         for b in &self.lines {
-            let left = b.amount - b.paid;
+            let left = b.amount.saturating_sub(b.paid);
             if left > 0 {
                 next.release(&b.key(), left)?;
             }

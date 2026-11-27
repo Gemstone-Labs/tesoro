@@ -8,7 +8,7 @@
  *   pnpm lz-mainnet --pathway ethereum|hyperevm --vault 0x<PositionVaultOApp> --delegate <SOLANA_DELEGATE_PUBKEY> \
  *     --safe 0x<VAULT_OWNER_AND_EVM_DELEGATE> --decimals 18 --rate-bps <bps> \
  *     [--program-id <tesoro_bridge>] [--dvns layerzero-labs,nethermind] [--rpc <solana url>] [--evm-rpc <url>] \
- *     [--send-confirmations N --receive-confirmations N] [--evm-receive-gas 250000] [--safe-json out.json] \
+ *     [--send-confirmations N --receive-confirmations N] [--evm-receive-gas 2000000] [--safe-json out.json] \
  *     [--verify] [--execute --keypair <delegate keypair file>]
  *
  * Steps (Solana): init_store (once), set_peer_config, endpoint pathway init, ULN config init, pin send/receive library,
@@ -18,6 +18,7 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 import { ComputeBudgetProgram, Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction, sendAndConfirmTransaction } from '@solana/web3.js'
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults'
@@ -33,6 +34,8 @@ const SOLANA_EID = 30168
 const SOLANA_MAINNET_GENESIS = '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d'
 const COMPROMISED = 'AXwYStYVryJuZjNJjHHLPp6eVRc2TuESnW1pCMiUYrwV'
 const DEFAULT_BRIDGE = '5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ'
+// Solana -> EVM lzReceive gas and the executor's message cap: one file, read here and by contracts/test/MainnetReceiveGas.t.sol.
+const EVM_RECEIVE = JSON.parse(readFileSync(join(__dirname, '..', 'evm-receive.json'), 'utf8')) as { receiveGas: number; maxMessageBytes: number }
 const ZERO = '0x0000000000000000000000000000000000000000'
 
 type DvnSet = Record<string, string> // id -> address on that chain
@@ -74,7 +77,7 @@ const EVM: Record<string, Evm> = {
     sendUln302: '0xbB2Ea70C9E858123480642Cf96acbcCE1372dCe1',
     receiveUln302: '0xc02Ab410f0734EFa3F14628780e6e695156024C2',
     executor: '0x173272739Bd7Aa6e4e214714048a9fE699453059',
-    executorMaxMessageSize: 200,
+    executorMaxMessageSize: EVM_RECEIVE.maxMessageBytes,
     dvns: {
       'layerzero-labs': '0x589dEDbD617e0CBcB916A9223F4d1300c294236b',
       nethermind: '0xa59BA433ac34D2927232918Ef5B2eaAfcF130BA5',
@@ -93,7 +96,7 @@ const EVM: Record<string, Evm> = {
     sendUln302: '0xfd76d9CB0Bac839725aB79127E7411fe71b1e3CA',
     receiveUln302: '0x7cacBe439EaD55fa1c22790330b12835c6884a91',
     executor: '0x41Bdb4aa4A63a5b2Efc531858d3118392B1A1C3d',
-    executorMaxMessageSize: 200,
+    executorMaxMessageSize: EVM_RECEIVE.maxMessageBytes,
     dvns: {
       'layerzero-labs': '0xc097ab8CD7b053326DFe9fB3E3a31a0CCe3B526f',
       nethermind: '0x8E49eF1DfAe17e547CA0E7526FfDA81FbaCA810A',
@@ -144,7 +147,7 @@ const programId = new PublicKey(one('program-id') ?? DEFAULT_BRIDGE)
 const decimals = num('decimals')
 const rateBps = num('rate-bps')
 if (rateBps > 0xffff || decimals > 255) throw new Error('--rate-bps must fit u16 and --decimals u8')
-const evmReceiveGas = num('evm-receive-gas', 250_000) // Solana -> EVM lzReceive gas; testnet value (bridge/scripts/lz.ts)
+const evmReceiveGas = num('evm-receive-gas', EVM_RECEIVE.receiveGas) // Solana -> EVM lzReceive gas (bridge/evm-receive.json)
 const sendConf = num('send-confirmations', evm.send)
 const recvConf = num('receive-confirmations', evm.receive)
 const dvnIds = (one('dvns') ?? 'layerzero-labs,nethermind').split(',')
@@ -166,6 +169,7 @@ const vaultHex32 = '0x' + vaultBytes32.toString('hex')
 const u32be = (n: number) => Buffer.from([(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255])
 const peerPda = PublicKey.findProgramAddressSync([Buffer.from('Peer'), store.toBuffer(), u32be(evm.eid), vaultBytes32], programId)[0]
 const treasuryPda = PublicKey.findProgramAddressSync([Buffer.from('treasury'), u32be(evm.eid), vaultBytes32], programId)[0]
+const routePda = PublicKey.findProgramAddressSync([Buffer.from('route'), u32be(evm.eid), vaultBytes32], programId)[0]
 const disc = (name: string) => createHash('sha256').update(`global:${name}`).digest().subarray(0, 8)
 const vecU8 = (b: Uint8Array) => Buffer.concat([Buffer.from(new Uint32Array([b.length]).buffer), Buffer.from(b)])
 const enforcedOptions = Buffer.from(Options.newOptions().addExecutorLzReceiveOption(evmReceiveGas, 0).toBytes())
@@ -222,6 +226,7 @@ async function buildSolana(): Promise<SolStep[]> {
       { pubkey: delegate, isSigner: true, isWritable: true },
       { pubkey: peerPda, isSigner: false, isWritable: true },
       { pubkey: treasuryPda, isSigner: false, isWritable: true },
+      { pubkey: routePda, isSigner: false, isWritable: true },
       { pubkey: store, isSigner: false, isWritable: false },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
@@ -249,7 +254,7 @@ async function buildSolana(): Promise<SolStep[]> {
   ]
   return [
     { kind: 'solana', title: 'tesoro_bridge init_store (once for the whole bridge, skip on the second pathway)', note: `Store ${store.toBase58()} (peer address on EVM ${storeHex}); admin and endpoint delegate = ${delegate.toBase58()}`, ixs: [initStore], cu: 400_000 },
-    { kind: 'solana', title: `tesoro_bridge set_peer_config eid ${evm.eid}`, note: `vault ${vault}, decimals ${decimals}, rate ${rateBps} bps, enforced send options type-3 lzReceive gas ${evmReceiveGas} (0x${enforcedOptions.toString('hex')}); also creates VaultTreasury ${treasuryPda.toBase58()}`, ixs: [setPeer], cu: 400_000 },
+    { kind: 'solana', title: `tesoro_bridge set_peer_config eid ${evm.eid}`, note: `vault ${vault}, decimals ${decimals}, rate ${rateBps} bps, enforced send options type-3 lzReceive gas ${evmReceiveGas} (0x${enforcedOptions.toString('hex')}); also creates VaultTreasury ${treasuryPda.toBase58()} and VaultRoute ${routePda.toBase58()}`, ixs: [setPeer], cu: 400_000 },
     { kind: 'solana', title: `endpoint pathway init (nonce, send library, receive library) for eid ${evm.eid}`, note: `remote OApp ${vaultHex32}`, ixs: pathwayInit, cu: 400_000 },
     { kind: 'solana', title: `ULN config init for eid ${evm.eid}`, note: `ULN program ${SOLANA.uln}`, ixs: [ulnInit], cu: 400_000 },
     { kind: 'solana', title: `pin send and receive library to ULN 302 for eid ${evm.eid}`, note: `explicit library ${SOLANA.uln}, so a later change of the endpoint default cannot move this pathway`, ixs: pin, cu: 400_000 },
@@ -330,6 +335,7 @@ async function verifySolana() {
     const len = d.readUInt32LE(43)
     check(`PeerConfig enforced send options = ${enforcedOptions.toString('hex')}`, Buffer.compare(d.subarray(47, 47 + len), enforcedOptions) === 0)
   }
+  check(`VaultRoute ${routePda.toBase58()} exists`, !!(await conn.getAccountInfo(routePda)))
   const lib = j(await endpoint.getSendLibrary(umi.rpc, oapp, evm.eid))
   check('send library resolves to ULN 302', JSON.stringify(lib).includes('7a4WjyR8') || !!lib, lib)
   const want = (conf: number) => ({ conf: String(conf), dvns: solDvns.map((k) => k.toBase58()) })

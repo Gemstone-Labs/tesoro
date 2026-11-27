@@ -129,14 +129,16 @@ impl Env {
             concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/deploy/tesoro_bridge.so");
         svm.add_program_from_file(s(tesoro_core::ID), core_so)
             .expect("build tesoro_core first: pnpm build:programs");
-        svm.add_program_from_file(s(crate::ID), bridge_so)
-            .expect("build the bridge first: cd bridge && anchor build --no-idl -- --tools-version v1.54");
+        svm.add_program_from_file(s(crate::ID), bridge_so).expect(
+            "build the bridge first: cd bridge && anchor build --no-idl -- --tools-version v1.54",
+        );
         // The LayerZero endpoint is a test double: it accepts `clear` and `send` and logs what it
         // was given, so the real `lz_receive` and the send instructions run end to end.
         let endpoint_so =
             concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/deploy/mock_endpoint.so");
-        svm.add_program_from_file(s(oapp::endpoint::ID), endpoint_so)
-            .expect("build the bridge first: cd bridge && anchor build --no-idl -- --tools-version v1.54");
+        svm.add_program_from_file(s(oapp::endpoint::ID), endpoint_so).expect(
+            "build the bridge first: cd bridge && anchor build --no-idl -- --tools-version v1.54",
+        );
         // `add_program` deploys with no upgrade authority; record one for the `set_admin` gate.
         let upgrade_authority = Keypair::new();
         let programdata = Pubkey::find_program_address(
@@ -1066,6 +1068,12 @@ fn only_the_upgrade_authority_may_rotate_the_bridge_admin() {
 #[test]
 fn rotation_moves_the_store_admin_and_the_endpoint_delegate() {
     let Ok(endpoint_so) = std::env::var("LZ_ENDPOINT_SO") else {
+        if std::env::var_os("CI").is_some() || std::env::var_os("REQUIRE_LZ_ENDPOINT_SO").is_some()
+        {
+            panic!(
+                "LZ_ENDPOINT_SO must be set in CI so delegate rotation is never silently skipped"
+            );
+        }
         eprintln!("skipped: LZ_ENDPOINT_SO not set");
         return;
     };

@@ -1,3 +1,6 @@
+// Anchor 0.31 #[program] expands AccountInfo::realloc (deprecated in solana-account-info 2.3+).
+#![allow(deprecated)]
+
 //! Heads-up No-Limit Hold'em as a Tesoro Game, on persistent tables.
 //!
 //! Matches run on **tables** that stay delegated to MagicBlock's TEE rollup across Matches (see
@@ -265,8 +268,8 @@ fn table_acting_seat(table: &Table, signer: &Pubkey) -> Result<usize> {
     let records = [0, 1].map(|seat| SeatRecord {
         seat,
         keys: SeatKeys {
-            player: table.game.players[seat],
-            signer: table.game.signers[seat],
+            player: *table.game.players.get(seat).unwrap_or(&Pubkey::default()),
+            signer: *table.game.signers.get(seat).unwrap_or(&Pubkey::default()),
         },
         tesoro_match: table.tesoro_match,
         epoch: table.epoch,
@@ -278,7 +281,7 @@ fn table_acting_seat(table: &Table, signer: &Pubkey) -> Result<usize> {
 /// A seat's key as the table says it is: the Hole must carry the same one.
 fn require_signer_matches(table: &Table, hole: &Hole, seat: usize) -> Result<()> {
     require!(
-        hole.signer == table.game.signers[seat],
+        table.game.signers.get(seat) == Some(&hole.signer),
         HoldemError::NotAPlayer
     );
     Ok(())
@@ -297,7 +300,8 @@ fn acting_seat(table: &Table, holes: [&Hole; 2], signer: &Pubkey) -> Result<usiz
     let records = holes.map(seat_record);
     let seat = acting_seat_among(&table_seats(table), &records, signer)
         .map_err(|_| error!(HoldemError::NotAPlayer))?;
-    require_signer_matches(table, holes[seat], seat)?;
+    let hole = *holes.get(seat).ok_or(HoldemError::NotAPlayer)?;
+    require_signer_matches(table, hole, seat)?;
     Ok(seat)
 }
 
@@ -360,7 +364,8 @@ fn wipe_seat_pair<'info>(
     for (seat, (hole, permission)) in holes.into_iter().zip(permissions).enumerate() {
         hole.wipe();
         hole.exit(&ID)?;
-        let seat_arr = [seat as u8];
+        let seat_u8 = u8::try_from(seat).map_err(|_| HoldemError::NotAPlayer)?;
+        let seat_arr = [seat_u8];
         let bump_arr = [hole.bump];
         let seat_seeds: &[&[u8]] = &[HOLE_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
         swap_seat_members_keyed(
@@ -760,10 +765,13 @@ pub mod holdem {
                     ctx.bumps.hole_1,
                 )
             };
-            let seat_arr = [seat as u8];
+            let seat_u8 = u8::try_from(seat).map_err(|_| HoldemError::NotAPlayer)?;
+            let seat_arr = [seat_u8];
             let bump_arr = [hole_bump];
             let seat_seeds: &[&[u8]] = &[HOLE_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
             let hole_info = hole.to_account_info();
+            let hole_space =
+                u32::try_from(8 + Hole::INIT_SPACE).map_err(|_| HoldemError::Overflow)?;
             create_hidden_seat(
                 &SeatAccounts {
                     table: &table_info,
@@ -775,11 +783,11 @@ pub mod holdem {
                 },
                 table_seeds,
                 seat_seeds,
-                (8 + Hole::INIT_SPACE) as u32,
+                hole_space,
                 None,
             )?;
             let mut data = hole_info.try_borrow_mut_data()?;
-            Hole::blank(hole_bump, table_key, seat as u8).try_serialize(&mut &mut data[..])?;
+            Hole::blank(hole_bump, table_key, seat_u8).try_serialize(&mut &mut data[..])?;
         }
         ctx.accounts.table.seats_created = true;
         Ok(())
@@ -797,10 +805,16 @@ pub mod holdem {
             ctx.accounts.hole_0.is_blank() && ctx.accounts.hole_1.is_blank(),
             HoldemError::SeatNotBlank
         );
-        let seat_keys = [0, 1].map(|i| SeatKeys {
-            player: table.game.players[i],
-            signer: table.game.signers[i],
-        });
+        let seat_keys = [
+            SeatKeys {
+                player: table.game.players[0],
+                signer: table.game.signers[0],
+            },
+            SeatKeys {
+                player: table.game.players[1],
+                signer: table.game.signers[1],
+            },
+        ];
         let (key, epoch) = (table.tesoro_match, table.epoch);
         let (gen, idx) = (table.generation.to_le_bytes(), table.index.to_le_bytes());
         let table_bump = [table.bump];
@@ -824,7 +838,8 @@ pub mod holdem {
             } else {
                 (&ctx.accounts.hole_1, &ctx.accounts.hole_1_permission)
             };
-            let seat_arr = [seat as u8];
+            let seat_u8 = u8::try_from(seat).map_err(|_| HoldemError::NotAPlayer)?;
+            let seat_arr = [seat_u8];
             let bump_arr = [hole.bump];
             let seat_seeds: &[&[u8]] = &[HOLE_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
             swap_seat_members_keyed(
@@ -891,7 +906,8 @@ pub mod holdem {
             } else {
                 (&ctx.accounts.hole_1, &ctx.accounts.hole_1_permission)
             };
-            let seat_arr = [seat as u8];
+            let seat_u8 = u8::try_from(seat).map_err(|_| HoldemError::NotAPlayer)?;
+            let seat_arr = [seat_u8];
             let bump_arr = [hole.bump];
             let seat_seeds: &[&[u8]] = &[HOLE_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
             close_private_seat(
@@ -1022,7 +1038,11 @@ pub mod holdem {
         require!(table.seats_open, HoldemError::SeatsNotOpen);
         require!(now <= table.start_deadline, HoldemError::StartWindowPassed);
         let seat = table_acting_seat(table, &ctx.accounts.player.key())?;
-        table.checked_in[seat] = true;
+        let checked = table
+            .checked_in
+            .get_mut(seat)
+            .ok_or(HoldemError::NotAPlayer)?;
+        *checked = true;
         if table.checked_in == [true; 2] {
             table.phase = TABLE_LIVE;
             table.game.start(now)?;

@@ -1,0 +1,8 @@
+id: no-key-path-in-client-ts
+snapshots:
+  const path = '~/.config/tesoro/oracle.json';:
+    labels:
+    - source: ~/.config/tesoro/oracle.json
+      style: primary
+      start: 14
+      end: 42

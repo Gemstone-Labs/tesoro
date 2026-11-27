@@ -2,6 +2,17 @@
 members = ["programs/*", "test-programs/*"]
 resolver = "2"
 
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
+
+[workspace.lints.clippy]
+arithmetic_side_effects = "deny"
+indexing_slicing = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+cast_possible_truncation = "deny"
+cast_sign_loss = "deny"
+
 [profile.release]
 overflow-checks = true
 lto = "fat"

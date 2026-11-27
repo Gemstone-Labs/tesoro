@@ -61,7 +61,7 @@ const initConfig = (_p: unknown, a: { admin: any; payer: any }, eid: number) =>
     )
 
 // Enforced options applied when Solana sends to an EVM peer (lzReceive gas on the EVM side).
-// The largest receive is an eight-entry CashInBatch (about 1.1M gas); single payouts use less.
+// The largest receive is an eight-entry CashInBatch (about 1.4M gas on a mock endpoint); single payouts use under 250,000.
 const EVM_RECEIVE_GAS = Number(process.env.EVM_RECEIVE_GAS ?? 1_500_000)
 
 const disc = (name: string) => createHash('sha256').update(`global:${name}`).digest().subarray(0, 8)

@@ -19,6 +19,7 @@
       }
     ],
     "paths": {
+      "@antithesishq/bombadil/browser/extras/resources": ["./node_modules/@antithesishq/bombadil/dist/browser/extras/resources.d.ts"],
       "@/*": ["./src/*"]
     }
   },

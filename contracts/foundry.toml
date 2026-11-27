@@ -5,8 +5,10 @@ libs = ["lib"]
 solc_version = "0.8.28"
 optimizer = true
 optimizer_runs = 200
+# Every call runs as its own transaction, as on the chain: storage is cold and gas is what the chain charges.
+isolate = true
 # CodeSize.t.sol reads the build artifacts to check the EIP-170 limit.
-fs_permissions = [{ access = "read", path = "./out" }]
+fs_permissions = [{ access = "read", path = "./out" }, { access = "read", path = "../bridge/evm-receive.json" }]
 
 [rpc_endpoints]
 hoodi = "${HOODI_RPC_URL}"
@@ -17,8 +19,13 @@ ethereum = "${ETH_MAINNET_RPC}"
 hyperevm = "${HYPEREVM_MAINNET_RPC}"
 
 [invariant]
-runs = 64
-depth = 60
+runs = 128
+depth = 128
+fail_on_revert = false
+
+[profile.deep.invariant]
+runs = 256
+depth = 128
 fail_on_revert = false
 
 [fuzz]

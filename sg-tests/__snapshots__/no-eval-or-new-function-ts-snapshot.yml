@@ -1,0 +1,14 @@
+id: no-eval-or-new-function-ts
+snapshots:
+  "const fn = new Function('a', 'return a + 1');":
+    labels:
+    - source: new Function('a', 'return a + 1')
+      style: primary
+      start: 11
+      end: 44
+  const x = eval('1 + 1');:
+    labels:
+    - source: eval('1 + 1')
+      style: primary
+      start: 10
+      end: 23

@@ -33,14 +33,16 @@ impl PeerConfig {
     /// Vault base units per core unit: `10^(decimals - core_decimals)`.
     pub fn scale(&self) -> Result<u128> {
         10u128
-            .checked_pow(u32::from(self.decimals - self.core_decimals()))
+            .checked_pow(u32::from(self.decimals.saturating_sub(self.core_decimals())))
             .ok_or_else(|| error!(BridgeError::AmountOverflow))
     }
 
     /// A vault amount in core units, rounded down: the Player is credited at most what the vault
     /// reported, and a cumulative figure stays monotonic.
     pub fn to_units(&self, vault_amount: u128) -> Result<u128> {
-        Ok(vault_amount / self.scale()?)
+        vault_amount
+            .checked_div(self.scale()?)
+            .ok_or_else(|| error!(BridgeError::AmountOverflow))
     }
 
     /// `to_units` for amounts core holds as `u64`; fails past `u64::MAX` core units.

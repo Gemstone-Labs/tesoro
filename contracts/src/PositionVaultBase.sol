@@ -303,9 +303,11 @@ abstract contract PositionVaultBase {
             shares = (x * RATE_SCALE) / rate;
             uint256 pro = (owedSharesOf[id] * x) / n;
             if (pro < shares) shares = pro;
+            // slither-disable-next-line divide-before-multiply -- recomputing exact underlying value of floor-rounded shares
             return ((shares * rate) / RATE_SCALE, shares);
         }
         y = (x * backing) / n;
+        // slither-disable-next-line divide-before-multiply -- converting pro-rata underlying share y into LST shares
         return (y, (y * RATE_SCALE) / rate);
     }
 

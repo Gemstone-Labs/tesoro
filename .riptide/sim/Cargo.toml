@@ -1,0 +1,13 @@
+[package]
+name = "tesoro-core-riptide-sim"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+anyhow = "1.0"
+borsh = { version = "1.6.1", features = ["derive"] }
+riptide-sim = { git = "https://github.com/riptidesim/riptide.git", rev = "f5eb65cbdfc2c8e8e9a5d70727ea147bfe24f241" }
+riptide-sim-macros = { git = "https://github.com/riptidesim/riptide.git", rev = "f5eb65cbdfc2c8e8e9a5d70727ea147bfe24f241" }
