@@ -92,7 +92,7 @@ export function RideHistory({ page, me, actions = {} }: { page: RidePage; me: st
               })}
             </ol>
             <p className="rc-check-note">
-              The draw: bomb time counts the ride as if no Brake slowed it, and each Tell starts a set time before it ({r.tells.map((t, i) => (t.leadMs === null ? null : `${TELLS[i].name} ${secs(t.leadMs)}`)).filter(Boolean).join(", ")}). A Tell drawn before the ride began shows at the start, and a Brake moves the blast later on the clock.
+              As drawn, before any Brake: {r.tells.map((t, i) => (t.leadMs === null ? null : `${TELLS[i].name} ${secs(t.leadMs)}`)).filter(Boolean).join(", ")} ahead of the bomb time. A Tell drawn before the ride began shows at the start, and a Brake moves the blast later on the clock.
             </p>
             {r.falseScrewsMs.length > 0 && <p className="rc-check-note">False glows at {r.falseScrewsMs.map(clock).join(", ")} (shown as a glow during the ride)</p>}
           </>
