@@ -18,7 +18,7 @@ import { isCurrentPosition, positionBytes } from "./position-size";
 import { fetchRoutedState } from "./snapshot-wire";
 import type { NativeInfo, NativeMarket } from "./native";
 import { OVERFLOW_DISC, OVERFLOW_OWNER_AT, decodeOverflowRecord, type WaitingRecord } from "./overflow";
-import { matchPda, type LineRef } from "./basket";
+import { matchPda, settledPda, type LineRef } from "./basket";
 
 const pk = (bytes: number[] | Uint8Array) => new PublicKey(Uint8Array.from(bytes));
 const big = (n: { toString(): string }) => BigInt(n.toString());
@@ -342,6 +342,27 @@ export async function fetchMatch(id: string, me: PublicKey | null): Promise<Chai
   const m = game !== "block-puzzle" ? toChainMatch(state, me, null) : toChainMatch(state, me, finished ? await burstSession(address) : null);
   // A closed Match keeps its account until someone calls close_match, and the account does not know the Season points: they live in the history.
   return enumKey(state.inner.stage) === "closed" ? withHistoryPoints(m, await fetchClosedMatch(id, me)) : m;
+}
+
+/** How a Match whose account is closed ended, as tesoro_core's settlement receipt keeps it (for 14 days). A no-show counts as a refund, as everywhere in the app. */
+export type ClosedOutcome = "opener" | "joiner" | "draw" | "refund";
+
+/** The outcome a receipt's `RunKind` names. */
+export function outcomeOfKind(kind: object): ClosedOutcome {
+  const k = enumKey(kind);
+  if (k === "win") return (kind as { win: { winner: number } }).win.winner === 0 ? "opener" : "joiner";
+  return k === "draw" ? "draw" : "refund";
+}
+
+/**
+ * How the Match `id` ended, read from its settlement receipt: there from the moment the result is fixed, and still there after the
+ * Match account is closed, while the history may take minutes to record the result. Null when the Match has no receipt.
+ */
+export async function fetchClosedOutcome(id: string): Promise<ClosedOutcome | null> {
+  const address = matchAddressOf(id);
+  if (!address) return null;
+  const r = await getChain().core.account.settlementReceipt.fetchNullable(settledPda(address));
+  return r ? outcomeOfKind(r.receipt.kind) : null;
 }
 
 /**
