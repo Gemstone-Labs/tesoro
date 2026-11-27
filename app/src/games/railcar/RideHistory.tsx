@@ -8,7 +8,7 @@ import type { StoredRide } from "@/lib/chain/ride-record";
 import { RailcarScreen, TELLS, type RailcarActions } from "./RailcarScreen";
 import { RULES_CURRENT, RULES_Q39, RULES_Q40, RULES_ROUND1, type RulesVersion } from "./engine";
 import { replayRide, replayView } from "./replay";
-import { clock, clockTenths } from "./words";
+import { clockTenths } from "./words";
 
 /** The rules a car left under, as the round history names them. */
 export const RULES_NAMES: Record<RulesVersion, string> = {
@@ -94,7 +94,7 @@ export function RideHistory({ page, me, actions = {} }: { page: RidePage; me: st
             <p className="rc-check-note">
               As drawn, before any Brake: {r.tells.map((t, i) => (t.leadMs === null ? null : `${TELLS[i].name} ${secs(t.leadMs)}`)).filter(Boolean).join(", ")} ahead of the bomb time. A Tell drawn before the ride began shows at the start, and a Brake moves the blast later on the clock.
             </p>
-            {r.falseScrewsMs.length > 0 && <p className="rc-check-note">False glows at {r.falseScrewsMs.map(clock).join(", ")} (shown as a glow during the ride)</p>}
+            {r.falseScrewsMs.length > 0 && <p className="rc-check-note">False glows at {r.falseScrewsMs.map(clockTenths).join(", ")} (shown as a glow during the ride)</p>}
           </>
         )}
         <h3 className="rc-check-sub">Brakes</h3>
