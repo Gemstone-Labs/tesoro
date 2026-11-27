@@ -5,14 +5,14 @@ import { AccountLink } from "@/components/account/AccountLink";
 import { Button, CheckIcon, GemaMark, MinusIcon, Notice } from "@/components/ui";
 import { matchFee } from "@/lib/chain/ledger";
 import { getBurst, getHoldem, getTradingDuel, getVanguard } from "@/lib/chain/client";
-import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
+import { fetchClosedOutcome, fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
 import type { GameId } from "@/lib/mock";
 import { gameQuery } from "@/lib/game-params";
 import { DuelSpectate } from "./DuelSpectate";
 import { EndStateNote } from "./EndStateNote";
-import { keepsReading, laterRead, readSpectated, spectateFee, spectateHeadline, spectateLine, stateOf, type Spectated } from "./spectate-state";
+import { keepsReading, laterRead, readSpectated, spectateFee, spectateHeadline, spectateLine, stateOf, winSeatOf, type Spectated } from "./spectate-state";
 import { VanguardSpectate } from "@/games/vanguard/VanguardSpectate";
 import { RULES } from "./MatchResult";
 import "./match.css";
@@ -46,7 +46,7 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
     let timer: ReturnType<typeof setTimeout> | undefined;
     shown.current = undefined;
     const read = async () => {
-      const next = await readSpectated(matchId, { fetchMatch: (id) => fetchMatch(id, null), tabled: hasTable, now: Date.now }, !!shown.current?.tabled);
+      const next = await readSpectated(matchId, { fetchMatch: (id) => fetchMatch(id, null), tabled: hasTable, outcome: fetchClosedOutcome, now: Date.now }, shown.current);
       if (!live) return;
       const now = laterRead(shown.current, next);
       shown.current = now;
@@ -69,17 +69,24 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
 
 /** The spectator's page for one read of the Match. */
 export function SpectateView({ seen, onSignIn }: { seen: Spectated; onSignIn?: () => void }) {
-  const { m } = seen;
+  if (!seen.m) return <ClosedNotice closed={seen.closed} />;
+  return <SpectateCard seen={seen} m={seen.m} onSignIn={onSignIn} />;
+}
+
+/** A first look at a Match that is closed and not in the history yet: only how it ended is known. */
+function ClosedNotice({ closed }: { closed: Spectated["closed"] }) {
+  return <Notice title={spectateHeadline("over", null, closed)} body="This Match is over and its result is final. The Players and the amounts are still being recorded and will show here by themselves." />;
+}
+
+function SpectateCard({ seen, m, onSignIn }: { seen: Spectated; m: ChainMatch; onSignIn?: () => void }) {
   const state = stateOf(seen);
-  const over = state === "settled" || state === "settling";
-  const result = m.session ? (m.session.settled ? m.session.result : null) : m.winner;
-  const winSeat = over && (result === "opener" || result === "joiner") ? (result === "opener" ? 0 : 1) : null;
+  const winSeat = winSeatOf(seen);
   const winnerLabel = usePlayerLabel(winSeat !== null ? m.sides[winSeat]?.player : undefined);
   const { fee, payout } = spectatorPot(m);
   const feeLine = spectateFee(m, state);
-  const scores = m.session && over ? m.session.scores : null;
+  const scores = m.session && (state === "settled" || state === "settling") ? m.session.scores : null;
   const rules = RULES[m.game];
-  const headline = spectateHeadline(state, winSeat !== null ? winnerLabel : null);
+  const headline = spectateHeadline(state, winSeat !== null ? winnerLabel : null, seen.closed);
   const Icon = winSeat !== null ? CheckIcon : MinusIcon;
 
   const side = (i: 0 | 1) => {
@@ -113,7 +120,7 @@ export function SpectateView({ seen, onSignIn }: { seen: Spectated; onSignIn?: (
             {headline}
           </h1>
 
-          {winSeat !== null && (
+          {winSeat !== null && m.settled && (
             <div className="mr-neutral">
               <span className="mr-neutral-label">Winner gains</span>
               <span className="mr-neutral-amt">

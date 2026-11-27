@@ -1,11 +1,11 @@
 import { Keypair } from "@solana/web3.js";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { chainMatchFromPage, toChainMatch, type ChainMatch } from "@/lib/chain/read";
+import { chainMatchFromPage, outcomeOfKind, toChainMatch, type ChainMatch, type ClosedOutcome } from "@/lib/chain/read";
 import { setLeaderboardSince } from "@/lib/chain/season";
 import type { MatchPage } from "@/server/history/reads";
 import { SpectateView } from "./MatchSpectate";
-import { keepsReading, laterRead, readSpectated, spectateFee, spectateHeadline, spectateState, stateOf, type Spectated } from "./spectate-state";
+import { keepsReading, laterRead, readSpectated, spectateFee, spectateHeadline, spectateState, stateOf, winSeatOf, type Spectated } from "./spectate-state";
 import qa from "./fixtures/qa-untabled-refund-match.json";
 
 /**
@@ -147,7 +147,7 @@ describe("the Fee a spectator sees", () => {
 
 describe("a spectator who keeps the page open", () => {
   /** Plays a list of chain reads through the page's poll and returns the headline after each one. */
-  async function watch(reads: { m: ChainMatch | null | "fails"; tabled?: boolean | "fails" }[]): Promise<string[]> {
+  async function watch(reads: { m: ChainMatch | null | "fails"; tabled?: boolean | "fails"; how?: ClosedOutcome }[]): Promise<string[]> {
     let seen: Spectated | null | undefined;
     const out: string[] = [];
     for (const [i, r] of reads.entries()) {
@@ -161,10 +161,11 @@ describe("a spectator who keeps the page open", () => {
           if (r.tabled === "fails") throw new Error("read failed");
           return r.tabled ?? false;
         },
+        outcome: async () => r.how ?? null,
         now: () => (JOINED_AT + i * 5) * 1000,
-      }, !!seen?.tabled);
+      }, seen);
       seen = laterRead(seen, next);
-      out.push(seen ? spectateHeadline(stateOf(seen), "Ben") : seen === null ? "Match not found" : "Loading");
+      out.push(seen ? spectateHeadline(stateOf(seen), seen.m && winSeatOf(seen) !== null ? "Ben" : null, seen.closed) : seen === null ? "Match not found" : "Loading");
     }
     return out;
   }
@@ -196,17 +197,48 @@ describe("a spectator who keeps the page open", () => {
   it("does not guess on a fresh link: no headline until the Match and its table are both read", async () => {
     expect(await watch([{ m: "fails" }, { m: waiting, tabled: "fails" }, { m: waiting }])).toEqual(["Loading", "Loading", "Waiting for a table"]);
     expect(await watch([{ m: null }])).toEqual(["Match not found"]);
+    expect(keepsReading(null)).toBe(false);
   });
 
   it("a fresh link to a Match that is closed but not in the history yet says it is over, and keeps reading for the result", async () => {
     const lagging = chainMatchFromPage({ id: refunding.id, game: "block-puzzle", entry: 100, status: "seen", kind: null, challenge: false, asset: 0, openedAt: refunding.openedAt, settledAt: null, sides: [{ player: refunding.sides[0].player, funder: refunding.sides[0].funder }, { player: refunding.sides[1]!.player, funder: refunding.sides[1]!.funder }], winnerSide: null, winner: null, loser: null, points: null, season: null, fees: { platform: 0, studio: 0, leaderboard: 0 }, chunks: 0, scores: null, parties: [] }, null)!;
     expect(await watch([{ m: lagging }, { m: lagging }, { m: refunded }])).toEqual(["Match over", "Match over", "Refunded"]);
-    const seen = (await readSpectated("id", { fetchMatch: async () => lagging, tabled: async () => true, now: () => 0 }))!;
+    const seen = (await readSpectated("id", { fetchMatch: async () => lagging, tabled: async () => true, outcome: async () => null, now: () => 0 }))!;
     expect(stateOf(seen)).toBe("over");
     expect(keepsReading(seen)).toBe(true);
     const page = text(renderToStaticMarkup(<SpectateView seen={seen} />));
-    expect(page).toContain("Its result is still being recorded");
+    expect(page).toContain("The amounts are still being recorded");
     expect(page).not.toMatch(/In play|Fee on a win|Fee charged/);
+  });
+
+  // The sponsored QA Match of 2026-11-27 (7k1s…BmN3-28): closed on the chain at 12:40:39, in the history at about 12:45:15.
+  it("names the winner from the chain's receipt when the Match closes before the page saw it settle", async () => {
+    expect(await watch([{ m: waiting, tabled: true }, { m: null, how: "opener" }, { m: null, how: "opener" }, { m: won }])).toEqual(["In play", "Ben won", "Ben won", "Ben won"]);
+    expect(await watch([{ m: waiting, tabled: true }, { m: null, how: "refund" }, { m: refunded }])).toEqual(["In play", "Refunded", "Refunded"]);
+    const seen = (await readSpectated("id", { fetchMatch: async () => null, tabled: async () => true, outcome: async () => "joiner", now: () => 0 }, { m: waiting, tabled: true, at: 0 }))!;
+    expect(seen).toMatchObject({ closed: "joiner", tabled: true });
+    expect(winSeatOf(seen)).toBe(1);
+    expect(keepsReading(seen)).toBe(true);
+    const page = text(renderToStaticMarkup(<SpectateView seen={seen} />));
+    expect(page).toMatch(/\S+ won/);
+    expect(page).toContain("The amounts are still being recorded");
+    expect(page).not.toMatch(/In play|Fee on a win|Fee charged|Winner gains/);
+  });
+
+  it("a fresh link to a Match that just closed says it is over, not that it does not exist, and keeps reading", async () => {
+    expect(await watch([{ m: null, how: "joiner" }, { m: null, how: "joiner" }, { m: won }])).toEqual(["Match over", "Match over", "Ben won"]);
+    expect(await watch([{ m: null, how: "refund" }, { m: refunded }])).toEqual(["Refunded", "Refunded"]);
+    const seen = (await readSpectated("id", { fetchMatch: async () => null, tabled: async () => true, outcome: async () => "joiner", now: () => 0 }))!;
+    expect(seen.m).toBeNull();
+    expect(keepsReading(seen)).toBe(true);
+    const page = text(renderToStaticMarkup(<SpectateView seen={seen} />));
+    expect(page).toContain("Match over");
+    expect(page).toContain("The Players and the amounts are still being recorded");
+    expect(page).not.toContain("Match not found");
+  });
+
+  it("reads the outcome off a receipt's run kind", () => {
+    expect([{ win: { winner: 0 } }, { win: { winner: 1 } }, { draw: {} }, { noShow: {} }, { cancelled: {} }, { abandoned: {} }, { gameUpgraded: {} }, { byGame: {} }].map(outcomeOfKind)).toEqual(["opener", "joiner", "draw", "refund", "refund", "refund", "refund", "refund"]);
   });
 
   it("reads again until the Match is refunded or settled, and not after", () => {

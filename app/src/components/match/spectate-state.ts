@@ -1,6 +1,6 @@
 import { matchFee } from "@/lib/chain/ledger";
 import { refundByText, tableRefundBy } from "@/lib/chain/match-status";
-import { resultOf, type ChainMatch } from "@/lib/chain/read";
+import { resultOf, type ChainMatch, type ClosedOutcome } from "@/lib/chain/read";
 
 /**
  * Where a Match stands for someone watching it. tesoro_core's stage gives all of it but one step: an Active Match is waiting
@@ -10,11 +10,15 @@ export type SpectateState = "open" | "table" | "live" | "over" | "settling" | "r
 
 /** One read of a watched Match: the Match, whether its Game has assigned it a table, and when it was read (ms). */
 export interface Spectated {
-  m: ChainMatch;
+  /** Null only on a first read of a Match that is already closed and not in the history yet: just `closed` is known. */
+  m: ChainMatch | null;
   tabled: boolean;
   at: number;
-  /** The Match account is closed and the history has no result for it yet: it is over, how is not known. */
-  unrecorded?: boolean;
+  /**
+   * The Match account is closed and the history has no result for it yet (it can take minutes): how the Match ended, from the
+   * chain's settlement receipt, or "unknown" when that could not be told.
+   */
+  closed?: ClosedOutcome | "unknown";
 }
 
 type Staged = Pick<ChainMatch, "status" | "running" | "fixed">;
@@ -28,20 +32,30 @@ export function spectateState(m: Staged, tabled: boolean): SpectateState {
 }
 
 /** Where a read puts the Match. */
-export const stateOf = (seen: Spectated): SpectateState => (seen.unrecorded ? "over" : spectateState(seen.m, seen.tabled));
+export const stateOf = (seen: Spectated): SpectateState => (seen.closed || !seen.m ? "over" : spectateState(seen.m, seen.tabled));
+
+/** The winning seat a read knows of: from the receipt of a closed Match, else from the Match once its result is fixed. */
+export function winSeatOf(seen: Spectated): 0 | 1 | null {
+  if (seen.closed) return seen.closed === "opener" ? 0 : seen.closed === "joiner" ? 1 : null;
+  const m = seen.m;
+  const s = stateOf(seen);
+  if (!m || (s !== "settled" && s !== "settling")) return null;
+  const result = m.session ? (m.session.settled ? m.session.result : null) : m.winner;
+  return result === "opener" ? 0 : result === "joiner" ? 1 : null;
+}
 
 /** The page reads again until the Match is settled or refunded; before the first read and after an unknown Match too. */
 export const keepsReading = (seen: Spectated | null | undefined): boolean => seen === undefined || (seen !== null && !["settled", "refunded"].includes(stateOf(seen)));
 
 const isPending = (s: SpectateState) => s === "open" || s === "table" || s === "live";
 
-/** The headline. `winner` is the winning Player's name once a win is fixed, null for a draw. */
-export function spectateHeadline(s: SpectateState, winner: string | null): string {
+/** The headline. `winner` is the winning Player's name once a win is fixed, null for a draw. `closed` tells how a Match in "over" ended. */
+export function spectateHeadline(s: SpectateState, winner: string | null, closed?: Spectated["closed"]): string {
+  if (s === "over") return closed === "refund" ? "Refunded" : closed === "draw" ? "Draw" : winner ? `${winner} won` : "Match over";
   switch (s) {
     case "open": return "Waiting for an opponent";
     case "table": return "Waiting for a table";
     case "live": return "In play";
-    case "over": return "Match over";
     case "refunding": return "Refunding";
     case "refunded": return "Refunded";
     default: return winner ? `${winner} won` : "Draw";
@@ -75,7 +89,7 @@ export function spectateLine(m: Pick<ChainMatch, "deadline" | "sides" | "settled
         : "No table opened in time. Both entries are on their way back.";
     }
     case "over":
-      return "This Match is over. Its result is still being recorded and will show here by itself.";
+      return "This Match is over and its result is final. The amounts are still being recorded and will show here by themselves.";
     case "refunding":
       if (!m.sides[1]) return "Nobody joined. The entry is on its way back.";
       // A no-show: each side pays its Platform Fee and gets the rest of its entry back.
@@ -91,26 +105,35 @@ export interface SpectateReads {
   fetchMatch: (id: string) => Promise<ChainMatch | null>;
   /** Whether the Match's Game has assigned it a table. */
   tabled: (m: ChainMatch) => Promise<boolean>;
+  /** How a closed Match ended, from its settlement receipt; null when it has none. */
+  outcome: (id: string) => Promise<ClosedOutcome | null>;
   now: () => number;
 }
 
 /**
- * One read for the spectator page: the Match and, while it is Active, its table. Null when no such Match exists; undefined
- * when the read failed, so the page keeps what it shows and reads again.
+ * One read for the spectator page: the Match and, while it is Active, its table. `prev` is what the page shows now. Null when
+ * no such Match exists; undefined when the read failed, so the page keeps what it shows and reads again.
+ * A Match account is closed minutes before the history has its result. In between, the chain's settlement receipt still says
+ * how it ended: the read is then the last known Match (or the history's unfinished page, or nothing on a first read) with `closed`.
  */
-export async function readSpectated(id: string, d: SpectateReads, wasTabled = false): Promise<Spectated | null | undefined> {
+export async function readSpectated(id: string, d: SpectateReads, prev?: Spectated | null): Promise<Spectated | null | undefined> {
   try {
     const m = await d.fetchMatch(id);
-    if (!m) return m;
-    const active = m.status === "active" && !m.running;
-    // Only the history gives a Match no refund deadline: the account is closed, and an Active one from there has no result written yet.
-    if (active && !m.deadline) return { m, tabled: wasTabled, at: d.now(), unrecorded: true };
-    return { m, tabled: active ? wasTabled || (await d.tabled(m)) : wasTabled, at: d.now() };
+    const tabled = !!prev?.tabled;
+    const active = !!m && m.status === "active" && !m.running;
+    // Only the history gives a Match no refund deadline: an Active one from there is a closed Match with no result written yet.
+    if (!m || (active && !m.deadline)) {
+      const how = await d.outcome(id);
+      if (!how && !m) return prev ? undefined : null;
+      return { m: m ?? prev?.m ?? null, tabled, at: d.now(), closed: how ?? "unknown" };
+    }
+    return { m, tabled: active ? tabled || (await d.tabled(m)) : tabled, at: d.now() };
   } catch {
     return undefined;
   }
 }
 
+// A closed Match with no history yet ranks under a run being paid: that read has the amounts, this one only the outcome.
 const RANK: Record<SpectateState, number> = { open: 0, table: 1, live: 2, over: 3, settling: 4, refunding: 4, settled: 5, refunded: 5 };
 
 /** What the page shows after a read: the new read, unless it says nothing or would step the Match back (a lagging read). */
