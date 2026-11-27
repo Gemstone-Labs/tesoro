@@ -63,6 +63,8 @@ import { entryError } from "@/lib/chain/entry-errors";
 import { awayNotice } from "@/lib/chain/protections";
 import { useAway } from "@/lib/chain/useAway";
 import { wantsPostRequest } from "@/lib/backing/post-link";
+import { myBackingsView } from "@/lib/backing/my-backings-view";
+import { MyBackingsSignIn } from "@/components/backing/MyBackingsSignIn";
 
 
 type Tab = "requests" | "mine";
@@ -132,6 +134,7 @@ export default function Backing() {
     (r) => r.record,
   );
   const mine = offers.filter((o) => o.backer === me && ["open", "accepted", "consumed"].includes(o.status));
+  const myView = myBackingsView({ status: auth.status, accountKnown: !!snapshot, boardLoaded: !!board, backings: mine.length });
   const offeredTo = new Set(mine.filter((o) => o.status === "open" && nowSecs < o.expiresAt).map((o) => o.request));
 
   const run = (key: string, label: string | (() => string), fn: () => Promise<string | undefined>) => {
@@ -341,12 +344,13 @@ export default function Backing() {
 
           {tab === "mine" && (
             <section aria-label="My Backings" className="stack">
-              <Label>Offers you funded</Label>
-              {board && mine.length === 0 && (
+              {myView === "sign-in" && <MyBackingsSignIn onSignIn={() => auth.openSignIn("see your Backings")} />}
+              {(myView === "empty" || myView === "list") && <Label>Offers you funded</Label>}
+              {myView === "empty" && (
                 <Empty title="No Backings yet" body="Pick a Player under Requests and make an Offer. The Player accepts or declines." />
               )}
               <div className="bk-mine">
-                {mine.map((o) => (
+                {myView === "list" && mine.map((o) => (
                   <MyOffer
                     key={o.address.toBase58()}
                     offer={o}
