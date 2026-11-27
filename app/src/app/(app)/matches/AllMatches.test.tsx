@@ -42,7 +42,7 @@ const HISTORY: HistoryRow[] = [
 ];
 const snapshot = { accountKey: { toBase58: () => "me" }, matchesLoaded: true, matches: [], funded: [] } as never;
 const page = (query: string, history: HistoryRow[] | null = HISTORY) =>
-  renderToStaticMarkup(<MatchesView auth={{ status: "signed-in" } as never} snapshot={snapshot} openMatches={[]} history={history} error={null} refresh={async () => {}} params={new URLSearchParams(query)} now={NOW} />);
+  renderToStaticMarkup(<MatchesView auth={{ status: "signed-in" } as never} snapshot={snapshot} openMatches={[]} history={history} error={null} refresh={async () => true} params={new URLSearchParams(query)} now={NOW} />);
 const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 const banners = (html: string) => (html.match(/href="\/play\/[^"]+"/g) ?? []).filter((h) => /ride|match/.test(h));
 const nav = (html: string, label: string) => html.match(new RegExp(`<nav[^>]*aria-label="${label}"[\\s\\S]*?</nav>`))?.[0] ?? "";
