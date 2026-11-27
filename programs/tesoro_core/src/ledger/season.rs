@@ -26,7 +26,11 @@ pub fn season_at(ts: i64) -> CoreResult<u32> {
     if ts < SEASON_EPOCH {
         return Err(CoreError::SeasonInvalid);
     }
-    let n = (ts - SEASON_EPOCH) / SEASON_SECS + 1;
+    let n = ts
+        .checked_sub(SEASON_EPOCH)
+        .and_then(|d| d.checked_div(SEASON_SECS))
+        .and_then(|q| q.checked_add(1))
+        .ok_or(CoreError::Math)?;
     u32::try_from(n).map_err(|_| CoreError::Math)
 }
 
@@ -35,8 +39,9 @@ pub fn season_start(n: u32) -> CoreResult<i64> {
     if n == 0 {
         return Err(CoreError::SeasonInvalid);
     }
-    (n as i64 - 1)
-        .checked_mul(SEASON_SECS)
+    i64::from(n)
+        .checked_sub(1)
+        .and_then(|d| d.checked_mul(SEASON_SECS))
         .and_then(|d| d.checked_add(SEASON_EPOCH))
         .ok_or(CoreError::Math)
 }

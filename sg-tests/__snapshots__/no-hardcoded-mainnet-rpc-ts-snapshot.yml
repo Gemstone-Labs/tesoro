@@ -1,0 +1,8 @@
+id: no-hardcoded-mainnet-rpc-ts
+snapshots:
+  "const rpc = 'https://api.mainnet-beta.solana.com';":
+    labels:
+    - source: https://api.mainnet-beta.solana.com
+      style: primary
+      start: 13
+      end: 48

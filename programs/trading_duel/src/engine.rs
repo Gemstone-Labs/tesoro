@@ -3,6 +3,14 @@
 //!
 //! Times are seconds since the Match started. Prices are 1e-8 USD.
 
+// Fixed price-grid rules pinned bit-for-bit to `tests/fixtures/grid-vectors.json`.
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::indexing_slicing,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+
 use crate::state::*;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]

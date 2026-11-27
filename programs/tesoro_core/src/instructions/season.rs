@@ -12,7 +12,7 @@
 //!
 //! The ranking is recomputable from `MatchWon` events; the keeper (or the admin) records it.
 
-use crate::error::{core_err, TesoroError};
+use crate::error::{core_err, BasketError, TesoroError};
 use crate::instructions::economy::*;
 use crate::instructions::overflow::{credit_prize, require_routes_claimed, season_overflow_id};
 use crate::instructions::prize::{check_prize_source, route_of, season_authority, take_exact};
@@ -92,6 +92,9 @@ pub(crate) fn record_season<'info>(
     )?;
     require_pool(&ctx.accounts.config, &ctx.accounts.pool_account.key())?;
     let n = points.len();
+    if n > ledger::PRIZE_PLACES {
+        return Err(core_err(ledger::CoreError::SeasonInvalid));
+    }
     require!(
         ctx.remaining_accounts.len() >= n,
         TesoroError::BadRemainingAccounts
@@ -121,7 +124,7 @@ pub(crate) fn record_season<'info>(
         .collect();
     // The routes' custodies, then the Pool's overflow record of each route for this Season.
     require!(
-        rest.len() == 2 * registered.len(),
+        rest.len() == registered.len().saturating_mul(2),
         TesoroError::BadRemainingAccounts
     );
     let (route_infos, record_infos) = rest.split_at(registered.len());
@@ -150,7 +153,8 @@ pub(crate) fn record_season<'info>(
         ctx.accounts.pool_spill.to_account_info(),
     ] {
         let data = info.try_borrow_data()?;
-        let store = LineStore::new(&data[DISC..]).map_err(store_err)?;
+        let body = data.get(DISC..).ok_or(BasketError::BadStore)?;
+        let store = LineStore::new(body).map_err(store_err)?;
         for l in store.lines() {
             if l.class >= CLASS_GENERAL && l.amount > 0 {
                 require!(
@@ -249,8 +253,7 @@ pub(crate) fn pay_season_rank<'info>(
     require_pool(&a.config, &a.pool_account.key())?;
     let winner = a.winner_account.key();
     require!(
-        (rank as usize) < ledger::PRIZE_PLACES
-            && a.season.inner.winners[rank as usize] == winner.to_bytes(),
+        a.season.inner.winners.get(usize::from(rank)) == Some(&winner.to_bytes()),
         TesoroError::InvalidAccount
     );
     let ts = now()?;
@@ -317,10 +320,17 @@ pub(crate) fn void_season_rank(ctx: Context<VoidSeasonRank>, rank: u8) -> Result
     let ts = now()?;
     let number = ctx.accounts.season.inner.number;
     ctx.accounts.season.inner.void(rank, ts).map_err(core_err)?;
+    let winner_bytes = *ctx
+        .accounts
+        .season
+        .inner
+        .winners
+        .get(usize::from(rank))
+        .ok_or(TesoroError::InvalidAccount)?;
     emit!(SeasonRankVoided {
         season: number,
         rank,
-        account: Pubkey::new_from_array(ctx.accounts.season.inner.winners[rank as usize]),
+        account: Pubkey::new_from_array(winner_bytes),
     });
     Ok(())
 }

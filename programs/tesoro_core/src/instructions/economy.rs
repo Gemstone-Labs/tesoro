@@ -87,8 +87,10 @@ pub(crate) fn with_pool<R>(
 ) -> Result<R> {
     let mut b = basket.try_borrow_mut_data()?;
     let mut s = spill.try_borrow_mut_data()?;
-    let mut basket = LineStore::new(&mut b[DISC..]).map_err(store_err)?;
-    let mut spill = LineStore::new(&mut s[DISC..]).map_err(store_err)?;
+    let b_body = b.get_mut(DISC..).ok_or(BasketError::BadStore)?;
+    let s_body = s.get_mut(DISC..).ok_or(BasketError::BadStore)?;
+    let mut basket = LineStore::new(b_body).map_err(store_err)?;
+    let mut spill = LineStore::new(s_body).map_err(store_err)?;
     let mut pool = Pool::new(&mut basket, &mut spill);
     f(&mut pool)
 }
@@ -319,9 +321,11 @@ impl<'info> KindCtx<'info> {
         let n = if paying { 2 + YIELD_MINT_ACCOUNTS } else { 2 };
         require!(remaining.len() >= n, TesoroError::BadRemainingAccounts);
         let (head, rest) = remaining.split_at(n);
-        let custody = load_native_custody(&head[0])?;
+        let head0 = head.first().ok_or(TesoroError::BadRemainingAccounts)?;
+        let head1 = head.get(1).ok_or(TesoroError::BadRemainingAccounts)?;
+        let custody = load_native_custody(head0)?;
         if !paying {
-            let pool = load_pool(&head[1])?;
+            let pool = load_pool(head1)?;
             require_keys_eq!(custody.pool, pool.key(), TesoroError::InvalidPool);
             return Ok((
                 Self::Native {
@@ -332,7 +336,7 @@ impl<'info> KindCtx<'info> {
                 rest,
             ));
         }
-        let vault = &head[1];
+        let vault = head1;
         require_keys_eq!(*vault.key, custody.vault, TesoroError::InvalidAccount);
         require!(vault.is_writable, TesoroError::NotWritable);
         let payee = match pay {
@@ -340,9 +344,11 @@ impl<'info> KindCtx<'info> {
             PayTo::Vault(v) => Payee::Vault(v),
             PayTo::Nobody => return err!(TesoroError::BadRemainingAccounts),
         };
-        let y = load_yield_mint(&head[2..], payee)?;
+        let head_tail = head.get(2..).ok_or(TesoroError::BadRemainingAccounts)?;
+        let head2 = head.get(2).ok_or(TesoroError::BadRemainingAccounts)?;
+        let y = load_yield_mint(head_tail, payee)?;
         require_keys_eq!(y.pool.key(), custody.pool, TesoroError::InvalidPool);
-        let pool = load_pool(&head[2])?;
+        let pool = load_pool(head2)?;
         Ok((
             Self::Native {
                 custody,
@@ -361,8 +367,10 @@ impl<'info> KindCtx<'info> {
         let n = if paying { 5 } else { 2 };
         require!(remaining.len() >= n, TesoroError::BadRemainingAccounts);
         let (head, rest) = remaining.split_at(n);
-        let custody = load_stake_custody(&head[0])?;
-        let read = read_pool(&head[1], &custody)?;
+        let head0 = head.first().ok_or(TesoroError::BadRemainingAccounts)?;
+        let head1 = head.get(1).ok_or(TesoroError::BadRemainingAccounts)?;
+        let custody = load_stake_custody(head0)?;
+        let read = read_pool(head1, &custody)?;
         let rate = read.rate().map_err(core_err)?;
         let pay = match pay {
             PayTo::Nobody => None,
@@ -481,16 +489,18 @@ fn stake_pay<'info>(
     wallet: Option<&Pubkey>,
     vault_token: Option<&Pubkey>,
 ) -> Result<StakePay<'info>> {
-    let vault = &head[2];
+    let vault = head.get(2).ok_or(TesoroError::BadRemainingAccounts)?;
+    let dest_info = head.get(3).ok_or(TesoroError::BadRemainingAccounts)?;
+    let token_program = head.get(4).ok_or(TesoroError::BadRemainingAccounts)?;
     require_keys_eq!(*vault.key, custody.vault, TesoroError::InvalidAccount);
     require!(vault.is_writable, TesoroError::NotWritable);
-    require_keys_eq!(*head[4].key, token::ID, TesoroError::InvalidAccount);
+    require_keys_eq!(*token_program.key, token::ID, TesoroError::InvalidAccount);
     let destination = match (wallet, vault_token) {
-        (Some(w), _) => wallet_token(&head[3], &custody.mint, w)?,
+        (Some(w), _) => wallet_token(dest_info, &custody.mint, w)?,
         (None, Some(v)) => {
-            require_keys_eq!(*head[3].key, *v, TesoroError::InvalidAccount);
-            require!(head[3].is_writable, TesoroError::NotWritable);
-            let t = Account::<TokenAccount>::try_from(&head[3])?;
+            require_keys_eq!(*dest_info.key, *v, TesoroError::InvalidAccount);
+            require!(dest_info.is_writable, TesoroError::NotWritable);
+            let t = Account::<TokenAccount>::try_from(dest_info)?;
             require_keys_eq!(t.mint, custody.mint, TesoroError::InvalidMint);
             t
         }
@@ -499,7 +509,7 @@ fn stake_pay<'info>(
     Ok(StakePay {
         vault,
         destination,
-        token_program: &head[4],
+        token_program,
     })
 }
 
@@ -833,7 +843,8 @@ pub(crate) fn begin_advance<'a, 'info>(
     {
         let info = a.book.to_account_info();
         let mut data = info.try_borrow_mut_data()?;
-        book.encode(&mut data[BOOK_AT..]).map_err(book_err)?;
+        let body = data.get_mut(BOOK_AT..).ok_or(BasketError::BadSourceBook)?;
+        book.encode(body).map_err(book_err)?;
     }
     with_pool(a.basket, a.spill, |pool| {
         pool.put(
@@ -926,9 +937,11 @@ fn grow_book_for_extension<'info>(
             data.len() > BOOK_AT + ledger::book::BOOK_FIXED_LEN,
             BasketError::BadSourceBook
         );
-        data[BOOK_AT + ledger::book::BOOK_FIXED_LEN - 1]
+        *data
+            .get(BOOK_AT + ledger::book::BOOK_FIXED_LEN - 1)
+            .ok_or(BasketError::BadSourceBook)?
     };
-    let new_len = BOOK_AT + ledger::book::encoded_len(n_ext.saturating_add(1));
+    let new_len = BOOK_AT.saturating_add(ledger::book::encoded_len(n_ext.saturating_add(1)));
     if new_len <= info.data_len() {
         return Ok(());
     }

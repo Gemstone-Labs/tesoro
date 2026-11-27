@@ -31,12 +31,11 @@ impl Ring {
     /// Frees every Done slot whose Match has a receipt among `accounts` that is `delay` old.
     /// Returns how many it freed.
     pub fn free_proven(&mut self, accounts: &[AccountInfo], now: i64, delay: i64) -> usize {
-        let mut freed = 0;
-        for i in 0..RING_LEN {
-            let slot = self.slots[i];
+        let mut freed = 0usize;
+        for slot in &mut self.slots {
             if slot.state == SLOT_DONE && receipt_aged(accounts, &slot.match_key, now, delay) {
-                self.slots[i] = Slot::default();
-                freed += 1;
+                *slot = Slot::default();
+                freed = freed.saturating_add(1);
             }
         }
         freed

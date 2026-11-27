@@ -68,19 +68,20 @@ impl Ring {
         {
             return Err(KitError::RingDuplicate);
         }
-        let i = self
+        let (i, slot) = self
             .slots
-            .iter()
-            .position(|s| s.state == SLOT_FREE)
+            .iter_mut()
+            .enumerate()
+            .find(|(_, s)| s.state == SLOT_FREE)
             .ok_or(KitError::RingFull)?;
-        self.slots[i] = Slot {
+        *slot = Slot {
             state: SLOT_RESERVED,
             match_key,
             epoch,
             outcome: OUTCOME_NONE,
             at: 0,
         };
-        Ok(i as u8)
+        u8::try_from(i).map_err(|_| KitError::RingFull)
     }
 
     /// Writes the result into the slot reserved for (match, epoch).
@@ -115,7 +116,7 @@ impl Ring {
             .iter()
             .enumerate()
             .find(|(_, s)| s.state != SLOT_FREE && s.match_key == *match_key && s.epoch == epoch)
-            .map(|(i, s)| (i as u8, s))
+            .and_then(|(i, s)| u8::try_from(i).ok().map(|idx| (idx, s)))
     }
 
     /// Frees a slot. The caller has already shown the evidence ([`crate::receipt_at`] or

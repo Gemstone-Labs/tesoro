@@ -1,3 +1,10 @@
+// Pure 8x8 bitboard engine pinned bit-for-bit to `tests/vectors.json`.
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::indexing_slicing,
+    clippy::cast_possible_truncation
+)]
+
 //! Block Puzzle engine: a pure, deterministic function of `Seed + moves`.
 //!
 //! Only `core` is used (no alloc, no floats, no std), so the same code runs in

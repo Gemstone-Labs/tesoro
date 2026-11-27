@@ -1,0 +1,24 @@
+id: no-public-devnet-rpc-ts
+language: typescript
+severity: error
+message: "Use https://rpc.magicblock.app/devnet (via env/rpc-config); api.devnet.solana.com rate-limits (429)."
+files:
+  - app/src/**/*.ts
+  - keeper/src/**/*.ts
+ignores:
+  - app/src/lib/solana-network.ts
+  - app/src/lib/solana-network.test.ts
+rule:
+  kind: string_fragment
+  regex: "api\\.devnet\\.solana\\.com"
+---
+id: no-public-devnet-rpc-tsx
+language: tsx
+severity: error
+message: "Use https://rpc.magicblock.app/devnet (via env/rpc-config); api.devnet.solana.com rate-limits (429)."
+files:
+  - app/src/**/*.tsx
+  - keeper/src/**/*.tsx
+rule:
+  kind: string_fragment
+  regex: "api\\.devnet\\.solana\\.com"

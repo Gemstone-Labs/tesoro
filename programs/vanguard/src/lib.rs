@@ -1,3 +1,6 @@
+// Anchor 0.31 #[program] expands AccountInfo::realloc (deprecated in solana-account-info 2.3+).
+#![allow(deprecated)]
+
 //! Vanguard (blitz Stratego) as a Tesoro Game, on persistent tables.
 //!
 //! Matches run on **tables** that stay delegated to MagicBlock's TEE rollup across Matches (see the protocol note
@@ -273,8 +276,8 @@ fn acting_seat(table: &Table, battle: &Battle, signer: &Pubkey) -> Result<usize>
     let records = [0, 1].map(|seat| SeatRecord {
         seat,
         keys: SeatKeys {
-            player: battle.players[seat],
-            signer: battle.signers[seat],
+            player: *battle.players.get(seat).unwrap_or(&Pubkey::default()),
+            signer: *battle.signers.get(seat).unwrap_or(&Pubkey::default()),
         },
         tesoro_match: battle.tesoro_match,
         epoch: table.epoch,
@@ -298,7 +301,7 @@ fn require_army(table: &Table, battle: &Battle, army: &Army, signer: &Pubkey) ->
     let seat = require_acting_seat(&table_seats(table, battle), &record, signer)
         .map_err(|_| error!(VanguardError::NotAPlayer))?;
     require!(
-        army.signer == battle.signers[seat] && army.tesoro_match == battle.tesoro_match,
+        battle.signers.get(seat) == Some(&army.signer) && army.tesoro_match == battle.tesoro_match,
         VanguardError::NotAPlayer
     );
     Ok(seat)
@@ -389,7 +392,8 @@ fn wipe_seat_pair<'info>(
     for (seat, (army, permission)) in armies.into_iter().zip(permissions).enumerate() {
         army.wipe();
         army.exit(&ID)?;
-        let seat_arr = [seat as u8];
+        let seat_u8 = u8::try_from(seat).map_err(|_| VanguardError::NotAPlayer)?;
+        let seat_arr = [seat_u8];
         let bump_arr = [army.bump];
         let seat_seeds: &[&[u8]] = &[ARMY_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
         swap_seat_members_keyed(
@@ -813,7 +817,8 @@ pub mod vanguard {
                     ctx.bumps.army_1,
                 )
             };
-            let seat_arr = [seat as u8];
+            let seat_u8 = u8::try_from(seat).map_err(|_| VanguardError::NotAPlayer)?;
+            let seat_arr = [seat_u8];
             let bump_arr = [army_bump];
             let seat_seeds: &[&[u8]] = &[ARMY_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
             let army_info = army.to_account_info();
@@ -828,11 +833,11 @@ pub mod vanguard {
                 },
                 table_seeds,
                 seat_seeds,
-                (8 + Army::INIT_SPACE) as u32,
+                u32::try_from(8 + Army::INIT_SPACE).map_err(|_| VanguardError::BadState)?,
                 None,
             )?;
             let mut data = army_info.try_borrow_mut_data()?;
-            Army::blank(army_bump, table_key, seat as u8).try_serialize(&mut &mut data[..])?;
+            Army::blank(army_bump, table_key, seat_u8).try_serialize(&mut &mut data[..])?;
         }
         ctx.accounts.table.seats_created = true;
         Ok(())
@@ -856,10 +861,16 @@ pub mod vanguard {
                 battle.tesoro_match == table.tesoro_match,
                 VanguardError::BadState
             );
-            [0, 1].map(|i| SeatKeys {
-                player: battle.players[i],
-                signer: battle.signers[i],
-            })
+            [
+                SeatKeys {
+                    player: battle.players[0],
+                    signer: battle.signers[0],
+                },
+                SeatKeys {
+                    player: battle.players[1],
+                    signer: battle.signers[1],
+                },
+            ]
         };
         let (key, epoch) = (table.tesoro_match, table.epoch);
         let (gen, idx) = (table.generation.to_le_bytes(), table.index.to_le_bytes());
@@ -884,7 +895,8 @@ pub mod vanguard {
             } else {
                 (&ctx.accounts.army_1, &ctx.accounts.army_1_permission)
             };
-            let seat_arr = [seat as u8];
+            let seat_u8 = u8::try_from(seat).map_err(|_| VanguardError::NotAPlayer)?;
+            let seat_arr = [seat_u8];
             let bump_arr = [army.bump];
             let seat_seeds: &[&[u8]] = &[ARMY_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
             swap_seat_members_keyed(
@@ -952,7 +964,8 @@ pub mod vanguard {
             } else {
                 (&ctx.accounts.army_1, &ctx.accounts.army_1_permission)
             };
-            let seat_arr = [seat as u8];
+            let seat_u8 = u8::try_from(seat).map_err(|_| VanguardError::NotAPlayer)?;
+            let seat_arr = [seat_u8];
             let bump_arr = [army.bump];
             let seat_seeds: &[&[u8]] = &[ARMY_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
             close_private_seat(
@@ -1095,7 +1108,11 @@ pub mod vanguard {
             VanguardError::StartWindowPassed
         );
         let seat = acting_seat(table, &battle, &ctx.accounts.player.key())?;
-        table.checked_in[seat] = true;
+        let checked = table
+            .checked_in
+            .get_mut(seat)
+            .ok_or(VanguardError::NotAPlayer)?;
+        *checked = true;
         if table.checked_in == [true; 2] {
             table.phase = TABLE_LIVE;
             battle.status = STATUS_SETUP;
@@ -1323,9 +1340,10 @@ pub mod vanguard {
                 .side_of_seat(seat)
                 .ok_or_else(|| error!(VanguardError::BadState))?;
             army.place(side, &drawn.pieces);
-            army.reserved = keys[side.idx()];
-            army.storm_at = shares[seat].0;
-            army.storm_seed = shares[seat].1;
+            army.reserved = *keys.get(side.idx()).ok_or(VanguardError::BadState)?;
+            let share = shares.get(seat).ok_or(VanguardError::BadState)?;
+            army.storm_at = share.0;
+            army.storm_seed = share.1;
             army.dealt = true;
             army.spend_secrets();
         }
@@ -1367,7 +1385,7 @@ pub mod vanguard {
                 to,
                 sealed_switch,
             },
-            seat as u8,
+            u8::try_from(seat).map_err(|_| VanguardError::NotAPlayer)?,
             slot,
             now,
         );
@@ -1426,7 +1444,7 @@ pub mod vanguard {
                 to: 0,
                 sealed_switch,
             },
-            seat as u8,
+            u8::try_from(seat).map_err(|_| VanguardError::NotAPlayer)?,
             slot,
             now,
         );
@@ -1789,7 +1807,8 @@ fn declaring_seat(
     let side = battle
         .side_of_seat(seat)
         .ok_or_else(|| error!(VanguardError::BadState))?;
-    require!(side.idx() as u8 == battle.turn, VanguardError::NotYourTurn);
+    let side_u8 = u8::try_from(side.idx()).map_err(|_| VanguardError::BadState)?;
+    require!(side_u8 == battle.turn, VanguardError::NotYourTurn);
     require!(expected_seq == battle.action_seq, VanguardError::StaleSeq);
     Ok(seat)
 }
@@ -1822,7 +1841,7 @@ fn declare_act(
             to: 0,
             sealed_switch,
         },
-        seat as u8,
+        u8::try_from(seat).map_err(|_| VanguardError::NotAPlayer)?,
         slot,
         now,
     );
@@ -1908,7 +1927,7 @@ pub struct CreateTable<'info> {
     )]
     pub table: Box<Account<'info, Table>>,
     #[account(
-        init, payer = operator, space = 8 + core::mem::size_of::<Battle>(),
+        init, payer = operator, space = 8usize.saturating_add(core::mem::size_of::<Battle>()),
         seeds = [BATTLE_SEED, table.key().as_ref()], bump
     )]
     pub battle: AccountLoader<'info, Battle>,

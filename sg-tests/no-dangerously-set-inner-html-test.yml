@@ -1,0 +1,5 @@
+id: no-dangerously-set-inner-html
+valid:
+  - "export const Safe = ({ text }: { text: string }) => <div>{text}</div>;"
+invalid:
+  - "export const Unsafe = ({ html }: { html: string }) => <div dangerouslySetInnerHTML={{ __html: html }} />;"

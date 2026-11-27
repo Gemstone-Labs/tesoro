@@ -63,7 +63,7 @@ fn is_stale(info: &AccountInfo, discriminator: &[u8], space: usize) -> bool {
         return false;
     }
     match info.try_borrow_data() {
-        Ok(data) => data.len() >= 8 && data.len() < space && data[..8] == *discriminator,
+        Ok(data) => data.len() < space && data.get(..8) == Some(discriminator),
         Err(_) => false,
     }
 }
@@ -82,10 +82,11 @@ fn close_to<'info>(info: &AccountInfo<'info>, dest: &AccountInfo<'info>) -> Resu
     Ok(())
 }
 
-fn key_at(data: &[u8], at: usize) -> Pubkey {
-    let mut bytes = [0u8; 32];
-    bytes.copy_from_slice(&data[at..at + 32]);
-    Pubkey::new_from_array(bytes)
+fn key_at(data: &[u8], at: usize) -> Result<Pubkey> {
+    let end = at.checked_add(32).ok_or(TesoroError::NotOldWorld)?;
+    let slice = data.get(at..end).ok_or(TesoroError::NotOldWorld)?;
+    let bytes: [u8; 32] = slice.try_into().map_err(|_| TesoroError::NotOldWorld)?;
+    Ok(Pubkey::new_from_array(bytes))
 }
 
 // --- Native custody and its vault ----------------------------------------------------------
@@ -129,15 +130,15 @@ pub(crate) fn retire_native_custody(ctx: Context<RetireNativeCustody>) -> Result
         require!(
             data.len() >= CUSTODY_PREFIX + 32
                 && data.len() != NativeCustody::SPACE
-                && data[..8] == *NativeCustody::DISCRIMINATOR,
+                && data.get(..8) == Some(NativeCustody::DISCRIMINATOR),
             TesoroError::NotOldWorld
         );
         (
-            key_at(&data, CUSTODY_POSITION),
-            key_at(&data, CUSTODY_OWNER),
-            key_at(&data, CUSTODY_MINT),
-            key_at(&data, CUSTODY_VAULT),
-            data[8],
+            key_at(&data, CUSTODY_POSITION)?,
+            key_at(&data, CUSTODY_OWNER)?,
+            key_at(&data, CUSTODY_MINT)?,
+            key_at(&data, CUSTODY_VAULT)?,
+            *data.get(8).ok_or(TesoroError::NotOldWorld)?,
         )
     };
     let (custody_key, canonical) =
@@ -298,10 +299,11 @@ pub(crate) fn retire_source(ctx: Context<RetireSource>) -> Result<()> {
     let legacy = {
         let data = source.try_borrow_data()?;
         require!(
-            data.len() == LEGACY_SOURCE_SPACE && data[..8] == *SourceState::DISCRIMINATOR,
+            data.len() == LEGACY_SOURCE_SPACE && data.get(..8) == Some(SourceState::DISCRIMINATOR),
             TesoroError::NotOldWorld
         );
-        LegacySource::try_from_slice(&data[8..]).map_err(|_| error!(TesoroError::NotOldWorld))?
+        let body = data.get(8..).ok_or(TesoroError::NotOldWorld)?;
+        LegacySource::try_from_slice(body).map_err(|_| error!(TesoroError::NotOldWorld))?
     };
     let (expected, bump) = Pubkey::find_program_address(
         &[
@@ -373,10 +375,11 @@ pub(crate) fn retire_holding(ctx: Context<RetireHolding>) -> Result<()> {
         require!(
             holding.owner == &crate::ID
                 && data.len() == LEGACY_HOLDING_SPACE
-                && data[..8] == HOLDING_DISCRIMINATOR,
+                && data.get(..8) == Some(&HOLDING_DISCRIMINATOR[..]),
             TesoroError::NotOldWorld
         );
-        LegacyHolding::try_from_slice(&data[8..]).map_err(|_| error!(TesoroError::NotOldWorld))?
+        let body = data.get(8..).ok_or(TesoroError::NotOldWorld)?;
+        LegacyHolding::try_from_slice(body).map_err(|_| error!(TesoroError::NotOldWorld))?
     };
     let (expected, bump) = Pubkey::find_program_address(
         &[b"holding", legacy.account.as_ref(), legacy.source.as_ref()],
@@ -459,7 +462,7 @@ pub(crate) fn retire_offer<'info>(
     // Every earlier Offer layout had another length (longer: applicants, then reserved lines).
     let other_layout = offer.owner == &crate::ID
         && offer.try_borrow_data().is_ok_and(|d| {
-            d.len() >= 8 && d.len() != OfferState::SPACE && d[..8] == *OfferState::DISCRIMINATOR
+            d.len() != OfferState::SPACE && d.get(..8) == Some(OfferState::DISCRIMINATOR)
         });
     require!(other_layout, TesoroError::NotOldWorld);
     close_to(&offer, &ctx.accounts.admin.to_account_info())?;
@@ -559,7 +562,7 @@ pub(crate) fn retire_legacy_account(
     {
         let data = info.try_borrow_data()?;
         require!(
-            lengths.contains(&data.len()) && data[..8] == *discriminator,
+            lengths.contains(&data.len()) && data.get(..8) == Some(discriminator),
             TesoroError::NotOldWorld
         );
     }

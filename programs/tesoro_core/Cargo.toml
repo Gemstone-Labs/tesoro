@@ -18,8 +18,8 @@ custom-heap = []
 custom-panic = []
 idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build", "sim_lst/idl-build"]
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
+[lints]
+workspace = true
 
 [dependencies]
 anchor-lang = { version = "0.31.1", features = ["init-if-needed", "event-cpi"] }

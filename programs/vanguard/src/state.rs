@@ -12,6 +12,14 @@
 //! A piece's number is the index of its start square (Italy 0-29, US 30-59), so `id % 30` indexes the ranks of its
 //! army and the number says nothing about the rank.
 
+// Fixed 10x10 board and 30-piece per-army state conversion.
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::indexing_slicing,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+
 use crate::engine::{
     self, Army as Side, Clock, EndReason, Event, Events, Game, LayoutPiece, Outcome, Piece, Record,
     Winner, CAP_SECS, GRACE_SECS, MOVE_CAP, OPENING_GRACE_SECS, PIECE_SLOTS, RESOLVE_SLACK_SECS,

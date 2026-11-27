@@ -187,7 +187,10 @@ pub(crate) fn take_exact<B: Bytes, S: Bytes>(
     }
     let mut taken = line;
     taken.amount = amount;
-    line.amount -= amount;
+    line.amount = line
+        .amount
+        .checked_sub(amount)
+        .ok_or_else(|| core_err(CoreError::InsufficientGemas))?;
     store_line(pool, at, idx, &line)?;
     Ok(taken)
 }
@@ -625,7 +628,10 @@ pub(crate) fn redeem_prize<'info>(
             if amount > line.amount {
                 return Err(core_err(CoreError::InsufficientGemas));
             }
-            line.amount -= amount;
+            line.amount = line
+                .amount
+                .checked_sub(amount)
+                .ok_or_else(|| core_err(CoreError::InsufficientGemas))?;
             store_line(pool, at, idx, &line)
         },
     )?;

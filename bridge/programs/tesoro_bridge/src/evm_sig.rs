@@ -22,7 +22,7 @@ pub fn eip191_hash(message: &[u8]) -> [u8; 32] {
 pub fn recover_address(message: &[u8], signature: &[u8; 65]) -> Option<[u8; 20]> {
     let v = signature[64];
     let recovery_id = match v {
-        27 | 28 => v - 27,
+        27 | 28 => v.saturating_sub(27),
         0 | 1 => v,
         _ => return None,
     };

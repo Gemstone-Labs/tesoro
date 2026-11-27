@@ -150,9 +150,13 @@ pub fn stalled(slots: u64, secs: i64) -> bool {
     if secs < STALL_SECS {
         return false;
     }
-    let secs = secs as u64;
-    u128::from(slots) * 1000
-        < u128::from(OUTAGE_RATIO_PERMILLE) * u128::from(SLOTS_PER_SEC) * u128::from(secs)
+    let Ok(secs) = u64::try_from(secs) else {
+        return false;
+    };
+    u128::from(slots).saturating_mul(1000)
+        < u128::from(OUTAGE_RATIO_PERMILLE)
+            .saturating_mul(u128::from(SLOTS_PER_SEC))
+            .saturating_mul(u128::from(secs))
 }
 
 /// Game-wide settings. The upgrade authority names the operator (the key that creates tables and
@@ -599,7 +603,9 @@ pub const LEGACY_BOARD_LENGTHS: [usize; 2] = [605, 853];
 const _: () = {
     let mut i = 0;
     while i < LEGACY_BOARD_LENGTHS.len() {
-        assert!(LEGACY_BOARD_LENGTHS[i] != 8 + Board::INIT_SPACE);
+        #[allow(clippy::indexing_slicing)]
+        let len = LEGACY_BOARD_LENGTHS[i];
+        assert!(len != 8 + Board::INIT_SPACE);
         i += 1;
     }
 };

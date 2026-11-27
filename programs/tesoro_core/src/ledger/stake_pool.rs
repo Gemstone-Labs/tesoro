@@ -44,7 +44,10 @@ impl Cursor<'_> {
         Ok(out)
     }
     fn byte(&mut self) -> CoreResult<u8> {
-        Ok(self.take(1)?[0])
+        self.take(1)?
+            .first()
+            .copied()
+            .ok_or(CoreError::BadStakePool)
     }
     fn word(&mut self) -> CoreResult<u64> {
         Ok(u64::from_le_bytes(
@@ -76,11 +79,22 @@ impl Cursor<'_> {
 /// fields between `epoch_fee` and the previous epoch's totals hold optional values, so they are
 /// walked rather than addressed.
 pub fn parse_stake_pool(data: &[u8]) -> CoreResult<StakePoolRead> {
-    if data.len() < AFTER_EPOCH_FEE || data[0] != STAKE_POOL_ACCOUNT_TYPE {
+    if data.len() < AFTER_EPOCH_FEE || data.first() != Some(&STAKE_POOL_ACCOUNT_TYPE) {
         return Err(CoreError::BadStakePool);
     }
-    let key = |at: usize| -> Key { data[at..at + 32].try_into().expect("32 bytes") };
-    let word = |at: usize| u64::from_le_bytes(data[at..at + 8].try_into().expect("8 bytes"));
+    let key = |at: usize| -> CoreResult<Key> {
+        let end = at.checked_add(32).ok_or(CoreError::BadStakePool)?;
+        data.get(at..end)
+            .and_then(|s| s.try_into().ok())
+            .ok_or(CoreError::BadStakePool)
+    };
+    let word = |at: usize| -> CoreResult<u64> {
+        let end = at.checked_add(8).ok_or(CoreError::BadStakePool)?;
+        data.get(at..end)
+            .and_then(|s| s.try_into().ok())
+            .map(u64::from_le_bytes)
+            .ok_or(CoreError::BadStakePool)
+    };
     let mut c = Cursor {
         data,
         at: AFTER_EPOCH_FEE,
@@ -99,10 +113,10 @@ pub fn parse_stake_pool(data: &[u8]) -> CoreResult<StakePoolRead> {
     let last_epoch_pool_token_supply = c.word()?;
     let last_epoch_total_lamports = c.word()?;
     Ok(StakePoolRead {
-        pool_mint: key(POOL_MINT_OFFSET),
-        total_lamports: word(TOTAL_LAMPORTS_OFFSET),
-        pool_token_supply: word(POOL_SUPPLY_OFFSET),
-        last_update_epoch: word(LAST_UPDATE_EPOCH_OFFSET),
+        pool_mint: key(POOL_MINT_OFFSET)?,
+        total_lamports: word(TOTAL_LAMPORTS_OFFSET)?,
+        pool_token_supply: word(POOL_SUPPLY_OFFSET)?,
+        last_update_epoch: word(LAST_UPDATE_EPOCH_OFFSET)?,
         last_epoch_total_lamports,
         last_epoch_pool_token_supply,
     })

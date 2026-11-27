@@ -39,11 +39,11 @@ use super::prize::RouteLedger;
 use super::yield_fee::cash_out;
 use super::{
     CoreError, CoreResult, Position, PositionStatus, Source, MAX_HORIZON_MONTHS, RATE_SCALE,
-    STAKE_RATE_SCALE, YEAR_SECS,
+    STAKE_RATE_SCALE,
 };
 
 /// Seconds in one month of the planned-repayment clock.
-pub const MONTH_SECS: i64 = (YEAR_SECS / 12) as i64;
+pub const MONTH_SECS: i64 = 31_536_000 / 12;
 
 /// Fixed-point dust (Fp, 2^-64 Gema) a sync forgives: proportional moves hand at most one unit
 /// each to the owner's pocket, which turns it back into unpaid Gemas that no landing is worth
@@ -56,8 +56,8 @@ pub const DUST_FORGIVEN_FP: u128 = 1 << 40;
 pub fn planned_due_at(now: i64, months: u8, speedup: u32) -> CoreResult<i64> {
     let secs = i64::from(months)
         .checked_mul(MONTH_SECS)
-        .ok_or(CoreError::Math)?
-        / i64::from(speedup.max(1));
+        .and_then(|s| s.checked_div(i64::from(speedup.max(1))))
+        .ok_or(CoreError::Math)?;
     now.checked_add(secs).ok_or(CoreError::Math)
 }
 
@@ -174,7 +174,7 @@ pub fn gemas_for_shares(
 ) -> CoreResult<u64> {
     let units = rate.units_for_shares(shares)?;
     let num = 10u128
-        .checked_pow(u32::from(decimals) + 4)
+        .checked_pow(u32::from(decimals).saturating_add(4))
         .ok_or(CoreError::Math)?;
     let g = mul_div_u128(units, u128::from(price_micro_usd), num, Round::Down)
         .ok_or(CoreError::Math)?;
@@ -184,7 +184,12 @@ pub fn gemas_for_shares(
 /// Shares a book holds: every class's pool and the owner's pocket (32 fractional bits).
 pub fn book_shares<S: ClassSlots>(book: &Book<S>) -> u128 {
     (0..book.class_count()).fold(book.owner_shares, |acc, i| {
-        acc.saturating_add(book.class(i as u8).map_or(0, |c| c.shares))
+        let class = u8::try_from(i).ok();
+        acc.saturating_add(
+            class
+                .and_then(|c| book.class(c).ok())
+                .map_or(0, |c| c.shares),
+        )
     })
 }
 
@@ -217,7 +222,7 @@ pub fn sync_source<S: ClassSlots, C: CheckpointStore + ?Sized>(
     let mut target = units_to_gemas_fp(src, counted)?;
     let need = book.uncovered_total();
     let full = book.h.checked_add(need).ok_or(CoreError::Math)?;
-    if target < full && full - target <= DUST_FORGIVEN_FP {
+    if target < full && full.saturating_sub(target) <= DUST_FORGIVEN_FP {
         target = full;
     }
     let pending = book.pending(target);
@@ -437,7 +442,7 @@ pub fn extend_source<S: ClassSlots, C: CheckpointStore + ?Sized>(
         next.due_at,
         source_key,
         class,
-        class - CLASS_GENERAL,
+        class.saturating_sub(CLASS_GENERAL),
     );
     book.issue(&mut line, minted, &*ck)?;
     *src = next;
@@ -619,8 +624,9 @@ pub fn settle_unlock(
             ..UnlockPayout::default()
         },
         CustodyKind::Stake => {
-            let custody =
-                position.custody_shares - position.paid_shares.min(position.custody_shares);
+            let custody = position
+                .custody_shares
+                .saturating_sub(position.paid_shares.min(position.custody_shares));
             // The Principal is counted at the higher of the rate now and at open: below the
             // opening rate the owner carries the fall (D2, no cushion; red-team 31 #1).
             let open = ShareRate::stake(position.stake_rate_open)?;
@@ -639,16 +645,16 @@ pub fn settle_unlock(
                     UnlockPayout {
                         owed_shares: owed,
                         gap_shares: due,
-                        claims_funded_shares: owed - custody,
+                        claims_funded_shares: owed.saturating_sub(custody),
                         ..UnlockPayout::default()
                     },
                 );
             }
-            let rest = custody - owed;
+            let rest = custody.saturating_sub(owed);
             if rest >= due {
-                let fee = free_fee.min(rest - due);
+                let fee = free_fee.min(rest.saturating_sub(due));
                 UnlockPayout {
-                    owner_shares: rest - fee,
+                    owner_shares: rest.saturating_sub(fee),
                     fee_shares: fee,
                     owed_shares: owed,
                     ..UnlockPayout::default()
@@ -656,7 +662,7 @@ pub fn settle_unlock(
             } else {
                 // Short. The Treasury covers only the growth of the landed shares since their
                 // yield was priced (SOL-02 A, ticket 55); a rate fall is the owner's gap.
-                let short = due - rest;
+                let short = due.saturating_sub(rest);
                 let growth = if above_open {
                     landed_growth_shares(position, rate, free_fee)?
                 } else {
@@ -667,7 +673,7 @@ pub fn settle_unlock(
                     owner_shares: rest,
                     owed_shares: owed,
                     shortfall_shares: shortfall,
-                    gap_shares: short - shortfall,
+                    gap_shares: short.saturating_sub(shortfall),
                     ..UnlockPayout::default()
                 }
             }
@@ -719,7 +725,7 @@ pub fn route_after_unlock(
         .ok_or(CoreError::Math)?;
     let gap = payout
         .gap_shares
-        .checked_add(payout.shortfall_shares - top)
+        .checked_add(payout.shortfall_shares.saturating_sub(top))
         .ok_or(CoreError::Math)?;
     *route = next;
     payout.owner_shares = owner;

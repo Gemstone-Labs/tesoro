@@ -159,13 +159,13 @@ impl InstantOrder {
         terms: &FillTerms,
     ) -> CoreResult<u64> {
         let ready = book.redeemable(&self.line)?.min(self.line.amount);
-        let (mut lo, mut hi) = (0u64, self.line.amount - ready);
+        let (mut lo, mut hi) = (0u64, self.line.amount.saturating_sub(ready));
         while lo < hi {
-            let mid = lo + (hi - lo).div_ceil(2);
+            let mid = lo.saturating_add(hi.saturating_sub(lo).div_ceil(2));
             if payout_for(mid, terms)?.1 <= spendable {
                 lo = mid;
             } else {
-                hi = mid - 1;
+                hi = mid.saturating_sub(1);
             }
         }
         Ok(lo)
@@ -373,9 +373,15 @@ pub fn fill_instant_redeem<B: Bytes, S: Bytes>(
     *route = r;
     book.assign(&b);
     order.line = ol;
-    order.sold += gemas;
-    order.redeemed_while_open += ready;
-    order.paid_shares += payout;
+    order.sold = order.sold.checked_add(gemas).ok_or(CoreError::Math)?;
+    order.redeemed_while_open = order
+        .redeemed_while_open
+        .checked_add(ready)
+        .ok_or(CoreError::Math)?;
+    order.paid_shares = order
+        .paid_shares
+        .checked_add(payout)
+        .ok_or(CoreError::Math)?;
     Ok(Filled {
         gemas,
         value_shares: value,

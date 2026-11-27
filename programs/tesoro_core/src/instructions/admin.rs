@@ -281,7 +281,11 @@ pub struct SetEntrySizes<'info> {
 pub(crate) fn set_entry_sizes(ctx: Context<SetEntrySizes>, sizes: Vec<u64>) -> Result<()> {
     crate::ledger::validate_entry_sizes(&sizes).map_err(core_err)?;
     let mut padded = [0u64; crate::ledger::MAX_ENTRY_SIZES];
-    padded[..sizes.len()].copy_from_slice(&sizes);
+    if let Some(dst) = padded.get_mut(..sizes.len()) {
+        dst.copy_from_slice(&sizes);
+    } else {
+        return Err(core_err(crate::ledger::CoreError::InvalidEntry));
+    }
     ctx.accounts.config.entry_sizes = padded;
     Ok(())
 }

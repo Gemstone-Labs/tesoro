@@ -64,8 +64,8 @@ pub fn player_share(surplus: u64, share_bps: u16) -> LcResult<u64> {
 
 #[inline(always)]
 pub(crate) fn pot_of<B: PotBacking>(pots: &mut Pots<B>, side: u8) -> LcResult<&mut PotPages<B>> {
-    pots[(side & 1) as usize]
-        .as_mut()
+    pots.get_mut(usize::from(side & 1))
+        .and_then(Option::as_mut)
         .ok_or(LifecycleError::Inconsistent("pot not supplied"))
 }
 
@@ -222,7 +222,7 @@ pub(crate) fn surplus_step<B: PotBacking>(
         p.set(at, &rest)?;
         (part, placed)
     };
-    *player_left -= take;
+    *player_left = player_left.saturating_sub(take);
     Ok(Credit {
         line,
         owner: Some(winner.player),

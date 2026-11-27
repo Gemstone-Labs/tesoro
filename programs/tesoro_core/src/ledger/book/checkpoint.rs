@@ -8,6 +8,9 @@
 //! rotation pays the rent, and nothing here wraps or forgets.
 //!
 //! A class's segments are numbered `0, 1, 2, ...` in the order they closed (`ClassState::ck`
+
+// Fixed-size binary checkpoint page framing validated on construction.
+#![allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
 //! counts them). A line records the number of the segment it was brought up to date in; its
 //! catch-up reads that segment's record and the following ones, and stops at the first record
 //! that ends an epoch, so a holder who slept through a thousand later epochs reads only the
@@ -166,7 +169,9 @@ impl<'a> PageViewMut<'a> {
         }
         let at = PAGE_HEADER_LEN + slot as usize * RECORD_LEN;
         rec.encode(&mut self.0[at..at + RECORD_LEN]);
-        self.0[2..4].copy_from_slice(&((slot + 1) as u16).to_le_bytes());
+        let next_count = u16::try_from(slot.checked_add(1).ok_or(BookError::BadCheckpoint)?)
+            .map_err(|_| BookError::BadCheckpoint)?;
+        self.0[2..4].copy_from_slice(&next_count.to_le_bytes());
         Ok(())
     }
 }

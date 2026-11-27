@@ -1,0 +1,11 @@
+id: no-key-path-in-client-ts
+valid:
+  - "const label = 'tesoro-wallet';"
+invalid:
+  - "const path = '~/.config/tesoro/oracle.json';"
+---
+id: no-key-path-in-client-tsx
+valid:
+  - "export const Info = () => <p>wallet</p>;"
+invalid:
+  - "export const Leak = () => <p>{'~/.config/tesoro/relayer.json'}</p>;"

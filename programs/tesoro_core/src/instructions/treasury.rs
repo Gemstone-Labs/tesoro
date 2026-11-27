@@ -180,7 +180,7 @@ pub(crate) fn pay_from_treasury<'info>(
     ts: i64,
 ) -> Result<u64> {
     let from_vault = shares.min(vault.amount);
-    let to_mint = shares - from_vault;
+    let to_mint = shares.saturating_sub(from_vault);
     let mut minted_units = 0;
     if to_mint > 0 {
         let rate = sim_lst::current_rate(fee.pool, ts)?;

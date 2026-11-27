@@ -1,0 +1,8 @@
+id: no-math-random-deterministic-tsx
+snapshots:
+  "export const BadRng = () => <span>{Math.random()}</span>;":
+    labels:
+    - source: Math.random()
+      style: primary
+      start: 35
+      end: 48

@@ -1,0 +1,39 @@
+id: no-skip-preflight-keeper
+language: typescript
+severity: error
+message: "SOL-029: Do not set skipPreflight: true in keeper cranks; blind sends hide reverts and desync live loops."
+files:
+  - keeper/src/**/*.ts
+rule:
+  kind: pair
+  all:
+    - has:
+        field: key
+        any:
+          - kind: property_identifier
+            regex: "^skipPreflight$"
+          - kind: string
+            regex: "^['\"]skipPreflight['\"]$"
+    - has:
+        field: value
+        kind: "true"
+---
+id: no-skip-preflight-keeper-tsx
+language: tsx
+severity: error
+message: "SOL-029: Do not set skipPreflight: true in keeper cranks; blind sends hide reverts and desync live loops."
+files:
+  - keeper/src/**/*.tsx
+rule:
+  kind: pair
+  all:
+    - has:
+        field: key
+        any:
+          - kind: property_identifier
+            regex: "^skipPreflight$"
+          - kind: string
+            regex: "^['\"]skipPreflight['\"]$"
+    - has:
+        field: value
+        kind: "true"

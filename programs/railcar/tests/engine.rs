@@ -255,6 +255,17 @@ fn two_off_split_70_30_and_one_off_takes_all() {
     assert_eq!(split(100, 0), [0, 0, 0]);
 }
 
+#[test]
+fn large_entry_refund_does_not_saturate_before_division() {
+    assert_eq!(refund(300_000_000_000_000_000, 0), 240_000_000_000_000_000);
+    assert_eq!(
+        refund(300_000_000_000_000_000, 20_000),
+        210_000_000_000_000_000
+    );
+    assert_eq!(refund(u64::MAX, 0), 14_757_395_258_967_641_292);
+    assert_eq!(refund(u64::MAX, 90_000), 922_337_203_685_477_580);
+}
+
 proptest! {
     #[test]
     fn split_conserves_and_rounds_to_the_top(amount in 0u64..10_000_000_000, n in 1usize..4) {
@@ -349,12 +360,25 @@ fn build_vectors() -> String {
         for pos in [edge.saturating_sub(1), edge, edge + 1] {
             for entry in [500u64, 1000, 777] {
                 refunds.push(format!(
-                    "{{\"position\":{pos},\"entry\":{entry},\"pct\":{},\"refund\":{}}}",
+                    "{{\"position\":{pos},\"entry\":\"{entry}\",\"pct\":{},\"refund\":\"{}\"}}",
                     refund_pct(pos),
                     refund(entry, pos)
                 ));
             }
         }
+    }
+    // Large entries whose `entry * pct` exceeds `u64::MAX` must not saturate before division.
+    for &(pos, entry) in &[
+        (0u32, 300_000_000_000_000_000u64),
+        (20_000, 300_000_000_000_000_000),
+        (90_000, u64::MAX),
+        (0, u64::MAX),
+    ] {
+        refunds.push(format!(
+            "{{\"position\":{pos},\"entry\":\"{entry}\",\"pct\":{},\"refund\":\"{}\"}}",
+            refund_pct(pos),
+            refund(entry, pos)
+        ));
     }
     let splits: Vec<String> = [0u64, 1, 2, 3, 99, 100, 521, 1001, 12_345, 9_999_999_999]
         .iter()

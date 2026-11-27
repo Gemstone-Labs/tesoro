@@ -84,6 +84,7 @@ contract PositionVault is PositionVaultBase {
             units = shares == 0 ? owedUnits : (shares * rate) / RATE_SCALE;
             if (units > owedUnits) revert EscrowTooSmall(units, owedUnits);
             poolFundedUnits += units;
+            // slither-disable-next-line divide-before-multiply -- intentional floor-round to integer share units
             moved = (units * RATE_SCALE) / rate;
             _mintToEscrow(moved);
         }
@@ -289,6 +290,7 @@ contract PositionVault is PositionVaultBase {
     /// @dev Runs a `PrizeModule` entry point on this contract's storage and sends the acknowledgement it returns.
     ///      A revert inside the module reverts the delivery with the same reason.
     function _delegate(bytes memory data) internal {
+        // slither-disable-next-line controlled-delegatecall -- prizeModule is an immutable sibling module called only via internal abi.encodeCall
         (bool ok, bytes memory ret) = address(prizeModule).delegatecall(data);
         if (!ok) {
             assembly {

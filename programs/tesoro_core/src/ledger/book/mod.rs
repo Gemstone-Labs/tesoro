@@ -1,4 +1,7 @@
 //! Exact bookkeeping of a Source's Gemas (spec "Ledger: exact bookkeeping", tickets 03 and 03b).
+
+// Fixed-layout binary book framing and Q64.64 accounting invariants (proptested).
+#![allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
 //!
 //! Pure Rust over plain values, like the rest of `ledger`. A Source keeps one [`SourceBook`]; every
 //! basket line and every fee counter is a [`Line`] (from `line_store`) that this module brings up to
@@ -895,7 +898,8 @@ impl<S: ClassSlots> Book<S> {
                 continue;
             }
             let sh = mul_div_u128(shares, d, delta, Round::Down).ok_or(BookError::Math)?;
-            c.land(id as u8, d, sh, ck)?;
+            let class_id = u8::try_from(id).map_err(|_| BookError::NoSuchClass)?;
+            c.land(class_id, d, sh, ck)?;
             self.classes.put(id, &c);
             rest -= d;
             shares_left -= sh;

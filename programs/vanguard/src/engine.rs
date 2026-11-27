@@ -21,6 +21,14 @@
 //! `SWITCHED`), which the engine reads as a Landmine and as a Spy. A Battle created under an older version keeps
 //! that version's rules (`Game::version`, a public number, so branching on it leaks nothing).
 
+// Constant-time branchless 10x10 board engine (verified by `tests/recordings.rs`).
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::indexing_slicing,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+
 use anchor_lang::solana_program::hash::hashv;
 
 /// Bump when a rule changes; the recordings and the app change with it. Each Battle stores the version it was

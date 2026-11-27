@@ -13,7 +13,7 @@ pub struct FeeTerms {
 
 impl FeeTerms {
     pub fn validate(&self) -> CoreResult<()> {
-        let total = (self.platform_bps as u32) + (self.studio_bps as u32);
+        let total = u32::from(self.platform_bps).saturating_add(u32::from(self.studio_bps));
         if total > MAX_TOTAL_FEE_BPS as u32 {
             return Err(CoreError::FeeTooHigh);
         }
@@ -33,7 +33,9 @@ pub struct LeaderboardTerms {
 impl LeaderboardTerms {
     /// All three fees together may not exceed `MAX_TOTAL_FEE_BPS` of the Pot.
     pub fn validate(&self, fees: &FeeTerms) -> CoreResult<()> {
-        let total = (fees.platform_bps as u32) + (fees.studio_bps as u32) + (self.bps as u32);
+        let total = u32::from(fees.platform_bps)
+            .saturating_add(u32::from(fees.studio_bps))
+            .saturating_add(u32::from(self.bps));
         if total > MAX_TOTAL_FEE_BPS as u32 {
             return Err(CoreError::FeeTooHigh);
         }

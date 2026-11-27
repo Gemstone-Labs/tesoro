@@ -1,0 +1,13 @@
+id: no-eval-or-new-function-ts
+valid:
+  - "const parsed = JSON.parse(raw);"
+invalid:
+  - "const x = eval('1 + 1');"
+  - "const fn = new Function('a', 'return a + 1');"
+---
+id: no-eval-or-new-function-tsx
+valid:
+  - "export const Safe = () => <div>{JSON.parse('1')}</div>;"
+invalid:
+  - "export const BadEval = () => <div>{eval('1')}</div>;"
+  - "export const BadFn = () => <div>{new Function('return 1')()}</div>;"

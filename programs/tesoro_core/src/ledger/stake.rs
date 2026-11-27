@@ -75,14 +75,14 @@ impl StakePoolRead {
             return Ok(0);
         }
         let annual = mul_div_floor(
-            (now - before)
-                .checked_mul(BPS)
+            now.checked_sub(before)
+                .and_then(|x| x.checked_mul(BPS))
                 .and_then(|x| x.checked_mul(YEAR_SECS))
                 .ok_or(CoreError::Math)?,
             1,
             before.checked_mul(EPOCH_SECS).ok_or(CoreError::Math)?,
         )?;
-        Ok(annual.min(ceiling_bps as u128) as u16)
+        Ok(u16::try_from(annual.min(u128::from(ceiling_bps))).unwrap_or(ceiling_bps))
     }
 }
 

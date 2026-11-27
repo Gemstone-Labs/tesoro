@@ -1,0 +1,25 @@
+id: no-key-path-in-client-ts
+language: typescript
+severity: error
+message: "~/.config/tesoro key paths must never be referenced in client-side code."
+files:
+  - app/src/components/**/*.ts
+  - app/src/app/**/*.ts
+  - app/src/lib/**/*.ts
+  - app/src/games/**/*.ts
+rule:
+  kind: string_fragment
+  regex: "\\.config/tesoro"
+---
+id: no-key-path-in-client-tsx
+language: tsx
+severity: error
+message: "~/.config/tesoro key paths must never be referenced in client-side code."
+files:
+  - app/src/components/**/*.tsx
+  - app/src/app/**/*.tsx
+  - app/src/lib/**/*.tsx
+  - app/src/games/**/*.tsx
+rule:
+  kind: string_fragment
+  regex: "\\.config/tesoro"

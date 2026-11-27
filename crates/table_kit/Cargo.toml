@@ -16,5 +16,5 @@ anchor-lang = { version = "0.31.1" }
 ephemeral-rollups-sdk = { version = "=0.16.2", features = ["anchor-compat", "access-control"] }
 tesoro_core = { path = "../../programs/tesoro_core", features = ["cpi"] }
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
+[lints]
+workspace = true

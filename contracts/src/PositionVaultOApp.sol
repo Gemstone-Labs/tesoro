@@ -140,6 +140,7 @@ contract PositionVaultOApp is PositionVault, OApp {
             emit AckNotSent(msgType, id, "vault balance below the message fee");
             return;
         }
+        // slither-disable-next-line unused-return -- ack receipt is intentionally unused; failure emits AckNotSent
         try endpoint.send{value: fee}(
             MessagingParams(solanaEid, _getPeerOrRevert(solanaEid), message, options, false), address(this)
         ) {
@@ -278,10 +279,6 @@ contract PositionVaultOApp is PositionVault, OApp {
 
     function _positionKey(uint64 id) internal view returns (uint256) {
         return (uint256(uint160(address(this))) << 96) | (uint256(id) << 32);
-    }
-
-    function _vaultKey() internal view returns (bytes32) {
-        return bytes32(uint256(uint160(address(this))) << 96);
     }
 
     function _packLocked(

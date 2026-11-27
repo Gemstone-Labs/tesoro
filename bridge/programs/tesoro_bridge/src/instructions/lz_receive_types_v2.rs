@@ -1,5 +1,5 @@
 use crate::*;
-use anchor_lang::solana_program::system_program;
+use anchor_lang::system_program;
 use msg_codec::{decode_inbound, Inbound};
 use oapp::{
     common::{

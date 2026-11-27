@@ -1,0 +1,20 @@
+id: no-skip-preflight-keeper
+valid:
+  - "await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false });"
+  - "await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false, preflightCommitment: 'confirmed' });"
+  - "await conn.sendRawTransaction(tx.serialize(), { maxRetries: 3, skipPreflight: false });"
+  - "await conn.sendRawTransaction(tx.serialize(), { maxRetries: 3 });"
+invalid:
+  - "await conn.sendRawTransaction(tx.serialize(), { skipPreflight: true });"
+  - "await conn.sendRawTransaction(tx.serialize(), { skipPreflight: true, maxRetries: 3 });"
+  - "await conn.sendRawTransaction(tx.serialize(), { maxRetries: 3, skipPreflight: true });"
+  - "await conn.sendRawTransaction(tx.serialize(), { preflightCommitment: 'confirmed', skipPreflight: true, maxRetries: 3 });"
+  - "await conn.sendRawTransaction(tx.serialize(), { 'skipPreflight': true });"
+---
+id: no-skip-preflight-keeper-tsx
+valid:
+  - "export const C = () => { void send({ skipPreflight: false }); return <div />; };"
+invalid:
+  - "export const C = () => { void send({ skipPreflight: true }); return <div />; };"
+  - "export const C = () => { void send({ skipPreflight: true, maxRetries: 3 }); return <div />; };"
+  - "export const C = () => { void send({ maxRetries: 3, skipPreflight: true }); return <div />; };"

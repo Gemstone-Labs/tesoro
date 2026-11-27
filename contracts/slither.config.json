@@ -1,0 +1,7 @@
+{
+  "filter_paths": "(lib/|test/|script/|node_modules/)",
+  "exclude_informational": true,
+  "exclude_optimization": true,
+  "exclude_low": true,
+  "detectors_to_exclude": "incorrect-equality,uninitialized-state"
+}

@@ -32,7 +32,7 @@ pub(crate) fn migrate_position(ctx: Context<MigratePosition>) -> Result<()> {
     let migrated = {
         let data = info.try_borrow_data()?;
         require!(
-            data.len() >= 8 && data[..8] == *PositionState::DISCRIMINATOR,
+            data.get(..8) == Some(PositionState::DISCRIMINATOR),
             TesoroError::InvalidAccount
         );
         match data.len() {
@@ -78,7 +78,7 @@ fn grow_counters_account<'info>(
     {
         let data = info.try_borrow_data()?;
         require!(
-            data.len() >= 8 && data[..8] == *AccountCounters::DISCRIMINATOR,
+            data.get(..8) == Some(AccountCounters::DISCRIMINATOR),
             TesoroError::InvalidAccount
         );
         match data.len() {
@@ -104,8 +104,10 @@ fn grow_counters_account<'info>(
     }
     info.resize(AccountCounters::SPACE)?;
     let mut data = info.try_borrow_mut_data()?;
-    data[AccountCounters::SPACE_V1..]
-        .copy_from_slice(&AccountCounters::LEGACY_TICKET_BASE.to_le_bytes());
+    let tail = data
+        .get_mut(AccountCounters::SPACE_V1..)
+        .ok_or(TesoroError::InvalidAccount)?;
+    tail.copy_from_slice(&AccountCounters::LEGACY_TICKET_BASE.to_le_bytes());
     Ok(())
 }
 
@@ -163,7 +165,7 @@ pub(crate) fn migrate_counters(ctx: Context<MigrateCounters>) -> Result<()> {
             &[
                 COUNTERS_SEED,
                 ctx.accounts.account.key().as_ref(),
-                &[data[8]],
+                &[*data.get(8).ok_or(TesoroError::InvalidAccount)?],
             ],
             &crate::ID,
         )

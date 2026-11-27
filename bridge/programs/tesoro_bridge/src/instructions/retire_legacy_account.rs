@@ -57,7 +57,7 @@ impl RetireLegacyAccount<'_> {
         {
             let data = info.try_borrow_data()?;
             require!(
-                lengths.contains(&data.len()) && data[..8] == *discriminator,
+                lengths.contains(&data.len()) && data.get(..8) == Some(discriminator),
                 BridgeError::InvalidAccount
             );
         }

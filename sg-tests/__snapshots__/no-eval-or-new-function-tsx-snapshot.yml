@@ -1,0 +1,14 @@
+id: no-eval-or-new-function-tsx
+snapshots:
+  "export const BadEval = () => <div>{eval('1')}</div>;":
+    labels:
+    - source: eval('1')
+      style: primary
+      start: 35
+      end: 44
+  "export const BadFn = () => <div>{new Function('return 1')()}</div>;":
+    labels:
+    - source: new Function('return 1')
+      style: primary
+      start: 33
+      end: 57

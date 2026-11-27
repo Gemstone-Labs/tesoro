@@ -179,16 +179,19 @@ impl MemBooks {
 
     /// `SourceBook::issue` with this Source's history.
     pub fn issue(&mut self, source: &Key, line: &mut Line, k: u64) -> Result<(), BookError> {
-        let ck = &self.ck[source];
-        self.map.get_mut(source).expect("book").issue(line, k, ck)
+        let ck = self.ck.get(source).ok_or(BookError::NoSuchClass)?;
+        self.map
+            .get_mut(source)
+            .ok_or(BookError::NoSuchClass)?
+            .issue(line, k, ck)
     }
 
     /// `SourceBook::land` with this Source's history.
     pub fn land(&mut self, source: &Key, cum: u128, shares: u128) -> Result<(), BookError> {
-        let ck = self.ck.get_mut(source).expect("history");
+        let ck = self.ck.get_mut(source).ok_or(BookError::NoSuchClass)?;
         self.map
             .get_mut(source)
-            .expect("book")
+            .ok_or(BookError::NoSuchClass)?
             .land(cum, shares, ck)
             .map(drop)
     }
@@ -321,7 +324,10 @@ impl<'a, B: Bytes, S: Bytes> Pool<'a, B, S> {
 
     /// Slots free in the basket and the spill together.
     pub fn free_slots(&self) -> usize {
-        (self.basket.capacity() - self.basket.len()) + (self.spill.capacity() - self.spill.len())
+        self.basket
+            .capacity()
+            .saturating_sub(self.basket.len())
+            .saturating_add(self.spill.capacity().saturating_sub(self.spill.len()))
     }
 
     /// Slots in `room_reserved` that no hold-user may take: free slots beyond them are the only
@@ -470,7 +476,7 @@ impl<'a, B: Bytes, S: Bytes> Pool<'a, B, S> {
                 Where::Basket => self.basket.remove_at(idx)?,
                 Where::Spill => self.spill.remove_at(idx)?,
             };
-            self.freed += 1;
+            self.freed = self.freed.saturating_add(1);
             return Ok(line);
         }
         let mut part = SourceBook::blank_line(
@@ -516,11 +522,11 @@ impl<'a, B: Bytes, S: Bytes> Pool<'a, B, S> {
                 self.spill.insert_at(at, line)?;
             }
             if mine {
-                self.hold_left -= 1;
+                self.hold_left = self.hold_left.saturating_sub(1);
                 let held = self.spill.room_reserved();
                 self.spill.set_room_reserved(held.saturating_sub(1));
             }
-            self.used += 1;
+            self.used = self.used.saturating_add(1);
             return Ok(if to_basket {
                 Placed::Basket
             } else {
@@ -543,7 +549,7 @@ impl<'a, B: Bytes, S: Bytes> Pool<'a, B, S> {
                 break;
             }
             self.spill.remove_at(0)?;
-            moved += 1;
+            moved = moved.saturating_add(1);
         }
         Ok(moved)
     }
@@ -574,7 +580,7 @@ impl<'a, B: Bytes, S: Bytes> Pool<'a, B, S> {
             }
             let t = l.amount.min(left);
             out.push((l.key(), t));
-            left -= t;
+            left = left.saturating_sub(t);
         }
         Ok(out)
     }
@@ -613,7 +619,7 @@ impl<'a, B: Bytes, S: Bytes> Pool<'a, B, S> {
         let mut left = amount;
         while left > 0 {
             let l = self.take_front(books, left)?;
-            left -= l.amount;
+            left = left.saturating_sub(l.amount);
             pot.push_joined(books, l)?;
         }
         Ok(())
@@ -652,7 +658,9 @@ impl<'a, B: Bytes, S: Bytes> Pool<'a, B, S> {
         if amount > reserved {
             return Err(DrawError::ReservationShort);
         }
-        let limit = self.playable_total().saturating_sub(reserved - amount);
+        let limit = self
+            .playable_total()
+            .saturating_sub(reserved.saturating_sub(amount));
         let plan = self.plan_draw(amount, limit)?;
         if plan.len() > max_lines {
             return Err(DrawError::NeedsTicket);
@@ -660,10 +668,11 @@ impl<'a, B: Bytes, S: Bytes> Pool<'a, B, S> {
         let mut left = amount;
         while left > 0 {
             let l = self.take_front(books, left)?;
-            left -= l.amount;
+            left = left.saturating_sub(l.amount);
             pot.push_joined(books, l)?;
         }
-        self.basket.set_reserved_total(reserved - amount);
+        self.basket
+            .set_reserved_total(reserved.saturating_sub(amount));
         Ok(())
     }
 }
@@ -742,8 +751,12 @@ pub struct PotPages<B: PotBacking = Vec<u8>> {
 
 impl<B: PotBacking + Clone> Clone for PotPages<B> {
     fn clone(&self) -> Self {
+        let store = match LineStore::new(self.store.bytes().clone()) {
+            Ok(s) => s,
+            Err(_) => unreachable!("a valid pot stays valid"),
+        };
         PotPages {
-            store: LineStore::new(self.store.bytes().clone()).expect("a valid pot stays valid"),
+            store,
             owner: self.owner,
         }
     }
@@ -766,11 +779,15 @@ impl<B: PotBacking + Clone> PartialEq for PotPages<B> {
 impl PotPages<Vec<u8>> {
     /// An empty in-memory Pot that grows as lines are pushed.
     pub fn new(owner: Key) -> PotPages {
-        PotPages {
-            store: LineStore::new(fresh_body(owner, 0).expect("an empty body is valid"))
-                .expect("fresh body"),
-            owner,
-        }
+        let body = match fresh_body(owner, 0) {
+            Ok(b) => b,
+            Err(_) => unreachable!("an empty body is valid"),
+        };
+        let store = match LineStore::new(body) {
+            Ok(s) => s,
+            Err(_) => unreachable!("fresh body"),
+        };
+        PotPages { store, owner }
     }
 }
 
@@ -852,7 +869,7 @@ impl<B: PotBacking> PotPages<B> {
             return Err(DrawError::Store(LineStoreError::Unsorted));
         }
         if self.store.len() == self.store.capacity() {
-            let want = required_len(self.store.capacity() + PAGE_LINES);
+            let want = required_len(self.store.capacity().saturating_add(PAGE_LINES));
             if !self.store.bytes_mut().grow_to(want) || self.store.len() == self.store.capacity() {
                 return Err(DrawError::TicketStorageFull);
             }
@@ -1194,17 +1211,17 @@ impl<T: PotBacking> Ticket<T> {
             return Err(DrawError::StorageNotReserved);
         }
         let mut step = StageStep::default();
-        while step.pulled + step.returned < max_ops {
+        while step.pulled.saturating_add(step.returned) < max_ops {
             if self.faster_waiting(pool) {
                 self.return_tail(pool, books)?;
-                step.returned += 1;
+                step.returned = step.returned.saturating_add(1);
                 continue;
             }
             let staged = self.staged();
             if staged >= self.target {
                 break;
             }
-            let cap = (self.target - staged).min(self.limit(pool));
+            let cap = self.target.saturating_sub(staged).min(self.limit(pool));
             if cap == 0 {
                 return Err(DrawError::InsufficientGemas);
             }
@@ -1226,7 +1243,7 @@ impl<T: PotBacking> Ticket<T> {
                     .checked_sub(pulled)
                     .ok_or(DrawError::ReservationShort)?;
             }
-            step.pulled += 1;
+            step.pulled = step.pulled.saturating_add(1);
             self.sync_header(pool);
         }
         self.sync_header(pool);
@@ -1332,13 +1349,15 @@ impl<T: PotBacking> Ticket<T> {
             return Err(DrawError::NotOpen);
         }
         let mut step = CancelStep::default();
-        while step.lines_to_basket + step.lines_to_spill < max_lines {
+        while step.lines_to_basket.saturating_add(step.lines_to_spill) < max_lines {
             let Some(line) = self.pages.last_line() else {
                 break;
             };
             match pool.put(books, &line) {
-                Ok(Placed::Basket) => step.lines_to_basket += 1,
-                Ok(Placed::Spill | Placed::Overflow) => step.lines_to_spill += 1,
+                Ok(Placed::Basket) => step.lines_to_basket = step.lines_to_basket.saturating_add(1),
+                Ok(Placed::Spill | Placed::Overflow) => {
+                    step.lines_to_spill = step.lines_to_spill.saturating_add(1)
+                }
                 Err(DrawError::SpillFull) => {
                     step.blocked = true;
                     break;

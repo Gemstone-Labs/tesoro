@@ -1,0 +1,11 @@
+id: no-dangerously-set-inner-html
+language: tsx
+severity: error
+message: "Avoid dangerouslySetInnerHTML in React components to prevent XSS."
+files:
+  - app/src/**/*.tsx
+ignores:
+  - app/src/components/landing/ThemeBoot.tsx
+rule:
+  kind: jsx_attribute
+  regex: "^dangerouslySetInnerHTML"

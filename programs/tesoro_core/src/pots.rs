@@ -1,4 +1,7 @@
 //! Tickets and Pots on chain.
+
+// Fixed-width binary ticket/pot head framing validated against `TICKET_HEAD_LEN`.
+#![allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
 //!
 //! One account is both: `["ticket", account, nonce]`. First it is an Entry or Backing Ticket, the
 //! staging area of one entry (`ledger::draw::Ticket`); when `open_match` or `join_match` consumes
@@ -228,7 +231,8 @@ pub(crate) fn write_head_fields(head: &mut [u8], f: &HeadFields, x: &TicketExtra
     head[H_NONCE..H_NONCE + 8].copy_from_slice(&f.nonce.to_le_bytes());
     head[H_TARGET..H_TARGET + 8].copy_from_slice(&f.target.to_le_bytes());
     head[H_EXPIRES..H_EXPIRES + 8].copy_from_slice(&f.expires_at.to_le_bytes());
-    head[H_LINE_CAP..H_LINE_CAP + 4].copy_from_slice(&(f.line_cap as u32).to_le_bytes());
+    let line_cap = u32::try_from(f.line_cap).unwrap_or(u32::MAX);
+    head[H_LINE_CAP..H_LINE_CAP + 4].copy_from_slice(&line_cap.to_le_bytes());
     head[H_SPILL_ROOM..H_SPILL_ROOM + 4].copy_from_slice(&x.spill_room.to_le_bytes());
     head[H_RESERVED_LEFT..H_RESERVED_LEFT + 8].copy_from_slice(&f.reserved_left.to_le_bytes());
     head[H_SPONSORED..H_SPONSORED + 8].copy_from_slice(&x.sponsored_lamports.to_le_bytes());

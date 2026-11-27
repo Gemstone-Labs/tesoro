@@ -11,5 +11,8 @@
     "dev": "pnpm --filter @tesoro/app dev",
     "build:app": "pnpm --filter @tesoro/app build",
     "prepare": "git config core.hooksPath .githooks || true"
+  },
+  "devDependencies": {
+    "@ast-grep/cli": "^0.51.3"
   }
 }

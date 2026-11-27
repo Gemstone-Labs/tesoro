@@ -1,0 +1,23 @@
+id: no-hardcoded-mainnet-rpc-ts
+language: typescript
+severity: error
+message: "Testnets only — never hardcode Solana mainnet RPC URLs outside read-only SNS resolution."
+files:
+  - app/src/**/*.ts
+  - keeper/src/**/*.ts
+ignores:
+  - app/src/server/names.ts
+rule:
+  kind: string_fragment
+  regex: "api\\.mainnet-beta\\.solana\\.com"
+---
+id: no-hardcoded-mainnet-rpc-tsx
+language: tsx
+severity: error
+message: "Testnets only — never hardcode Solana mainnet RPC URLs outside read-only SNS resolution."
+files:
+  - app/src/**/*.tsx
+  - keeper/src/**/*.tsx
+rule:
+  kind: string_fragment
+  regex: "api\\.mainnet-beta\\.solana\\.com"

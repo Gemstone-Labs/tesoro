@@ -75,7 +75,8 @@ pub(crate) fn move_lamports(from: &AccountInfo, to: &AccountInfo, n: u64) -> Res
 /// Sponsored rent one store holds.
 fn sponsored_of(info: &AccountInfo) -> Result<u64> {
     let data = info.try_borrow_data()?;
-    Ok(LineStore::new(&data[DISC..])
+    let body = data.get(DISC..).ok_or(BasketError::BadStore)?;
+    Ok(LineStore::new(body)
         .map_err(store_err)?
         .sponsored_lamports())
 }
@@ -89,10 +90,12 @@ pub(crate) fn format_stores(
     bumps: (u8, u8),
 ) -> Result<()> {
     let mut data = basket.try_borrow_mut_data()?;
-    LineStore::init(&mut data[DISC..], account.to_bytes(), bumps.0).map_err(store_err)?;
+    let body = data.get_mut(DISC..).ok_or(BasketError::BadStore)?;
+    LineStore::init(body, account.to_bytes(), bumps.0).map_err(store_err)?;
     drop(data);
     let mut data = spill.try_borrow_mut_data()?;
-    LineStore::init(&mut data[DISC..], account.to_bytes(), bumps.1).map_err(store_err)?;
+    let body = data.get_mut(DISC..).ok_or(BasketError::BadStore)?;
+    LineStore::init(body, account.to_bytes(), bumps.1).map_err(store_err)?;
     Ok(())
 }
 
@@ -255,8 +258,11 @@ fn grow_target(info: &AccountInfo, which: StoreKind, extra: u32) -> Result<usize
     require!(extra > 0, BasketError::NothingToResize);
     require!(extra as usize <= MAX_GROW_LINES, BasketError::GrowTooLarge);
     let data = info.try_borrow_data()?;
-    let capacity = LineStore::new(&data[DISC..]).map_err(store_err)?.capacity();
-    let lines = capacity + extra as usize;
+    let body = data.get(DISC..).ok_or(BasketError::BadStore)?;
+    let capacity = LineStore::new(body).map_err(store_err)?.capacity();
+    let lines = capacity
+        .checked_add(extra as usize)
+        .ok_or(BasketError::StoreAtMaximum)?;
     require!(lines <= which.max_lines(), BasketError::StoreAtMaximum);
     Ok(lines)
 }
@@ -390,7 +396,8 @@ pub(crate) fn grow_store_sponsored(
     sponsor.outstanding = outstanding;
     resize(info, lines)?;
     let mut data = info.try_borrow_mut_data()?;
-    let mut store = LineStore::new(&mut data[DISC..]).map_err(store_err)?;
+    let body = data.get_mut(DISC..).ok_or(BasketError::BadStore)?;
+    let mut store = LineStore::new(body).map_err(store_err)?;
     let now = store.sponsored_lamports();
     store.set_sponsored_lamports(
         now.checked_add(delta)
@@ -443,9 +450,8 @@ pub(crate) fn shrink_store(
     {
         // the lines must start at the first slot before the tail is cut
         let mut data = info.try_borrow_mut_data()?;
-        LineStore::new(&mut data[DISC..])
-            .map_err(store_err)?
-            .compact();
+        let body = data.get_mut(DISC..).ok_or(BasketError::BadStore)?;
+        LineStore::new(body).map_err(store_err)?.compact();
     }
     // slots are held on the two stores together: this one keeps what the other cannot cover
     let (held, other_free) = {
@@ -458,21 +464,22 @@ pub(crate) fn shrink_store(
             StoreKind::Spill => &basket,
         };
         let data = other.try_borrow_data()?;
-        let o = LineStore::new(&data[DISC..]).map_err(store_err)?;
+        let o_body = data.get(DISC..).ok_or(BasketError::BadStore)?;
+        let o = LineStore::new(o_body).map_err(store_err)?;
         let held = match which {
             StoreKind::Basket => o.room_reserved(),
             StoreKind::Spill => {
                 let d = info.try_borrow_data()?;
-                LineStore::new(&d[DISC..])
-                    .map_err(store_err)?
-                    .room_reserved()
+                let d_body = d.get(DISC..).ok_or(BasketError::BadStore)?;
+                LineStore::new(d_body).map_err(store_err)?.room_reserved()
             }
         } as usize;
-        (held, o.capacity() - o.len())
+        (held, o.capacity().saturating_sub(o.len()))
     };
     let (lines, sponsored) = {
         let data = info.try_borrow_data()?;
-        let store = LineStore::new(&data[DISC..]).map_err(store_err)?;
+        let body = data.get(DISC..).ok_or(BasketError::BadStore)?;
+        let store = LineStore::new(body).map_err(store_err)?;
         let held_back = held.saturating_sub(other_free);
         let keep = store
             .len()
@@ -492,10 +499,11 @@ pub(crate) fn shrink_store(
         let sponsor = &mut ctx.accounts.sponsor;
         sponsor.outstanding = sponsor.outstanding.saturating_sub(refund);
         let mut data = info.try_borrow_mut_data()?;
-        let mut store = LineStore::new(&mut data[DISC..]).map_err(store_err)?;
-        store.set_sponsored_lamports(sponsored - refund);
+        let body = data.get_mut(DISC..).ok_or(BasketError::BadStore)?;
+        let mut store = LineStore::new(body).map_err(store_err)?;
+        store.set_sponsored_lamports(sponsored.saturating_sub(refund));
     }
-    let rest = freed - refund;
+    let rest = freed.saturating_sub(refund);
     if rest > 0 {
         move_lamports(&info, &ctx.accounts.authority.to_account_info(), rest)?;
     }
@@ -539,8 +547,10 @@ pub(crate) fn claim_spill<'info>(
     let spill_info = ctx.accounts.spill.to_account_info();
     let mut basket_data = basket_info.try_borrow_mut_data()?;
     let mut spill_data = spill_info.try_borrow_mut_data()?;
-    let mut basket = LineStore::new(&mut basket_data[DISC..]).map_err(store_err)?;
-    let mut spill = LineStore::new(&mut spill_data[DISC..]).map_err(store_err)?;
+    let b_body = basket_data.get_mut(DISC..).ok_or(BasketError::BadStore)?;
+    let s_body = spill_data.get_mut(DISC..).ok_or(BasketError::BadStore)?;
+    let mut basket = LineStore::new(b_body).map_err(store_err)?;
+    let mut spill = LineStore::new(s_body).map_err(store_err)?;
     let mut pool = Pool::new(&mut basket, &mut spill);
     for _ in 0..max {
         let Some(line) = pool.spill.get(0) else { break };
@@ -589,7 +599,8 @@ pub(crate) fn init_source_book(ctx: Context<InitSourceBook>) -> Result<()> {
     }
     let info = ctx.accounts.book.to_account_info();
     let mut data = info.try_borrow_mut_data()?;
-    BookBytes::init(&mut data[BOOK_AT..]).map_err(|e| core_err(e.into()))?;
+    let body = data.get_mut(BOOK_AT..).ok_or(BasketError::BadSourceBook)?;
+    BookBytes::init(body).map_err(|e| core_err(e.into()))?;
     Ok(())
 }
 
@@ -600,14 +611,18 @@ fn class_ck(book: &[u8], class: u8) -> Option<u32> {
     if raw.len() < crate::ledger::book::BOOK_FIXED_LEN {
         return None;
     }
-    let n_classes = crate::ledger::line_store::CLASS_EXTENSION_BASE as usize
-        + raw[crate::ledger::book::BOOK_FIXED_LEN - 1] as usize;
-    if class as usize >= n_classes {
+    let n_ext = usize::from(*raw.get(crate::ledger::book::BOOK_FIXED_LEN.saturating_sub(1))?);
+    let n_classes =
+        usize::from(crate::ledger::line_store::CLASS_EXTENSION_BASE).saturating_add(n_ext);
+    if usize::from(class) >= n_classes {
         return None;
     }
-    let at = crate::ledger::book::BOOK_FIXED_LEN + class as usize * CLASS_LEN + 120;
+    let at = crate::ledger::book::BOOK_FIXED_LEN
+        .checked_add(usize::from(class).checked_mul(CLASS_LEN)?)?
+        .checked_add(120)?;
+    let end = at.checked_add(4)?;
     let mut ck = [0u8; 4];
-    ck.copy_from_slice(raw.get(at..at + 4)?);
+    ck.copy_from_slice(raw.get(at..end)?);
     Some(u32::from_le_bytes(ck))
 }
 
@@ -621,7 +636,7 @@ fn page_allowed(book: &[u8], class: u8, page_no: u32) -> bool {
     }
     class_ck(book, class).is_some_and(|ck| {
         let current = ck / PAGE_RECORDS;
-        page_no == current || page_no == current + 1
+        page_no == current || current.checked_add(1) == Some(page_no)
     })
 }
 
@@ -660,15 +675,15 @@ fn create_page<'info>(
         &crate::ID,
     )?;
     let mut data = page.try_borrow_mut_data()?;
-    data[..DISC].copy_from_slice(<CkptHead as anchor_lang::Discriminator>::DISCRIMINATOR);
-    data[DISC] = bump;
-    PageViewMut::init(
-        &mut data[CKPT_PAGE_AT..],
-        &source.to_bytes(),
-        class,
-        page_no,
-    )
-    .map_err(|e| core_err(e.into()))?;
+    data.get_mut(..DISC)
+        .ok_or(BasketError::BadCheckpointPage)?
+        .copy_from_slice(<CkptHead as anchor_lang::Discriminator>::DISCRIMINATOR);
+    *data.get_mut(DISC).ok_or(BasketError::BadCheckpointPage)? = bump;
+    let page_body = data
+        .get_mut(CKPT_PAGE_AT..)
+        .ok_or(BasketError::BadCheckpointPage)?;
+    PageViewMut::init(page_body, &source.to_bytes(), class, page_no)
+        .map_err(|e| core_err(e.into()))?;
     Ok(())
 }
 
@@ -787,7 +802,10 @@ pub(crate) fn init_ckpt_page_sponsored(
     );
     let keep = Rent::get()?.minimum_balance(sponsor_info.data_len());
     require!(
-        sponsor_info.lamports() >= delta && sponsor_info.lamports() - delta >= keep,
+        sponsor_info
+            .lamports()
+            .checked_sub(delta)
+            .is_some_and(|rem| rem >= keep),
         BasketError::SponsorShort
     );
     if delta > 0 {

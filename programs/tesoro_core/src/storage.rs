@@ -55,7 +55,7 @@ const _: () = assert!(MAX_GROW_LINES >= 70 && MAX_GROW_LINES * LINE_LEN <= MAX_G
 
 /// Bytes of a basket or spill account with `lines` slots.
 pub fn store_len(lines: usize) -> usize {
-    DISC + required_len(lines)
+    DISC.saturating_add(required_len(lines))
 }
 
 /// Head of a basket account: the `LineStore` header (`HEADER_LEN` bytes, byte 1 is the bump). The
@@ -98,7 +98,7 @@ pub const OVERFLOW_STORE_AT: usize = DISC + 32 + 1 + 40;
 
 /// Bytes of an overflow record with `lines` slots.
 pub fn overflow_len(lines: usize) -> usize {
-    OVERFLOW_STORE_AT + required_len(lines)
+    OVERFLOW_STORE_AT.saturating_add(required_len(lines))
 }
 
 /// Most lines an overflow record can be created (or grown) with in one instruction.
@@ -254,9 +254,9 @@ pub fn counter_line_ok(source: &Key, class: u8, line: &Line) -> bool {
 }
 
 fn counter_range(class: u8) -> Option<core::ops::Range<usize>> {
-    ((class as usize) < COUNTER_SLOTS).then(|| {
-        let at = COUNTERS_AT + class as usize * LINE_LEN;
-        at..at + LINE_LEN
+    (usize::from(class) < COUNTER_SLOTS).then(|| {
+        let at = COUNTERS_AT.saturating_add(usize::from(class).saturating_mul(LINE_LEN));
+        at..at.saturating_add(LINE_LEN)
     })
 }
 

@@ -51,7 +51,7 @@ pub struct Batch {
 
 impl Batch {
     pub fn entries(&self) -> &[BatchEntry] {
-        &self.entries[..usize::from(self.count)]
+        self.entries.get(..usize::from(self.count)).unwrap_or(&self.entries)
     }
 
     pub fn add(&mut self, entry: BatchEntry, recipient: [u8; 20]) -> Result<()> {
@@ -66,8 +66,9 @@ impl Batch {
         } else {
             require!(self.recipient == recipient, BridgeError::BatchMismatch);
         }
-        self.entries[usize::from(self.count)] = entry;
-        self.count += 1;
+        let slot = self.entries.get_mut(usize::from(self.count)).ok_or(BridgeError::BatchFull)?;
+        *slot = entry;
+        self.count = self.count.checked_add(1).ok_or(BridgeError::BatchFull)?;
         self.total_units = self
             .total_units
             .checked_add(u128::from(entry.units))
@@ -89,7 +90,11 @@ impl Batch {
         require!(self.state != BATCH_OPEN, BridgeError::BatchNotSealed);
         require!(paid.len() == usize::from(self.count), BridgeError::BatchMismatch);
         let mut changed = false;
-        for (entry, reported) in self.entries[..usize::from(self.count)].iter_mut().zip(paid) {
+        let slice = self
+            .entries
+            .get_mut(..usize::from(self.count))
+            .ok_or(BridgeError::BatchMismatch)?;
+        for (entry, reported) in slice.iter_mut().zip(paid) {
             let next = (*reported).min(u128::from(entry.units)).max(entry.paid);
             changed |= next != entry.paid;
             entry.paid = next;

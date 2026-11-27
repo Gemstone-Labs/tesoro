@@ -194,7 +194,7 @@ impl PairState {
         if self.count >= MAX_PAIR_MATCHES {
             return false;
         }
-        self.count += 1;
+        self.count = self.count.saturating_add(1);
         true
     }
 }
@@ -392,10 +392,13 @@ impl PositionStateV1 {
     pub fn decode(data: &[u8]) -> Result<Self> {
         use anchor_lang::Discriminator;
         require!(
-            data.len() >= 8 && data[..8] == *PositionState::DISCRIMINATOR,
+            data.get(..8) == Some(PositionState::DISCRIMINATOR),
             ErrorCode::AccountDiscriminatorMismatch
         );
-        Self::deserialize(&mut &data[8..]).map_err(|_| error!(ErrorCode::AccountDidNotDeserialize))
+        let mut body = data
+            .get(8..)
+            .ok_or_else(|| error!(ErrorCode::AccountDidNotDeserialize))?;
+        Self::deserialize(&mut body).map_err(|_| error!(ErrorCode::AccountDidNotDeserialize))
     }
 
     /// The same Position in the current layout. Its highest priced rate starts at the opening

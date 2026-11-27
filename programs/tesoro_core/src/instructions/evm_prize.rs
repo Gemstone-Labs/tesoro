@@ -258,7 +258,10 @@ pub(crate) fn begin_prize_payout_from_source(
             if amount > line.amount {
                 return Err(core_err(CoreError::InsufficientGemas));
             }
-            line.amount -= amount;
+            line.amount = line
+                .amount
+                .checked_sub(amount)
+                .ok_or_else(|| core_err(CoreError::InsufficientGemas))?;
             store_line(pool, at, idx, &line)
         },
     )?;

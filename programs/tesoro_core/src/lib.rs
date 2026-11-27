@@ -1,4 +1,6 @@
 #![allow(clippy::too_many_arguments)]
+// Anchor 0.31 #[program] expands AccountInfo::realloc (deprecated in solana-account-info 2.3+).
+#![allow(deprecated)]
 
 use anchor_lang::prelude::*;
 

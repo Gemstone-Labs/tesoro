@@ -45,6 +45,7 @@ pub const YIELD_LEN_V1: usize = HEADER_LEN + 16 + 16 + 16 + 8;
 pub const YIELD_LEN: usize = YIELD_LEN_V1 + 16 + 16;
 pub const UNLOCK_LEN: usize = HEADER_LEN + 16;
 pub const PAY_YIELD_LEN: usize = HEADER_LEN + 32 + 16 + 16 + 16 + 16;
+#[allow(dead_code)]
 pub const PAY_INSTANT_LEN: usize = HEADER_LEN + 32 + 16 + 16;
 
 pub const MSG_POSITION_LOCKED: u8 = 1;
@@ -199,7 +200,9 @@ pub fn encode_cash_in_batch(
     recipient: [u8; 32],
     entries: &[BatchEntryWire],
 ) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(BATCH_FIXED_LEN + BATCH_ENTRY_LEN * entries.len());
+    let mut buf = Vec::with_capacity(
+        BATCH_FIXED_LEN.saturating_add(BATCH_ENTRY_LEN.saturating_mul(entries.len())),
+    );
     encode_header(
         &Header {
             msg_type: MSG_CASH_IN_BATCH,
@@ -211,7 +214,7 @@ pub fn encode_cash_in_batch(
     );
     buf.push(kind);
     buf.extend_from_slice(&recipient);
-    buf.push(entries.len() as u8);
+    buf.push(u8::try_from(entries.len()).unwrap_or(u8::MAX));
     for e in entries {
         buf.extend_from_slice(&e.vault_position_id.to_be_bytes());
         buf.extend_from_slice(&e.units.to_be_bytes());
@@ -268,7 +271,7 @@ pub fn unpad_address(word: &[u8; 32]) -> Option<[u8; 20]> {
 pub fn decode_inbound(buf: &[u8]) -> Result<(Header, Inbound)> {
     require!(buf.len() >= HEADER_LEN, BridgeError::InvalidMessageLength);
     let header = Header {
-        msg_type: buf[0],
+        msg_type: *buf.first().ok_or(BridgeError::InvalidMessageLength)?,
         source_chain: u32::from_be_bytes(read(buf, 1)?),
         position_id: read(buf, 5)?,
         seq: u64::from_be_bytes(read(buf, 37)?),
@@ -281,7 +284,7 @@ pub fn decode_inbound(buf: &[u8]) -> Result<(Header, Inbound)> {
                 owner: read(buf, HEADER_LEN)?,
                 asset: read(buf, HEADER_LEN + 32)?,
                 principal: u128::from_be_bytes(read(buf, HEADER_LEN + 64)?),
-                horizon: buf[HEADER_LEN + 80],
+                horizon: *buf.get(HEADER_LEN + 80).ok_or(BridgeError::InvalidMessageLength)?,
             }
         },
         MSG_YIELD_ACCRUED => {
@@ -309,24 +312,33 @@ pub fn decode_inbound(buf: &[u8]) -> Result<(Header, Inbound)> {
         },
         MSG_BATCH_RESULT => {
             let n = usize::from(*buf.get(HEADER_LEN).ok_or(BridgeError::InvalidMessageLength)?);
+            let tail = HEADER_LEN
+                .checked_add(1)
+                .and_then(|v| v.checked_add(16usize.checked_mul(n)?))
+                .ok_or(BridgeError::InvalidMessageLength)?;
+            let expected_len = tail.checked_add(32).ok_or(BridgeError::InvalidMessageLength)?;
             require!(
-                (1..=MAX_BATCH_ENTRIES).contains(&n) && buf.len() == HEADER_LEN + 1 + 16 * n + 32,
+                (1..=MAX_BATCH_ENTRIES).contains(&n) && buf.len() == expected_len,
                 BridgeError::InvalidMessageLength
             );
             let mut paid = Vec::with_capacity(n);
             for i in 0..n {
-                paid.push(u128::from_be_bytes(read(buf, HEADER_LEN + 1 + 16 * i)?));
+                let off = HEADER_LEN
+                    .checked_add(1)
+                    .and_then(|v| v.checked_add(16usize.checked_mul(i)?))
+                    .ok_or(BridgeError::InvalidMessageLength)?;
+                paid.push(u128::from_be_bytes(read(buf, off)?));
             }
-            let tail = HEADER_LEN + 1 + 16 * n;
+            let units_off = tail.checked_add(16).ok_or(BridgeError::InvalidMessageLength)?;
             Inbound::BatchResult {
                 paid,
                 escrowed_shares: u128::from_be_bytes(read(buf, tail)?),
-                escrowed_units: u128::from_be_bytes(read(buf, tail + 16)?),
+                escrowed_units: u128::from_be_bytes(read(buf, units_off)?),
             }
         },
         MSG_PAY_PRIZE_RESULT => {
             require!(buf.len() == PAY_PRIZE_RESULT_LEN, BridgeError::InvalidMessageLength);
-            let status = buf[HEADER_LEN];
+            let status = *buf.get(HEADER_LEN).ok_or(BridgeError::InvalidMessageLength)?;
             require!(
                 status == PRIZE_PAID || status == PRIZE_REJECTED,
                 BridgeError::InvalidMessageType
@@ -343,6 +355,7 @@ pub fn decode_inbound(buf: &[u8]) -> Result<(Header, Inbound)> {
 
 // Used in account seed constraints, which cannot return a decode error: short messages map to
 // zeros here and are rejected by `decode_inbound` before any state changes.
+#[allow(dead_code)]
 pub fn position_id_or_zero(buf: &[u8]) -> [u8; 32] {
     read(buf, 5).unwrap_or([0u8; 32])
 }

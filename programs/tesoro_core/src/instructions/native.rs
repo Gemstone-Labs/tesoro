@@ -162,7 +162,7 @@ pub(crate) fn migrate_native_custody(ctx: Context<MigrateNativeCustody>) -> Resu
         let data = custody.try_borrow_data()?;
         require!(
             data.len() == NativeCustody::SPACE - ledger::RouteLedger::SPACE
-                && data[..8] == *NativeCustody::DISCRIMINATOR,
+                && data.get(..8) == Some(NativeCustody::DISCRIMINATOR),
             TesoroError::NotOldWorld
         );
     }

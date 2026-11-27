@@ -42,13 +42,19 @@ pub struct Ride {
 impl Ride {
     /// Positions of the false screws, ascending, all before the real screws.
     pub fn false_screws(&self) -> &[u32] {
-        &self.false_screws[..self.false_len as usize]
+        self.false_screws
+            .get(..usize::from(self.false_len))
+            .unwrap_or(&self.false_screws)
     }
 }
 
 fn word(draw: &[u8; 32], i: usize) -> u64 {
+    let start = i.saturating_mul(8);
+    let end = start.saturating_add(8);
     let mut b = [0u8; 8];
-    b.copy_from_slice(&draw[i * 8..i * 8 + 8]);
+    if let Some(slice) = draw.get(start..end) {
+        b.copy_from_slice(slice);
+    }
     u64::from_le_bytes(b)
 }
 
@@ -63,13 +69,13 @@ fn splitmix(state: &mut u64) -> u64 {
 /// `-log2(U)` in Q32 for `U = (w + 1) / 2^64`, so the result is in `[0, 64]`.
 /// 32 squaring steps; deterministic integer arithmetic only.
 fn neg_log2_q32(w: u64) -> u64 {
-    let v = w as u128 + 1; // 1..=2^64
-    let k = 127 - v.leading_zeros(); // floor(log2 v), 0..=64
+    let v = u128::from(w).saturating_add(1); // 1..=2^64
+    let k = 127u32.saturating_sub(v.leading_zeros()); // floor(log2 v), 0..=64
     let mut frac = 0u64;
     if v != 1u128 << k {
-        let mut m = v << (63 - k); // mantissa in [2^63, 2^64)
+        let mut m = v << (63u32.saturating_sub(k)); // mantissa in [2^63, 2^64)
         for _ in 0..32 {
-            m = (m * m) >> 63;
+            m = m.saturating_mul(m) >> 63;
             frac <<= 1;
             if m >= 1u128 << 64 {
                 frac |= 1;
@@ -77,17 +83,22 @@ fn neg_log2_q32(w: u64) -> u64 {
             }
         }
     }
-    (64u64 << 32) - (((k as u64) << 32) + frac)
+    (64u64 << 32).saturating_sub((u64::from(k) << 32).saturating_add(frac))
 }
 
 /// Crash point in track ms from the first word of the draw.
 fn crash_from(w: u64) -> u32 {
-    let extra = (MEDIAN_MS * neg_log2_q32(w)) >> 32;
-    (MIN_CRASH_MS as u64 + extra).min(MAX_CRASH_MS as u64) as u32
+    let extra = MEDIAN_MS.saturating_mul(neg_log2_q32(w)) >> 32;
+    let clamped = u64::from(MIN_CRASH_MS)
+        .saturating_add(extra)
+        .min(u64::from(MAX_CRASH_MS));
+    u32::try_from(clamped).unwrap_or(MAX_CRASH_MS)
 }
 
 fn lead(w: u64, (lo, hi): (u32, u32)) -> u32 {
-    lo + (w % (hi - lo + 1) as u64) as u32
+    let span = u64::from(hi.saturating_sub(lo)).saturating_add(1);
+    let offset = w.checked_rem(span).unwrap_or(0);
+    lo.saturating_add(u32::try_from(offset).unwrap_or(0))
 }
 
 /// Derive the whole ride from the VRF output.
@@ -101,19 +112,28 @@ pub fn ride(draw: &[u8; 32]) -> Ride {
     let screw_at_ms = at(screw_lead_ms);
 
     let mut s = w1 ^ w2.rotate_left(21) ^ w3.rotate_left(42) ^ w0.rotate_left(7);
-    let count = 2 + (splitmix(&mut s) % 3) as usize;
+    let count =
+        usize::from(u8::try_from(splitmix(&mut s).checked_rem(3).unwrap_or(0)).unwrap_or(0))
+            .saturating_add(2);
+    let span = u64::from(FALSE_SCREW_SPAN_MS).saturating_add(1);
     let mut candidates = [0u32; MAX_FALSE_SCREWS];
     for c in candidates.iter_mut().take(count) {
-        *c = FALSE_SCREW_FROM_MS + (splitmix(&mut s) % (FALSE_SCREW_SPAN_MS as u64 + 1)) as u32;
+        let offset = splitmix(&mut s).checked_rem(span).unwrap_or(0);
+        *c = FALSE_SCREW_FROM_MS.saturating_add(u32::try_from(offset).unwrap_or(0));
     }
-    let candidates = &mut candidates[..count];
-    candidates.sort_unstable();
+    let slice = match candidates.get_mut(..count) {
+        Some(s) => s,
+        None => &mut candidates[..],
+    };
+    slice.sort_unstable();
     let mut false_screws = [0u32; MAX_FALSE_SCREWS];
     let mut false_len = 0u8;
-    for c in candidates.iter() {
-        if c + FALSE_SCREW_GAP_MS <= screw_at_ms {
-            false_screws[false_len as usize] = *c;
-            false_len += 1;
+    for &c in slice.iter() {
+        if c.saturating_add(FALSE_SCREW_GAP_MS) <= screw_at_ms {
+            if let Some(slot) = false_screws.get_mut(usize::from(false_len)) {
+                *slot = c;
+                false_len = false_len.saturating_add(1);
+            }
         }
     }
 
@@ -136,8 +156,8 @@ fn slow_periods(brakes: &[u32]) -> Vec<(u32, u32)> {
     let mut out: Vec<(u32, u32)> = Vec::new();
     for &p in brakes {
         match out.last_mut() {
-            Some(last) if p < last.1 => last.1 += BRAKE_MS,
-            _ => out.push((p, p + BRAKE_MS)),
+            Some(last) if p < last.1 => last.1 = last.1.saturating_add(BRAKE_MS),
+            _ => out.push((p, p.saturating_add(BRAKE_MS))),
         }
     }
     out
@@ -147,42 +167,50 @@ fn slow_periods(brakes: &[u32]) -> Vec<(u32, u32)> {
 pub fn position_ms(brakes: &[u32], t: u32) -> u32 {
     let slowed: u64 = slow_periods(brakes)
         .iter()
-        .map(|&(s, e)| (e.min(t)).saturating_sub(s.min(t)) as u64)
+        .map(|&(s, e)| u64::from(e.min(t).saturating_sub(s.min(t))))
         .sum();
-    ((2 * t as u64 - slowed) / 2) as u32
+    let half = u64::from(t).saturating_mul(2).saturating_sub(slowed) >> 1;
+    u32::try_from(half).unwrap_or(u32::MAX)
 }
 
 /// First real ms at which the car has travelled `crash_ms` track ms, capped at
 /// the ten-minute ride limit.
 pub fn impact_ms(brakes: &[u32], crash_ms: u32) -> u32 {
     // Half track ms: fast advances 2 per real ms, slow 1.
-    let mut remaining = 2 * crash_ms as u64;
+    let mut remaining = u64::from(crash_ms).saturating_mul(2);
     let mut cursor = 0u64;
     let mut t = None;
     for (s, e) in slow_periods(brakes) {
-        let (s, e) = (s as u64, e as u64);
-        let fast = 2 * (s - cursor);
+        let (s, e) = (u64::from(s), u64::from(e));
+        let fast = s.saturating_sub(cursor).saturating_mul(2);
         if remaining <= fast {
-            t = Some(cursor + remaining.div_ceil(2));
+            t = Some(cursor.saturating_add(remaining.div_ceil(2)));
             break;
         }
-        remaining -= fast;
-        if remaining <= e - s {
-            t = Some(s + remaining);
+        remaining = remaining.saturating_sub(fast);
+        let slow_span = e.saturating_sub(s);
+        if remaining <= slow_span {
+            t = Some(s.saturating_add(remaining));
             break;
         }
-        remaining -= e - s;
+        remaining = remaining.saturating_sub(slow_span);
         cursor = e;
     }
-    let t = t.unwrap_or(cursor + remaining.div_ceil(2));
-    t.min(RIDE_CAP_MS as u64) as u32
+    let t = t.unwrap_or_else(|| cursor.saturating_add(remaining.div_ceil(2)));
+    u32::try_from(t.min(u64::from(RIDE_CAP_MS))).unwrap_or(RIDE_CAP_MS)
 }
 
 /// Early-jump refund in percent of the entry, by track position (track ms).
 pub fn refund_pct(position_ms: u32) -> u32 {
     match position_ms {
         0..=19_999 => 80,
-        20_000..=89_999 => 70 - 10 * ((position_ms - 20_000) / 10_000),
+        20_000..=89_999 => {
+            let step = position_ms
+                .saturating_sub(20_000)
+                .checked_div(10_000)
+                .unwrap_or(0);
+            70u32.saturating_sub(step.saturating_mul(10))
+        }
         90_000..=99_999 => 5,
         _ => 0,
     }
@@ -190,7 +218,11 @@ pub fn refund_pct(position_ms: u32) -> u32 {
 
 /// Gemas returned to a Player who Jumps at `position_ms`.
 pub fn refund(entry: u64, position_ms: u32) -> u64 {
-    entry * refund_pct(position_ms) as u64 / 100
+    let scaled = u128::from(entry)
+        .saturating_mul(u128::from(refund_pct(position_ms)))
+        .checked_div(100)
+        .unwrap_or(0);
+    u64::try_from(scaled).unwrap_or(u64::MAX)
 }
 
 /// Refund for a Jump at real time `t` under the Brake presses.
@@ -213,11 +245,16 @@ pub fn place_shares_bps(placed: usize) -> [u32; 3] {
 pub fn split(amount: u64, placed: usize) -> [u64; 3] {
     let bps = place_shares_bps(placed.min(3));
     let mut out = [0u64; 3];
-    for i in 0..3 {
-        out[i] = (amount as u128 * bps[i] as u128 / 10_000) as u64;
+    for (slot, &share) in out.iter_mut().zip(bps.iter()) {
+        let part = u128::from(amount)
+            .saturating_mul(u128::from(share))
+            .checked_div(10_000)
+            .unwrap_or(0);
+        *slot = u64::try_from(part).unwrap_or(u64::MAX);
     }
     if bps[0] != 0 {
-        out[0] += amount - out.iter().sum::<u64>();
+        let sum: u64 = out.iter().sum();
+        out[0] = out[0].saturating_add(amount.saturating_sub(sum));
     }
     out
 }

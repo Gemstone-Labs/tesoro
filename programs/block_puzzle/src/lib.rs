@@ -1,3 +1,6 @@
+// Anchor 0.31 #[program] expands AccountInfo::realloc (deprecated in solana-account-info 2.3+).
+#![allow(deprecated)]
+
 //! Block Burst Live: a real-time 1v1 Block Burst Match as a Tesoro Game, on persistent tables.
 //! (The code id stays `block_puzzle`; the player-facing name is Block Burst.)
 //!
@@ -283,8 +286,8 @@ fn acting_seat(table: &Table, signer: &Pubkey) -> Result<usize> {
         seat_record(
             seat,
             SeatKeys {
-                player: table.players[seat],
-                signer: table.signers[seat],
+                player: *table.players.get(seat).unwrap_or(&Pubkey::default()),
+                signer: *table.signers.get(seat).unwrap_or(&Pubkey::default()),
             },
             table.tesoro_match,
             table.epoch,
@@ -314,7 +317,7 @@ fn require_board(table: &Table, board: &Board, signer: &Pubkey) -> Result<usize>
     let seat = require_acting_seat(&table_seats(table), &record, signer)
         .map_err(|_| error!(BlockPuzzleError::NotAPlayer))?;
     require!(
-        board.signer == table.signers[seat],
+        table.signers.get(seat) == Some(&board.signer),
         BlockPuzzleError::NotAPlayer
     );
     Ok(seat)
@@ -363,7 +366,7 @@ fn run_moves(
     // or a beat that lands after a later one): those are skipped, up to the whole batch.
     // Anything else must start exactly at the Board's count.
     let skip = if beat && expected_count < board.moves {
-        usize::from(board.moves - expected_count).min(moves.len())
+        usize::from(board.moves.saturating_sub(expected_count)).min(moves.len())
     } else {
         0
     };
@@ -371,19 +374,22 @@ fn run_moves(
         board.moves == expected_count || (beat && expected_count < board.moves),
         BlockPuzzleError::WrongCount
     );
-    let moves = &moves[skip..];
+    let moves = moves.get(skip..).unwrap_or(&[]);
     // A finished run still answers the hidden beat with an empty batch: the rhythm never stops.
     require!(!board.over || moves.is_empty(), BlockPuzzleError::RunOver);
     // Pace: moves landed so far, over the elapsed slots, plus the burst.
     let total = u64::from(board.moves)
         .checked_add(moves.len() as u64)
         .ok_or(BlockPuzzleError::Overflow)?;
-    let elapsed = slot - table.start_slot;
+    let elapsed = slot.saturating_sub(table.start_slot);
     let allowed = MOVES_PER_SEC
         .checked_mul(elapsed)
         .and_then(|v| v.checked_add(MOVE_BURST * SLOTS_PER_SEC))
         .ok_or(BlockPuzzleError::Overflow)?;
-    require!(total * SLOTS_PER_SEC <= allowed, BlockPuzzleError::TooFast);
+    require!(
+        total.saturating_mul(SLOTS_PER_SEC) <= allowed,
+        BlockPuzzleError::TooFast
+    );
     // Outage rule: a long gap with too few slots in it marks the seat.
     let gap_slots = slot.saturating_sub(board.last_slot);
     let gap_secs = clock.unix_timestamp.saturating_sub(board.last_ts);
@@ -466,7 +472,8 @@ fn wipe_seat_trio<'info>(
     for (seat, (board, permission)) in boards.into_iter().zip(permissions).enumerate() {
         board.wipe();
         board.exit(&ID)?;
-        let seat_arr = [seat as u8];
+        let seat_u8 = u8::try_from(seat).map_err(|_| BlockPuzzleError::NotAPlayer)?;
+        let seat_arr = [seat_u8];
         let bump_arr = [board.bump];
         let seat_seeds: &[&[u8]] = &[BOARD_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
         swap_seat_members_keyed(
@@ -902,10 +909,13 @@ pub mod block_puzzle {
                     ctx.bumps.board_1,
                 )
             };
-            let seat_arr = [seat as u8];
+            let seat_u8 = u8::try_from(seat).map_err(|_| BlockPuzzleError::NotAPlayer)?;
+            let seat_arr = [seat_u8];
             let bump_arr = [board_bump];
             let seat_seeds: &[&[u8]] = &[BOARD_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
             let board_info = board.to_account_info();
+            let board_space =
+                u32::try_from(8 + Board::INIT_SPACE).map_err(|_| BlockPuzzleError::Overflow)?;
             create_hidden_seat(
                 &SeatAccounts {
                     table: &table_info,
@@ -917,16 +927,18 @@ pub mod block_puzzle {
                 },
                 table_seeds,
                 seat_seeds,
-                (8 + Board::INIT_SPACE) as u32,
+                board_space,
                 None,
             )?;
             let mut data = board_info.try_borrow_mut_data()?;
-            Board::blank(board_bump, table_key, seat as u8).try_serialize(&mut &mut data[..])?;
+            Board::blank(board_bump, table_key, seat_u8).try_serialize(&mut &mut data[..])?;
         }
         let vault_bump = ctx.bumps.seed_vault;
         let vb = [vault_bump];
         let vault_seeds: &[&[u8]] = &[VAULT_SEED, table_key.as_ref(), &vb];
         let seed_vault_info = ctx.accounts.seed_vault.to_account_info();
+        let vault_space =
+            u32::try_from(8 + Vault::INIT_SPACE).map_err(|_| BlockPuzzleError::Overflow)?;
         create_hidden_seat(
             &SeatAccounts {
                 table: &table_info,
@@ -938,7 +950,7 @@ pub mod block_puzzle {
             },
             table_seeds,
             vault_seeds,
-            (8 + Vault::INIT_SPACE) as u32,
+            vault_space,
             None,
         )?;
         let mut data = seed_vault_info.try_borrow_mut_data()?;
@@ -963,10 +975,16 @@ pub mod block_puzzle {
                 && ctx.accounts.seed_vault.is_blank(),
             BlockPuzzleError::SeatNotBlank
         );
-        let seat_keys = [0, 1].map(|i| SeatKeys {
-            player: table.players[i],
-            signer: table.signers[i],
-        });
+        let seat_keys = [
+            SeatKeys {
+                player: table.players[0],
+                signer: table.signers[0],
+            },
+            SeatKeys {
+                player: table.players[1],
+                signer: table.signers[1],
+            },
+        ];
         let (key, epoch) = (table.tesoro_match, table.epoch);
         let (gen, idx) = (table.generation.to_le_bytes(), table.index.to_le_bytes());
         let table_bump = [table.bump];
@@ -990,7 +1008,8 @@ pub mod block_puzzle {
             } else {
                 (&ctx.accounts.board_1, &ctx.accounts.board_1_permission)
             };
-            let seat_arr = [seat as u8];
+            let seat_u8 = u8::try_from(seat).map_err(|_| BlockPuzzleError::NotAPlayer)?;
+            let seat_arr = [seat_u8];
             let bump_arr = [board.bump];
             let seat_seeds: &[&[u8]] = &[BOARD_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
             swap_seat_members_keyed(
@@ -1064,7 +1083,8 @@ pub mod block_puzzle {
             } else {
                 (&ctx.accounts.board_1, &ctx.accounts.board_1_permission)
             };
-            let seat_arr = [seat as u8];
+            let seat_u8 = u8::try_from(seat).map_err(|_| BlockPuzzleError::NotAPlayer)?;
+            let seat_arr = [seat_u8];
             let bump_arr = [board.bump];
             let seat_seeds: &[&[u8]] = &[BOARD_SEED, table_key.as_ref(), &seat_arr, &bump_arr];
             close_private_seat(
@@ -1222,8 +1242,12 @@ pub mod block_puzzle {
             BlockPuzzleError::CheckInClosed
         );
         let seat = acting_seat(table, &ctx.accounts.player.key())?;
-        require!(!table.checked_in[seat], BlockPuzzleError::AlreadyCheckedIn);
-        table.checked_in[seat] = true;
+        let checked = table
+            .checked_in
+            .get_mut(seat)
+            .ok_or(BlockPuzzleError::NotAPlayer)?;
+        require!(!*checked, BlockPuzzleError::AlreadyCheckedIn);
+        *checked = true;
         if table.checked_in == [true; 2] {
             table.phase = TABLE_SEEDING;
             table.seeding_slot = slot;
@@ -1397,8 +1421,12 @@ pub mod block_puzzle {
             },
             &clock,
         )?;
-        table.shown_score[seat] = board.score;
-        table.shown_moves[seat] = board.moves;
+        if let Some(s) = table.shown_score.get_mut(seat) {
+            *s = board.score;
+        }
+        if let Some(m) = table.shown_moves.get_mut(seat) {
+            *m = board.moves;
+        }
         Ok(())
     }
 
@@ -1435,7 +1463,7 @@ pub mod block_puzzle {
             &binding,
             Batch {
                 expected_count,
-                moves: &moves[..count],
+                moves: moves.get(..count).ok_or(BlockPuzzleError::BadBatch)?,
                 beat: true,
             },
             &clock,
@@ -1515,10 +1543,20 @@ pub mod block_puzzle {
                 log.start_slot = table.start_slot;
                 log.scores = scores;
                 log.counts = counts;
-                log.moves[..engine::MAX_MOVES as usize].copy_from_slice(&b0.log);
-                log.moves[engine::MAX_MOVES as usize..].copy_from_slice(&b1.log);
-                log.offsets[..2 * engine::MAX_MOVES as usize].copy_from_slice(&b0.offsets);
-                log.offsets[2 * engine::MAX_MOVES as usize..].copy_from_slice(&b1.offsets);
+                let max_moves = usize::from(engine::MAX_MOVES);
+                let max_offsets = max_moves.saturating_mul(2);
+                if let Some(dst) = log.moves.get_mut(..max_moves) {
+                    dst.copy_from_slice(&b0.log);
+                }
+                if let Some(dst) = log.moves.get_mut(max_moves..) {
+                    dst.copy_from_slice(&b1.log);
+                }
+                if let Some(dst) = log.offsets.get_mut(..max_offsets) {
+                    dst.copy_from_slice(&b0.offsets);
+                }
+                if let Some(dst) = log.offsets.get_mut(max_offsets..) {
+                    dst.copy_from_slice(&b1.offsets);
+                }
                 conclude(table, now, outcome, reason, log)
             }
             _ => err!(BlockPuzzleError::WrongPhase),

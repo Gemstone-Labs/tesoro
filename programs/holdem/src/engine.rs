@@ -3,6 +3,9 @@
 //! feeds it the hole cards and the board; the engine only reads them when it must reveal a board
 //! card or run a showdown.
 
+// Fixed 2-seat heads-up poker state machine.
+#![allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
+
 use crate::eval::eval7;
 use crate::state::*;
 use crate::HoldemError;

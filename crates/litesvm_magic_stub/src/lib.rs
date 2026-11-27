@@ -30,7 +30,7 @@ pub fn install(svm: &mut LiteSVM) {
     for id in [magic_program(), permission_program()] {
         svm.add_builtin(id, AcceptAnything::vm);
         // `add_builtin` leaves the account owned by the BPF loader, but a builtin is owned by the native loader.
-        svm.set_account(
+        if let Err(err) = svm.set_account(
             id,
             solana_sdk::account::Account {
                 lamports: 1,
@@ -39,7 +39,8 @@ pub fn install(svm: &mut LiteSVM) {
                 executable: true,
                 rent_epoch: 0,
             },
-        )
-        .expect("builtin account");
+        ) {
+            panic!("builtin account: {err:?}");
+        }
     }
 }

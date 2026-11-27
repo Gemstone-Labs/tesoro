@@ -75,7 +75,7 @@ pub fn require_acting_seat(
         signer: key,
     } = record.keys;
     for (i, p) in table.players.iter().enumerate() {
-        if table.players[..i].contains(p) {
+        if table.players.get(..i).is_some_and(|prev| prev.contains(p)) {
             return Err(SeatBindingError::Ambiguous);
         }
     }

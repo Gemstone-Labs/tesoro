@@ -62,9 +62,9 @@ pub(crate) fn set_onchain_price(
         let data = a.feed.try_borrow_data()?;
         require!(
             data.len() == crate::pyth::PRICE_UPDATE_V2_LEN
-                && data[0..8] == PRICE_UPDATE_V2
-                && data[40] == 1
-                && data[41..73] == feed_id[..],
+                && data.get(0..8) == Some(&PRICE_UPDATE_V2[..])
+                && data.get(40) == Some(&1)
+                && data.get(41..73) == Some(&feed_id[..]),
             TesoroError::BadPriceFeed
         );
     }

@@ -288,7 +288,7 @@ pub fn seat_err(e: crate::ledger::many_seat::SeatError) -> Error {
 pub fn core_err(e: CoreError) -> Error {
     Error::from(AnchorError {
         error_name: e.name().to_string(),
-        error_code_number: CORE_ERROR_OFFSET + e.code(),
+        error_code_number: CORE_ERROR_OFFSET.saturating_add(e.code()),
         error_msg: e.msg().to_string(),
         error_origin: None,
         compared_values: None,

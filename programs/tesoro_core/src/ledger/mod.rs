@@ -197,8 +197,8 @@ pub(crate) fn mul_div_ceil(a: u128, b: u128, d: u128) -> CoreResult<u128> {
     if d == 0 {
         return Err(CoreError::Math);
     }
-    let q = x / d;
-    if x % d == 0 {
+    let q = x.checked_div(d).ok_or(CoreError::Math)?;
+    if x.checked_rem(d).ok_or(CoreError::Math)? == 0 {
         Ok(q)
     } else {
         q.checked_add(1).ok_or(CoreError::Math)
@@ -221,7 +221,8 @@ pub fn validate_entry_sizes(sizes: &[u64]) -> CoreResult<()> {
         return Err(CoreError::InvalidEntry);
     }
     for (i, &s) in sizes.iter().enumerate() {
-        if s == 0 || s % POINTS_DIVISOR != 0 || sizes[..i].contains(&s) {
+        if s == 0 || s % POINTS_DIVISOR != 0 || sizes.get(..i).is_some_and(|prev| prev.contains(&s))
+        {
             return Err(CoreError::InvalidEntry);
         }
     }

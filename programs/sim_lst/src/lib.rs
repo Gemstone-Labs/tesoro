@@ -12,6 +12,9 @@
 //! The Pool is the one home of the devnet test APY (`apy_bps`) and the time speed-up (`speedup`,
 //! default 4,380: 1 simulated month = 1/12 year = 10 real minutes). tesoro_core reads both from it.
 
+// Anchor 0.31 #[program] expands AccountInfo::realloc (deprecated in solana-account-info 2.3+).
+#![allow(deprecated)]
+
 use anchor_lang::prelude::*;
 use anchor_lang::system_program::{self, Transfer};
 use anchor_spl::associated_token::AssociatedToken;
@@ -286,16 +289,16 @@ pub fn lamports_to_shares(lamports: u64, rate: u64) -> Result<u64> {
     require!(rate > 0, SimLstError::MathOverflow);
     let v = u128::from(lamports)
         .checked_mul(u128::from(RATE_SCALE))
-        .ok_or(SimLstError::MathOverflow)?
-        / u128::from(rate);
+        .and_then(|n| n.checked_div(u128::from(rate)))
+        .ok_or(SimLstError::MathOverflow)?;
     Ok(u64::try_from(v).map_err(|_| SimLstError::MathOverflow)?)
 }
 
 pub fn shares_to_lamports(shares: u64, rate: u64) -> Result<u64> {
     let v = u128::from(shares)
         .checked_mul(u128::from(rate))
-        .ok_or(SimLstError::MathOverflow)?
-        / u128::from(RATE_SCALE);
+        .and_then(|n| n.checked_div(u128::from(RATE_SCALE)))
+        .ok_or(SimLstError::MathOverflow)?;
     Ok(u64::try_from(v).map_err(|_| SimLstError::MathOverflow)?)
 }
 

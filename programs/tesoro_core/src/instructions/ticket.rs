@@ -88,18 +88,21 @@ pub(crate) fn try_hold(basket: &AccountInfo, spill: &AccountInfo, slots: u32) ->
     }
     let free = {
         let data = basket.try_borrow_data()?;
-        let b = LineStore::new(&data[DISC..]).map_err(store_err)?;
-        b.capacity() - b.len()
+        let body = data.get(DISC..).ok_or(BasketError::BadStore)?;
+        let b = LineStore::new(body).map_err(store_err)?;
+        b.capacity().saturating_sub(b.len())
     };
     let mut data = spill.try_borrow_mut_data()?;
-    let mut store = LineStore::new(&mut data[DISC..]).map_err(store_err)?;
-    let free = free + (store.capacity() - store.len());
-    let held = store.room_reserved() as usize;
-    if free < held + slots as usize {
+    let body = data.get_mut(DISC..).ok_or(BasketError::BadStore)?;
+    let mut store = LineStore::new(body).map_err(store_err)?;
+    let free = free.saturating_add(store.capacity().saturating_sub(store.len()));
+    let held_u32 = store.room_reserved();
+    let held = held_u32 as usize;
+    if free < held.saturating_add(slots as usize) {
         return Ok(false);
     }
     store.set_room_reserved(
-        (held as u32)
+        held_u32
             .checked_add(slots)
             .ok_or(ProgramError::ArithmeticOverflow)?,
     );
@@ -112,7 +115,8 @@ pub(crate) fn release_room(spill: &AccountInfo, slots: u32) -> Result<()> {
         return Ok(());
     }
     let mut data = spill.try_borrow_mut_data()?;
-    let mut store = LineStore::new(&mut data[DISC..]).map_err(store_err)?;
+    let body = data.get_mut(DISC..).ok_or(BasketError::BadStore)?;
+    let mut store = LineStore::new(body).map_err(store_err)?;
     let held = store.room_reserved();
     store.set_room_reserved(held.saturating_sub(slots));
     Ok(())
@@ -149,7 +153,10 @@ pub(crate) fn sponsor_rent<'info>(
     let sponsor_info = sponsor.to_account_info();
     let keep = Rent::get()?.minimum_balance(sponsor_info.data_len());
     require!(
-        sponsor_info.lamports() >= delta && sponsor_info.lamports() - delta >= keep,
+        sponsor_info
+            .lamports()
+            .checked_sub(delta)
+            .is_some_and(|rem| rem >= keep),
         BasketError::SponsorShort
     );
     move_lamports(&sponsor_info, relayer, delta)?;
@@ -364,7 +371,9 @@ pub(crate) fn grow_ticket(ctx: Context<GrowTicket>, extra_lines: u32) -> Result<
             sponsored_now,
             delta,
         )?;
-        extra.sponsored_lamports = sponsored_now + delta;
+        extra.sponsored_lamports = sponsored_now
+            .checked_add(delta)
+            .ok_or(ProgramError::ArithmeticOverflow)?;
     }
     if delta > 0 {
         anchor_lang::system_program::transfer(
@@ -611,7 +620,7 @@ pub(crate) fn close_pot_account<'info>(
         if back > 0 {
             move_lamports(info, &sponsor.to_account_info(), back)?;
             sponsor.outstanding = sponsor.outstanding.saturating_sub(back);
-            to_payer = total - back;
+            to_payer = total.saturating_sub(back);
         }
     } else {
         require!(sponsored == 0, BasketError::SponsorShort);

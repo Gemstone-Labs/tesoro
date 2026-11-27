@@ -1,0 +1,44 @@
+id: no-skip-preflight-keeper-tsx
+snapshots:
+  "export const C = () => { void send({ maxRetries: 3, skipPreflight: true }); return <div />; };":
+    labels:
+    - source: "skipPreflight: true"
+      style: primary
+      start: 52
+      end: 71
+    - source: skipPreflight
+      style: secondary
+      start: 52
+      end: 65
+    - source: "true"
+      style: secondary
+      start: 67
+      end: 71
+  "export const C = () => { void send({ skipPreflight: true }); return <div />; };":
+    labels:
+    - source: "skipPreflight: true"
+      style: primary
+      start: 37
+      end: 56
+    - source: skipPreflight
+      style: secondary
+      start: 37
+      end: 50
+    - source: "true"
+      style: secondary
+      start: 52
+      end: 56
+  "export const C = () => { void send({ skipPreflight: true, maxRetries: 3 }); return <div />; };":
+    labels:
+    - source: "skipPreflight: true"
+      style: primary
+      start: 37
+      end: 56
+    - source: skipPreflight
+      style: secondary
+      start: 37
+      end: 50
+    - source: "true"
+      style: secondary
+      start: 52
+      end: 56

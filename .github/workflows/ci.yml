@@ -1,0 +1,135 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  solana-security-standard:
+    name: Solana Security Standard
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Copenhagen0x/solana-security-standard@f6b6a1374984e0e491b644b65418da4e8e420686
+        with:
+          paths: "./programs ./bridge/programs"
+          baseline: .sss-baseline.json
+          fail-on-findings: true
+          upload-sarif: false
+
+  rust:
+    name: Rust fmt, clippy & unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.91.1
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Check formatting (root workspace)
+        run: cargo fmt --all -- --check
+      - name: Check formatting (bridge workspace)
+        working-directory: bridge
+        run: cargo fmt --all -- --check
+      - name: Clippy (root workspace, all 9 members)
+        run: cargo clippy --workspace --lib -- -D warnings
+      - name: Clippy (bridge workspace, both members)
+        working-directory: bridge
+        run: cargo clippy --workspace --lib -- -D warnings
+      - name: Unit tests (root workspace)
+        run: cargo test --workspace --lib
+      - name: Railcar engine & parity vector tests
+        run: cargo test -p railcar --test engine
+
+  bridge:
+    name: Bridge SBF build & full LiteSVM test suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.91.1
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Agave / Solana CLI (cargo-build-sbf)
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v2.2.15/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - name: Build SBF binaries (tesoro_core, tesoro_bridge, mock_endpoint)
+        run: |
+          mkdir -p target/deploy bridge/target/deploy
+          cargo build-sbf --manifest-path programs/tesoro_core/Cargo.toml --sbf-out-dir target/deploy --tools-version v1.54
+          (cd bridge && \
+            cargo build-sbf --manifest-path programs/tesoro_bridge/Cargo.toml --sbf-out-dir target/deploy --tools-version v1.54 && \
+            cargo build-sbf --manifest-path test-programs/mock_endpoint/Cargo.toml --sbf-out-dir target/deploy --tools-version v1.54)
+      - name: Fetch and verify LayerZero V2 endpoint fixture (mandatory)
+        run: |
+          solana program dump -u https://rpc.magicblock.app/devnet 76y77prsiCMvXMjuoZ5VRrhG5qYBrUMYTE5WgHqgjEn6 /tmp/lz-endpoint.so
+          echo "0725925294128c05731ecee663ad681e777b1d9a410dbfd08b820e9b3ce5d5af  /tmp/lz-endpoint.so" | sha256sum -c -
+          echo "LZ_ENDPOINT_SO=/tmp/lz-endpoint.so" >> "$GITHUB_ENV"
+      - name: Run full bridge test suite
+        working-directory: bridge
+        env:
+          REQUIRE_LZ_ENDPOINT_SO: "1"
+        run: cargo test --workspace
+
+  evm:
+    name: Foundry & Slither
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+      - name: Build contracts
+        working-directory: contracts
+        run: forge build
+      - name: Test contracts (including EIP-170 CodeSizeTest)
+        working-directory: contracts
+        run: forge test
+      - name: Install Slither
+        run: pipx install slither-analyzer
+      - name: Run Slither
+        working-directory: contracts
+        run: slither . --config-file slither.config.json
+
+  typescript:
+    name: ast-grep, App & Keeper lint/typecheck/tests, and hook tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: ast-grep rule tests
+        run: pnpm exec ast-grep test
+      - name: ast-grep structural scan
+        run: pnpm exec ast-grep scan --error
+      - name: App lint (matches lefthook pre-commit --max-warnings=0)
+        run: pnpm --filter @tesoro/app exec eslint --max-warnings=0
+      - name: App typecheck (matches lefthook pre-push)
+        run: pnpm --filter @tesoro/app typecheck
+      - name: Railcar TypeScript parity tests
+        run: pnpm --filter @tesoro/app exec vitest run src/games/railcar/engine.test.ts
+      - name: Keeper typecheck (matches lefthook pre-push)
+        run: pnpm --filter @tesoro/keeper typecheck
+      - name: Keeper unit tests
+        run: pnpm --filter @tesoro/keeper test
+      - name: Install pinned Lefthook (v2.2.3)
+        run: |
+          curl -fsSL https://github.com/evilmartians/lefthook/releases/download/v2.2.3/lefthook_2.2.3_Linux_x86_64 -o /tmp/lefthook
+          echo "58ac74a30cf455ffa5dbd5740aa7a7eef72888a2dd724ae6dce5eee5db15ddce  /tmp/lefthook" | sha256sum -c -
+          install -m 0755 /tmp/lefthook "$RUNNER_TEMP/lefthook"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/lefthook" version
+      - name: Git hook checks test suite
+        run: python3 scripts/test-githooks.py
