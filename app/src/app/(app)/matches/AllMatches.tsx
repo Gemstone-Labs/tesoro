@@ -38,8 +38,8 @@ type View = {
   snapshot: ReturnType<typeof useAccount>["snapshot"];
   openMatches: ReturnType<typeof useAccount>["openMatches"];
   history: HistoryRow[] | null | undefined;
-  error: unknown;
-  refresh: () => Promise<unknown>;
+  error: ReturnType<typeof useChainData>["error"];
+  refresh: ReturnType<typeof useChainData>["refresh"];
   params: Pick<URLSearchParams, "get">;
   now: number;
 };
