@@ -1,18 +1,20 @@
 import { matchFee } from "@/lib/chain/ledger";
-import { refundByText, tableRefundBy } from "@/lib/chain/match-status";
+import { delayedOf, refundByText, tableRefundBy } from "@/lib/chain/match-status";
 import { resultOf, type ChainMatch, type ClosedOutcome } from "@/lib/chain/read";
 
 /**
  * Where a Match stands for someone watching it. tesoro_core's stage gives all of it but one step: an Active Match is waiting
  * for a table until its Game has written the Assignment, and in play from then on.
  */
-export type SpectateState = "open" | "table" | "live" | "over" | "settling" | "refunding" | "settled" | "refunded";
+export type SpectateState = "open" | "table" | "live" | "delayed" | "over" | "settling" | "refunding" | "settled" | "refunded";
 
 /** One read of a watched Match: the Match, whether its Game has assigned it a table, and when it was read (ms). */
 export interface Spectated {
   /** Null only on a first read of a Match that is already closed and not in the history yet: just `closed` is known. */
   m: ChainMatch | null;
   tabled: boolean;
+  /** Unix seconds by which a Match on this table has been played and settled, when its Game's Assignment tells; a Match still Active after it is not in play. */
+  playedBy?: number | null;
   at: number;
   /**
    * The Match account is closed and the history has no result for it yet (it can take minutes): how the Match ended, from the
@@ -32,7 +34,13 @@ export function spectateState(m: Staged, tabled: boolean): SpectateState {
 }
 
 /** Where a read puts the Match. */
-export const stateOf = (seen: Spectated): SpectateState => (seen.closed || !seen.m ? "over" : spectateState(seen.m, seen.tabled));
+export function stateOf(seen: Spectated): SpectateState {
+  if (seen.closed || !seen.m) return "over";
+  const s = spectateState(seen.m, seen.tabled);
+  // Assigned a table, yet past the time any Match on it lasts (or past the time its Game gives a Match): it never started, or its result is late.
+  const nowSecs = seen.at / 1000;
+  return s === "live" && ((seen.playedBy != null && nowSecs > seen.playedBy) || delayedOf(seen.m, nowSecs)) ? "delayed" : s;
+}
 
 /** The winning seat a read knows of: from the receipt of a closed Match, else from the Match once its result is fixed. */
 export function winSeatOf(seen: Spectated): 0 | 1 | null {
@@ -47,7 +55,7 @@ export function winSeatOf(seen: Spectated): 0 | 1 | null {
 /** The page reads again until the Match is settled or refunded; before the first read and after an unknown Match too. */
 export const keepsReading = (seen: Spectated | null | undefined): boolean => seen === undefined || (seen !== null && !["settled", "refunded"].includes(stateOf(seen)));
 
-const isPending = (s: SpectateState) => s === "open" || s === "table" || s === "live";
+const isPending = (s: SpectateState) => s === "open" || s === "table" || s === "live" || s === "delayed";
 
 /** The headline. `winner` is the winning Player's name once a win is fixed, null for a draw. `closed` tells how a Match in "over" ended. */
 export function spectateHeadline(s: SpectateState, winner: string | null, closed?: Spectated["closed"]): string {
@@ -56,6 +64,7 @@ export function spectateHeadline(s: SpectateState, winner: string | null, closed
     case "open": return "Waiting for an opponent";
     case "table": return "Waiting for a table";
     case "live": return "In play";
+    case "delayed": return "Delayed";
     case "refunding": return "Refunding";
     case "refunded": return "Refunded";
     default: return winner ? `${winner} won` : "Draw";
@@ -88,6 +97,10 @@ export function spectateLine(m: Pick<ChainMatch, "deadline" | "sides" | "settled
         ? `Both Players are in. The Match starts when a table opens. If none opens by ${refundByText(by, nowMs)}, both entries come back.`
         : "No table opened in time. Both entries are on their way back.";
     }
+    case "delayed":
+      return m.deadline * 1000 > nowMs
+        ? `This Match should have finished by now. The entries are safe: if it does not settle, both come back by ${refundByText(m.deadline, nowMs)}.`
+        : "This Match should have finished by now. The entries are safe and due back to both Players.";
     case "over":
       return "This Match is over and its result is final. The amounts are still being recorded and will show here by themselves.";
     case "refunding":
@@ -103,8 +116,8 @@ export function spectateLine(m: Pick<ChainMatch, "deadline" | "sides" | "settled
 
 export interface SpectateReads {
   fetchMatch: (id: string) => Promise<ChainMatch | null>;
-  /** Whether the Match's Game has assigned it a table. */
-  tabled: (m: ChainMatch) => Promise<boolean>;
+  /** The table the Match's Game has assigned it: null while it has none, else when a Match on it is over at the latest (null when the Game sets no such time). */
+  table: (m: ChainMatch) => Promise<{ playedBy: number | null } | null>;
   /** How a closed Match ended, from its settlement receipt; null when it has none. */
   outcome: (id: string) => Promise<ClosedOutcome | null>;
   now: () => number;
@@ -120,21 +133,24 @@ export async function readSpectated(id: string, d: SpectateReads, prev?: Spectat
   try {
     const m = await d.fetchMatch(id);
     const tabled = !!prev?.tabled;
+    const playedBy = prev?.playedBy ?? null;
     const active = !!m && m.status === "active" && !m.running;
     // Only the history gives a Match no refund deadline: an Active one from there is a closed Match with no result written yet.
     if (!m || (active && !m.deadline)) {
       const how = await d.outcome(id);
       if (!how && !m) return prev ? undefined : null;
-      return { m: m ?? prev?.m ?? null, tabled, at: d.now(), closed: how ?? "unknown" };
+      return { m: m ?? prev?.m ?? null, tabled, playedBy, at: d.now(), closed: how ?? "unknown" };
     }
-    return { m, tabled: active ? tabled || (await d.tabled(m)) : tabled, at: d.now() };
+    // The Assignment never changes once written: it is read until it exists, not after.
+    const table = active && !tabled ? await d.table(m) : null;
+    return { m, tabled: tabled || !!table, playedBy: table ? table.playedBy : playedBy, at: d.now() };
   } catch {
     return undefined;
   }
 }
 
 // A closed Match with no history yet ranks under a run being paid: that read has the amounts, this one only the outcome.
-const RANK: Record<SpectateState, number> = { open: 0, table: 1, live: 2, over: 3, settling: 4, refunding: 4, settled: 5, refunded: 5 };
+const RANK: Record<SpectateState, number> = { open: 0, table: 1, live: 2, delayed: 2, over: 3, settling: 4, refunding: 4, settled: 5, refunded: 5 };
 
 /** What the page shows after a read: the new read, unless it says nothing or would step the Match back (a lagging read). */
 export function laterRead(prev: Spectated | null | undefined, next: Spectated | null | undefined): Spectated | null | undefined {

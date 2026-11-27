@@ -147,7 +147,7 @@ describe("the Fee a spectator sees", () => {
 
 describe("a spectator who keeps the page open", () => {
   /** Plays a list of chain reads through the page's poll and returns the headline after each one. */
-  async function watch(reads: { m: ChainMatch | null | "fails"; tabled?: boolean | "fails"; how?: ClosedOutcome }[]): Promise<string[]> {
+  async function watch(reads: { m: ChainMatch | null | "fails"; tabled?: boolean | "fails"; playedBy?: number; how?: ClosedOutcome }[]): Promise<string[]> {
     let seen: Spectated | null | undefined;
     const out: string[] = [];
     for (const [i, r] of reads.entries()) {
@@ -157,9 +157,9 @@ describe("a spectator who keeps the page open", () => {
           if (r.m === "fails") throw new Error("read failed");
           return r.m;
         },
-        tabled: async () => {
+        table: async () => {
           if (r.tabled === "fails") throw new Error("read failed");
-          return r.tabled ?? false;
+          return r.tabled ? { playedBy: r.playedBy ?? null } : null;
         },
         outcome: async () => r.how ?? null,
         now: () => (JOINED_AT + i * 5) * 1000,
@@ -180,6 +180,25 @@ describe("a spectator who keeps the page open", () => {
     expect(await watch([{ m: waiting }, { m: waiting, tabled: true }, { m: winning, tabled: true }, { m: won, tabled: true }])).toEqual([
       "Waiting for a table", "In play", "Ben won", "Ben won",
     ]);
+  });
+
+  // The second sponsored QA Match of 2026-11-27 (7k1s…BmN3-29): joined and assigned at 12:49:13, its table never began it.
+  it("an assigned Match still Active after its table's Match must be over is Delayed, not In play", async () => {
+    // Reads are 5 s apart from the join; this table's Match is over 12 s after it.
+    expect(await watch([{ m: waiting, tabled: true, playedBy: JOINED_AT + 12 }, { m: waiting }, { m: waiting }, { m: waiting }, { m: refunding }, { m: refunded }])).toEqual([
+      "In play", "In play", "In play", "Delayed", "Refunding", "Refunded",
+    ]);
+    const late: Spectated = { m: waiting, tabled: true, playedBy: JOINED_AT + 12, at: (JOINED_AT + 600) * 1000 };
+    expect(stateOf(late)).toBe("delayed");
+    expect(keepsReading(late)).toBe(true);
+    expect(spectateFee(waiting, "delayed")).toEqual({ label: "Fee on a win", fee: 12 });
+    const page = text(renderToStaticMarkup(<SpectateView seen={late} />));
+    expect(page).toContain("Delayed");
+    expect(page).toMatch(/This Match should have finished by now\. The entries are safe: if it does not settle, both come back by .+\./);
+    expect(page).not.toContain("In play");
+    // Past the refund deadline of the Match itself, whatever the Game.
+    expect(stateOf({ m: waiting, tabled: true, at: (waiting.deadline + 1) * 1000 })).toBe("delayed");
+    expect(stateOf({ m: waiting, tabled: true, at: (waiting.deadline - 1) * 1000 })).toBe("live");
   });
 
   it("stays In play once a table was seen, without reading the Assignment again", async () => {
@@ -203,7 +222,7 @@ describe("a spectator who keeps the page open", () => {
   it("a fresh link to a Match that is closed but not in the history yet says it is over, and keeps reading for the result", async () => {
     const lagging = chainMatchFromPage({ id: refunding.id, game: "block-puzzle", entry: 100, status: "seen", kind: null, challenge: false, asset: 0, openedAt: refunding.openedAt, settledAt: null, sides: [{ player: refunding.sides[0].player, funder: refunding.sides[0].funder }, { player: refunding.sides[1]!.player, funder: refunding.sides[1]!.funder }], winnerSide: null, winner: null, loser: null, points: null, season: null, fees: { platform: 0, studio: 0, leaderboard: 0 }, chunks: 0, scores: null, parties: [] }, null)!;
     expect(await watch([{ m: lagging }, { m: lagging }, { m: refunded }])).toEqual(["Match over", "Match over", "Refunded"]);
-    const seen = (await readSpectated("id", { fetchMatch: async () => lagging, tabled: async () => true, outcome: async () => null, now: () => 0 }))!;
+    const seen = (await readSpectated("id", { fetchMatch: async () => lagging, table: async () => ({ playedBy: null }), outcome: async () => null, now: () => 0 }))!;
     expect(stateOf(seen)).toBe("over");
     expect(keepsReading(seen)).toBe(true);
     const page = text(renderToStaticMarkup(<SpectateView seen={seen} />));
@@ -215,7 +234,7 @@ describe("a spectator who keeps the page open", () => {
   it("names the winner from the chain's receipt when the Match closes before the page saw it settle", async () => {
     expect(await watch([{ m: waiting, tabled: true }, { m: null, how: "opener" }, { m: null, how: "opener" }, { m: won }])).toEqual(["In play", "Ben won", "Ben won", "Ben won"]);
     expect(await watch([{ m: waiting, tabled: true }, { m: null, how: "refund" }, { m: refunded }])).toEqual(["In play", "Refunded", "Refunded"]);
-    const seen = (await readSpectated("id", { fetchMatch: async () => null, tabled: async () => true, outcome: async () => "joiner", now: () => 0 }, { m: waiting, tabled: true, at: 0 }))!;
+    const seen = (await readSpectated("id", { fetchMatch: async () => null, table: async () => ({ playedBy: null }), outcome: async () => "joiner", now: () => 0 }, { m: waiting, tabled: true, at: 0 }))!;
     expect(seen).toMatchObject({ closed: "joiner", tabled: true });
     expect(winSeatOf(seen)).toBe(1);
     expect(keepsReading(seen)).toBe(true);
@@ -228,7 +247,7 @@ describe("a spectator who keeps the page open", () => {
   it("a fresh link to a Match that just closed says it is over, not that it does not exist, and keeps reading", async () => {
     expect(await watch([{ m: null, how: "joiner" }, { m: null, how: "joiner" }, { m: won }])).toEqual(["Match over", "Match over", "Ben won"]);
     expect(await watch([{ m: null, how: "refund" }, { m: refunded }])).toEqual(["Refunded", "Refunded"]);
-    const seen = (await readSpectated("id", { fetchMatch: async () => null, tabled: async () => true, outcome: async () => "joiner", now: () => 0 }))!;
+    const seen = (await readSpectated("id", { fetchMatch: async () => null, table: async () => ({ playedBy: null }), outcome: async () => "joiner", now: () => 0 }))!;
     expect(seen.m).toBeNull();
     expect(keepsReading(seen)).toBe(true);
     const page = text(renderToStaticMarkup(<SpectateView seen={seen} />));

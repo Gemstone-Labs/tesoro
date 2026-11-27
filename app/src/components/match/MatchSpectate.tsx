@@ -10,6 +10,8 @@ import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
 import type { GameId } from "@/lib/mock";
 import { gameQuery } from "@/lib/game-params";
+import { CHECKIN_SECS, GET_READY_SECS, PLAY_SECS, SEED_SECS } from "@/games/block-puzzle/live-chain";
+import { SETTLE_GRACE_SECS } from "@/lib/chain/match-status";
 import { DuelSpectate } from "./DuelSpectate";
 import { EndStateNote } from "./EndStateNote";
 import { keepsReading, laterRead, readSpectated, spectateFee, spectateHeadline, spectateLine, stateOf, winSeatOf, type Spectated } from "./spectate-state";
@@ -27,10 +29,17 @@ export function spectatorPot(m: ChainMatch): { fee: number; payout: number } {
   return { fee, payout: m.entry * 2 - fee };
 }
 
-/** Whether the Match's Game has written its Assignment: the table it plays on. */
-async function hasTable(m: ChainMatch): Promise<boolean> {
-  const game = m.game === "block-puzzle" ? getBurst() : m.game === "holdem" ? getHoldem() : m.game === "trading-duel" ? getTradingDuel() : getVanguard();
-  return (await game.readAssignment(m.address)) !== null;
+/**
+ * The table the Match's Game has written into its Assignment, null while there is none. A Block Burst table must begin the Match
+ * by the Assignment's start deadline and then runs on a fixed clock, so the Assignment also says when the Match is over at the latest.
+ */
+async function tableOf(m: ChainMatch): Promise<{ playedBy: number | null } | null> {
+  if (m.game === "block-puzzle") {
+    const a = await getBurst().readAssignment(m.address);
+    return a && { playedBy: a.startDeadline + CHECKIN_SECS + SEED_SECS + GET_READY_SECS + PLAY_SECS + SETTLE_GRACE_SECS };
+  }
+  const game = m.game === "holdem" ? getHoldem() : m.game === "trading-duel" ? getTradingDuel() : getVanguard();
+  return (await game.readAssignment(m.address)) && { playedBy: null };
 }
 
 /**
@@ -46,7 +55,7 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
     let timer: ReturnType<typeof setTimeout> | undefined;
     shown.current = undefined;
     const read = async () => {
-      const next = await readSpectated(matchId, { fetchMatch: (id) => fetchMatch(id, null), tabled: hasTable, outcome: fetchClosedOutcome, now: Date.now }, shown.current);
+      const next = await readSpectated(matchId, { fetchMatch: (id) => fetchMatch(id, null), table: tableOf, outcome: fetchClosedOutcome, now: Date.now }, shown.current);
       if (!live) return;
       const now = laterRead(shown.current, next);
       shown.current = now;
